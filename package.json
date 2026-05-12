@@ -1,0 +1,23 @@
+{
+  "name": "ai-video-script-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI视频剧本生成应用 - 将小说转换为标准AI视频剧本",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
