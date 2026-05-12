@@ -31,7 +31,8 @@ export class FileParserService {
 
   private async parseEpub(filePath: string): Promise<{ content: string; title: string }> {
     try {
-      const { EPub } = await import('epub');
+      const epubModule = await import('epub') as any;
+      const EPub = epubModule.default || epubModule.EPub;
       const epub = new EPub(filePath);
 
       return new Promise((resolve, reject) => {
@@ -79,7 +80,7 @@ export class FileParserService {
 
   private async parseDocx(filePath: string): Promise<{ content: string; title: string }> {
     try {
-      const mammoth = await import('mammoth');
+      const mammoth = await import('mammoth') as any;
       const result = await mammoth.extractRawText({ path: filePath });
       const title = path.basename(filePath, '.docx');
       return { content: result.value, title };

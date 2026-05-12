@@ -104,7 +104,7 @@ export class NovelService {
           aliases: char.aliases || [],
           appearance: char.appearance || '',
           personality: char.personality || '',
-          roleType: char.role_type || 'supporting',
+          roleType: (char as any).role_type || 'supporting',
           relationships: char.relationships || [],
           createdAt: Date.now(),
         }));

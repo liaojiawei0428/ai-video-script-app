@@ -3,10 +3,6 @@
   "private": true,
   "version": "1.0.0",
   "description": "AI视频剧本生成应用 - 将小说转换为标准AI视频剧本",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
