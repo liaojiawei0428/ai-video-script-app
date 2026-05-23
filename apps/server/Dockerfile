@@ -45,8 +45,8 @@ RUN npm install --only=production --omit=dev
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:60000/health || exit 1
+  CMD curl -f http://localhost:6000/health || exit 1
 
-EXPOSE 60000
+EXPOSE 6000
 
 CMD ["node", "dist/index.js"]

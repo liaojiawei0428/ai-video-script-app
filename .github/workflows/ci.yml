@@ -58,7 +58,7 @@ jobs:
 
       - name: Test Docker image
         run: |
-          docker run -d -p 60000:60000 --name test-server ai-script-server:latest
+          docker run -d -p 6000:6000 --name test-server ai-script-server:latest
           sleep 5
-          curl -f http://localhost:60000/health || exit 1
+          curl -f http://localhost:6000/health || exit 1
           docker stop test-server

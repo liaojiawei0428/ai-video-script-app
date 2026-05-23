@@ -43,10 +43,24 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
-uploads/*
-!uploads/.gitkeep
+
+# Uploaded files (any level)
+**/uploads/*
+!**/uploads/.gitkeep
 
 # Database
 data/
 *.db
 *.db-journal
+
+# Build artifacts
+dist.zip
+
+# Android Gradle cache
+apps/mobile/android/.gradle/
+apps/mobile/android/app/debug.keystore
+apps/mobile/android/app/build/
+
+# Misc
+AiScriptMobile
+

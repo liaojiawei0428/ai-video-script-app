@@ -1,0 +1,840 @@
+import React, { useEffect, useRef, useState, useMemo, memo, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl,
+} from 'react-native';
+import { useRoute } from '@react-navigation/native';
+import { useNovelStore, createLlmMessage, LlmMessage } from '../store/useNovelStore';
+import { getTaskProgress, getNovelAnalysis, getEpisodes as apiGetEpisodes, generateEpisodes, getNovels as apiGetNovels } from '../api/client';
+import { saveNovel, saveEpisodes as saveEpisodesDb, updateNovelStatus, initDatabase, getNovels } from '../db/sqlite';
+import { WS_BASE_URL } from '../config';
+import type { ChatTabRouteProp } from '../types/navigation';
+
+const STEPS = [
+  { key: 'uploaded', label: '上传文件', icon: '📄' },
+  { key: 'analyzing', label: 'AI 分析小说', icon: '📊' },
+  { key: 'script_gen', label: 'AI 生成剧本', icon: '📝' },
+  { key: 'saving', label: '保存到书架', icon: '💾' },
+  { key: 'done', label: '全部完成', icon: '✅' },
+];
+
+// ===== FlatList item types =====
+type FlatItem =
+  | { type: 'phase_header'; key: string; label: string }
+  | { type: 'collapsible'; key: string; title: string; text: string; color: string }
+  | { type: 'msg'; key: string; m: LlmMessage }
+  | { type: 'hint'; key: string; content: string }
+  | { type: 'summary'; key: string }
+  | { type: 'chunk_progress'; key: string }
+  | { type: 'awaiting'; key: string }
+  | { type: 'ep_collapsible'; key: string; epNum: string; text: string };
+
+// ===== Memoized sub-components =====
+const CollapsibleBlock = memo(function CollapsibleBlock({ title, text, color }: { title: string; text: string; color: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  const lines = text.split('\n');
+  const preview = lines.length > 4 ? lines.slice(0, 4).join('\n') + '\n...' : text;
+  return (
+    <TouchableOpacity onPress={() => setExpanded(!expanded)} activeOpacity={0.7}>
+      <View style={[styles.collapsible, { borderLeftColor: color }]}>
+        <Text style={[styles.collapsibleTitle, { color }]}>{title}</Text>
+        <Text style={styles.collapsibleText} numberOfLines={expanded ? undefined : 4}>
+          {expanded ? text : preview}
+        </Text>
+        {lines.length > 4 && (
+          <Text style={styles.collapsibleToggle}>{expanded ? '▲ 收起' : '▼ 展开全部'}</Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+const MsgItem = memo(function MsgItem({ m }: { m: LlmMessage }) {
+  const isUser = m.type === 'reasoning' && m.content.length < 200 && !m.content.startsWith('[\n');
+  if (isUser) {
+    return (
+      <View style={styles.chatBubbleRow}>
+        <View style={styles.chatBubbleSystem}>
+          <Text style={styles.chatBubbleLabel}>👤 系统</Text>
+          <Text style={styles.chatBubbleText}>{m.content}</Text>
+        </View>
+      </View>
+    );
+  }
+  if (m.type === 'output' || m.type === 'reasoning') {
+    const isLong = m.content.length > 200 || m.content.includes('\n');
+    if (m.type === 'output') {
+      return (
+        <CollapsibleBlock title="📝 剧本内容" text={m.content} color="#5856D6" />
+      );
+    }
+    if (isLong) {
+      return (
+        <CollapsibleBlock
+          title={m.type === 'reasoning' ? '💭 思考过程' : '✅ AI 输出结果'}
+          text={m.content}
+          color={m.type === 'reasoning' ? '#FF9F0A' : '#34C759'}
+        />
+      );
+    }
+    return (
+      <View style={styles.chatBubbleRow}>
+        <View style={styles.chatBubbleAI}>
+          <Text style={styles.chatBubbleLabel}>🤖 AI</Text>
+          <Text style={styles.chatBubbleText}>{m.content}</Text>
+        </View>
+      </View>
+    );
+  }
+  return <Text style={styles.phaseHint}>{m.content}</Text>;
+});
+
+const ChunkProgressBlock = memo(function ChunkProgressBlock() {
+  const chunkProgress = useNovelStore(s => s.chunkProgress);
+  const chunkStreams = useNovelStore(s => s.chunkStreams);
+  if (!chunkProgress) return null;
+
+  const total = chunkProgress.total;
+  const states = chunkProgress.chunkStates || [];
+  const completed = states.filter(s => s.status === 'completed').length;
+  const failed = states.filter(s => s.status === 'failed').length;
+  const running = states.filter(s => s.status === 'running').length;
+
+  if (chunkProgress.phase === 'chunking') {
+    return (
+      <View style={styles.phaseBlock}>
+        <Text style={styles.phaseTitle}>📊 小说分析</Text>
+        <View style={styles.chunkProgressBox}>
+          <Text style={styles.chunkProgressSummary}>✂️ 正在分割小说...</Text>
+        </View>
+      </View>
+    );
+  }
+  if (chunkProgress.phase === 'merging') {
+    return (
+      <View style={styles.phaseBlock}>
+        <Text style={styles.phaseTitle}>📊 小说分析</Text>
+        <View style={styles.chunkProgressBox}>
+          <Text style={styles.chunkProgressSummary}>🔗 正在合并各段分析结果...</Text>
+        </View>
+      </View>
+    );
+  }
+  if (chunkProgress.phase === 'final_analysis') {
+    return (
+      <View style={styles.phaseBlock}>
+        <Text style={styles.phaseTitle}>📊 小说分析</Text>
+        <View style={styles.chunkProgressBox}>
+          <Text style={styles.chunkProgressSummary}>📊 正在生成最终分析...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const etaText = chunkProgress.eta != null
+    ? `⏳ 预计剩余 ${chunkProgress.eta >= 60 ? Math.floor(chunkProgress.eta / 60) + '分' : ''}${chunkProgress.eta % 60}秒`
+    : '';
+
+  return (
+    <View style={styles.phaseBlock}>
+      <Text style={styles.phaseTitle}>📊 小说分析</Text>
+      <View style={styles.chunkProgressBox}>
+        <Text style={styles.chunkProgressSummary}>
+          📄 逐段分析：{completed}/{total} 段完成{failed > 0 ? ` ⚠️ ${failed}段失败` : ''}
+        </Text>
+        {etaText ? <Text style={styles.chunkEtaText}>{etaText}</Text> : null}
+        {states.map((s, idx) => {
+          const streamContent = chunkStreams[s.index] || '';
+          const isRunning = s.status === 'running';
+          const isDone = s.status === 'completed' || s.status === 'failed';
+          const isPending = s.status === 'pending';
+          const icon = isDone ? (s.status === 'completed' ? '✅' : '❌') : isRunning ? '⚡' : '◻️';
+          return (
+            <View key={s.index} style={[
+              styles.chunkItem,
+              isRunning && styles.chunkItemRunning,
+              isDone && styles.chunkItemDone,
+            ]}>
+              <Text style={styles.chunkItemHeader}>
+                {icon} 第 {s.index}/{total} 段
+                {isDone ? ' 分析完成' : isRunning ? ' 分析中...' : ' 等待中'}
+              </Text>
+              {isRunning && streamContent ? (
+                <Text style={styles.chunkStreamText} numberOfLines={6}>{streamContent}</Text>
+              ) : null}
+              {isRunning && !streamContent ? (
+                <Text style={styles.chunkStreamPlaceholder}>等待 AI 输出...</Text>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+});
+
+const SummaryBlock = memo(function SummaryBlock() {
+  return (
+    <View style={styles.summaryBlock}>
+      <Text style={styles.summaryTitle}>✅ 全部完成</Text>
+      {STEPS.filter(s => s.key !== 'done').map(s => (
+        <Text key={s.key} style={styles.summaryItem}>✓ {s.label}</Text>
+      ))}
+      <Text style={styles.summaryHint}>前往「书架」查看剧本</Text>
+    </View>
+  );
+});
+
+function waitForTask(taskId: string, onUpdate: (t: any) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let retries = 0;
+    const MAX_RETRIES = 3;
+    const interval = setInterval(async () => {
+      try {
+        const res = await getTaskProgress(taskId);
+        const t = res.data.data;
+        retries = 0; // 成功后重置重试计数
+        onUpdate(t);
+        if (t.status === 'completed') { clearInterval(interval); resolve(); }
+        else if (t.status === 'failed') { clearInterval(interval); reject(new Error(t.errorMsg || '任务执行失败')); }
+      } catch {
+        retries++;
+        if (retries >= MAX_RETRIES) {
+          clearInterval(interval);
+          reject(new Error('轮询失败，请检查网络连接'));
+        }
+        // 未达到上限则静默重试
+      }
+    }, 2000);
+  });
+}
+
+export function ChatScreen(): React.JSX.Element {
+  const route = useRoute<ChatTabRouteProp>();
+  // 用 selector 替代全量订阅，避免不相关字段变化触发重渲染
+  const llmMessages = useNovelStore(s => s.llmMessages);
+  const activeTasks = useNovelStore(s => s.activeTasks);
+  const chunkProgress = useNovelStore(s => s.chunkProgress);
+  const novels = useNovelStore(s => s.novels);
+  const storeGet = useNovelStore.getState;
+  const paramsNovelId = route.params?.novelId;
+  const firstActive = activeTasks[0];
+  const [discoveredNovelId, setDiscoveredNovelId] = useState<string | null>(null);
+  const novelId = paramsNovelId || firstActive?.novelId || discoveredNovelId;
+  const novelTitle = route.params?.novelTitle || firstActive?.novelTitle || '';
+  const messages = novelId ? llmMessages.filter(m => m.novelId === novelId) : [];
+  const wsRef = useRef<WebSocket | null>(null);
+  const scrollRef = useRef<any>(null);
+  const pipelineRef = useRef(false);
+  const novelIdRef = useRef(novelId);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const MAX_RECONNECTS = 5;
+
+  const [status, setStatus] = useState<'idle' | 'analyzing' | 'generating' | 'saving' | 'done'>(
+    novelId ? 'analyzing' : 'idle'
+  );
+  const [progress, setProgress] = useState(0);
+  const [totalEpisodes, setTotalEpisodes] = useState(0);
+  const [currentEpisode, setCurrentEpisode] = useState(0);
+  const [detail, setDetail] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const currentStepIdx = STEPS.findIndex(s => {
+    if (status === 'idle' || status === 'analyzing') return s.key === 'analyzing';
+    if (status === 'generating') return s.key === 'script_gen';
+    if (status === 'saving') return s.key === 'saving';
+    if (status === 'done') return s.key === 'done';
+    return 0;
+  });
+
+  // 流式内容本地管理（对标 EpisodeDetailScreen 的增量追加模式）
+  const [liveText, setLiveText] = useState('');
+  const accumulatedRef = useRef(''); // 仅用于 stream:false 时保存到 store
+
+  // 仅在用户在底部时才自动滚动
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const autoScrollRef = useRef(false);
+  const handleScroll = (e: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const atBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 60;
+    setIsAtBottom(atBottom);
+  };
+  useEffect(() => {
+    if (isAtBottom) autoScrollRef.current = true;
+  }, [isAtBottom]);
+  // 流式内容或消息变化时自动滚动到底部
+  const messagesLen = messages.length;
+  useEffect(() => {
+    if (autoScrollRef.current && (messagesLen > 0 || liveText || status !== 'idle')) {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messagesLen, liveText, status]);
+
+  // 当 novelId 变化时重置所有状态，确保重新进入分析流程
+  useEffect(() => {
+    if (novelIdRef.current !== novelId) {
+      novelIdRef.current = novelId;
+      pipelineRef.current = false;
+      storeGet().clearLlmMessages();
+      storeGet().clearChunkStreams();
+      setLiveText('');
+      accumulatedRef.current = '';
+      setStatus(novelId ? 'analyzing' : 'idle');
+      setProgress(0);
+      setTotalEpisodes(0);
+      setCurrentEpisode(0);
+      setDetail('');
+    }
+  }, [novelId]);
+
+  // 自动恢复：无 novelId 时查询服务端是否有进行中的小说
+  useEffect(() => {
+    if (novelId || discoveredNovelId) return;
+    let cancelled = false;
+    let retries = 0;
+
+    const tryRecover = async () => {
+      if (cancelled) return;
+      try {
+        const res = await apiGetNovels();
+        const list = res?.data?.data?.novels || [];
+        const active = list.find((n: any) => n.status === 'analyzing' || n.status === 'generating');
+        if (active && !cancelled) {
+          setDiscoveredNovelId(active.id);
+        }
+      } catch {
+        // Token 可能还没恢复完，1 秒后重试（最多 10 次）
+        if (!cancelled && retries < 10) {
+          retries++;
+          setTimeout(tryRecover, 1000);
+        }
+      }
+    };
+
+    tryRecover();
+    return () => { cancelled = true; };
+  }, [novelId, discoveredNovelId]);
+
+  // 自动恢复时加载已完成的剧集内容到对话列表
+  useEffect(() => {
+    if (!discoveredNovelId || llmMessages.filter(m => m.novelId === discoveredNovelId).length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const epsRes = await apiGetEpisodes(discoveredNovelId, false);
+        const eps = epsRes.data.data.episodes || [];
+        if (cancelled) return;
+        const s = storeGet();
+        for (const ep of eps) {
+          if (ep.status === 'completed' && ep.scriptContent) {
+            s.addLlmMessage(createLlmMessage(discoveredNovelId, 'output', `ep_${ep.episodeNumber}`, ep.scriptContent));
+            // 添加剧集标题作为通知
+            s.addLlmMessage(createLlmMessage(discoveredNovelId, 'reasoning', `ep_${ep.episodeNumber}`, `🎬 第 ${ep.episodeNumber} 集 ${ep.title || ''}（已生成）`));
+          }
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [discoveredNovelId]);
+
+  // WebSocket（含自动重连和心跳）— 流式内容用本地 state，不经过 store
+  useEffect(() => {
+    if (!novelId) return;
+
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    // chunk_stream 节流：300ms 批量写入，避免高频触发 store 更新
+    const chunkStreamBuf: Record<number, string> = {};
+    let chunkStreamTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushChunkStreams = () => {
+      const keys = Object.keys(chunkStreamBuf);
+      if (keys.length > 0) {
+        const s = storeGet();
+        for (const k of keys) {
+          s.appendChunkStream(parseInt(k), chunkStreamBuf[parseInt(k)]);
+        }
+        for (const k of keys) delete chunkStreamBuf[parseInt(k)];
+      }
+      chunkStreamTimer = null;
+    };
+
+    const cleanupWs = () => {
+      if (chunkStreamTimer) { clearTimeout(chunkStreamTimer); chunkStreamTimer = null; }
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+      wsRef.current = null;
+    };
+
+    const doConnect = () => {
+      if (wsRef.current) return;
+      try {
+        const ws = new WebSocket(WS_BASE_URL.replace('http', 'ws') + '/ws');
+        wsRef.current = ws;
+
+        // 每个连接的独立缓冲区（对标 EpisodeDetailScreen 的 shotBuffer 模式）
+        let streamBuffer = '';
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushStream = () => {
+          if (streamBuffer) {
+            const batch = streamBuffer;
+            streamBuffer = '';
+            setLiveText(prev => prev + batch);
+          }
+          flushTimer = null;
+        };
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: 'subscribe', novelId }));
+          reconnectAttemptsRef.current = 0;
+          heartbeatTimer = setInterval(() => {
+            try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
+          }, 15000);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const s = storeGet();
+            if (data.type === 'llm_update') {
+              if (data.stream) {
+                accumulatedRef.current += (data.content || '');
+                streamBuffer += (data.content || '');
+                if (!flushTimer) {
+                  flushTimer = setTimeout(flushStream, 100);
+                } else if (streamBuffer.length > 300) {
+                  clearTimeout(flushTimer);
+                  flushStream();
+                }
+              } else {
+                if (flushTimer) { clearTimeout(flushTimer); flushStream(); }
+                // 将累积的流式内容写入 store 作为完整消息
+                if (accumulatedRef.current) {
+                  s.addLlmMessage(createLlmMessage(novelId, 'output', data.phase, accumulatedRef.current));
+                  accumulatedRef.current = '';
+                  setLiveText('');
+                }
+                // 添加通知消息
+                if (data.content) {
+                  s.addLlmMessage(createLlmMessage(novelId,
+                    data.step === 'reasoning' ? 'reasoning' : 'output',
+                    data.phase, data.content, data.tokens));
+                }
+              }
+            } else if (data.type === 'progress') {
+              s.updateTaskProgress(novelId, data.progress, data.status, data.phase || 'unknown');
+              if (data.totalEpisodes) setTotalEpisodes(data.totalEpisodes);
+              if (data.currentEpisode) setCurrentEpisode(data.currentEpisode);
+            } else if (data.type === 'chunk_progress') {
+              s.setChunkProgress({
+                phase: data.phase, current: data.current, total: data.total,
+                unitLabel: data.unitLabel, detail: data.detail,
+                chunkStates: data.chunkStates || [], error: data.error, eta: data.eta,
+              });
+            } else if (data.type === 'chunk_stream') {
+              const idx = data.chunkIndex;
+              chunkStreamBuf[idx] = (chunkStreamBuf[idx] || '') + data.content;
+              if (!chunkStreamTimer) {
+                chunkStreamTimer = setTimeout(flushChunkStreams, 300);
+              }
+            }
+          } catch { /* ignore */ }
+        };
+
+        ws.onclose = () => {
+          cleanupWs();
+          if (reconnectAttemptsRef.current < MAX_RECONNECTS) {
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+            reconnectAttemptsRef.current++;
+            reconnectTimerRef.current = setTimeout(doConnect, delay);
+          }
+        };
+
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch {}
+    };
+
+    doConnect();
+
+    return () => {
+      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+      reconnectAttemptsRef.current = MAX_RECONNECTS;
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch {}
+        cleanupWs();
+      }
+    };
+  }, [novelId]);
+
+  // Pipeline: single async flow
+  useEffect(() => {
+    if (!novelId || pipelineRef.current) return;
+    pipelineRef.current = true;
+
+    const runPipeline = async () => {
+      try {
+        // ---- Phase 1: Wait for analysis ----
+        const analysisTask = activeTasks.find(t => t.novelId === novelId);
+        if (!analysisTask) {
+          // 自动恢复模式：无需执行 pipeline，WebSocket 已连接并接收进度
+          return;
+        }
+
+        setDetail('⏳ 等待 AI 响应...');
+        await waitForTask(analysisTask.taskId, (t) => {
+          setProgress(t.progress || 0);
+          storeGet().updateTaskProgress(novelId, t.progress, t.status, 'analyzing');
+          if (t.progress >= 100) setDetail('✅ 分析完成');
+        });
+        await updateNovelStatus(novelId, 'analyzed');
+
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 小说分析完成'));
+        setProgress(0);
+
+        // ---- Phase 2: Generate episodes ----
+        setStatus('generating');
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'phase_start', 'script_gen', '📝 开始生成剧集...'));
+
+        const genRes = await generateEpisodes(novelId);
+        const genTaskId = genRes.data.data.taskId;
+
+        setDetail('⏳ 等待 AI 划分剧集...');
+        await waitForTask(genTaskId, (t) => {
+          setProgress(t.progress || 0);
+          setDetail(`生成剧集中 ${t.progress}%`);
+        });
+
+        // 等 1.5 秒让最后一条流式内容有时间显示到 UI
+        await new Promise<void>(r => setTimeout(r, 1500));
+
+        // 确保 liveText 还有内容则先保存到 store
+        if (liveText) {
+          storeGet().addLlmMessage(createLlmMessage(novelId, 'output', 'script_gen', liveText));
+          setLiveText('');
+        }
+
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 剧集生成完成！'));
+
+        // ---- Phase 3: Save to local ----
+        setStatus('saving');
+        setDetail('保存到本地书架...');
+
+        const analysisRes = await getNovelAnalysis(novelId).catch(() => null);
+        const analysis = analysisRes?.data?.data || {};
+        const episodeRes = await apiGetEpisodes(novelId, false).catch(() => null);
+        const episodes = episodeRes?.data?.data?.episodes || [];
+        const existing = novels.find(n => n.id === novelId);
+
+        await saveNovel({
+          id: novelId, title: novelTitle, author: 'User',
+          totalChars: existing?.totalChars || 0,
+          totalWords: existing?.totalWords || 0,
+          genre: analysis.genre || existing?.genre || '',
+          theme: analysis.theme || existing?.theme || '',
+          style: analysis.style || existing?.style || '',
+          tone: analysis.tone || existing?.tone || '',
+          summary: analysis.summary || '',
+          scenes: analysis.scenes || [],
+          plotPoints: analysis.plotPoints || [],
+          status: 'completed',
+          createdAt: existing?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        });
+        if (episodes.length > 0) {
+          await saveEpisodesDb(episodes);
+          storeGet().setEpisodes(episodes);
+        }
+        storeGet().setNovels(await getNovels());
+
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 已保存到书架！共 ' + episodes.length + ' 集'));
+        setStatus('done');
+        setDetail('全部完成，共 ' + episodes.length + ' 集');
+      } catch (err: any) {
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', `❌ ${err?.message || '处理失败'}`));
+        setStatus('done');
+        setDetail('处理出错');
+      } finally {
+        // 完成后关闭 WebSocket，停止一切请求
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+      }
+    };
+
+    runPipeline();
+  }, [novelId]);
+
+  // Group messages by phase（含动态 ep_X 阶段）
+  const phases = ['analyzing', 'script_gen', 'shot_gen', 'completed'];
+  const grouped: Record<string, LlmMessage[]> = {};
+  messages.forEach(m => {
+    if (!grouped[m.phase]) grouped[m.phase] = [];
+    grouped[m.phase].push(m);
+  });
+  // 收集所有 ep_X 阶段，按集数排序
+  const epPhases = Object.keys(grouped).filter(k => k.startsWith('ep_')).sort((a, b) => {
+    return parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]);
+  });
+  const allPhases = [...phases, ...epPhases];
+
+  // 构建 FlatList 扁平数据
+  const flatData = useMemo(() => {
+    const items: FlatItem[] = [];
+    let awaitingAdded = false;
+    for (const phase of allPhases) {
+      const msgs = (grouped[phase] || []).sort((a, b) => a.timestamp - b.timestamp);
+
+      if (phase.startsWith('ep_')) {
+        const epNum = phase.split('_')[1];
+        const outputs = msgs.filter(m => m.type === 'output');
+        const reasoning = msgs.find(m => m.type === 'reasoning');
+        const content = outputs.map(m => m.content).join('');
+        if (content || reasoning) {
+          items.push({ type: 'ep_collapsible', key: phase, epNum, text: content || (reasoning?.content || '') });
+        }
+        continue;
+      }
+
+      if (phase === 'analyzing' && chunkProgress && ['chunking', 'analyzing_chunks', 'merging', 'final_analysis'].includes(chunkProgress.phase)) {
+        items.push({ type: 'chunk_progress', key: phase });
+        continue;
+      }
+
+      if (msgs.length === 0) {
+        // 只添加一个 awaiting 块，不重复加多个空框
+        if (!awaitingAdded && status === 'analyzing') {
+          items.push({ type: 'awaiting', key: 'awaiting' });
+          awaitingAdded = true;
+        }
+        continue;
+      }
+
+      // Phase header
+      if (phase === 'analyzing') items.push({ type: 'phase_header', key: phase + '_h', label: '📊 小说分析' });
+      else if (phase === 'script_gen') items.push({ type: 'phase_header', key: phase + '_h', label: '📝 剧本生成' });
+      else if (phase === 'shot_gen') items.push({ type: 'phase_header', key: phase + '_h', label: '🎬 分镜头' });
+
+      for (const m of msgs) {
+        const isStreaming = phase === 'script_gen' && m.type === 'reasoning';
+        if (isStreaming) continue;
+        if (m.type === 'phase_start' || m.type === 'completed') {
+          items.push({ type: 'hint', key: m.id, content: m.content });
+        } else {
+          items.push({ type: 'msg', key: m.id, m });
+        }
+      }
+    }
+    if (status === 'done') items.push({ type: 'summary', key: 'summary' });
+    return items;
+  }, [allPhases, messages, status, chunkProgress]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await apiGetNovels();
+      const serverNovels = res?.data?.data?.novels || [];
+      if (novelId) {
+        const n = serverNovels.find((x: any) => x.id === novelId);
+        if (n?.status) {
+          setStatus(n.status === 'analyzing' || n.status === 'pending' ? 'analyzing' :
+                    n.status === 'generating' ? 'generating' :
+                    n.status === 'completed' ? 'done' : status);
+        }
+      }
+    } catch {}
+    setRefreshing(false);
+  }, [novelId, status]);
+
+  if (!novelId) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>💬</Text>
+          <Text style={styles.emptyText}>等待任务...</Text>
+          <Text style={styles.emptySub}>前往「上传」页上传小说，自动在此处理</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle} numberOfLines={1}>{novelTitle || '小说分析'}</Text>
+        <Text style={styles.headerStatus}>{detail || '等待开始'}</Text>
+        {status !== 'done' && status !== 'idle' && status !== 'saving' && (
+          <View style={styles.progressBarBg}>
+            {totalEpisodes > 0 ? (
+              <View style={[styles.progressBarFill, { width: `${Math.min(progress, 100)}%` }]} />
+            ) : (
+              <View style={styles.progressBarPulse} />
+            )}
+          </View>
+        )}
+        {status === 'generating' && totalEpisodes > 0 && (
+          <View style={styles.episodeCounter}>
+            <Text style={styles.episodeCounterText}>
+              📝 剧本生成中：第 {currentEpisode} / {totalEpisodes} 集
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Steps */}
+      <View style={styles.stepsContainer}>
+        <FlatList horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stepsRow}
+          data={STEPS} keyExtractor={s => s.key}
+          renderItem={({ item: step, index: i }) => {
+            const isCompleted = i < currentStepIdx;
+            const isCurrent = i === currentStepIdx;
+            const isPending = i > currentStepIdx;
+            return (
+              <View key={step.key} style={styles.stepItem}>
+                <View style={[
+                  styles.stepDot,
+                  isCompleted && styles.stepDotDone,
+                  isCurrent && styles.stepDotCurrent,
+                  isPending && styles.stepDotPending,
+                ]}>
+                  {isCompleted ? <Text style={styles.stepDotIcon}>✓</Text> :
+                   isCurrent && status !== 'done' ? <ActivityIndicator size="small" color="#fff" /> :
+                   <Text style={styles.stepDotIcon}>{step.icon}</Text>}
+                </View>
+                <Text style={[
+                  styles.stepLabel,
+                  (isCompleted || isCurrent) && styles.stepLabelActive,
+                  isPending && styles.stepLabelPending,
+                ]} numberOfLines={1}>{step.label}</Text>
+                {i < STEPS.length - 1 && (
+                  <View style={[styles.stepLine, isCompleted && styles.stepLineDone]} />
+                )}
+              </View>
+            );
+          }}
+        />
+      </View>
+
+      {/* Messages */}
+      <FlatList ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.scrollContent}
+        data={flatData} keyExtractor={item => item.key}
+        onScroll={handleScroll} scrollEventThrottle={100}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6C5CE7" />
+        }
+        ListFooterComponent={liveText ? (
+          <View style={styles.liveStreamBox}>
+            <Text style={styles.liveStreamLabel}>📝 正在输出...</Text>
+            <Text style={styles.liveStreamText}>{liveText}</Text>
+          </View>
+        ) : null}
+        renderItem={({ item }) => {
+          switch (item.type) {
+            case 'phase_header':
+              return <Text style={styles.phaseTitle}>{item.label}</Text>;
+            case 'msg':
+              return <MsgItem m={item.m} />;
+            case 'collapsible':
+              return <CollapsibleBlock title={item.title} text={item.text} color={item.color} />;
+            case 'hint':
+              return <Text style={styles.phaseHint}>{item.content}</Text>;
+            case 'chunk_progress':
+              return <ChunkProgressBlock />;
+            case 'awaiting':
+              return (
+                <View style={styles.phaseBlock}>
+                  <Text style={styles.phaseTitle}>📊 小说分析</Text>
+                  <Text style={styles.awaitingText}>⏳ AI 思考中...</Text>
+                </View>
+              );
+            case 'ep_collapsible':
+              return <CollapsibleBlock title={`📝 第 ${item.epNum} 集剧本`} text={item.text} color="#5856D6" />;
+            case 'summary':
+              return <SummaryBlock />;
+            default:
+              return null;
+          }
+        }}
+      />
+
+      <View style={styles.bottomBar}>
+        <Text style={styles.bottomBarText}>{detail || '📤 上传小说后将自动处理'}</Text>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#1C1C1E' },
+  chatBubbleRow: { marginBottom: 10 },
+  chatBubbleSystem: {
+    backgroundColor: '#2A2A35', borderRadius: 10, borderTopLeftRadius: 4,
+    padding: 10, borderLeftWidth: 3, borderLeftColor: '#007AFF',
+  },
+  chatBubbleAI: {
+    backgroundColor: '#1A2A1A', borderRadius: 10, borderTopRightRadius: 4,
+    padding: 10, borderLeftWidth: 3, borderLeftColor: '#34C759',
+  },
+  chatBubbleLabel: { fontSize: 11, fontWeight: '600', color: '#8E8E93', marginBottom: 4 },
+  chatBubbleText: { fontSize: 13, color: '#DDD', lineHeight: 19 },
+  phaseHint: { fontSize: 13, color: '#666', textAlign: 'center', paddingVertical: 6, fontStyle: 'italic' },
+  header: { padding: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#333' },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  headerStatus: { fontSize: 13, color: '#34C759' },
+  progressBarBg: { height: 3, backgroundColor: '#3A3A3A', borderRadius: 2, marginTop: 8, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#34C759', borderRadius: 2 },
+  progressBarPulse: { height: '100%', width: '30%', backgroundColor: '#007AFF', borderRadius: 2, opacity: 0.6 },
+
+  stepsContainer: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#333' },
+  stepsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
+  stepItem: { flexDirection: 'row', alignItems: 'center' },
+  stepDot: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  stepDotDone: { backgroundColor: '#34C759' },
+  stepDotCurrent: { backgroundColor: '#007AFF' },
+  stepDotPending: { backgroundColor: '#3A3A3A' },
+  stepDotIcon: { fontSize: 12, color: '#fff', fontWeight: '700' },
+  stepLabel: { fontSize: 11, marginLeft: 4, color: '#8E8E93', maxWidth: 70 },
+  stepLabelActive: { color: '#fff', fontWeight: '600' },
+  stepLabelPending: { color: '#555' },
+  stepLine: { width: 16, height: 2, backgroundColor: '#3A3A3A', marginHorizontal: 4 },
+  stepLineDone: { backgroundColor: '#34C759' },
+
+  scroll: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  phaseBlock: { marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#2A2A2A' },
+  phaseTitle: { fontSize: 15, fontWeight: '700', color: '#007AFF', marginBottom: 8 },
+
+  collapsible: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8, borderLeftWidth: 3 },
+  collapsibleTitle: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
+  collapsibleText: { fontSize: 12, color: '#DDD', lineHeight: 18 },
+  collapsibleToggle: { fontSize: 11, color: '#8E8E93', marginTop: 4, textAlign: 'right' },
+  awaitingText: { fontSize: 13, color: '#666', textAlign: 'center', paddingVertical: 20 },
+  episodeCounter: { marginTop: 6 },
+  episodeCounterText: { fontSize: 13, color: '#FF9F0A', fontWeight: '600' },
+  chunkProgressBox: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8 },
+  chunkProgressSummary: { fontSize: 13, color: '#0A84FF', fontWeight: '600', marginBottom: 6 },
+  chunkEtaText: { fontSize: 12, color: '#8E8E93', marginBottom: 8 },
+  chunkItem: { backgroundColor: '#1C1C1E', borderRadius: 6, padding: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: '#3A3A3A' },
+  chunkItemRunning: { borderLeftColor: '#FF9F0A' },
+  chunkItemDone: { borderLeftColor: '#34C759', opacity: 0.7 },
+  chunkItemHeader: { fontSize: 12, color: '#8E8E93', fontWeight: '600', marginBottom: 4 },
+  chunkStreamText: { fontSize: 12, color: '#DDD', lineHeight: 17, fontFamily: 'monospace' },
+  chunkStreamPlaceholder: { fontSize: 11, color: '#555', fontStyle: 'italic' },
+
+  liveStreamBox: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9F0A' },
+  liveStreamLabel: { fontSize: 11, fontWeight: '600', color: '#FF9F0A', marginBottom: 4 },
+  liveStreamText: { fontSize: 12, color: '#DDD', lineHeight: 17, fontFamily: 'monospace' },
+  summaryBlock: { backgroundColor: '#1A2A1A', borderRadius: 12, padding: 16, marginTop: 8 },
+  summaryTitle: { fontSize: 16, fontWeight: '700', color: '#34C759', marginBottom: 8 },
+  summaryItem: { fontSize: 13, color: '#34C759', marginBottom: 4 },
+  summaryHint: { fontSize: 14, color: '#8E8E93', marginTop: 12, textAlign: 'center' },
+
+  bottomBar: { padding: 12, backgroundColor: '#2A2A35', borderTopWidth: 1, borderTopColor: '#333', alignItems: 'center' },
+  bottomBarText: { fontSize: 13, color: '#8E8E93' },
+
+  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  emptyIcon: { fontSize: 56, marginBottom: 16 },
+  emptyText: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 4 },
+  emptySub: { fontSize: 14, color: '#666', textAlign: 'center' },
+});

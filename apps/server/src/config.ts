@@ -4,19 +4,22 @@ import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 export const config = {
-  port: parseInt(process.env.PORT || '60000'),
+  port: parseInt(process.env.PORT || '6000'),
   nodeEnv: process.env.NODE_ENV || 'development',
 
-  // Deepseek API
+  // LLM API
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
   deepseekApiUrl: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1',
   deepseekModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
 
-  // Redis
-  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
-
-  // Database
-  dbPath: process.env.DB_PATH || './data/app.db',
+  // MySQL (阿里云 RDS)
+  mysql: {
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.MYSQL_PORT || '3306'),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'ai_script',
+  },
 
   // File Upload
   uploadDir: process.env.UPLOAD_DIR || './uploads',
@@ -27,7 +30,7 @@ export const config = {
 
   // Rate Limiting
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000'),
-  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '10'),
+  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '60'),
 };
 
 if (!config.deepseekApiKey) {

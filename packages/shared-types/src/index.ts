@@ -1,3 +1,16 @@
+export interface Scene {
+  name: string;
+  description: string;
+  importance: number;
+}
+
+export interface PlotPoint {
+  chapter: number;
+  description: string;
+  importance: number;
+  type?: 'setup' | 'rising_action' | 'climax' | 'falling_action' | 'resolution';
+}
+
 export interface Novel {
   id: string;
   title: string;
@@ -10,6 +23,8 @@ export interface Novel {
   theme: string;
   style: string;
   tone: string;
+  scenes?: Scene[];
+  plotPoints?: PlotPoint[];
   status: 'pending' | 'analyzing' | 'analyzed' | 'generating' | 'completed' | 'error';
   createdAt: number;
   updatedAt: number;
@@ -26,8 +41,9 @@ export interface Episode {
   characters: string[];
   scriptContent: string;
   scriptFormat: string;
-  status: 'pending' | 'generating' | 'completed' | 'error';
+  status: 'pending' | 'generating' | 'completed' | 'failed' | 'error';
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Shot {
@@ -82,8 +98,8 @@ export interface NovelAnalysis {
   style: string;
   tone: string;
   characters: Character[];
-  scenes: Array<{ name: string; description: string; importance: number }>;
-  plotPoints: Array<{ chapter: number; description: string; importance: number }>;
+  scenes: Scene[];
+  plotPoints: PlotPoint[];
 }
 
 export interface EpisodePlan {

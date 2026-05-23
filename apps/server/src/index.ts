@@ -58,9 +58,15 @@ app.get('/health', (req, res) => {
 // API Routes
 import novelRoutes from './routes/novels';
 import taskRoutes from './routes/tasks';
+import episodeRoutes from './routes/episodes';
+import chatRoutes from './routes/chat';
+import userRoutes from './routes/users';
 
 app.use('/api/novels', novelRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/episodes', episodeRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/users', userRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -68,7 +74,12 @@ app.use(errorHandler);
 // Initialize WebSocket
 websocketService.initialize(server);
 
-server.listen(config.port, () => {
+server.listen(config.port, '0.0.0.0', () => {
   logger.info(`Server running on port ${config.port} in ${config.nodeEnv} mode`);
-  logger.info(`WebSocket server available at ws://localhost:${config.port}/ws`);
+  logger.info(`WebSocket server available at ws://0.0.0.0:${config.port}/ws`);
+
+  // 初始化 AI 持久化队列（恢复未完成任务）
+  import('./services/deepseek').then(({ deepseekService }) => {
+    deepseekService.initQueue().catch(e => logger.warn('Queue init skipped', { error: e }));
+  });
 });

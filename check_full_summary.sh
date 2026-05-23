@@ -1,0 +1,1 @@
+mysql -h rm-cn-xp54o9cj00002i5o.rwlb.rds.aliyuncs.com -u shipin_user -pshipin666 ai_script -e "SELECT id, LEFT(full_summary, 500) AS summary_start FROM novels WHERE id='03790c0f-5d51-4dc1-91ba-4adb79c6206d'\G"

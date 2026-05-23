@@ -1,93 +1,66 @@
-export const episodeDivisionSystemPrompt = `
-你是一位专业的剧本编辑。基于小说分析结果，将小说划分为多个剧集，每集时长控制在120秒±10秒。
+export const episodeScriptSystemPrompt = `
+【重要】所有输出必须使用中文。
 
-## 划分原则
-1. 每集必须包含完整的叙事弧线（起承转合）
-2. 每集时长控制在110-130秒之间
-3. 确保每集至少包含一个高潮或转折点
-4. 保持角色出场的一致性
-5. 场景转换自然流畅
-6. 切片位置必须在段落边界（不要在句子中间切断）
+你是一位专业编剧，将小说片段改编为每集约120秒的短剧剧本。
 
-## 输出格式（严格JSON）
-{
-  "episodes": [
-    {
-      "episode_number": 1,
-      "title": "剧集标题",
-      "start_char_index": 0,
-      "end_char_index": 15000,
-      "summary": "本集摘要（50字内）",
-      "estimated_duration": 120,
-      "key_characters": ["角色名"],
-      "key_scenes": ["场景名"]
-    }
-  ]
-}
+===== 输出格式范例（严格模仿此结构） =====
 
-## 重要说明
-- start_char_index 和 end_char_index 是小说原文中的字符位置索引（从0开始）
-- 确保切片位置在段落边界（换行符附近）
-- 每集内容长度根据叙事密度动态调整，不是机械均分
+第3集：初入异世
 
-请只输出JSON，不要有任何其他说明文字。
+【场景1：竹林 - 黄昏】
+夕阳的余晖透过竹叶洒在小路上，微风拂过，竹叶沙沙作响。
+林小月：（不安地）这到底是什么地方？我怎么会在这里？
+    她扶着竹子站起身，环顾四周。
+老人：（温和地）姑娘，你终于醒了。
+    白发老人从竹林中缓步走出。
+音效：风吹竹叶的沙沙声
+
+【场景2：竹林空地 - 黄昏】
+林小月：（急切地）您知道怎么离开这里吗？
+    她向前迈了一步。
+老人：（平静地）离开？你才刚刚到来啊。
+音效：火堆噼啪声
+
+===========================================
+
+===== 格式规则 =====
+
+【段落结构】
+- 第一行：第X集：本集标题
+- 每个场景以 【场景X：地点 - 时间段】 开头，独占一行
+- 场景描述写成一个自然段（30-80字），不拆分换行
+- 对白格式：角色名：（语气/动作）对白内容
+- 动作描述紧接在对白下方，缩进4个空格
+- 音效单独一行：音效：内容
+- 场景之间空一行
+
+【角色规范】
+- 必须使用"角色设定"中的完整名称，不得使用简称或代称
+- 角色名后严格跟"："，不插入空格或其他符号
+
+【字数规范】
+- 整集所有文字（含场景标记、音效、括号等全部字符）共计 900-1200 字
+- 超出则精简对白保留核心情节，不足则补充细节
+
+【注意事项】
+- 场景描述不要每句话独立成段，要写成连续段落
+- 不要使用markdown、JSON或代码块
+- 不要在角色名前加【】或其他修饰符号
+- 不要修改角色设定中给出的角色名称
 `;
 
-export const episodeDivisionUserPrompt = (
-  novelText: string,
-  analysis: string,
-  targetDuration: number = 120,
-  tolerance: number = 10
-) => `
-基于以下小说原文和分析结果，划分剧集：
-
-## 时长要求
-- 每集目标时长：${targetDuration}秒
-- 容差范围：±${tolerance}秒
-
-## 小说分析结果
-${analysis}
-
-## 小说原文（节选关键部分用于参考）
-${novelText.slice(0, 100000)}
-
-请输出剧集划分方案，确保每集的 start_char_index 和 end_char_index 准确对应原文位置。
-`;
-
-export const scriptGenerationSystemPrompt = `
-你是一位专业编剧。请将提供的小说片段转换为标准剧本格式。
-
-## 剧本要求
-1. 包含场景描述、角色对白、动作指示
-2. 每集时长控制在120秒左右
-3. 语言精炼，适合视频拍摄
-4. 保留原著核心情节和人物特点
-
-## 输出格式（严格JSON）
-{
-  "script_content": "完整的剧本内容，包含场景标题、角色对白、动作描述等",
-  "title": "剧集标题",
-  "duration_estimate": 120
-}
-
-请只输出JSON，不要有任何其他说明文字。
-`;
-
-export const scriptGenerationUserPrompt = (
+export const episodeScriptUserPrompt = (
   episodeText: string,
+  episodeNumber: number,
+  totalEpisodes: number,
   characters: string,
-  scenes: string
+  summary: string
 ) => `
-请将以下小说片段转换为标准剧本格式。
+请生成第 ${episodeNumber}/${totalEpisodes} 集的剧本。
 
 ## 角色设定
 ${characters}
 
-## 场景设定
-${scenes}
-
 ## 小说片段
 ${episodeText}
-
-请输出标准格式的剧本内容。
 `;

@@ -1,42 +1,27 @@
-import { getDb } from './db';
-import { Character } from '@ai-script/shared-types';
+import { queryAll, execute } from './db';
+import { Character } from '../shared/types';
 
 export class CharacterModel {
   async create(character: Character): Promise<void> {
-    const db = await getDb();
-    await db.run(
+    await execute(
       `INSERT INTO characters (id, novel_id, name, aliases, appearance, personality,
        role_type, relationships, reference_image, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [character.id, character.novelId, character.name, JSON.stringify(character.aliases),
-       character.appearance, character.personality, character.roleType,
-       JSON.stringify(character.relationships), character.referenceImage, character.createdAt]
+       character.appearance || '', character.personality || '', character.roleType,
+       JSON.stringify(character.relationships), character.referenceImage || '', character.createdAt]
     );
   }
 
   async findByNovelId(novelId: string): Promise<Character[]> {
-    const db = await getDb();
-    const rows = await db.all('SELECT * FROM characters WHERE novel_id = ?', novelId);
+    const rows = await queryAll<any>('SELECT * FROM characters WHERE novel_id = ?', [novelId]);
     return rows.map(row => this.mapRowToCharacter(row));
   }
 
   async bulkCreate(characters: Character[]): Promise<void> {
-    const db = await getDb();
-    const stmt = await db.prepare(
-      `INSERT INTO characters (id, novel_id, name, aliases, appearance, personality,
-       role_type, relationships, reference_image, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-
     for (const character of characters) {
-      await stmt.run(
-        character.id, character.novelId, character.name, JSON.stringify(character.aliases),
-        character.appearance, character.personality, character.roleType,
-        JSON.stringify(character.relationships), character.referenceImage, character.createdAt
-      );
+      await this.create(character);
     }
-
-    await stmt.finalize();
   }
 
   private mapRowToCharacter(row: any): Character {
@@ -44,11 +29,11 @@ export class CharacterModel {
       id: row.id,
       novelId: row.novel_id,
       name: row.name,
-      aliases: JSON.parse(row.aliases || '[]'),
+      aliases: typeof row.aliases === 'string' ? JSON.parse(row.aliases || '[]') : (row.aliases || []),
       appearance: row.appearance,
       personality: row.personality,
       roleType: row.role_type,
-      relationships: JSON.parse(row.relationships || '[]'),
+      relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships || '[]') : (row.relationships || []),
       referenceImage: row.reference_image,
       createdAt: row.created_at,
     };

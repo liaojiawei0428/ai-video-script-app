@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { config } from '../config';
 import { novelController } from '../controllers/novelController';
+import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
@@ -25,6 +26,9 @@ const upload = multer({
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
       cb(null, true);
+    } else if (!ext && file.mimetype === 'text/plain') {
+      // Android DocumentPicker may omit extension in file name
+      cb(null, true);
     } else {
       cb(new Error('Invalid file type. Only .txt, .epub, .docx are allowed'));
     }
@@ -32,12 +36,14 @@ const upload = multer({
 });
 
 // Routes
-router.post('/upload', upload.single('file'), novelController.upload);
-router.post('/:novelId/analyze', novelController.analyze);
-router.get('/:novelId/analysis', novelController.getAnalysis);
-router.get('/:novelId/episodes', novelController.getEpisodes);
-router.post('/:novelId/episodes/generate', novelController.generateEpisodes);
-router.get('/:novelId/export', novelController.exportNovel);
-router.get('/', novelController.list);
+router.post('/upload', authMiddleware, upload.single('file'), novelController.upload);
+router.post('/:novelId/analyze', authMiddleware, novelController.analyze);
+router.get('/:novelId/analysis', authMiddleware, novelController.getAnalysis);
+router.get('/:novelId/episodes', authMiddleware, novelController.getEpisodes);
+router.post('/:novelId/episodes/generate', authMiddleware, novelController.generateEpisodes);
+router.post('/episodes/:episodeId/regenerate', authMiddleware, novelController.regenerateEpisode);
+router.get('/:novelId/export', authMiddleware, novelController.exportNovel);
+router.get('/', authMiddleware, novelController.list);
+router.delete('/:novelId', authMiddleware, novelController.remove);
 
 export default router;

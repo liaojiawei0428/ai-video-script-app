@@ -25,9 +25,9 @@ sleep 10
 
 # 健康检查
 echo "检查服务健康状态..."
-if curl -f http://localhost:60000/health > /dev/null 2>&1; then
+if curl -f http://localhost:6000/health > /dev/null 2>&1; then
     echo "服务启动成功！"
-    echo "API地址: http://localhost:60000"
+    echo "API地址: http://localhost:6000"
 else
     echo "服务可能未完全启动，请检查日志: docker-compose logs -f server"
 fi

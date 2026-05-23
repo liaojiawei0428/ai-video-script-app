@@ -1,5 +1,5 @@
 import { taskJobModel } from '../models/taskJob';
-import { TaskJob } from '@ai-script/shared-types';
+import { TaskJob } from '../shared/types';
 
 export class TaskService {
   async getTask(taskId: string): Promise<TaskJob | undefined> {

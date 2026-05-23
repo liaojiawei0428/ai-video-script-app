@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import iconv from 'iconv-lite';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 
@@ -14,6 +15,9 @@ export class FileParserService {
         return this.parseEpub(filePath);
       case '.docx':
         return this.parseDocx(filePath);
+      case '':
+        // Android DocumentPicker may omit extension; treat as .txt
+        return this.parseTxt(filePath);
       default:
         throw new AppError(
           'INVALID_FILE_TYPE',
@@ -24,9 +28,30 @@ export class FileParserService {
   }
 
   private async parseTxt(filePath: string): Promise<{ content: string; title: string }> {
-    const content = await fs.readFile(filePath, 'utf-8');
+    const buffer = await fs.readFile(filePath);
+    const content = this.decodeText(buffer);
     const title = path.basename(filePath, '.txt');
     return { content, title };
+  }
+
+  /** 自动检测并解码文本文件编码（支持 UTF-8、GBK、GB2312 等） */
+  private decodeText(buffer: Buffer): string {
+    // 尝试 UTF-8 解码
+    let content = iconv.decode(buffer, 'utf-8');
+    // 检查是否包含乱码字符（� U+FFFD 表示解码失败）
+    if (!content.includes('\uFFFD')) return content;
+
+    // UTF-8 解码失败，尝试 GBK
+    content = iconv.decode(buffer, 'gbk');
+    if (!content.includes('\uFFFD')) return content;
+
+    // 尝试 GB2312
+    content = iconv.decode(buffer, 'gb2312');
+    if (!content.includes('\uFFFD')) return content;
+
+    // 兜底：返回 UTF-8 解码结果（保留原始内容）
+    logger.warn('Text encoding detection: all attempts may have issues, using GBK result');
+    return iconv.decode(buffer, 'gbk');
   }
 
   private async parseEpub(filePath: string): Promise<{ content: string; title: string }> {

@@ -1,142 +1,242 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, TextInput } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import {
+  View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView,
+} from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
-import { uploadFile } from '../api/client';
+import { useNavigation } from '@react-navigation/native';
+import { apiClient, getAuthToken } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveNovel } from '../db/sqlite';
+import { API_BASE_URL } from '../config';
+import { GradientButton, GlassCard, ToastProvider, useToast } from '../components';
+import { colors, spacing, radii, typography, shadows, layout } from '../theme';
 
 export function UploadScreen(): React.JSX.Element {
-  const navigation = useNavigation();
-  const { addNovel } = useNovelStore();
-  const [title, setTitle] = useState('');
-  const [author, setAuthor] = useState('');
+  const navigation = useNavigation<any>();
+  const { addNovel, addActiveTask, isLoggedIn } = useNovelStore();
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [title, setTitle] = useState('');
+  const [fileInfo, setFileInfo] = useState<{ name: string; size: number } | null>(null);
+  const [uri, setUri] = useState<string | null>(null);
+  const toast = useToast();
 
   const pickDocument = async () => {
     try {
       const result = await DocumentPicker.pick({
-        type: [
-          DocumentPicker.types.plainText,
-          'application/epub+zip',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        ],
+        type: [DocumentPicker.types.plainText],
       });
-
-      if (result.length > 0) {
-        await uploadNovel(result[0].uri, result[0].name);
-      }
+      const file = result[0];
+      if (!file.uri || !file.name) return;
+      setFileInfo({ name: file.name, size: file.size || 0 });
+      setUri(file.uri);
+      if (!title) setTitle(file.name.replace(/\.txt$/i, ''));
     } catch (err) {
       if (DocumentPicker.isCancel(err)) return;
       Alert.alert('错误', '选择文件失败');
     }
   };
 
-  const uploadNovel = async (fileUri: string, fileName: string) => {
-    setUploading(true);
-    try {
-      const response = await uploadFile(
-        fileUri,
-        fileName,
-        title || undefined
-      );
+  const startUpload = async () => {
+    if (!uri || !fileInfo) return;
 
-      const novel = response.data.data;
+    // 检查登录状态
+    if (!isLoggedIn) {
+      Alert.alert('请先登录', '上传小说需要登录账号', [
+        { text: '去登录', onPress: () => navigation.navigate('Home') },
+        { text: '取消', style: 'cancel' },
+      ]);
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress(0);
+    const xhr = new XMLHttpRequest();
+    const guardTimer = setTimeout(() => {
+      try { xhr.abort(); } catch {}
+      setUploading(false);
+      setFileInfo(null);
+      setUri(null);
+      setUploadProgress(0);
+      Alert.alert('上传超时', '上传时间过长，请重试');
+    }, 130000);
+    try {
+      const progressTimer = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 2, 95));
+      }, 2000);
+
+      const result = await new Promise<any>((resolve, reject) => {
+        const url = (API_BASE_URL || 'http://159.75.16.110:6000/api') + '/novels/upload';
+        xhr.open('POST', url);
+        const token = getAuthToken();
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.timeout = 120000;
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) {
+            setUploadProgress(Math.round((e.loaded / e.total) * 100));
+            clearInterval(progressTimer);
+          }
+        };
+
+        xhr.onload = () => {
+          clearInterval(progressTimer);
+          try {
+            const parsed = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve({ data: parsed });
+            } else {
+              reject(new Error(`服务器错误 (${xhr.status}): ${parsed?.error?.message || xhr.responseText?.slice(0, 100)}`));
+            }
+          } catch {
+            reject(new Error(`响应解析失败 (HTTP ${xhr.status}): ${xhr.responseText?.slice(0, 100)}`));
+          }
+        };
+
+        xhr.onerror = () => { clearInterval(progressTimer); reject(new Error('网络连接失败')); };
+        xhr.ontimeout = () => { clearInterval(progressTimer); reject(new Error('上传超时（120秒）')); };
+
+        const formData = new FormData();
+        const safeName = fileInfo.name.endsWith('.txt') ? fileInfo.name : fileInfo.name + '.txt';
+        formData.append('file', { uri, name: safeName, type: 'text/plain' } as any);
+        if (title) formData.append('title', title);
+        formData.append('author', 'User');
+        xhr.send(formData);
+      });
+
+      setUploadProgress(100);
+      const body = result.data?.data;
+      if (!body || !body.novelId) {
+        throw new Error('服务器返回数据异常');
+      }
+      const { novelId, title: novelTitle, totalChars, taskId } = body;
+
+      const novel = {
+        id: novelId,
+        title: novelTitle || fileInfo.name.replace('.txt', ''),
+        author: 'User',
+        totalChars: totalChars || fileInfo.size,
+        totalWords: Math.floor((totalChars || fileInfo.size) / 2),
+        genre: '', theme: '', style: '', tone: '',
+        status: 'analyzing' as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
       await saveNovel(novel);
       addNovel(novel);
 
-      Alert.alert('上传成功', '小说已上传，开始分析？', [
-        { text: '稍后', onPress: () => navigation.goBack() },
-        {
-          text: '开始分析',
-          onPress: () =>
-            navigation.navigate('Progress' as never, {
-              novelId: novel.novelId,
-              taskType: 'analyze',
-            } as never),
-        },
-      ]);
+      if (taskId) {
+        addActiveTask({
+          novelId,
+          novelTitle: novel.title,
+          genre: '',
+          taskId,
+          status: 'running',
+          progress: 0,
+          phase: 'analyzing',
+        });
+      }
+
+      toast.show('已提交分析，可在「书架」查看进度', '📤');
+      setTimeout(() => {
+        navigation.navigate('Bookshelf');
+      }, 1200);
     } catch (error) {
-      Alert.alert('上传失败', error instanceof Error ? error.message : '未知错误');
+      Alert.alert('上传失败', typeof error === 'object' && error !== null ? ((error as any).message || JSON.stringify(error)) : String(error || '未知错误'));
     } finally {
+      clearTimeout(guardTimer);
       setUploading(false);
+      setFileInfo(null);
+      setUri(null);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.label}>小说标题（可选）</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.pageTitle}>上传小说</Text>
+      <Text style={styles.pageSub}>选择 TXT 格式小说文件，AI 将自动分析并生成剧本</Text>
+
+      <Text style={styles.label}>剧本名称（选填）</Text>
       <TextInput
         style={styles.input}
         value={title}
         onChangeText={setTitle}
-        placeholder="输入小说标题"
+        placeholder="默认使用文件名"
+        placeholderTextColor={colors.text.tertiary}
       />
 
-      <Text style={styles.label}>作者（可选）</Text>
-      <TextInput
-        style={styles.input}
-        value={author}
-        onChangeText={setAuthor}
-        placeholder="输入作者名"
-      />
-
-      <TouchableOpacity
-        style={[styles.uploadButton, uploading && styles.uploadingButton]}
-        onPress={pickDocument}
-        disabled={uploading}
-      >
-        <Text style={styles.uploadButtonText}>
-          {uploading ? '上传中...' : '选择文件并上传'}
-        </Text>
+      <TouchableOpacity style={styles.uploadArea} onPress={pickDocument} disabled={uploading}>
+        {fileInfo ? (
+          <View style={styles.fileSelected}>
+            <Text style={styles.fileIcon}>📄</Text>
+            <Text style={styles.fileName}>{fileInfo.name}</Text>
+            <Text style={styles.fileSize}>
+              {(fileInfo.size / 1024 / 1024).toFixed(1)}MB
+            </Text>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.uploadIcon}>📤</Text>
+            <Text style={styles.uploadText}>点击选择 TXT 文件</Text>
+            <Text style={styles.uploadHint}>支持 .txt 格式文件</Text>
+          </>
+        )}
       </TouchableOpacity>
 
-      <Text style={styles.hint}>支持格式：TXT、EPUB、DOCX</Text>
-      <Text style={styles.hint}>最大文件大小：50MB</Text>
-    </View>
+      {fileInfo && (
+        <GradientButton
+          title={uploading ? `上传中 ${uploadProgress}%` : '开始上传并分析'}
+          onPress={startUpload}
+          loading={uploading}
+          disabled={uploading}
+          style={{ marginBottom: spacing.lg }}
+        />
+      )}
+
+      <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
+        <Text style={styles.infoTitle}>自动流程</Text>
+        <Text style={styles.infoItem}>1. 上传小说 → AI 自动分析角色/剧情</Text>
+        <Text style={styles.infoItem}>2. AI 智能划分剧集</Text>
+        <Text style={styles.infoItem}>3. 保存到本地书架</Text>
+        <Text style={styles.infoItem}>4. 可编辑剧集内容 + AI 生成分镜头</Text>
+      </GlassCard>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#f5f5f5',
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    color: '#333',
-  },
+  container: { flex: 1, backgroundColor: colors.bg.primary },
+  content: { padding: spacing.md, paddingBottom: 40 },
+  pageTitle: { ...typography.h1, marginBottom: spacing.sm },
+  pageSub: { ...typography.body, marginBottom: spacing.lg },
+  label: { ...typography.h3, color: colors.text.secondary, marginBottom: spacing.sm },
   input: {
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    fontSize: 16,
+    backgroundColor: colors.bg.secondary,
+    padding: spacing.md,
+    borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  uploadButton: {
-    backgroundColor: '#007AFF',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  uploadingButton: {
-    backgroundColor: '#999',
-  },
-  uploadButtonText: {
-    color: '#fff',
+    borderColor: colors.border,
+    color: colors.text.primary,
     fontSize: 16,
-    fontWeight: '600',
+    marginBottom: spacing.md,
   },
-  hint: {
-    textAlign: 'center',
-    color: '#999',
-    marginTop: 12,
-    fontSize: 14,
+  uploadArea: {
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    borderRadius: radii.xl,
+    padding: spacing.xl,
+    alignItems: 'center',
+    backgroundColor: colors.bg.secondary,
+    marginBottom: spacing.lg,
   },
+  uploadIcon: { fontSize: 40, marginBottom: spacing.sm },
+  uploadText: { ...typography.h3, color: colors.accent, marginBottom: spacing.xs },
+  uploadHint: { ...typography.caption, color: colors.text.tertiary },
+  fileSelected: { alignItems: 'center' },
+  fileIcon: { fontSize: 32, marginBottom: spacing.sm },
+  fileName: { ...typography.h3, color: colors.text.primary, marginBottom: spacing.xs },
+  fileSize: { ...typography.caption, color: colors.text.tertiary },
+  infoTitle: { ...typography.h3, color: colors.text.primary, marginBottom: spacing.sm },
+  infoItem: { ...typography.body, lineHeight: 22, marginBottom: spacing.xs },
 });

@@ -92,7 +92,7 @@ npm run build
 npm start
 ```
 
-服务启动后访问：http://localhost:60000/health
+服务启动后访问：http://localhost:6000/health
 
 ### API 接口
 
@@ -125,7 +125,7 @@ chmod +x deploy.sh
 docker build -f apps/server/Dockerfile -t ai-script-server .
 
 # 运行容器
-docker run -d -p 60000:60000 \
+docker run -d -p 6000:6000 \
   -e DEEPSEEK_API_KEY=your-api-key \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/uploads:/app/uploads \
@@ -138,7 +138,7 @@ docker run -d -p 60000:60000 \
 
 - 购买腾讯云 CVM（建议 2核4G 以上）
 - 安装 Docker 和 Docker Compose
-- 配置安全组，开放 80/443/60000 端口
+- 配置安全组，开放 80/443/6000 端口
 
 ### 2. 部署步骤
 
