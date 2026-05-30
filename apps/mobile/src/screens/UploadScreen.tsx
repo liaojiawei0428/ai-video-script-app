@@ -158,7 +158,7 @@ export function UploadScreen(): React.JSX.Element {
         });
       }
 
-      toast.show('已提交，正在跳转到进度页...', '📤');
+      toast.show('已提交，正在跳转到进度页...', 'cloud-upload');
       setTimeout(() => {
         navigation.navigate('Chat', { novelId, novelTitle: novel.title });
       }, 800);

@@ -105,7 +105,7 @@ export function CreateScreen(): React.JSX.Element {
       <TouchableOpacity style={styles.uploadArea} onPress={pickDocument} disabled={uploading}>
         {fileInfo ? (
           <View style={styles.fileSelected}>
-            <Text style={styles.fileIcon}>📄</Text>
+            <Ionicons name="document-text" size={40} color={colors.primary} />
             <Text style={styles.fileName}>{fileInfo.name}</Text>
             <Text style={styles.fileSize}>
               {(fileInfo.size / 1024 / 1024).toFixed(1)}MB
@@ -114,7 +114,7 @@ export function CreateScreen(): React.JSX.Element {
           </View>
         ) : (
           <>
-            <Text style={styles.uploadIcon}>📤</Text>
+            <Ionicons name="cloud-upload-outline" size={48} color={colors.primary} />
             <Text style={styles.uploadText}>点击选择 TXT 文件</Text>
             <Text style={styles.uploadHint}>支持 .txt 格式，最大 50 万字</Text>
           </>

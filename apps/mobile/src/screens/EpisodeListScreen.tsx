@@ -116,7 +116,7 @@ export function EpisodeListScreen(): React.JSX.Element {
           <ScrollView style={styles.analysisScroll}>
             <AnalysisCard analysis={analysis} />
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>🎬</Text>
+              <Ionicons name="film" size={48} color={colors.text.tertiary} />
               <Text style={styles.emptyText}>还未生成剧集</Text>
               <TouchableOpacity style={styles.generateButton} onPress={handleGenerate} disabled={generating}>
                 {generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.generateButtonText}>开始生成剧集</Text>}
@@ -126,7 +126,7 @@ export function EpisodeListScreen(): React.JSX.Element {
         )}
         {!analysis && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🎬</Text>
+            <Ionicons name="film" size={48} color={colors.text.tertiary} />
             <Text style={styles.emptyText}>还未生成剧集</Text>
             <TouchableOpacity style={styles.generateButton} onPress={handleGenerate} disabled={generating}>
               {generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.generateButtonText}>开始生成剧集</Text>}

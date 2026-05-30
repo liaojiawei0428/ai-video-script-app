@@ -202,7 +202,7 @@ export function BookshelfScreen(): React.JSX.Element {
       <Text style={styles.pageTitle}>我的书架</Text>
       {novels.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📚</Text>
+          <Ionicons name="book" size={48} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>{isLoggedIn ? '书架还是空的' : '请先登录'}</Text>
           <Text style={styles.emptySub}>{isLoggedIn ? '上传一本小说开始创作' : '登录后可查看书架内容'}</Text>
           {!isLoggedIn && (

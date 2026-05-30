@@ -340,7 +340,7 @@ export function TaskProgressScreen(): React.JSX.Element {
       ) : null}
 
       <View style={styles.hintBox}>
-        <Text style={styles.hintIcon}>💡</Text>
+        <Ionicons name="bulb" size={16} color={colors.text.tertiary} />
         <Text style={styles.hintText}>关闭页面后任务仍在后台进行，可随时回来看进度</Text>
       </View>
     </ScrollView>

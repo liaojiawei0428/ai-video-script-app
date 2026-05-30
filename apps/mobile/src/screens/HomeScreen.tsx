@@ -180,7 +180,7 @@ export function HomeScreen(): React.JSX.Element {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.loginContent}>
         <View style={styles.brandSection}>
-          <Text style={styles.brandIcon}>🎬</Text>
+          <Ionicons name="film" size={56} color={colors.primary} style={styles.brandIcon} />
           <Text style={styles.brandTitle}>AI 剧本工坊</Text>
           <Text style={styles.brandSub}>上传小说 · AI 自动分析 · 生成专业剧本</Text>
         </View>
@@ -264,7 +264,7 @@ export function HomeScreen(): React.JSX.Element {
           <Text style={styles.profileUsername}>@{info.username}</Text>
         </View>
         <TouchableOpacity style={styles.notifButton} onPress={() => navigation.navigate('Notifications')}>
-          <Text style={styles.notifIcon}>🔔</Text>
+          <Ionicons name="notifications" size={24} color={colors.text.primary} />
           {unreadCount > 0 && (
             <View style={styles.notifBadge}>
               <Text style={styles.notifBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
@@ -287,7 +287,7 @@ export function HomeScreen(): React.JSX.Element {
 
       {info.vipLevel >= 1 ? (
         <View style={styles.vipCard}>
-          <Text style={styles.vipIcon}>👑</Text>
+          <Ionicons name="diamond" size={28} color={colors.gold} style={styles.vipIcon} />
           <View style={{ flex: 1 }}>
             <Text style={styles.vipTitle}>VIP 会员</Text>
             <Text style={styles.vipSub}>
@@ -299,7 +299,7 @@ export function HomeScreen(): React.JSX.Element {
         </View>
       ) : (
         <TouchableOpacity style={styles.vipCard} onPress={handleBuyVip}>
-          <Text style={styles.vipIcon}>💎</Text>
+          <Ionicons name="diamond-outline" size={28} color={colors.gold} style={styles.vipIcon} />
           <View style={{ flex: 1 }}>
             <Text style={styles.vipTitle}>开通 VIP 会员</Text>
             <Text style={styles.vipSub}>¥10/年 · 享 7.5 折优惠</Text>

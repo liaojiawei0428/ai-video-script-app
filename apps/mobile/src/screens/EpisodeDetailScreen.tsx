@@ -277,7 +277,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
                 </View>
               )}
               {episodeStatus === 'completed' && (
-                <Text style={styles.statusOkIcon}>✅</Text>
+                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               )}
             </View>
             <View style={styles.boxActions}>

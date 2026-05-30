@@ -81,7 +81,7 @@ export function ScriptListScreen(): React.JSX.Element {
       <Text style={styles.pageTitle}>📖 我的剧本</Text>
       {completedNovels.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📚</Text>
+          <Ionicons name="book" size={48} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>书架是空的</Text>
           <Text style={styles.emptySub}>前往「创建」页上传小说开始生成剧本</Text>
         </View>

@@ -138,7 +138,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>⚠️</Text>
+          <Ionicons name="warning" size={48} color={colors.warning} />
           <Text style={styles.emptyText}>剧本 ID 无效</Text>
         </View>
       </View>
@@ -164,7 +164,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
           <>
             {loadError && episodes.length === 0 ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyIcon}>🎬</Text>
+                <Ionicons name="film" size={48} color={colors.text.tertiary} />
                 <Text style={styles.emptyText}>{loadError}</Text>
               </View>
             ) : null}
@@ -201,9 +201,9 @@ export function ScriptDetailScreen(): React.JSX.Element {
                 <Text style={styles.episodeMeta}>{item.durationSec || 3}秒</Text>
                 {item.charCount ? <Text style={styles.episodeMeta}>· {item.charCount}字</Text> : null}
                 {item.status === 'completed' ? (
-                  <Text style={styles.statusCompleted}>✅</Text>
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                 ) : item.status === 'failed' ? (
-                  <Text style={styles.statusFailed}>❌</Text>
+                  <Ionicons name="close-circle" size={16} color={colors.error} />
                 ) : null}
               </View>
               {item.summary ? <Text style={styles.episodeSummary} numberOfLines={1}>{item.summary}</Text> : null}
@@ -218,7 +218,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
         contentContainerStyle={styles.list}
         ListEmptyComponent={loading ? null : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🎬</Text>
+            <Ionicons name="film" size={48} color={colors.text.tertiary} />
             <Text style={styles.emptyText}>{loadError || '暂无剧集数据'}</Text>
           </View>
         )}

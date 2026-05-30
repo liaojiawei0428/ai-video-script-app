@@ -756,7 +756,7 @@ export function ChatScreen(): React.JSX.Element {
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>💬</Text>
+          <Ionicons name="chatbubbles" size={56} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>等待任务...</Text>
           <Text style={styles.emptySub}>前往「上传」页上传小说，自动在此处理</Text>
         </View>
