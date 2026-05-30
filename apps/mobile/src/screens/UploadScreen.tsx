@@ -51,7 +51,7 @@ export function UploadScreen(): React.JSX.Element {
       if (!file.uri || !file.name) return;
       setFileInfo({ name: file.name, size: file.size || 0 });
       setUri(file.uri);
-      if (!title) setTitle(file.name.replace(/\.txt$/i, ''));
+      setTitle(file.name.replace(/\.txt$/i, ''));
     } catch (err) {
       if (DocumentPicker.isCancel(err)) return;
       Alert.alert('错误', '选择文件失败');

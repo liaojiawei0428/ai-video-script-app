@@ -359,7 +359,7 @@ export class NovelService {
     const novel = await novelModel.findById(novelId);
     if (!novel) throw new AppError('NOVEL_NOT_FOUND', `Novel ${novelId} not found`, 404);
 
-    // 1. 标记取消，让正在运行的后台任务停止 AI 调用
+    // 1. 标记取消，让正在运行的后台任务停止 AI 调用（不清除标记，保持永久取消状态）
     NovelService.markCancelled(novelId);
     taskQueue.cancel(novelId);
 
@@ -391,9 +391,10 @@ export class NovelService {
       await execute('DELETE FROM novels WHERE id = ?', [novelId]);
 
       logger.info('Novel deleted with cascade', { novelId });
-    } finally {
-      // 5. 无论成功或失败，都清理取消标记
+    } catch (err) {
+      // 删除失败时才清除取消标记
       NovelService.clearCancelled(novelId);
+      throw err;
     }
   }
 }

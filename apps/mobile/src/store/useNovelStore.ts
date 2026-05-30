@@ -116,6 +116,7 @@ export const useNovelStore = create<NovelState>((set) => ({
   removeNovel: (novelId) => set((state) => ({
     novels: state.novels.filter(n => n.id !== novelId),
     activeTasks: state.activeTasks.filter(t => t.novelId !== novelId),
+    llmMessages: state.llmMessages.filter(m => m.novelId !== novelId),
   })),
   addActiveTask: (task) => set((state) => ({
     activeTasks: [task, ...state.activeTasks.filter(t => t.novelId !== task.novelId)],

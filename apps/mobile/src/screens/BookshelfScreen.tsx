@@ -144,11 +144,12 @@ export function BookshelfScreen(): React.JSX.Element {
             // 先调服务端 API（停止后台任务 + 级联删除数据 + 删除文件）
             await apiDeleteNovel(item.id);
           } catch {}
-          // 清理本地 SQLite 和 store
+          // 清理本地 SQLite、store 和流式内容
           try {
             await deleteNovelById(item.id);
           } catch {}
           removeNovel(item.id);
+          useNovelStore.getState().clearChunkStreams();
         },
       },
     ]);
