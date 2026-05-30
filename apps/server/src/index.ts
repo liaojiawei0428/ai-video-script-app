@@ -55,6 +55,33 @@ app.get('/health', (req, res) => {
   });
 });
 
+// APP版本检查（公开接口）
+app.get('/api/version', (req, res) => {
+  const currentVersion = process.env.APP_VERSION || '1.0.0';
+  const clientVersion = req.query.version as string || '0.0.0';
+  const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
+  res.json({
+    success: true,
+    data: {
+      version: currentVersion,
+      downloadUrl: 'https://maque.uno/app/Deep剧本_v' + currentVersion + '.apk',
+      changelog: '优化性能，修复已知问题',
+      forceUpdate: false,
+      needUpdate,
+    },
+  });
+});
+
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((parts1[i] || 0) > (parts2[i] || 0)) return 1;
+    if ((parts1[i] || 0) < (parts2[i] || 0)) return -1;
+  }
+  return 0;
+}
+
 // API Routes
 import novelRoutes from './routes/novels';
 import taskRoutes from './routes/tasks';

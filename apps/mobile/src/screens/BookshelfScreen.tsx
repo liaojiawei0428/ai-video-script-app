@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { getNovels as apiGetNovels, deleteNovel as apiDeleteNovel } from '../api/client';
 import { getNovels as getLocalNovels, deleteNovelById } from '../db/sqlite';
@@ -54,12 +55,21 @@ function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] || { label: status || '未知', color: '#999' };
   const isActive = status === 'analyzing' || status === 'generating' || status === 'queued';
 
+  const getIcon = () => {
+    switch (status) {
+      case 'completed': return 'checkmark-circle';
+      case 'error':
+      case 'failed': return 'close-circle';
+      default: return 'document-text';
+    }
+  };
+
   return (
     <View style={styles.statusBadge}>
       {isActive ? (
         <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
       ) : (
-        <Text style={styles.statusIcon}>{status === 'completed' ? '✅' : status === 'error' || status === 'failed' ? '❌' : '📋'}</Text>
+        <Ionicons name={getIcon()} size={14} color={cfg.color} />
       )}
       <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
     </View>

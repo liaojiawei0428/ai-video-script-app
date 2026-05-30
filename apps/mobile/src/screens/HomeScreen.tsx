@@ -4,6 +4,7 @@ import {
   ScrollView, ActivityIndicator, Image,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore, UserInfo } from '../store/useNovelStore';
 import {
   login as apiLogin, register as apiRegister,
@@ -11,7 +12,8 @@ import {
   setAuthToken, getAuthToken, buyVip, getUnreadCount,
 } from '../api/client';
 import { saveToken, getToken, deleteToken } from '../db/tokenStorage';
-import { colors, spacing, typography } from '../theme';
+import { colors, spacing, radii, typography } from '../theme';
+import { APP_VERSION } from '../config/version';
 
 
 function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
@@ -288,7 +290,10 @@ export function HomeScreen(): React.JSX.Element {
           <Text style={styles.vipIcon}>👑</Text>
           <View style={{ flex: 1 }}>
             <Text style={styles.vipTitle}>VIP 会员</Text>
-            <Text style={styles.vipSub}>¥0.01/千字 · ¥0.04/集分镜{info.vipExpiresAt ? ` · 剩余${Math.max(0, Math.ceil((info.vipExpiresAt - Date.now()) / 86400000))}天` : ''}</Text>
+            <Text style={styles.vipSub}>
+              ¥0.01/千字 · ¥0.04/集分镜
+              {info.vipExpiresAt ? `\n到期时间：${new Date(info.vipExpiresAt).toLocaleDateString('zh-CN')}` : ''}
+            </Text>
           </View>
           <Text style={styles.vipBadge}>已激活</Text>
         </View>
@@ -306,7 +311,7 @@ export function HomeScreen(): React.JSX.Element {
       {/* 使用记录 */}
       <View style={styles.menuCard}>
         <View style={styles.menuItem}>
-          <Text style={styles.menuIcon}>📊</Text>
+          <Ionicons name="bar-chart" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>累计生成次数</Text>
           <Text style={styles.menuValue}>{info.totalGenerations} 次</Text>
         </View>
@@ -315,38 +320,39 @@ export function HomeScreen(): React.JSX.Element {
       {/* 设置列表 */}
       <View style={styles.menuCard}>
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Billing')}>
-          <Text style={styles.menuIcon}>💰</Text>
+          <Ionicons name="wallet" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>充值 / 交易记录</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Pricing')}>
-          <Text style={styles.menuIcon}>📋</Text>
+          <Ionicons name="pricetag" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>收费标准</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Settings')}>
-          <Text style={styles.menuIcon}>⚙️</Text>
+          <Ionicons name="settings-sharp" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>设置</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Feedback')}>
-          <Text style={styles.menuIcon}>💬</Text>
+          <Ionicons name="chatbubble-ellipses" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>意见反馈</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('About')}>
-          <Text style={styles.menuIcon}>ℹ️</Text>
+          <Ionicons name="information-circle" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>关于我们</Text>
-          <Text style={styles.menuValue}>v1.0.0</Text>
+          <Text style={styles.menuValue}>v{APP_VERSION}</Text>
         </TouchableOpacity>
       </View>
 
       {/* 退出登录 */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Ionicons name="log-out" size={18} color={colors.error} />
         <Text style={styles.logoutButtonText}>退出登录</Text>
       </TouchableOpacity>
 
@@ -440,21 +446,21 @@ const styles = StyleSheet.create({
   vipBuyBtn: { ...typography.caption, color: '#FFD700', fontWeight: '700' },
 
   menuCard: {
-    backgroundColor: '#fff', borderRadius: 14, marginBottom: 16, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, marginBottom: spacing.md, overflow: 'hidden',
   },
-  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16 },
-  menuIcon: { fontSize: 20, marginRight: 12 },
-  menuText: { flex: 1, fontSize: 15, color: '#1C1C1E' },
-  menuValue: { fontSize: 14, color: '#8E8E93' },
-  menuArrow: { fontSize: 20, color: '#C7C7CC' },
-  menuDivider: { height: 1, backgroundColor: '#F2F2F7', marginLeft: 52 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', padding: spacing.md },
+  menuIcon: { marginRight: spacing.md },
+  menuText: { flex: 1, fontSize: 15, color: colors.text.primary },
+  menuValue: { fontSize: 14, color: colors.text.secondary },
+  menuArrow: { fontSize: 20, color: colors.text.tertiary },
+  menuDivider: { height: 1, backgroundColor: colors.border, marginLeft: 52 },
 
   logoutButton: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8,
-    borderWidth: 1, borderColor: '#FF3B30',
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    marginTop: spacing.sm, borderWidth: 1, borderColor: colors.error + '40',
   },
-  logoutButtonText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
+  logoutButtonText: { color: colors.error, fontSize: 16, fontWeight: '600' },
 
   modalOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,

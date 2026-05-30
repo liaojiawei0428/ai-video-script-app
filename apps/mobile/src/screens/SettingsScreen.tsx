@@ -5,6 +5,7 @@ import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
 import { setAuthToken } from '../api/client';
 import { colors, spacing, radii, typography } from '../theme';
+import { APP_DISPLAY_NAME } from '../config/version';
 
 interface MenuItem {
   icon: string;
@@ -115,7 +116,7 @@ export function SettingsScreen(): React.JSX.Element {
         </View>
       ))}
 
-      <Text style={styles.versionText}>Deep剧本 v1.0.0</Text>
+      <Text style={styles.versionText}>{APP_DISPLAY_NAME}</Text>
       <View style={{ height: 60 }} />
     </ScrollView>
   );

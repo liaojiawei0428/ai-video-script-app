@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { colors, spacing, radii, typography } from '../theme';
+import { APP_VERSION } from '../config/version';
 
 export function AboutScreen(): React.JSX.Element {
   return (
@@ -11,7 +12,7 @@ export function AboutScreen(): React.JSX.Element {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>应用信息</Text>
         <InfoRow label="应用名称" value="Deep剧本" />
-        <InfoRow label="版本号" value="v1.0.0" />
+        <InfoRow label="版本号" value={'v' + APP_VERSION} />
         <InfoRow label="开发工作室" value="麻雀逻辑" />
         <InfoRow label="官方网站" value="maque.uno" />
         <InfoRow label="联系邮箱" value="support@maque.uno" />

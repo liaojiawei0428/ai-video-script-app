@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { apiClient, getAuthToken, estimateFee } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveNovel } from '../db/sqlite';
@@ -188,7 +189,7 @@ export function UploadScreen(): React.JSX.Element {
       <TouchableOpacity style={styles.uploadArea} onPress={pickDocument} disabled={uploading}>
         {fileInfo ? (
           <View style={styles.fileSelected}>
-            <Text style={styles.fileIcon}>📄</Text>
+            <Ionicons name="document-text" size={40} color={colors.primary} />
             <Text style={styles.fileName}>{fileInfo.name}</Text>
             <Text style={styles.fileSize}>
               {(fileInfo.size / 1024 / 1024).toFixed(1)}MB
@@ -196,7 +197,7 @@ export function UploadScreen(): React.JSX.Element {
           </View>
         ) : (
           <>
-            <Text style={styles.uploadIcon}>📤</Text>
+            <Ionicons name="cloud-upload-outline" size={48} color={colors.primary} />
             <Text style={styles.uploadText}>点击选择 TXT 文件</Text>
             <Text style={styles.uploadHint}>支持 .txt 格式文件</Text>
           </>
@@ -215,7 +216,10 @@ export function UploadScreen(): React.JSX.Element {
                 ¥{feeInfo.unitPrice}/千字 · {(fileInfo.size / 1000).toFixed(0)}千字
               </Text>
               {!feeInfo.sufficient && (
-                <Text style={styles.feeWarning}>⚠️ 余额不足，请先充值</Text>
+                <View style={styles.feeWarningRow}>
+                  <Ionicons name="warning" size={16} color={colors.error} />
+                  <Text style={styles.feeWarning}> 余额不足，请先充值</Text>
+                </View>
               )}
             </View>
           )}
