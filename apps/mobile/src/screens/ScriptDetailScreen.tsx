@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getEpisodes, getEpisode, getNovelAnalysis, updateNovel, updateCharacter } from '../api/client';
 import { saveEpisodes, getEpisodes as getLocalEpisodes } from '../db/sqlite';
 import { GlassCard, Tag, SkeletonLoader } from '../components';

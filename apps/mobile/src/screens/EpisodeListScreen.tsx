@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { getEpisodes, generateEpisodes, getTaskProgress, generateShots, getNovelAnalysis } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';

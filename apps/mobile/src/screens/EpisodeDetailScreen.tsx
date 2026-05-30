@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getEpisode, updateEpisode, getShots, generateShots as apiGenerateShots, getTaskProgress, regenerateEpisode as apiRegenerateEpisode } from '../api/client';
 import { updateEpisodeSqlite, saveShots } from '../db/sqlite';
 import { WS_BASE_URL } from '../config';
