@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert, TextInput } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
@@ -95,21 +96,22 @@ export function AdminDashboard(): React.JSX.Element {
         </TouchableOpacity>
       </View>
       <View style={styles.tabs}>
-        {([['dashboard', '📊 仪表盘'], ['orders', '📋 订单'], ['feedback', '💬 反馈']] as const).map(([t, label]) => (
+        {([['dashboard', 'stats-chart', '仪表盘'], ['orders', 'receipt', '订单'], ['feedback', 'chatbubble-ellipses', '反馈']] as const).map(([t, icon, label]) => (
           <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabActive]} onPress={() => setTab(t)}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{label}</Text>
+            <Ionicons name={icon} size={18} color={tab === t ? colors.primary : colors.text.tertiary} />
+            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}> {label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {tab === 'dashboard' && data && (
         <View style={styles.dashboard}>
-          <StatCard icon="👥" label="总用户" value={data.totalUsers} />
-          <StatCard icon="🆕" label="今日注册" value={data.todayUsers} />
-          <StatCard icon="⏳" label="待审核" value={data.pendingOrders} />
-          <StatCard icon="📅" label="今日申请" value={data.todayOrders} />
+          <StatCard icon="people" label="总用户" value={data.totalUsers} />
+          <StatCard icon="person-add" label="今日注册" value={data.todayUsers} />
+          <StatCard icon="time" label="待审核" value={data.pendingOrders} />
+          <StatCard icon="calendar" label="今日申请" value={data.todayOrders} />
           <TouchableOpacity style={styles.announcementBtn} onPress={() => setShowAnnouncement(true)}>
-            <Text style={styles.announcementIcon}>📢</Text>
+            <Ionicons name="megaphone" size={20} color={colors.warning} />
             <Text style={styles.announcementText}>发送公告</Text>
           </TouchableOpacity>
         </View>
@@ -192,7 +194,7 @@ export function AdminDashboard(): React.JSX.Element {
 function StatCard({ icon, label, value }: any) {
   return (
     <View style={styles.statCard}>
-      <Text style={styles.statIcon}>{icon}</Text>
+      <Ionicons name={icon} size={28} color={colors.primary} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
