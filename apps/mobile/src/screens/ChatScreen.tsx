@@ -807,9 +807,9 @@ export function ChatScreen(): React.JSX.Element {
                   isCurrent && styles.stepDotCurrent,
                   isPending && styles.stepDotPending,
                 ]}>
-                  {isCompleted ? <Text style={styles.stepDotIcon}>✓</Text> :
+                  {isCompleted ? <Ionicons name="checkmark" size={14} color="#fff" /> :
                    isCurrent && status !== 'done' ? <ActivityIndicator size="small" color="#fff" /> :
-                   <Text style={styles.stepDotIcon}>{step.icon}</Text>}
+                   <Ionicons name={step.icon} size={14} color="#fff" />}
                 </View>
                 <Text style={[
                   styles.stepLabel,
