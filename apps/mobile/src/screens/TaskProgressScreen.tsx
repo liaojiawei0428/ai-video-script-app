@@ -30,7 +30,7 @@ export function TaskProgressScreen(): React.JSX.Element {
   const [chunkCurrent, setChunkCurrent] = useState(0);
   const [chunkTotal, setChunkTotal] = useState(0);
   const [streamText, setStreamText] = useState(''); // 流式输出内容
-  const [episodeTitle, setEpisodeTitle] = useState(''); // 当前集标题（如"🎬 第 1/13 集"）
+  const [episodeTitle, setEpisodeTitle] = useState(''); // 当前集标题（如"第 1/13 集"）
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -148,7 +148,7 @@ export function TaskProgressScreen(): React.JSX.Element {
               } else if (data.phase?.startsWith('ep_') && data.step === 'reasoning') {
                 // 新一集开始：更新标题，清空上集流式内容
                 if (streamFlushTimer) { clearTimeout(streamFlushTimer); flushStream(); }
-                setEpisodeTitle(data.content || ''); // 设置当前集标题（如"🎬 第 1/13 集"）
+                setEpisodeTitle(data.content || ''); // 设置当前集标题（如"第 1/13 集"）
                 setStreamText('');
               } else if (data.phase === 'analyzing' && data.step === 'reasoning') {
                 setPhaseDetail(data.content || '分析中...');
@@ -234,9 +234,9 @@ export function TaskProgressScreen(): React.JSX.Element {
 
       <GlassCard padded={true} style={{ marginBottom: spacing.lg }}>
         <Text style={styles.sectionTitle}>
-          {isAnalyzing ? '📊 AI 小说分析' :
-           isGenerating ? '📝 AI 剧本生成' :
-           isDone ? '✅ 全部完成' : '处理中'}
+          {isAnalyzing ? 'AI 小说分析' :
+           isGenerating ? 'AI 剧本生成' :
+           isDone ? '全部完成' : '处理中'}
         </Text>
 
         {!isDone && (
@@ -252,7 +252,7 @@ export function TaskProgressScreen(): React.JSX.Element {
 
         {isDone && (
           <View style={{ marginTop: spacing.sm }}>
-            <Text style={styles.completedText}>✅ 全部完成</Text>
+            <Text style={styles.completedText}>全部完成</Text>
             <Text style={styles.completedSub}>该小说已生成完毕，可在书架中查看</Text>
           </View>
         )}
@@ -324,7 +324,7 @@ export function TaskProgressScreen(): React.JSX.Element {
         </GlassCard>
       )}
 
-      {/* 当前集标题（如"🎬 第 1/13 集"） */}
+      {/* 当前集标题（如"第 1/13 集"） */}
       {isGenerating && episodeTitle ? (
         <GlassCard padded={true} style={{ marginBottom: spacing.md, backgroundColor: colors.bg.secondary }}>
           <Text style={styles.episodeTitle}>{episodeTitle}</Text>
@@ -334,7 +334,7 @@ export function TaskProgressScreen(): React.JSX.Element {
       {/* 剧本实时输出内容 */}
       {streamText ? (
         <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
-          <Text style={styles.sectionTitle}>📝 剧本内容</Text>
+          <Text style={styles.sectionTitle}>剧本内容</Text>
           <Text style={styles.streamText}>{streamText}</Text>
         </GlassCard>
       ) : null}

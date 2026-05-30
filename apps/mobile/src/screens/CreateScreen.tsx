@@ -109,7 +109,7 @@ export function CreateScreen(): React.JSX.Element {
             <Text style={styles.fileName}>{fileInfo.name}</Text>
             <Text style={styles.fileSize}>
               {(fileInfo.size / 1024 / 1024).toFixed(1)}MB
-              {fileInfo.size > 52428800 ? ' ⚠️ 超过50MB限制' : ''}
+              {fileInfo.size > 52428800 ? ' 超过50MB限制' : ''}
             </Text>
           </View>
         ) : (
@@ -123,14 +123,14 @@ export function CreateScreen(): React.JSX.Element {
 
       {/* Info Cards */}
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>📋 处理流程</Text>
+        <Text style={styles.infoTitle}>处理流程</Text>
         <Text style={styles.infoItem}>1. 上传小说 → 自动分析角色/剧情</Text>
         <Text style={styles.infoItem}>2. 智能划分剧集（每集约120秒）</Text>
         <Text style={styles.infoItem}>3. 生成详细镜头描述（AI可直接使用）</Text>
       </View>
 
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>💰 费用参考</Text>
+        <Text style={styles.infoTitle}>费用参考</Text>
         <Text style={styles.infoItem}>每10万字约 ¥0.1（Deepseek V4 API）</Text>
         <Text style={styles.infoItem}>50万字小说全程约 ¥0.5-1.0</Text>
       </View>

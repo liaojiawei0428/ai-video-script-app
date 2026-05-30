@@ -172,7 +172,7 @@ const ChunkProgressBlock = memo(function ChunkProgressBlock() {
       <View style={styles.chunkProgressBox}>
         <Text style={styles.chunkProgressSummary}>
           <Ionicons name="document-text" size={14} color={colors.text.secondary} />
-          {' '}逐段分析：{completed}/{total} 段完成{failed > 0 ? ` ⚠️ ${failed}段失败` : ''}
+          {' '}逐段分析：{completed}/{total} 段完成{failed > 0 ? ` ${failed}段失败` : ''}
         </Text>
         {etaText ? <Text style={styles.chunkEtaText}>{etaText}</Text> : null}
         {states.map((s, idx) => {
@@ -403,7 +403,7 @@ export function ChatScreen(): React.JSX.Element {
           if (ep.status === 'completed' && ep.scriptContent) {
             s.addLlmMessage(createLlmMessage(discoveredNovelId, 'output', `ep_${ep.episodeNumber}`, ep.scriptContent));
             // 添加剧集标题作为通知
-            s.addLlmMessage(createLlmMessage(discoveredNovelId, 'reasoning', `ep_${ep.episodeNumber}`, `🎬 第 ${ep.episodeNumber} 集 ${ep.title || ''}（已生成）`));
+            s.addLlmMessage(createLlmMessage(discoveredNovelId, 'reasoning', `ep_${ep.episodeNumber}`, `第 ${ep.episodeNumber} 集 ${ep.title || ''}（已生成）`));
           }
         }
       } catch {}
@@ -577,25 +577,25 @@ export function ChatScreen(): React.JSX.Element {
           return;
         }
 
-        setDetail('⏳ 等待 AI 响应...');
+        setDetail('等待 AI 响应...');
         await waitForTask(analysisTask.taskId, (t) => {
           setProgress(t.progress || 0);
           storeGet().updateTaskProgress(novelId, t.progress, t.status, 'analyzing');
-          if (t.progress >= 100) setDetail('✅ 分析完成');
+          if (t.progress >= 100) setDetail('分析完成');
         });
         await updateNovelStatus(novelId, 'analyzed');
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'analyzing', '✅ 小说分析完成'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'analyzing', '小说分析完成'));
         setProgress(0);
 
         // ---- Phase 2: Generate episodes ----
         setStatus('generating');
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'phase_start', 'script_gen', '📝 开始生成剧集...'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'phase_start', 'script_gen', '开始生成剧集...'));
 
         const genRes = await generateEpisodes(novelId);
         const genTaskId = genRes.data.data.taskId;
 
-        setDetail('⏳ 等待 AI 划分剧集...');
+        setDetail('等待 AI 划分剧集...');
         await waitForTask(genTaskId, (t) => {
           setProgress(t.progress || 0);
           setDetail(`生成剧集中 ${t.progress}%`);
@@ -604,7 +604,7 @@ export function ChatScreen(): React.JSX.Element {
         // 等 2 秒让最后一条流式内容有时间显示到 UI 并 flush 到 store
         await new Promise<void>(r => setTimeout(r, 2000));
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 剧集生成完成！'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '剧集生成完成！'));
 
         // ---- Phase 3: Save to local ----
         setStatus('saving');
@@ -637,11 +637,11 @@ export function ChatScreen(): React.JSX.Element {
         }
         storeGet().setNovels(await getNovels());
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 已保存到书架！共 ' + episodes.length + ' 集'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '已保存到书架！共 ' + episodes.length + ' 集'));
         setStatus('done');
         setDetail('全部完成，共 ' + episodes.length + ' 集');
       } catch (err: any) {
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', `❌ ${err?.message || '处理失败'}`));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', `${err?.message || '处理失败'}`));
         setStatus('done');
         setDetail('处理出错');
       } finally {
@@ -838,7 +838,7 @@ export function ChatScreen(): React.JSX.Element {
             onPress={() => setStreamExpanded(prev => !prev)}
           >
             <View style={styles.liveStreamBox}>
-              <Text style={styles.liveStreamLabel}>📝 正在输出...</Text>
+              <Text style={styles.liveStreamLabel}>正在输出...</Text>
               <Text style={styles.liveStreamText} numberOfLines={streamExpanded ? undefined : 4}>
                 {liveText}
               </Text>

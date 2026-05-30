@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
 import { setAuthToken } from '../api/client';
@@ -53,12 +54,12 @@ export function SettingsScreen(): React.JSX.Element {
       title: '信息公示',
       items: [
         {
-          icon: 'ℹ️',
+          icon: 'information-circle',
           label: '关于我们',
           onPress: () => navigation.navigate('About'),
         },
         {
-          icon: '⚙️',
+          icon: 'shield-checkmark',
           label: '算法备案公示',
           onPress: () => navigation.navigate('About'),
         },
@@ -68,7 +69,7 @@ export function SettingsScreen(): React.JSX.Element {
       title: '帮助与反馈',
       items: [
         {
-          icon: '💬',
+          icon: 'chatbubble-ellipses',
           label: '意见反馈',
           onPress: () => navigation.navigate('Feedback'),
         },
@@ -105,7 +106,7 @@ export function SettingsScreen(): React.JSX.Element {
                 onPress={item.onPress}
                 activeOpacity={0.6}
               >
-                <Text style={styles.menuIcon}>{item.icon}</Text>
+                <Ionicons name={item.icon} size={20} color={item.danger ? colors.error : colors.primary} style={styles.menuIcon} />
                 <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>
                   {item.label}
                 </Text>

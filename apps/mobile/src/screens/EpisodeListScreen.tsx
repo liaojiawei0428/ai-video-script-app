@@ -167,7 +167,7 @@ export function EpisodeListScreen(): React.JSX.Element {
         ListFooterComponent={
           episodes.length > 0 ? (
             <TouchableOpacity style={styles.exportButton} onPress={handleExportAll}>
-              <Text style={styles.exportButtonText}>📤 导出全部剧本 (TXT)</Text>
+              <Text style={styles.exportButtonText}>导出全部剧本 (TXT)</Text>
             </TouchableOpacity>
           ) : null
         }
@@ -179,7 +179,7 @@ export function EpisodeListScreen(): React.JSX.Element {
 function AnalysisCard({ analysis }: { analysis: { genre: string; style: string; theme: string; scenes: Scene[]; plotPoints: PlotPoint[] } }) {
   return (
     <View style={styles.analysisCard}>
-      <Text style={styles.analysisTitle}>📊 小说分析</Text>
+      <Text style={styles.analysisTitle}>小说分析</Text>
       <View style={styles.analysisTags}>
         <View style={styles.analysisTag}><Text style={styles.analysisTagText}>{analysis.genre}</Text></View>
         <View style={styles.analysisTag}><Text style={styles.analysisTagText}>{analysis.style}</Text></View>

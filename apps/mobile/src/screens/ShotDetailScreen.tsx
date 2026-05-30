@@ -144,7 +144,7 @@ ${shot.description}${shot.dialogue ? `\n对白：${shot.dialogue}` : ''}${shot.a
           <Text style={styles.shotActionText}>✏️ 编辑</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.shotActionBtn} onPress={() => handleCopyShot(item)}>
-          <Text style={styles.shotActionText}>📋 复制</Text>
+          <Text style={styles.shotActionText}>复制</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -172,14 +172,14 @@ ${shot.description}${shot.dialogue ? `\n对白：${shot.dialogue}` : ''}${shot.a
             <View style={styles.summaryBar}>
               <Text style={styles.summaryTitle}>{episodeTitle}</Text>
               <Text style={styles.summaryMeta}>
-                🎬 {currentShots.length}个镜头 · ⏱️ {Math.floor(totalDuration / 60)}分{Math.round(totalDuration % 60)}秒
+                {currentShots.length}个镜头 · ⏱️ {Math.floor(totalDuration / 60)}分{Math.round(totalDuration % 60)}秒
               </Text>
               <View style={styles.summaryActions}>
                 <TouchableOpacity style={styles.summaryBtn} onPress={handleCopyAll}>
-                  <Text style={styles.summaryBtnText}>📋 复制全部</Text>
+                  <Text style={styles.summaryBtnText}>复制全部</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.summaryBtn} onPress={handleExportTxt}>
-                  <Text style={styles.summaryBtnText}>📤 导出TXT</Text>
+                  <Text style={styles.summaryBtnText}>导出TXT</Text>
                 </TouchableOpacity>
               </View>
             </View>

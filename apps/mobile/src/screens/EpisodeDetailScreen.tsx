@@ -159,9 +159,9 @@ export function EpisodeDetailScreen(): React.JSX.Element {
       });
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       await loadEpisode();
-      setStreamText(prev => prev + '\n✅ 重新生成完成');
+      setStreamText(prev => prev + '\n重新生成完成');
     } catch (err: any) {
-      setStreamText(prev => prev + `\n❌ 重新生成失败：${err?.message || '网络错误'}`);
+      setStreamText(prev => prev + `\n重新生成失败：${err?.message || '网络错误'}`);
     } finally {
       setRegenerating(false);
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -187,7 +187,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
     }
     setGenerating(true);
     setShotContent('');
-    setStreamText('🎬 AI 正在分析剧本，生成镜头描述...\n');
+    setStreamText('AI 正在分析剧本，生成镜头描述...\n');
 
     let wsConnected = false;
     try {
