@@ -272,7 +272,7 @@ export function ChatScreen(): React.JSX.Element {
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const MAX_RECONNECTS = 5;
 
-  const [status, setStatus] = useState<'idle' | 'analyzing' | 'generating' | 'saving' | 'done'>(
+  const [status, setStatus] = useState<'idle' | 'analyzing' | 'generating' | 'saving' | 'done' | 'error'>(
     novelId ? 'analyzing' : 'idle'
   );
   const [progress, setProgress] = useState(0);
@@ -282,12 +282,14 @@ export function ChatScreen(): React.JSX.Element {
   const [streamExpanded, setStreamExpanded] = useState(true); // 流式内容是否展开
   const [detail, setDetail] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const currentStepIdx = STEPS.findIndex(s => {
     if (status === 'idle' || status === 'analyzing') return s.key === 'analyzing';
     if (status === 'generating') return s.key === 'script_gen';
     if (status === 'saving') return s.key === 'saving';
     if (status === 'done') return s.key === 'done';
+    if (status === 'error') return s.key === 'analyzing';
     return 0;
   });
 
@@ -344,8 +346,31 @@ export function ChatScreen(): React.JSX.Element {
       accumulatedRef.current = '';
       setStatus(novelId ? 'analyzing' : 'idle');
       setProgress(0);
+      setErrorMsg('');
     }
   }, [novelId]);
+
+  // 重置到初始状态
+  const resetToIdle = useCallback(() => {
+    pipelineRef.current = false;
+    storeGet().clearLlmMessages();
+    storeGet().clearChunkStreams();
+    setLiveText('');
+    accumulatedRef.current = '';
+    setStatus('idle');
+    setProgress(0);
+    setTotalEpisodes(0);
+    setCurrentEpisode(0);
+    setEpisodeTitle('');
+    setDetail('');
+    setErrorMsg('');
+    setStreamExpanded(true);
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    navigation.goBack();
+  }, [navigation]);
 
   // 定时轮询余额（WebSocket 更新失败时兜底）
   useEffect(() => {
@@ -501,6 +526,19 @@ export function ChatScreen(): React.JSX.Element {
                 }
               }
             } else if (data.type === 'progress') {
+              // 检测错误状态
+              if (data.status === 'error') {
+                setStatus('error');
+                setErrorMsg(data.detail || '任务已终止');
+                if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+                if (accumulatedRef.current) {
+                  s.addLlmMessage(createLlmMessage(novelId, 'output', currentStreamPhase || 'script_gen', accumulatedRef.current));
+                  accumulatedRef.current = '';
+                  currentStreamPhase = '';
+                }
+                setLiveText('');
+                return;
+              }
               // 完成时，先flush最后一集的流式内容到store
               if (data.status === 'completed' && accumulatedRef.current) {
                 if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
@@ -885,9 +923,19 @@ export function ChatScreen(): React.JSX.Element {
         }}
       />
 
-      <View style={styles.bottomBar}>
-        <Text style={styles.bottomBarText}>{detail || '上传小说后将自动处理'}</Text>
-      </View>
+      {status === 'error' ? (
+        <View style={styles.errorBar}>
+          <Ionicons name="alert-circle" size={20} color={colors.error} />
+          <Text style={styles.errorText}>{errorMsg || '任务已终止'}</Text>
+          <TouchableOpacity style={styles.errorBtn} onPress={resetToIdle}>
+            <Text style={styles.errorBtnText}>确认返回</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.bottomBar}>
+          <Text style={styles.bottomBarText}>{detail || '上传小说后将自动处理'}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -965,6 +1013,13 @@ const styles = StyleSheet.create({
 
   bottomBar: { padding: spacing.md, backgroundColor: colors.bg.secondary, borderTopWidth: 1, borderTopColor: colors.border, alignItems: 'center' },
   bottomBarText: { fontSize: 13, color: colors.text.secondary },
+  errorBar: {
+    padding: spacing.md, backgroundColor: colors.bg.secondary, borderTopWidth: 1, borderTopColor: colors.error,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+  },
+  errorText: { flex: 1, fontSize: 13, color: colors.error },
+  errorBtn: { backgroundColor: colors.primary, borderRadius: radii.sm, paddingHorizontal: 16, paddingVertical: 8 },
+  errorBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
 
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   emptyIcon: { fontSize: 56, marginBottom: spacing.md },
