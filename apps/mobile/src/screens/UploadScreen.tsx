@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
-import { apiClient, getAuthToken } from '../api/client';
+import { apiClient, getAuthToken, estimateFee } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveNovel } from '../db/sqlite';
 import { API_BASE_URL } from '../config';
@@ -20,6 +20,26 @@ export function UploadScreen(): React.JSX.Element {
   const [fileInfo, setFileInfo] = useState<{ name: string; size: number } | null>(null);
   const [uri, setUri] = useState<string | null>(null);
   const toast = useToast();
+  const [feeInfo, setFeeInfo] = useState<{ amount: number; unitPrice: number; sufficient: boolean } | null>(null);
+
+  useEffect(() => {
+    if (fileInfo && isLoggedIn) {
+      // 中文UTF-8每字符约3字节，估算字数
+      const estimatedChars = Math.round(fileInfo.size / 3);
+      estimateFee(estimatedChars)
+        .then(r => {
+          const d = r.data?.data;
+          if (d) {
+            setFeeInfo({
+              amount: d.amount ?? d.total ?? 0,
+              unitPrice: d.unitPrice ?? 0.012,
+              sufficient: d.sufficient ?? ((d.balance || 0) >= (d.total || 0)),
+            });
+          }
+        })
+        .catch(() => setFeeInfo(null));
+    }
+  }, [fileInfo, isLoggedIn]);
 
   const pickDocument = async () => {
     try {
@@ -131,16 +151,16 @@ export function UploadScreen(): React.JSX.Element {
           novelTitle: novel.title,
           genre: '',
           taskId,
-          status: 'running',
+          status: 'queued',
           progress: 0,
           phase: 'analyzing',
         });
       }
 
-      toast.show('已提交分析，可在「书架」查看进度', '📤');
+      toast.show('已提交，正在跳转到进度页...', '📤');
       setTimeout(() => {
-        navigation.navigate('Bookshelf');
-      }, 1200);
+        navigation.navigate('Chat', { novelId, novelTitle: novel.title });
+      }, 800);
     } catch (error) {
       Alert.alert('上传失败', typeof error === 'object' && error !== null ? ((error as any).message || JSON.stringify(error)) : String(error || '未知错误'));
     } finally {
@@ -184,14 +204,30 @@ export function UploadScreen(): React.JSX.Element {
       </TouchableOpacity>
 
       {fileInfo && (
-        <GradientButton
+        <>
+          {feeInfo && (
+            <View style={styles.feeCard}>
+              <Text style={styles.feeLabel}>预计费用</Text>
+              <Text style={[styles.feeAmount, !feeInfo.sufficient && styles.feeInsufficient]}>
+                ¥{feeInfo.amount.toFixed(2)}
+              </Text>
+              <Text style={styles.feeUnit}>
+                ¥{feeInfo.unitPrice}/千字 · {(fileInfo.size / 1000).toFixed(0)}千字
+              </Text>
+              {!feeInfo.sufficient && (
+                <Text style={styles.feeWarning}>⚠️ 余额不足，请先充值</Text>
+              )}
+            </View>
+          )}
+          <GradientButton
           title={uploading ? `上传中 ${uploadProgress}%` : '开始上传并分析'}
           onPress={startUpload}
           loading={uploading}
           disabled={uploading}
           style={{ marginBottom: spacing.lg }}
         />
-      )}
+          </>
+        )}
 
       <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
         <Text style={styles.infoTitle}>自动流程</Text>
@@ -239,4 +275,16 @@ const styles = StyleSheet.create({
   fileSize: { ...typography.caption, color: colors.text.tertiary },
   infoTitle: { ...typography.h3, color: colors.text.primary, marginBottom: spacing.sm },
   infoItem: { ...typography.body, lineHeight: 22, marginBottom: spacing.xs },
+  feeCard: {
+    backgroundColor: colors.bg.secondary,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  feeLabel: { ...typography.caption, color: colors.text.tertiary, marginBottom: 4 },
+  feeAmount: { fontSize: 28, fontWeight: '800', color: colors.accent },
+  feeInsufficient: { color: colors.error },
+  feeUnit: { ...typography.caption, color: colors.text.tertiary, marginTop: 4 },
+  feeWarning: { ...typography.caption, color: colors.error, marginTop: 6, fontWeight: '600' },
 });

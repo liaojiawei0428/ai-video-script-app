@@ -6,6 +6,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import { getEpisode, updateEpisode, getShots, generateShots as apiGenerateShots, getTaskProgress, regenerateEpisode as apiRegenerateEpisode } from '../api/client';
 import { updateEpisodeSqlite, saveShots } from '../db/sqlite';
 import { WS_BASE_URL } from '../config';
+import { useNovelStore } from '../store/useNovelStore';
 import { GlassCard, GradientButton } from '../components';
 import { colors, spacing, radii, typography } from '../theme';
 import type { EpisodeDetailRouteProp, NavigationProp } from '../types/navigation';
@@ -61,6 +62,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
   const [regenerating, setRegenerating] = useState(false);
   const [episodeStatus, setEpisodeStatus] = useState<string>('');
   const [streamText, setStreamText] = useState('');
+  const [editing, setEditing] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamScrollRef = useRef<ScrollView>(null);
@@ -145,7 +147,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
             }
           } catch {}
         };
-        ws.onerror = () => {};
+        ws.onerror = () => { setStreamText(prev => prev + '\n[连接异常，任务仍在后台进行]'); };
         ws.onclose = () => { wsRef.current = null; };
       }
       await apiRegenerateEpisode(episodeId);
@@ -291,19 +293,39 @@ export function EpisodeDetailScreen(): React.JSX.Element {
             <View style={styles.regeneratingBox}>
               <Text style={styles.regeneratingText}>{streamText}</Text>
             </View>
+          ) : editing ? (
+            <TextInput
+              style={styles.editorInput}
+              value={scriptContent}
+              onChangeText={setScriptContent}
+              multiline
+              textAlignVertical="top"
+              placeholder="输入剧本内容..."
+              placeholderTextColor={colors.text.tertiary}
+            />
           ) : scriptContent ? (
             <EpisodeScriptView content={scriptContent} />
           ) : (
             <Text style={styles.placeholderText}>暂无剧集内容</Text>
           )}
 
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
-            {saving ? (
-              <ActivityIndicator size="small" color={colors.text.inverse} />
-            ) : (
-              <Text style={styles.saveBtnText}>保存修改</Text>
-            )}
-          </TouchableOpacity>
+          <View style={styles.editSaveRow}>
+            <TouchableOpacity
+              style={[styles.editBtn, editing && styles.editBtnActive]}
+              onPress={() => setEditing(!editing)}
+            >
+              <Text style={[styles.editBtnText, editing && styles.editBtnTextActive]}>
+                {editing ? '预览' : '编辑'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+              {saving ? (
+                <ActivityIndicator size="small" color={colors.text.inverse} />
+              ) : (
+                <Text style={styles.saveBtnText}>保存修改</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </GlassCard>
 
         <GradientButton
@@ -345,14 +367,38 @@ const styles = StyleSheet.create({
   retryBtn: { backgroundColor: colors.warning, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   retryBtnText: { ...typography.tag, color: colors.bg.primary },
   saveBtn: {
+    flex: 1,
     marginTop: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.accent,
+    backgroundColor: colors.accent,
     paddingVertical: spacing.sm + 2,
     alignItems: 'center',
   },
-  saveBtnText: { ...typography.h3, color: colors.accent },
+  saveBtnText: { ...typography.h3, color: colors.text.inverse },
+  editSaveRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  editBtn: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+  },
+  editBtnActive: { borderColor: colors.accent, backgroundColor: colors.accent + '20' },
+  editBtnText: { ...typography.h3, color: colors.text.secondary },
+  editBtnTextActive: { color: colors.accent },
+  editorInput: {
+    backgroundColor: colors.bg.tertiary,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    color: colors.text.primary,
+    ...typography.body,
+    lineHeight: 22,
+    minHeight: 300,
+    maxHeight: 600,
+  },
   regeneratingBox: {
     backgroundColor: colors.bg.tertiary,
     borderRadius: radii.md,

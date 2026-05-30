@@ -199,14 +199,23 @@ ${shot.description}${shot.dialogue ? `\n对白：${shot.dialogue}` : ''}${shot.a
               <Text style={styles.modalTitle}>编辑镜头</Text>
               {editingShot && (
                 <>
-                  <Text style={styles.label}>时长（秒）</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={String(editingShot.durationSec || '')}
-                    onChangeText={t => setEditingShot({ ...editingShot, durationSec: parseFloat(t) || 0 })}
-                    keyboardType="numeric"
-                  />
-                  <Text style={styles.label}>景别</Text>
+                   <Text style={styles.label}>时长（秒）</Text>
+                   <TextInput
+                     style={styles.input}
+                     value={String(editingShot.durationSec || '')}
+                     onChangeText={t => setEditingShot({ ...editingShot, durationSec: parseFloat(t) || 0 })}
+                     keyboardType="numeric"
+                   />
+                   <Text style={styles.label}>场景类型（INT/EXT）</Text>
+                   <TextInput style={styles.input} value={editingShot.sceneType || ''}
+                     onChangeText={t => setEditingShot({ ...editingShot, sceneType: t })} placeholder="INT / EXT" />
+                   <Text style={styles.label}>地点</Text>
+                   <TextInput style={styles.input} value={editingShot.location || ''}
+                     onChangeText={t => setEditingShot({ ...editingShot, location: t })} />
+                   <Text style={styles.label}>时间（日/夜/晨/昏）</Text>
+                   <TextInput style={styles.input} value={editingShot.timeOfDay || ''}
+                     onChangeText={t => setEditingShot({ ...editingShot, timeOfDay: t })} placeholder="日 / 夜 / 晨 / 昏" />
+                   <Text style={styles.label}>景别</Text>
                   <TextInput style={styles.input} value={editingShot.cameraAngle || ''}
                     onChangeText={t => setEditingShot({ ...editingShot, cameraAngle: t })} />
                   <Text style={styles.label}>运镜</Text>

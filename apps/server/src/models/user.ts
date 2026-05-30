@@ -52,6 +52,38 @@ export class UserModel {
       [amount, Date.now(), id]);
   }
 
+  async updateVipLevel(id: string, level: number): Promise<void> {
+    await execute('UPDATE users SET vip_level = ?, updated_at = ? WHERE id = ?',
+      [level, Date.now(), id]);
+  }
+
+  async updateVip(id: string, level: number, expiresAt: number): Promise<void> {
+    await execute('UPDATE users SET vip_level = ?, vip_expires_at = ?, updated_at = ? WHERE id = ?',
+      [level, expiresAt, Date.now(), id]);
+  }
+
+  async clearVip(id: string): Promise<void> {
+    await execute('UPDATE users SET vip_level = 0, vip_expires_at = NULL, updated_at = ? WHERE id = ?',
+      [Date.now(), id]);
+  }
+
+  async setRole(id: string, role: string): Promise<void> {
+    await execute('UPDATE users SET role = ?, updated_at = ? WHERE id = ?',
+      [role, Date.now(), id]);
+  }
+
+  async countAll(): Promise<number> {
+    const row = await queryOne<any>('SELECT COUNT(*) as c FROM users');
+    return row?.c || 0;
+  }
+
+  async countToday(): Promise<number> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const row = await queryOne<any>('SELECT COUNT(*) as c FROM users WHERE created_at >= ?', [today.getTime()]);
+    return row?.c || 0;
+  }
+
   async incrementGenerations(id: string): Promise<void> {
     await execute('UPDATE users SET total_generations = total_generations + 1, updated_at = ? WHERE id = ?',
       [Date.now(), id]);
@@ -72,6 +104,9 @@ export class UserModel {
       avatarUrl: row.avatar_url || '',
       balance: parseFloat(row.balance || '0'),
       totalGenerations: row.total_generations || 0,
+      vipLevel: row.vip_level || 0,
+      vipExpiresAt: row.vip_expires_at || undefined,
+      role: row.role || 'user',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

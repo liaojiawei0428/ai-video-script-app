@@ -1,4 +1,5 @@
-import { deepseekService } from './deepseek';
+import { deepseekPool } from './deepseekPool';
+import { billingService } from './billingService';
 import { websocketService } from './websocket';
 import {
   chunkAnalysisSystemPrompt,
@@ -12,9 +13,9 @@ import { Chunk, ChunkSummary, ChunkStatus, ChunkProgress } from '../shared/types
 import { logger } from '../utils/logger';
 import { NovelService } from './novelService';
 
-const MAX_CHUNK_SIZE = 80000;
+const MAX_CHUNK_SIZE = 400000;
 const OVERLAP_CHARS = 300;
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = parseInt(process.env.CHUNK_CONCURRENT || '10', 10);
 const MAX_RETRIES = 3;
 
 export class ChunkService {
@@ -140,12 +141,15 @@ export class ChunkService {
         }
         try {
           let chunkContent = '';
-          await deepseekService.chatCompletionStreamWithMessages(
+          await deepseekPool.chatCompletionStreamWithMessages(
             [
               { role: 'system', content: chunkAnalysisSystemPrompt },
               { role: 'user', content: chunkAnalysisUserPrompt(chunk.content) },
             ],
             (token) => {
+              if (NovelService.isCancelled(novelId)) {
+                throw new Error('CANCELLED_BY_USER');
+              }
               chunkContent += token;
               websocketService.broadcastChunkStream(novelId, chunk.index, token);
             },
@@ -174,6 +178,10 @@ export class ChunkService {
           break;
         } catch (error) {
           lastError = error instanceof Error ? error.message : String(error);
+          if (lastError.includes('CANCELLED_BY_USER')) {
+            logger.info('Chunk analysis aborted by user cancel', { chunkIndex: chunk.index });
+            break;
+          }
           logger.warn('Chunk analysis failed, retrying', {
             chunkIndex: chunk.index,
             attempt,
@@ -189,6 +197,12 @@ export class ChunkService {
       if (!success) {
         state.status = 'failed';
         state.error = lastError;
+        summaries.push({
+          index: chunk.index,
+          content: '',
+          failed: true,
+          error: lastError,
+        });
         completedCount++;
         chunkTimestamps.push(Date.now() - chunkStartTime);
         logger.error('Chunk analysis exhausted retries', {
@@ -230,7 +244,7 @@ export class ChunkService {
     logger.info('All chunks analyzed', {
       total,
       completed: summaries.length,
-      failed: total - summaries.length,
+      failed: summaries.filter(s => s.failed).length,
     });
 
     return summaries;
@@ -239,38 +253,60 @@ export class ChunkService {
   /**
    * 一次性合并所有块摘要为全文摘要
    */
-  async mergeSummaries(summaries: ChunkSummary[]): Promise<string> {
+  async mergeSummaries(summaries: ChunkSummary[], novelId?: string): Promise<string> {
     const sorted = [...summaries].sort((a, b) => a.index - b.index);
 
-    // 标记缺失段
+    const validSummaries = sorted.filter(s => !s.failed && s.content);
     const failedSummaries = sorted.filter(s => s.failed);
+
+    if (validSummaries.length === 0) {
+      logger.warn('All chunk analyses failed, returning empty summary', {
+        totalChunks: sorted.length,
+        failedCount: failedSummaries.length,
+        errors: failedSummaries.slice(0, 3).map(s => s.error),
+      });
+      return `（分析异常：${sorted.length} 个段落全部分析失败，可能因 API 连接不稳定导致，请稍后重新分析。）`;
+    }
+
     const failedNote = failedSummaries.length > 0
       ? `\n\n注意：以下段落分析失败，无数据：第 ${failedSummaries.map(s => s.index).join('、')} 段`
       : '';
 
-    const summariesText = sorted
-      .filter(s => !s.failed && s.content)
+    const summariesText = validSummaries
       .map(s => `【第 ${s.index} 段摘要】\n${s.content}`)
       .join('\n\n---\n\n') + failedNote;
 
     logger.info('Merging summaries', {
       totalCount: sorted.length,
-      validCount: sorted.filter(s => !s.failed).length,
+      validCount: validSummaries.length,
+      failedCount: failedSummaries.length,
       totalChars: summariesText.length,
     });
 
-    const result = await deepseekService.chatCompletion(
-      chunkMergeSystemPrompt,
-      chunkMergeUserPrompt(summariesText),
-      0.3
-    );
+    try {
+      if (novelId) {
+        // 计费统一在 novelService 中进行
+      }
+      const result = await deepseekPool.chatCompletion(
+        chunkMergeSystemPrompt,
+        chunkMergeUserPrompt(summariesText),
+        0.3
+      );
 
-    logger.info('Summaries merged', {
-      outputLength: result.content.length,
-      tokens: result.totalTokens,
-    });
+      logger.info('Summaries merged', {
+        outputLength: result.content.length,
+        tokens: result.totalTokens,
+      });
 
-    return result.content;
+      return result.content;
+    } catch (mergeError) {
+      logger.error('Merge summaries failed, returning partial result', {
+        error: mergeError instanceof Error ? mergeError.message : String(mergeError),
+        validCount: validSummaries.length,
+      });
+      return validSummaries.map(s => s.content).join('\n\n---\n\n') +
+        '\n\n（合并阶段失败，以上为各段直接摘要。）';
+    }
   }
 
   private emitProgress(

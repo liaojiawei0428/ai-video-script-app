@@ -12,7 +12,9 @@ router.post('/login', userController.login);
 router.get('/profile', authMiddleware, userController.getProfile);
 router.put('/profile', authMiddleware, userController.updateProfile);
 router.put('/password', authMiddleware, userController.changePassword);
-router.post('/recharge', authMiddleware, userController.recharge);
+router.get('/pricing', authMiddleware, userController.getPricing);
+router.get('/billing', authMiddleware, userController.getBillingLogs);
+router.post('/vip/buy', authMiddleware, userController.buyVip);
 router.get('/usage', authMiddleware, userController.getUsage);
 
 export default router;

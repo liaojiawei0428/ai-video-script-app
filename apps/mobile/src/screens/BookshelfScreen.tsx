@@ -26,6 +26,7 @@ const COVER_COLORS: Array<[string, string]> = [
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   pending: { label: '等待处理', color: colors.warning },
+  queued: { label: '排队中', color: '#FDCB6E' },
   analyzing: { label: 'AI 分析中', color: colors.accent },
   analyzed: { label: '待生成剧本', color: colors.accent },
   generating: { label: '生成剧集中', color: colors.accent },
@@ -51,7 +52,7 @@ function CoverGradient({ colors: [c1, c2], char }: { colors: [string, string]; c
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] || { label: status || '未知', color: '#999' };
-  const isActive = status === 'analyzing' || status === 'generating';
+  const isActive = status === 'analyzing' || status === 'generating' || status === 'queued';
 
   return (
     <View style={styles.statusBadge}>
@@ -65,8 +66,18 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function NovelProgress({ status }: { status: string }) {
+function NovelProgress({ status, queuePos }: { status: string; queuePos?: number }) {
   if (status === 'completed' || status === 'failed' || status === 'error') return null;
+  if (status === 'queued') {
+    return (
+      <View style={styles.progressSection}>
+        <PulseProgressBar height={3} />
+        <Text style={styles.progressText}>
+          {queuePos ? `排队中（第 ${queuePos} 位）` : '排队等待中'}
+        </Text>
+      </View>
+    );
+  }
   return (
     <View style={styles.progressSection}>
       <PulseProgressBar height={3} />
@@ -79,7 +90,7 @@ function NovelProgress({ status }: { status: string }) {
 
 export function BookshelfScreen(): React.JSX.Element {
   const navigation = useNavigation<NavigationProp & NativeStackNavigationProp<RootStackParamList>>();
-  const { novels, setNovels, removeNovel, isLoggedIn } = useNovelStore();
+  const { novels, setNovels, removeNovel, isLoggedIn, queueStatus } = useNovelStore();
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -99,7 +110,7 @@ export function BookshelfScreen(): React.JSX.Element {
     setLoading(false);
   }, [setNovels]);
 
-  const hasActiveNovels = novels.some(n => n.status === 'analyzing' || n.status === 'generating' || n.status === 'pending');
+  const hasActiveNovels = novels.some(n => n.status === 'analyzing' || n.status === 'generating' || n.status === 'pending' || n.status === 'queued');
 
   useFocusEffect(useCallback(() => {
     fetchNovels();
@@ -136,6 +147,8 @@ export function BookshelfScreen(): React.JSX.Element {
   const renderItem = ({ item, index }: { item: any; index: number }) => {
     const status = item.status || 'pending';
     const [c1, c2] = getGradient(item.title);
+    const qInfo = queueStatus[item.id];
+    const queuePos = qInfo?.position || 0;
 
     return (
       <TouchableOpacity
@@ -155,7 +168,7 @@ export function BookshelfScreen(): React.JSX.Element {
           <View style={styles.cardBody}>
             <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
             {item.genre ? <Tag text={item.genre} color={c1} style={{ marginBottom: spacing.sm }} /> : null}
-            <NovelProgress status={status} />
+            <NovelProgress status={status} queuePos={queuePos} />
             <StatusBadge status={status} />
           </View>
         </GlassCard>

@@ -164,8 +164,23 @@ export interface User {
   avatarUrl: string;
   balance: number;
   totalGenerations: number;
+  vipLevel: number;
+  vipExpiresAt?: number;
+  role: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface BillingLog {
+  id: string;
+  userId: string;
+  type: 'charge' | 'consumption' | 'refund';
+  amount: number;
+  balanceAfter: number;
+  novelId?: string;
+  description: string;
+  wordCount: number;
+  createdAt: number;
 }
 
 // ── 通用类型 ──

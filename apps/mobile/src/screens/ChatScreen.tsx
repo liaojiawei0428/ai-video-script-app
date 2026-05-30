@@ -26,6 +26,7 @@ type FlatItem =
   | { type: 'summary'; key: string }
   | { type: 'chunk_progress'; key: string }
   | { type: 'awaiting'; key: string }
+  | { type: 'ep_header'; key: string; label: string }
   | { type: 'ep_collapsible'; key: string; epNum: string; text: string };
 
 // ===== Memoized sub-components =====
@@ -238,6 +239,8 @@ export function ChatScreen(): React.JSX.Element {
   const [progress, setProgress] = useState(0);
   const [totalEpisodes, setTotalEpisodes] = useState(0);
   const [currentEpisode, setCurrentEpisode] = useState(0);
+  const [episodeTitle, setEpisodeTitle] = useState(''); // 当前集标题
+  const [streamExpanded, setStreamExpanded] = useState(true); // 流式内容是否展开
   const [detail, setDetail] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -255,22 +258,41 @@ export function ChatScreen(): React.JSX.Element {
 
   // 仅在用户在底部时才自动滚动
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const autoScrollRef = useRef(false);
+  const autoScrollRef = useRef(true); // 默认启用自动滚动
+  const userScrolledRef = useRef(false); // 用户是否手动滚动过
+
   const handleScroll = (e: any) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const atBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 60;
     setIsAtBottom(atBottom);
+    
+    // 用户手动滚动到底部时，重新启用自动滚动
+    if (atBottom && userScrolledRef.current) {
+      autoScrollRef.current = true;
+      userScrolledRef.current = false;
+    }
+    // 用户手动滚动离开底部时，禁用自动滚动
+    if (!atBottom) {
+      userScrolledRef.current = true;
+      autoScrollRef.current = false;
+    }
   };
-  useEffect(() => {
-    if (isAtBottom) autoScrollRef.current = true;
-  }, [isAtBottom]);
+
   // 流式内容或消息变化时自动滚动到底部
   const messagesLen = messages.length;
   useEffect(() => {
-    if (autoScrollRef.current && (messagesLen > 0 || liveText || status !== 'idle')) {
+    // 流式输出时：展开状态下自动滚动，收起时不滚动
+    if (liveText) {
+      if (streamExpanded) {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }
+      return;
+    }
+    // 非流式内容：按用户滚动状态决定
+    if (autoScrollRef.current && (messagesLen > 0 || status !== 'idle')) {
       scrollRef.current?.scrollToEnd({ animated: true });
     }
-  }, [messagesLen, liveText, status]);
+  }, [messagesLen, liveText, status, streamExpanded]);
 
   // 当 novelId 变化时重置所有状态，确保重新进入分析流程
   useEffect(() => {
@@ -283,10 +305,21 @@ export function ChatScreen(): React.JSX.Element {
       accumulatedRef.current = '';
       setStatus(novelId ? 'analyzing' : 'idle');
       setProgress(0);
-      setTotalEpisodes(0);
-      setCurrentEpisode(0);
-      setDetail('');
     }
+  }, [novelId]);
+
+  // 定时轮询余额（WebSocket 更新失败时兜底）
+  useEffect(() => {
+    if (!novelId) return;
+    const timer = setInterval(async () => {
+      try {
+        const { getProfile } = require('../api/client');
+        const res = await getProfile();
+        const user = res?.data?.data?.user;
+        if (user) storeGet().setUserInfo(user);
+      } catch {}
+    }, 10000);
+    return () => clearInterval(timer);
   }, [novelId]);
 
   // 自动恢复：无 novelId 时查询服务端是否有进行中的小说
@@ -373,6 +406,7 @@ export function ChatScreen(): React.JSX.Element {
 
         // 每个连接的独立缓冲区（对标 EpisodeDetailScreen 的 shotBuffer 模式）
         let streamBuffer = '';
+        let currentStreamPhase = ''; // 跟踪当前流式输出对应的phase
         let flushTimer: ReturnType<typeof setTimeout> | null = null;
         const flushStream = () => {
           if (streamBuffer) {
@@ -399,6 +433,7 @@ export function ChatScreen(): React.JSX.Element {
               if (data.stream) {
                 accumulatedRef.current += (data.content || '');
                 streamBuffer += (data.content || '');
+                currentStreamPhase = data.phase; // 记录当前流式输出的phase
                 if (!flushTimer) {
                   flushTimer = setTimeout(flushStream, 100);
                 } else if (streamBuffer.length > 300) {
@@ -407,20 +442,34 @@ export function ChatScreen(): React.JSX.Element {
                 }
               } else {
                 if (flushTimer) { clearTimeout(flushTimer); flushStream(); }
-                // 将累积的流式内容写入 store 作为完整消息
+                // 将累积的流式内容写入 store 作为完整消息（使用正确的phase）
                 if (accumulatedRef.current) {
-                  s.addLlmMessage(createLlmMessage(novelId, 'output', data.phase, accumulatedRef.current));
+                  s.addLlmMessage(createLlmMessage(novelId, 'output', currentStreamPhase || data.phase, accumulatedRef.current));
                   accumulatedRef.current = '';
+                  currentStreamPhase = '';
                   setLiveText('');
                 }
-                // 添加通知消息
+                // 添加通知消息（ep_阶段的reasoning不存入store，避免显示在剧本框）
                 if (data.content) {
-                  s.addLlmMessage(createLlmMessage(novelId,
-                    data.step === 'reasoning' ? 'reasoning' : 'output',
-                    data.phase, data.content, data.tokens));
+                  if (data.step === 'reasoning' && data.phase?.startsWith('ep_')) {
+                    // 更新当前集标题显示
+                    setEpisodeTitle(data.content);
+                  } else {
+                    s.addLlmMessage(createLlmMessage(novelId,
+                      data.step === 'reasoning' ? 'reasoning' : 'output',
+                      data.phase, data.content, data.tokens));
+                  }
                 }
               }
             } else if (data.type === 'progress') {
+              // 完成时，先flush最后一集的流式内容到store
+              if (data.status === 'completed' && accumulatedRef.current) {
+                if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+                s.addLlmMessage(createLlmMessage(novelId, 'output', currentStreamPhase || 'script_gen', accumulatedRef.current));
+                accumulatedRef.current = '';
+                currentStreamPhase = '';
+                setLiveText('');
+              }
               s.updateTaskProgress(novelId, data.progress, data.status, data.phase || 'unknown');
               if (data.totalEpisodes) setTotalEpisodes(data.totalEpisodes);
               if (data.currentEpisode) setCurrentEpisode(data.currentEpisode);
@@ -435,6 +484,14 @@ export function ChatScreen(): React.JSX.Element {
               chunkStreamBuf[idx] = (chunkStreamBuf[idx] || '') + data.content;
               if (!chunkStreamTimer) {
                 chunkStreamTimer = setTimeout(flushChunkStreams, 300);
+              }
+            } else if (data.type === 'queue_status') {
+              s.setQueueStatus(novelId, data.position || 0, data.runningCount || 0, data.waitingCount || 0);
+            } else if (data.type === 'balance_update') {
+              const bal = data.balance;
+              const info = s.userInfo;
+              if (info && typeof bal === 'number') {
+                s.setUserInfo({ ...info, balance: bal });
               }
             }
           } catch { /* ignore */ }
@@ -489,7 +546,7 @@ export function ChatScreen(): React.JSX.Element {
         });
         await updateNovelStatus(novelId, 'analyzed');
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 小说分析完成'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'analyzing', '✅ 小说分析完成'));
         setProgress(0);
 
         // ---- Phase 2: Generate episodes ----
@@ -505,14 +562,8 @@ export function ChatScreen(): React.JSX.Element {
           setDetail(`生成剧集中 ${t.progress}%`);
         });
 
-        // 等 1.5 秒让最后一条流式内容有时间显示到 UI
-        await new Promise<void>(r => setTimeout(r, 1500));
-
-        // 确保 liveText 还有内容则先保存到 store
-        if (liveText) {
-          storeGet().addLlmMessage(createLlmMessage(novelId, 'output', 'script_gen', liveText));
-          setLiveText('');
-        }
+        // 等 2 秒让最后一条流式内容有时间显示到 UI 并 flush 到 store
+        await new Promise<void>(r => setTimeout(r, 2000));
 
         storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 剧集生成完成！'));
 
@@ -583,16 +634,23 @@ export function ChatScreen(): React.JSX.Element {
   const flatData = useMemo(() => {
     const items: FlatItem[] = [];
     let awaitingAdded = false;
+    let epHeaderAdded = false;
+    const deferredHints: FlatItem[] = []; // 延迟到剧集后面显示的提示
+
     for (const phase of allPhases) {
       const msgs = (grouped[phase] || []).sort((a, b) => a.timestamp - b.timestamp);
 
       if (phase.startsWith('ep_')) {
         const epNum = phase.split('_')[1];
         const outputs = msgs.filter(m => m.type === 'output');
-        const reasoning = msgs.find(m => m.type === 'reasoning');
         const content = outputs.map(m => m.content).join('');
-        if (content || reasoning) {
-          items.push({ type: 'ep_collapsible', key: phase, epNum, text: content || (reasoning?.content || '') });
+        // 在第一个剧集前添加剧集标题（只显示episodeTitle）
+        if (!epHeaderAdded && totalEpisodes > 0 && episodeTitle) {
+          items.push({ type: 'ep_header', key: 'ep_header', label: episodeTitle });
+          epHeaderAdded = true;
+        }
+        if (content) {
+          items.push({ type: 'ep_collapsible', key: phase, epNum, text: content });
         }
         continue;
       }
@@ -603,7 +661,6 @@ export function ChatScreen(): React.JSX.Element {
       }
 
       if (msgs.length === 0) {
-        // 只添加一个 awaiting 块，不重复加多个空框
         if (!awaitingAdded && status === 'analyzing') {
           items.push({ type: 'awaiting', key: 'awaiting' });
           awaitingAdded = true;
@@ -619,16 +676,25 @@ export function ChatScreen(): React.JSX.Element {
       for (const m of msgs) {
         const isStreaming = phase === 'script_gen' && m.type === 'reasoning';
         if (isStreaming) continue;
-        if (m.type === 'phase_start' || m.type === 'completed') {
+        // 分析完成提示放在分析框后面（同阶段内）
+        if (m.type === 'completed' && phase === 'analyzing') {
           items.push({ type: 'hint', key: m.id, content: m.content });
+        } else if (m.type === 'phase_start' && phase === 'script_gen') {
+          // 开始生成剧集 → 延迟到所有剧集后面
+          deferredHints.push({ type: 'hint', key: m.id, content: m.content });
+        } else if (m.type === 'completed' && phase === 'completed') {
+          // 剧集完成、保存完成 → 延迟到所有剧集后面
+          deferredHints.push({ type: 'hint', key: m.id, content: m.content });
         } else {
           items.push({ type: 'msg', key: m.id, m });
         }
       }
     }
+    // 延迟的提示放在剧集后面
+    items.push(...deferredHints);
     if (status === 'done') items.push({ type: 'summary', key: 'summary' });
     return items;
-  }, [allPhases, messages, status, chunkProgress]);
+  }, [allPhases, messages, status, chunkProgress, totalEpisodes, currentEpisode, episodeTitle]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -676,7 +742,11 @@ export function ChatScreen(): React.JSX.Element {
         {status === 'generating' && totalEpisodes > 0 && (
           <View style={styles.episodeCounter}>
             <Text style={styles.episodeCounterText}>
-              📝 剧本生成中：第 {currentEpisode} / {totalEpisodes} 集
+              {currentEpisode > 0 && currentEpisode < totalEpisodes
+                ? `正在生成第 ${currentEpisode + 1} 集（已完成 ${currentEpisode}/${totalEpisodes}）`
+                : currentEpisode >= totalEpisodes
+                  ? `全部 ${totalEpisodes} 集生成完毕`
+                  : `准备生成（共 ${totalEpisodes} 集）`}
             </Text>
           </View>
         )}
@@ -724,10 +794,18 @@ export function ChatScreen(): React.JSX.Element {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6C5CE7" />
         }
         ListFooterComponent={liveText ? (
-          <View style={styles.liveStreamBox}>
-            <Text style={styles.liveStreamLabel}>📝 正在输出...</Text>
-            <Text style={styles.liveStreamText}>{liveText}</Text>
-          </View>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => setStreamExpanded(prev => !prev)}
+          >
+            <View style={styles.liveStreamBox}>
+              <Text style={styles.liveStreamLabel}>📝 正在输出...</Text>
+              <Text style={styles.liveStreamText} numberOfLines={streamExpanded ? undefined : 4}>
+                {liveText}
+              </Text>
+              <Text style={styles.collapsibleToggle}>{streamExpanded ? '▲ 收起' : '▼ 展开全部'}</Text>
+            </View>
+          </TouchableOpacity>
         ) : null}
         renderItem={({ item }) => {
           switch (item.type) {
@@ -750,6 +828,8 @@ export function ChatScreen(): React.JSX.Element {
               );
             case 'ep_collapsible':
               return <CollapsibleBlock title={`📝 第 ${item.epNum} 集剧本`} text={item.text} color="#5856D6" />;
+            case 'ep_header':
+              return <Text style={styles.epHeaderText}>{item.label}</Text>;
             case 'summary':
               return <SummaryBlock />;
             default:
@@ -804,6 +884,7 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 16, paddingBottom: 40 },
   phaseBlock: { marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#2A2A2A' },
   phaseTitle: { fontSize: 15, fontWeight: '700', color: '#007AFF', marginBottom: 8 },
+  epHeaderText: { fontSize: 14, fontWeight: '700', color: '#FF9F0A', marginBottom: 8, marginTop: 4 },
 
   collapsible: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8, borderLeftWidth: 3 },
   collapsibleTitle: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
@@ -824,7 +905,7 @@ const styles = StyleSheet.create({
 
   liveStreamBox: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9F0A' },
   liveStreamLabel: { fontSize: 11, fontWeight: '600', color: '#FF9F0A', marginBottom: 4 },
-  liveStreamText: { fontSize: 12, color: '#DDD', lineHeight: 17, fontFamily: 'monospace' },
+  liveStreamText: { fontSize: 12, color: '#DDD', lineHeight: 18, fontFamily: 'monospace' },
   summaryBlock: { backgroundColor: '#1A2A1A', borderRadius: 12, padding: 16, marginTop: 8 },
   summaryTitle: { fontSize: 16, fontWeight: '700', color: '#34C759', marginBottom: 8 },
   summaryItem: { fontSize: 13, color: '#34C759', marginBottom: 4 },

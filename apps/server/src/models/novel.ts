@@ -40,7 +40,7 @@ export class NovelModel {
        scenes = ?, plot_points = ?, updated_at = ?
        WHERE id = ?`,
       [analysis.genre || '', analysis.theme || '', analysis.style || '', analysis.tone || '',
-       JSON.stringify(analysis.scenes), JSON.stringify(analysis.plotPoints),
+       JSON.stringify(analysis.scenes ?? []), JSON.stringify(analysis.plotPoints ?? []),
        Date.now(), id]
     );
   }
@@ -49,6 +49,13 @@ export class NovelModel {
     await execute(
       'UPDATE novels SET full_summary = ?, updated_at = ? WHERE id = ?',
       [fullSummary, Date.now(), id]
+    );
+  }
+
+  async updateAnalysisReport(id: string, analysisReport: string): Promise<void> {
+    await execute(
+      'UPDATE novels SET analysis_report = ?, updated_at = ? WHERE id = ?',
+      [analysisReport, Date.now(), id]
     );
   }
 
@@ -73,6 +80,7 @@ export class NovelModel {
       scenes: typeof row.scenes === 'string' ? JSON.parse(row.scenes || '[]') : (row.scenes || []),
       plotPoints: typeof row.plot_points === 'string' ? JSON.parse(row.plot_points || '[]') : (row.plot_points || []),
       fullSummary: row.full_summary || '',
+      analysisReport: row.analysis_report || '',
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

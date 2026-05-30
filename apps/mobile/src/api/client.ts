@@ -100,6 +100,12 @@ export const analyzeNovel = (novelId: string) =>
 export const getNovelAnalysis = (novelId: string) =>
   apiClient.get(`/novels/${novelId}/analysis`);
 
+export const updateNovel = (novelId: string, data: { genre?: string; theme?: string; style?: string; tone?: string }) =>
+  apiClient.put(`/novels/${novelId}`, data);
+
+export const updateCharacter = (characterId: string, data: { name?: string; appearance?: string; personality?: string; roleType?: string }) =>
+  apiClient.put(`/novels/characters/${characterId}`, data);
+
 // ---- Tasks ----
 
 export const getTaskProgress = (taskId: string) =>
@@ -152,11 +158,87 @@ export const updateProfile = (data: { nickname?: string; avatarUrl?: string }) =
 export const changePassword = (oldPassword: string, newPassword: string) =>
   apiClient.put('/users/password', { oldPassword, newPassword });
 
-export const recharge = () =>
-  apiClient.post('/users/recharge');
+// ---- Recharge ----
+
+export const getQrCode = () =>
+  apiClient.get('/recharge/qrcode');
+
+export const submitRecharge = (amount: number) =>
+  apiClient.post('/recharge/submit', { amount });
+
+export const getRechargeHistory = () =>
+  apiClient.get('/recharge/my');
+
+export const getPricing = () =>
+  apiClient.get('/users/pricing');
+
+export const getBillingLogs = () =>
+  apiClient.get('/users/billing');
+
+// ---- Admin ----
+
+export const adminLogin = (username: string, password: string) =>
+  apiClient.post('/admin/login', { username, password });
+
+export const adminDashboard = () =>
+  apiClient.get('/admin/dashboard');
+
+export const adminOrders = (status: string = 'pending') =>
+  apiClient.get(`/admin/orders?status=${status}`);
+
+export const adminApprove = (id: string) =>
+  apiClient.post(`/admin/orders/${id}/approve`);
+
+export const adminReject = (id: string, remark?: string) =>
+  apiClient.post(`/admin/orders/${id}/reject`, { remark });
+
+export const adminUsers = () =>
+  apiClient.get('/admin/users');
+
+export const adminFeedbacks = (status?: string) =>
+  apiClient.get(`/feedback/admin/list${status ? `?status=${status}` : ''}`);
+
+export const adminReadFeedback = (id: string) =>
+  apiClient.post(`/feedback/admin/${id}/read`);
+
+export const adminReplyFeedback = (id: string, reply: string) =>
+  apiClient.post(`/feedback/admin/${id}/reply`, { reply });
 
 export const getUsage = () =>
   apiClient.get('/users/usage');
+
+export const buyVip = () =>
+  apiClient.post('/users/vip/buy');
+
+// ---- Billing ----
+
+export const estimateFee = (wordCount: number) =>
+  apiClient.get(`/novels/estimate-fee?wordCount=${wordCount}`);
+
+// ---- Feedback ----
+
+export const submitFeedback = (content: string, contact?: string) =>
+  apiClient.post('/feedback', { content, contact });
+
+export const getMyFeedbacks = () =>
+  apiClient.get('/feedback/my');
+
+// ---- Notifications ----
+
+export const getNotifications = () =>
+  apiClient.get('/notifications');
+
+export const getUnreadCount = () =>
+  apiClient.get('/notifications/unread-count');
+
+export const markNotificationRead = (id: string) =>
+  apiClient.post(`/notifications/${id}/read`);
+
+export const markAllNotificationsRead = () =>
+  apiClient.post('/notifications/read-all');
+
+export const sendAnnouncement = (title: string, content: string) =>
+  apiClient.post('/notifications/admin/announcement', { title, content });
 
 // ---- Export ----
 

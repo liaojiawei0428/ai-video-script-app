@@ -14,7 +14,7 @@ export async function getDb(): Promise<Pool> {
     password: config.mysql.password,
     database: config.mysql.database,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 25,
     queueLimit: 0,
     charset: 'utf8mb4',
     connectTimeout: 10000,
@@ -51,10 +51,10 @@ async function initTables(): Promise<void> {
       file_path TEXT,
       total_chars INT DEFAULT 0,
       total_words INT DEFAULT 0,
-      genre VARCHAR(100) DEFAULT '',
-      theme VARCHAR(255) DEFAULT '',
-      style VARCHAR(100) DEFAULT '',
-      tone VARCHAR(100) DEFAULT '',
+      genre VARCHAR(200) DEFAULT '',
+      theme VARCHAR(500) DEFAULT '',
+      style VARCHAR(500) DEFAULT '',
+      tone VARCHAR(500) DEFAULT '',
       scenes JSON,
       plot_points JSON,
       status VARCHAR(20) DEFAULT 'pending',
@@ -168,28 +168,54 @@ async function initTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // AI 任务队列（持久化队列，替代内存 requestQueue）
+  // 兼容迁移：添加 INDEX
+  try { await db.execute('ALTER TABLE task_jobs ADD INDEX idx_tasks_status (status)'); } catch {}
+  try { await db.execute('ALTER TABLE task_jobs ADD INDEX idx_tasks_novel (novel_id)'); } catch {}
+
+  // ======== 用户角色 ========
+  try { await db.execute("ALTER TABLE users ADD COLUMN role VARCHAR(10) DEFAULT 'user'"); } catch {}
+
+  // ======== 充值申请记录 ========
   await db.execute(`
-    CREATE TABLE IF NOT EXISTS ai_task_queue (
+    CREATE TABLE IF NOT EXISTS recharge_requests (
       id VARCHAR(36) PRIMARY KEY,
-      novel_id VARCHAR(36) NOT NULL,
-      task_type VARCHAR(30) NOT NULL,
-      status VARCHAR(20) DEFAULT 'queued',
-      priority INT DEFAULT 0,
-      params JSON,
-      result_data LONGTEXT,
-      error_msg TEXT,
+      user_id VARCHAR(36) NOT NULL,
+      username VARCHAR(100) DEFAULT '',
+      amount DECIMAL(10,2) NOT NULL,
+      status ENUM('pending','approved','rejected') DEFAULT 'pending',
+      remark VARCHAR(500) DEFAULT '',
+      ip VARCHAR(50) DEFAULT '',
+      ip_location VARCHAR(100) DEFAULT '',
       created_at BIGINT DEFAULT 0,
-      started_at BIGINT DEFAULT 0,
-      completed_at BIGINT DEFAULT 0,
-      INDEX idx_queue_status (status),
-      INDEX idx_queue_novel (novel_id)
+      updated_at BIGINT DEFAULT 0,
+      INDEX idx_rr_user (user_id),
+      INDEX idx_rr_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 兼容迁移：添加 INDEX
-  try { await db.execute('ALTER TABLE ai_task_queue ADD INDEX idx_queue_status (status)'); } catch {}
-  try { await db.execute('ALTER TABLE ai_task_queue ADD INDEX idx_queue_novel (novel_id)'); } catch {}
+  // ======== 计费系统 ========
+
+  // 添加 vip_level 列（套餐用户标记：0=普通，1=套餐）
+  try { await db.execute("ALTER TABLE users ADD COLUMN vip_level TINYINT DEFAULT 0"); } catch {}
+  // 添加 vip_expires_at 列（VIP 到期时间戳，毫秒）
+  try { await db.execute("ALTER TABLE users ADD COLUMN vip_expires_at BIGINT DEFAULT NULL"); } catch {}
+
+  // 计费记录表
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS billing_logs (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      type ENUM('charge','consumption','refund') NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      balance_after DECIMAL(10,2) NOT NULL,
+      novel_id VARCHAR(36) DEFAULT '',
+      description VARCHAR(500) DEFAULT '',
+      word_count INT DEFAULT 0,
+      created_at BIGINT DEFAULT 0,
+      INDEX idx_billing_user (user_id),
+      INDEX idx_billing_time (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 }
 
 // 辅助函数：执行 SQL 并返回单行
@@ -211,4 +237,11 @@ export async function execute(sql: string, params: any[] = []): Promise<ResultSe
   const p = await getDb();
   const [result] = await p.execute<ResultSetHeader>(sql, params);
   return result;
+}
+
+// 使用 pool.query 替代 execute（解决 ENUM 列参数化查询兼容问题）
+export async function poolQuery<T = RowDataPacket>(sql: string, params: any[] = []): Promise<T[]> {
+  const p = await getDb();
+  const [rows] = await p.query(sql, params);
+  return rows as T[];
 }

@@ -1,10 +1,13 @@
 import { episodeModel } from '../models/episode';
 import { novelModel } from '../models/novel';
+import { userModel } from '../models/user';
+import { billingService } from './billingService';
 import { shotModel } from '../models/shot';
 import { characterModel } from '../models/character';
 import { taskJobModel } from '../models/taskJob';
-import { deepseekService } from './deepseek';
+import { deepseekPool } from './deepseekPool';
 import { websocketService } from './websocket';
+import { taskQueue } from './taskQueue';
 import { generateUUID } from '../shared/utils';
 import { Episode, Novel, Scene, PlotPoint, Shot, TaskJob } from '../shared/types';
 import { episodeScriptSystemPrompt } from '../prompts/episodeGeneration';
@@ -24,11 +27,19 @@ export class ScriptService {
     const novel = await novelModel.findById(novelId);
     if (!novel?.filePath) throw new AppError('NOVEL_NOT_FOUND', 'Novel not found or no content', 404);
 
+    if (taskQueue.isQueuedOrRunning(novelId)) {
+      const existingTaskId = taskQueue.getExistingTaskId(novelId);
+      if (existingTaskId) {
+        const existing = await taskJobModel.findById(existingTaskId);
+        if (existing) return existing;
+      }
+    }
+
     const task: TaskJob = {
       id: generateUUID(),
       novelId,
       type: 'episode_generate',
-      status: 'running',
+      status: 'queued',
       progress: 0,
       totalSteps: 5,
       currentStep: 0,
@@ -40,8 +51,7 @@ export class ScriptService {
     await taskJobModel.updateProgress(task.id, 1, 1);
     await novelModel.updateStatus(novelId, 'generating');
 
-    // 后台异步执行所有耗时操作，不阻塞 HTTP 返回
-    this.executeEpisodeGeneration(novel, task.id, targetDuration);
+    taskQueue.enqueue(novelId, novel.userId || '', task.id, () => this.executeEpisodeGeneration(novel, task.id, targetDuration));
 
     return task;
   }
@@ -148,24 +158,31 @@ ${previousEnding || '（本集为第一集，无前情提要）'}
 ${episodeText}`;
 
         const epPhase = `ep_${plan.episodeNumber}`;
+        // 通知APP端清空上一集的流式内容（不发送实际内容，避免显示在剧本框）
         websocketService.broadcastLlmUpdate(novelId, {
           phase: epPhase, step: 'reasoning',
-          content: `🎬 第 ${plan.episodeNumber}/${totalEpisodes} 集`,
+          content: '',
           stream: false,
         });
 
         // 流式调用（独立请求，不复用历史）
+        // 每集开始前扣费
+        await billingService.chargeStep(novelId, 'episode', episodeText.length);
+
         let episodeScript = '';
         let streamSucceeded = false;
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             episodeScript = '';
-            await deepseekService.chatCompletionStreamWithMessages(
+            await deepseekPool.chatCompletionStreamWithMessages(
               [
                 { role: 'system', content: episodeScriptSystemPrompt },
                 { role: 'user', content: episodeReq },
               ],
               (chunk) => {
+                if (NovelService.isCancelled(novelId)) {
+                  throw new Error('CANCELLED_BY_USER');
+                }
                 episodeScript += chunk;
                 websocketService.broadcastLlmUpdate(novelId, {
                   phase: epPhase, step: 'output', content: chunk,
@@ -182,9 +199,14 @@ ${episodeText}`;
               novelId, episodeNumber: plan.episodeNumber, attempt, length: episodeScript.length,
             });
           } catch (streamErr) {
+            const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+            if (errMsg.includes('CANCELLED_BY_USER')) {
+              logger.info('Episode generation cancelled by user', { novelId, episodeNumber: plan.episodeNumber });
+              break;
+            }
             logger.warn('Episode stream failed, retrying', {
               novelId, episodeNumber: plan.episodeNumber, attempt,
-              error: streamErr instanceof Error ? streamErr.message : String(streamErr),
+              error: errMsg,
             });
             if (attempt < 3) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
           }
@@ -272,8 +294,8 @@ ${episodeText}`;
         websocketService.broadcastProgress(novelId, pct, 'generating', { totalEpisodes, currentEpisode: i + 1 });
       }
 
-      // ========== 完成（延迟 2 秒确保流式内容已推送完毕）==========
-      await new Promise(r => setTimeout(r, 2000));
+      // ========== 完成（延迟 5 秒确保最后一集流式内容已推送完毕）==========
+      await new Promise(r => setTimeout(r, 5000));
       const allEpisodes = await episodeModel.findByNovelId(novelId);
       const failedCount = allEpisodes.filter(e => e.status === 'failed').length;
       await taskJobModel.complete(taskId, { episodeCount: allEpisodes.length, failedCount });
@@ -281,6 +303,7 @@ ${episodeText}`;
         totalEpisodes: allEpisodes.length, currentEpisode: allEpisodes.length, failedCount,
       });
       await novelModel.updateStatus(novelId, 'completed');
+      try { await userModel.incrementGenerations(novel.userId || ''); } catch {}
       logger.info('Episode generation completed', {
         novelId, taskId, episodeCount: allEpisodes.length, failedCount,
       });
@@ -375,16 +398,21 @@ ${episodeText}`;
         stream: false,
       });
 
+      await billingService.chargeStep(novelId, 'episode', episodeText.length);
+
       let scriptText = '';
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           scriptText = '';
-          await deepseekService.chatCompletionStreamWithMessages(
+          await deepseekPool.chatCompletionStreamWithMessages(
             [
               { role: 'system', content: '【重要】所有对话和输出必须使用中文。你是专业编剧。' },
               { role: 'user', content: episodeReq },
             ],
             (chunk) => {
+              if (NovelService.isCancelled(novelId)) {
+                throw new Error('CANCELLED_BY_USER');
+              }
               scriptText += chunk;
               websocketService.broadcastLlmUpdate(novelId, {
                 phase: epPhase, step: 'output', content: chunk,
@@ -395,9 +423,14 @@ ${episodeText}`;
           );
           if (scriptText.trim().length > 50) break;
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg.includes('CANCELLED_BY_USER')) {
+            logger.info('Regeneration cancelled by user', { novelId, episodeId: episode.id });
+            break;
+          }
           logger.warn('Regeneration attempt failed', {
             episodeId: episode.id, attempt,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMsg,
           });
           if (attempt < 3) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
         }
@@ -436,11 +469,19 @@ ${episodeText}`;
     const episode = await episodeModel.findById(episodeId);
     if (!episode) throw new AppError('NOVEL_NOT_FOUND', 'Episode not found', 404);
 
+    if (taskQueue.isQueuedOrRunning(episode.novelId)) {
+      const existingTaskId = taskQueue.getExistingTaskId(episode.novelId);
+      if (existingTaskId) {
+        const existing = await taskJobModel.findById(existingTaskId);
+        if (existing) return existing;
+      }
+    }
+
     const task: TaskJob = {
       id: generateUUID(),
       novelId: episode.novelId,
       type: 'shot_generate',
-      status: 'running',
+      status: 'queued',
       progress: 0,
       totalSteps: 2,
       currentStep: 0,
@@ -450,8 +491,7 @@ ${episodeText}`;
 
     await taskJobModel.create(task);
 
-    // 后台异步执行，不阻塞 HTTP 返回（避免客户端30秒超时）
-    this.executeShotGeneration(episodeId, task.id);
+    taskQueue.enqueue(episode.novelId, '', task.id, () => this.executeShotGeneration(episodeId, task.id));
 
     return task;
   }
@@ -472,13 +512,18 @@ ${episodeText}`;
         stream: false,
       });
 
+      await billingService.chargeStep(episode.novelId, 'shot');
+
       // 使用流式 API 逐 token 推送分镜头内容
       let shotContent = '';
       try {
-        await deepseekService.chatCompletionStreamWithRetry(
+        await deepseekPool.chatCompletionStreamWithRetry(
           shotGenerationSystemPrompt,
           shotGenerationUserPrompt(episode.scriptContent, JSON.stringify(characters), JSON.stringify({ location: episode.sceneLocation })),
           (chunk) => {
+            if (NovelService.isCancelled(episode.novelId)) {
+              throw new Error('CANCELLED_BY_USER');
+            }
             shotContent += chunk;
             websocketService.broadcastLlmUpdate(episode.novelId, {
               phase: 'shot_gen', step: 'output',

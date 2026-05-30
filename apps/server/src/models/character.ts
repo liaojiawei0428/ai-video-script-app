@@ -24,6 +24,18 @@ export class CharacterModel {
     }
   }
 
+  async update(id: string, data: Partial<Character>): Promise<void> {
+    const sets: string[] = [];
+    const params: any[] = [];
+    if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
+    if (data.appearance !== undefined) { sets.push('appearance = ?'); params.push(data.appearance); }
+    if (data.personality !== undefined) { sets.push('personality = ?'); params.push(data.personality); }
+    if (data.roleType !== undefined) { sets.push('role_type = ?'); params.push(data.roleType); }
+    if (sets.length === 0) return;
+    params.push(id);
+    await execute(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+
   private mapRowToCharacter(row: any): Character {
     return {
       id: row.id,

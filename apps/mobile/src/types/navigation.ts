@@ -6,6 +6,16 @@ export type RootStackParamList = {
   ScriptDetail: { novelId: string; novelTitle: string };
   EpisodeDetail: { novelId: string; episodeId: string; episodeTitle: string };
   TaskProgress: { novelId: string; novelTitle?: string };
+  Settings: undefined;
+  About: undefined;
+  PrivacyPolicy: undefined;
+  UserAgreement: undefined;
+  Feedback: undefined;
+  Notifications: undefined;
+  Pricing: undefined;
+  Billing: undefined;
+  Recharge: { amount: number };
+  Admin: undefined;
 };
 
 export type TabParamList = {

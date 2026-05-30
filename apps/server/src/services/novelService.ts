@@ -1,10 +1,13 @@
 import { novelModel } from '../models/novel';
 import { characterModel } from '../models/character';
 import { taskJobModel } from '../models/taskJob';
-import { deepseekService } from './deepseek';
+import { userModel } from '../models/user';
+import { billingService } from './billingService';
+import { deepseekPool } from './deepseekPool';
 import { fileParserService } from './fileParser';
 import { websocketService } from './websocket';
 import { chunkService } from './chunkService';
+import { taskQueue } from './taskQueue';
 import { novelAnalysisSystemPrompt, novelAnalysisUserPrompt } from '../prompts/novelAnalysis';
 import { generateUUID } from '../shared/utils';
 import { Novel, TaskJob, ChunkProgress } from '../shared/types';
@@ -71,6 +74,14 @@ export class NovelService {
     if (!novel) throw new AppError('NOVEL_NOT_FOUND', `Novel ${novelId} not found`, 404);
     if (!novel.filePath) throw new AppError('VALIDATION_ERROR', 'Novel file not available', 400);
 
+    if (taskQueue.isQueuedOrRunning(novelId)) {
+      const existingTaskId = taskQueue.getExistingTaskId(novelId);
+      if (existingTaskId) {
+        const existing = await taskJobModel.findById(existingTaskId);
+        if (existing) return existing;
+      }
+    }
+
     const raw = await fs.readFile(novel.filePath);
     let content = iconv.decode(raw, 'utf-8');
     if (content.includes('\uFFFD')) content = iconv.decode(raw, 'gbk');
@@ -79,7 +90,7 @@ export class NovelService {
       id: generateUUID(),
       novelId,
       type: 'analyze',
-      status: 'running',
+      status: 'queued',
       progress: 0,
       totalSteps: 3,
       currentStep: 0,
@@ -90,8 +101,7 @@ export class NovelService {
     await taskJobModel.create(task);
     await novelModel.updateStatus(novelId, 'analyzing');
 
-    // 后台异步执行分析，不阻塞 HTTP 返回
-    this.executeAnalysis(novelId, content, task.id);
+    taskQueue.enqueue(novelId, novel.userId || '', task.id, () => this.executeAnalysis(novelId, content, task.id));
 
     return task;
   }
@@ -99,6 +109,9 @@ export class NovelService {
   private async executeAnalysis(novelId: string, content: string, taskId: string): Promise<void> {
     try {
       logger.info('Starting novel analysis with chunk pipeline', { novelId, taskId, totalChars: content.length });
+
+      // 一次性扣费：按原文总字符数
+      await billingService.chargeStep(novelId, 'analyze', content.length);
 
       // ========== Phase 0-2: 分块管道（非流式，显示进度） ==========
       websocketService.broadcastLlmUpdate(novelId, {
@@ -160,7 +173,7 @@ export class NovelService {
         content: '🔗 正在合并所有段落分析结果...',
       });
 
-      const fullSummary = await chunkService.mergeSummaries(summaries);
+      const fullSummary = await chunkService.mergeSummaries(summaries, novelId);
       logger.info('Full summary generated', { novelId, summaryLength: fullSummary.length });
 
       // 保存全文摘要到数据库
@@ -177,10 +190,13 @@ export class NovelService {
       });
 
       let fullContent = '';
-      await deepseekService.chatCompletionStreamWithRetry(
+      await deepseekPool.chatCompletionStreamWithRetry(
         novelAnalysisSystemPrompt,
         novelAnalysisUserPrompt(fullSummary),
         (chunk) => {
+          if (NovelService.isCancelled(novelId)) {
+            throw new Error('CANCELLED_BY_USER');
+          }
           fullContent += chunk;
           websocketService.broadcastLlmUpdate(novelId, {
             phase: 'analyzing', step: 'reasoning',
@@ -218,10 +234,13 @@ export class NovelService {
     websocketService.broadcastProgress(novelId, 10, 'analyzing');
 
     let fullContent = '';
-    await deepseekService.chatCompletionStreamWithRetry(
+    await deepseekPool.chatCompletionStreamWithRetry(
       novelAnalysisSystemPrompt,
       novelAnalysisUserPrompt(content),
       (chunk) => {
+        if (NovelService.isCancelled(novelId)) {
+          throw new Error('CANCELLED_BY_USER');
+        }
         fullContent += chunk;
         websocketService.broadcastLlmUpdate(novelId, {
           phase: 'analyzing', step: 'reasoning',
@@ -260,10 +279,10 @@ export class NovelService {
       return '';
     };
 
-    const genre = extractLine('📖 类型', '类型');
-    const theme = extractLine('📌 主题', '主题');
-    const style = extractLine('🎨 风格', '风格');
-    const tone = extractLine('💭 基调', '基调');
+    const genre = extractLine('📖 类型', '类型').slice(0, 200);
+    const theme = extractLine('📌 主题', '主题').slice(0, 500);
+    const style = extractLine('🎨 风格', '风格').slice(0, 500);
+    const tone = extractLine('💭 基调', '基调').slice(0, 500);
 
     let roleSection = fullContent.match(/🎭 角色分析：([\s\S]*?)(?=📜|$)/);
     if (!roleSection) roleSection = fullContent.match(/角色分析[：:]([\s\S]*?)(?=\n\n|\n📜|$)/);
@@ -299,6 +318,10 @@ export class NovelService {
       scenes: [], plotPoints: [],
     });
 
+    // 保存完整分析报告文本
+    await novelModel.updateAnalysisReport(novelId, fullContent);
+    logger.info('Analysis report saved', { novelId, reportLength: fullContent.length });
+
     if (parsedChars.length > 0) {
       const characters = parsedChars.map(char => ({
         id: generateUUID(), novelId,
@@ -315,6 +338,11 @@ export class NovelService {
     websocketService.broadcastProgress(novelId, 100, 'completed');
     await taskJobModel.complete(taskId, { genre: saveGenre, theme, style, tone, characterCount: parsedChars.length });
     await novelModel.updateStatus(novelId, 'analyzed');
+
+    try {
+      const novel = await novelModel.findById(novelId);
+      if (novel?.userId) await userModel.incrementGenerations(novel.userId);
+    } catch {}
 
     logger.info('Novel analysis completed', { novelId, taskId });
   }
@@ -333,6 +361,7 @@ export class NovelService {
 
     // 1. 标记取消，让正在运行的后台任务停止 AI 调用
     NovelService.markCancelled(novelId);
+    taskQueue.cancel(novelId);
 
     try {
       // 2. 取消所有正在运行的 task_job

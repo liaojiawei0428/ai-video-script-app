@@ -25,6 +25,8 @@ export interface Novel {
   tone: string;
   scenes?: Scene[];
   plotPoints?: PlotPoint[];
+  fullSummary?: string;
+  analysisReport?: string;
   status: 'pending' | 'analyzing' | 'analyzed' | 'generating' | 'completed' | 'error';
   createdAt: number;
   updatedAt: number;

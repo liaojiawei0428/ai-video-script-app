@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { novelService } from '../services/novelService';
 import { scriptService } from '../services/scriptService';
+import { billingService } from '../services/billingService';
+import { userModel } from '../models/user';
 import { novelModel } from '../models/novel';
 import { episodeModel } from '../models/episode';
 import { characterModel } from '../models/character';
@@ -123,6 +125,8 @@ export const novelController = {
           characters,
           scenes: novel.scenes || [],
           plotPoints: novel.plotPoints || [],
+          analysisReport: (novel as any).analysisReport || '',
+          fullSummary: (novel as any).fullSummary || '',
         },
         meta: {
           timestamp: new Date().toISOString(),
@@ -241,6 +245,39 @@ ${ep.scriptContent || ''}`;
     }
   },
 
+  async estimateFee(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).userId;
+      const wordCount = parseInt(req.query.wordCount as string) || 0;
+      const charCount = parseInt(req.query.charCount as string) || wordCount;
+      const novelId = req.query.novelId as string || '';
+      const estEpisodes = Math.max(1, Math.ceil((charCount || wordCount) / (1050 * 3.5)));
+      
+      let result;
+      if (novelId) {
+        result = await billingService.estimate(novelId, wordCount, estEpisodes);
+      } else {
+        // 从当前登录用户获取余额和VIP状态
+        const user = userId ? await userModel.findById(userId) : null;
+        const vip = user?.vipLevel && user.vipLevel >= 1;
+        const unitPrice = vip ? 0.01 : 0.012;
+        const analyzeFee = Math.max(0.01, Math.round(wordCount * unitPrice / 1000 * 100) / 100);
+        result = { analyzeFee, shotFee: 0, total: analyzeFee, balance: user?.balance || 0, isVip: !!vip };
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          ...result,
+          amount: result.total,
+          unitPrice: result.isVip ? 0.01 : 0.012,
+          sufficient: (result.balance || 0) >= result.total,
+        },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) { next(error); }
+  },
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).userId;
@@ -267,6 +304,36 @@ ${ep.scriptContent || ''}`;
       res.json({
         success: true,
         data: { deleted: true },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateNovel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { novelId } = req.params;
+      const { genre, theme, style, tone } = req.body;
+      await novelModel.updateAnalysis(novelId, { genre, theme, style, tone } as any);
+      res.json({
+        success: true,
+        data: { updated: true },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateCharacter(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { characterId } = req.params;
+      const { name, appearance, personality, roleType } = req.body;
+      await characterModel.update(characterId, { name, appearance, personality, roleType });
+      res.json({
+        success: true,
+        data: { updated: true },
         meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {

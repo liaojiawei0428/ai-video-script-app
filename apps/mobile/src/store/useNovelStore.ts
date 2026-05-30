@@ -46,6 +46,9 @@ export interface UserInfo {
   avatarUrl: string;
   balance: number;
   totalGenerations: number;
+  role?: string;
+  vipLevel?: number;
+  vipExpiresAt?: number;
   createdAt: number;
 }
 
@@ -61,17 +64,17 @@ interface NovelState {
   chunkStreams: Record<number, string>;
   userInfo: UserInfo | null;
   isLoggedIn: boolean;
+  isAdmin: boolean;
+  queueStatus: Record<string, { position: number; runningCount: number; waitingCount: number }>;
 
   setNovels: (novels: Novel[]) => void;
-  setCurrentNovel: (novel: Novel | null) => void;
-  setEpisodes: (episodes: Episode[]) => void;
-  setCharacters: (characters: Character[]) => void;
-  setCurrentShots: (shots: Shot[]) => void;
   addNovel: (novel: Novel) => void;
   removeNovel: (novelId: string) => void;
   addActiveTask: (task: TaskProgress) => void;
   updateTaskProgress: (novelId: string, progress: number, status: string, phase: string) => void;
   removeTask: (novelId: string) => void;
+  setQueueStatus: (novelId: string, position: number, runningCount: number, waitingCount: number) => void;
+  clearQueueStatus: (novelId: string) => void;
   updateEpisode: (episode: Episode) => void;
   updateShot: (shot: Shot) => void;
   addLlmMessage: (msg: LlmMessage) => void;
@@ -83,6 +86,7 @@ interface NovelState {
   clearChunkStreams: () => void;
   setUserInfo: (user: UserInfo | null) => void;
   setLoggedIn: (loggedIn: boolean) => void;
+  setAdmin: (admin: boolean) => void;
   logout: () => void;
 }
 
@@ -100,6 +104,8 @@ export const useNovelStore = create<NovelState>((set) => ({
   chunkStreams: {},
   userInfo: null,
   isLoggedIn: false,
+  isAdmin: false,
+  queueStatus: {},
 
   setNovels: (novels) => set({ novels }),
   setCurrentNovel: (novel) => set({ currentNovel: novel }),
@@ -164,7 +170,28 @@ export const useNovelStore = create<NovelState>((set) => ({
   clearChunkStreams: () => set({ chunkStreams: {} }),
   setUserInfo: (user) => set({ userInfo: user }),
   setLoggedIn: (loggedIn) => set({ isLoggedIn: loggedIn }),
-  logout: () => set({ userInfo: null, isLoggedIn: false }),
+  setAdmin: (admin) => set({ isAdmin: admin }),
+  logout: () => set({ userInfo: null, isLoggedIn: false, isAdmin: false }),
+  setQueueStatus: (novelId, position, runningCount, waitingCount) => set((state) => {
+    const updatedNovels = state.novels.map(n => {
+      if (n.id === novelId && position > 0 && n.status !== 'generating') {
+        return { ...n, status: 'queued' as any };
+      }
+      if (n.id === novelId && position === 0 && (n.status as string) === 'queued') {
+        return { ...n, status: 'analyzing' as any };
+      }
+      return n;
+    });
+    return {
+      queueStatus: { ...state.queueStatus, [novelId]: { position, runningCount, waitingCount } },
+      novels: updatedNovels,
+    };
+  }),
+  clearQueueStatus: (novelId) => set((state) => {
+    const next = { ...state.queueStatus };
+    delete next[novelId];
+    return { queueStatus: next };
+  }),
 }));
 
 export function createLlmMessage(novelId: string, type: LlmMessage['type'], phase: string, content: string, tokens?: number): LlmMessage {

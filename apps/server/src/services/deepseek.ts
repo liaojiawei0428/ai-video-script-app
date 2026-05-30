@@ -1,9 +1,12 @@
 import axios, { AxiosInstance } from 'axios';
+import http from 'http';
+import https from 'https';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
-import { generateUUID } from '../shared/utils';
-import { queryAll, queryOne, execute } from '../models/db';
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50, maxFreeSockets: 10, timeout: 120000 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50, maxFreeSockets: 10, timeout: 120000 });
 
 export interface DeepseekResponse {
   choices: Array<{
@@ -46,97 +49,51 @@ export interface ApiCallRecord {
 export class DeepseekService {
   private client: AxiosInstance;
   private callHistory: ApiCallRecord[] = [];
-  private maxConcurrent = parseInt(process.env.AI_MAX_CONCURRENT || '3', 10);
+  private maxConcurrent = parseInt(process.env.AI_MAX_CONCURRENT || '10', 10);
   private currentConcurrent = 0;
   private requestQueue: Array<() => void> = [];
-  private initialized = false;
 
-  constructor() {
+  constructor(apiKey?: string) {
     this.client = axios.create({
       baseURL: config.deepseekApiUrl,
       headers: {
-        Authorization: `Bearer ${config.deepseekApiKey}`,
+        Authorization: `Bearer ${apiKey || config.deepseekApiKey}`,
         'Content-Type': 'application/json',
       },
-      timeout: 300000,
+      timeout: 120000,
+      httpAgent,
+      httpsAgent,
     });
   }
 
-  /** 初始化：重置所有 processing 状态为 queued（下次启动可恢复） */
-  async initQueue(): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
-    try {
-      await execute(
-        "UPDATE ai_task_queue SET status = 'queued', started_at = 0 WHERE status = 'processing'"
-      );
-      const count = await queryOne<any>(
-        "SELECT COUNT(*) as c FROM ai_task_queue WHERE status = 'queued'"
-      );
-      if (count?.c > 0) {
-        logger.info(`AI queue recovered ${count.c} pending tasks`);
-        // 启动后台恢复
-        this.recoverLoop();
-      }
-    } catch {} // 表可能还不存在
+  setMaxConcurrent(n: number): void {
+    this.maxConcurrent = Math.max(1, n);
   }
 
-  /** 后台恢复：把队列中的任务逐个推入处理 */
-  private async recoverLoop(): Promise<void> {
-    while (true) {
-      await new Promise(r => setTimeout(r, 3000));
-      try {
-        const next = await queryOne<any>(
-          "SELECT id FROM ai_task_queue WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
-        );
-        if (!next) break; // 队列处理完毕
-        // 等待有 slot 后去取
-      } catch { break; }
-    }
+  getMaxConcurrent(): number {
+    return this.maxConcurrent;
   }
 
-  private async acquireSlot(novelId?: string): Promise<void> {
+  getCurrentConcurrent(): number {
+    return this.currentConcurrent;
+  }
+
+  private async acquireSlot(): Promise<void> {
     if (this.currentConcurrent < this.maxConcurrent) {
       this.currentConcurrent++;
       return;
     }
-    // 没有可用 slot，写入 DB 队列后等待
-    const queueId = generateUUID();
-    try {
-      await execute(
-        'INSERT INTO ai_task_queue (id, novel_id, task_type, status, params, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [queueId, novelId || 'unknown', 'ai_call', 'queued', '{}', Date.now()]
-      );
-    } catch {} // 表不可用则降级为内存等待
     return new Promise((resolve) => {
-      this.requestQueue.push(() => {
-        try { execute("UPDATE ai_task_queue SET status='processing', started_at=? WHERE id=?", [Date.now(), queueId]).catch(() => {}); } catch {}
-        resolve();
-      });
+      this.requestQueue.push(resolve);
     });
   }
 
-  private releaseSlot(novelId?: string): void {
+  private releaseSlot(): void {
     if (this.requestQueue.length > 0) {
       const next = this.requestQueue.shift();
       next?.();
     } else {
       this.currentConcurrent--;
-      // 检查 DB 是否有排队任务
-      this.dequeueDbTask().catch(() => {});
-    }
-  }
-
-  /** 从 DB 队列取出下一个任务执行 */
-  private async dequeueDbTask(): Promise<void> {
-    const next = await queryOne<any>(
-      "SELECT id FROM ai_task_queue WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
-    );
-    if (next) {
-      await execute("UPDATE ai_task_queue SET status='processing', started_at=? WHERE id=?", [Date.now(), next.id]);
-      this.currentConcurrent++;
-      this.requestQueue.push(() => {});
-      this.requestQueue.shift()?.(); // 立即执行
     }
   }
 
@@ -158,7 +115,7 @@ export class DeepseekService {
           { role: 'user', content: userPrompt },
         ],
         temperature,
-        max_tokens: 8192,
+        max_tokens: 32768,
       });
 
       const duration = Date.now() - startTime;
@@ -226,7 +183,7 @@ export class DeepseekService {
         model: config.deepseekModel,
         messages,
         temperature,
-        max_tokens: 8192,
+        max_tokens: 32768,
       });
 
       const duration = Date.now() - startTime;
@@ -311,7 +268,7 @@ export class DeepseekService {
           model: config.deepseekModel,
           messages,
           temperature,
-          max_tokens: 8192,
+          max_tokens: 32768,
           stream: true,
         },
         { responseType: 'stream' }
@@ -357,6 +314,9 @@ export class DeepseekService {
         return await this.chatCompletionStream(systemPrompt, userPrompt, onChunk, temperature);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        if (lastError.message.includes('CANCELLED_BY_USER')) {
+          throw lastError;
+        }
         const delay = Math.pow(2, attempt) * 1000;
         logger.warn(`Deepseek stream API retry ${attempt + 1}/${maxRetries}`, { delay, error: lastError.message });
         await this.sleep(delay);
@@ -379,9 +339,9 @@ export class DeepseekService {
   }
 
   private calculateCost(inputTokens: number, outputTokens: number): number {
-    // Deepseek pricing (approximate)
-    const inputCost = (inputTokens / 1000000) * 0.5;
-    const outputCost = (outputTokens / 1000000) * 2.0;
+    // DeepSeek V4 Flash pricing: $0.14 / 1M input, $0.28 / 1M output
+    const inputCost = (inputTokens / 1000000) * 0.14;
+    const outputCost = (outputTokens / 1000000) * 0.28;
     return Math.round((inputCost + outputCost) * 100) / 100;
   }
 

@@ -61,12 +61,20 @@ import taskRoutes from './routes/tasks';
 import episodeRoutes from './routes/episodes';
 import chatRoutes from './routes/chat';
 import userRoutes from './routes/users';
+import rechargeRoutes from './routes/recharge';
+import adminRoutes from './routes/admin';
+import feedbackRoutes from './routes/feedback';
+import notificationRoutes from './routes/notification';
 
 app.use('/api/novels', novelRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/episodes', episodeRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/recharge', rechargeRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/feedback', feedbackRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -78,8 +86,7 @@ server.listen(config.port, '0.0.0.0', () => {
   logger.info(`Server running on port ${config.port} in ${config.nodeEnv} mode`);
   logger.info(`WebSocket server available at ws://0.0.0.0:${config.port}/ws`);
 
-  // 初始化 AI 持久化队列（恢复未完成任务）
-  import('./services/deepseek').then(({ deepseekService }) => {
-    deepseekService.initQueue().catch(e => logger.warn('Queue init skipped', { error: e }));
+  import('./services/deepseekPool').then(({ deepseekPool }) => {
+    logger.info(`Deepseek pool ready: ${deepseekPool.keyCount} key(s), ${deepseekPool.totalMaxConcurrent} total AI slots`);
   });
 });

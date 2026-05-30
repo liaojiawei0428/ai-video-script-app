@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { getEpisodes, getEpisode, getNovelAnalysis } from '../api/client';
+import { getEpisodes, getEpisode, getNovelAnalysis, updateNovel, updateCharacter } from '../api/client';
 import { saveEpisodes, getEpisodes as getLocalEpisodes } from '../db/sqlite';
 import { GlassCard, Tag, SkeletonLoader } from '../components';
 import { colors, spacing, radii, typography } from '../theme';
@@ -19,30 +19,51 @@ export function ScriptDetailScreen(): React.JSX.Element {
   const [loadingEpId, setLoadingEpId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string>('');
+  const [analysisExpanded, setAnalysisExpanded] = useState(false);
+  const [analysisText, setAnalysisText] = useState('');
+  const [editGenre, setEditGenre] = useState('');
+  const [editTheme, setEditTheme] = useState('');
+  const [editStyle, setEditStyle] = useState('');
+  const [editTone, setEditTone] = useState('');
+  const [editChars, setEditChars] = useState<any[]>([]);
+  const [charText, setCharText] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!novelId) return;
     navigation.setOptions({ title: novelTitle || '剧本详情' });
 
     let cancelled = false;
-      // 先尝试本地 SQLite 缓存
-      (async () => {
-        try {
-          const local = await getLocalEpisodes(novelId);
-          if (local && local.length > 0 && !cancelled) {
-            setEpisodes(local);
-          }
-        } catch {}
-      })();
+    (async () => {
+      try {
+        const local = await getLocalEpisodes(novelId);
+        if (local && local.length > 0 && !cancelled) {
+          setEpisodes(local);
+        }
+      } catch {}
+    })();
 
-    // 服务端请求（分别 await，避免 Promise.all 一个挂起全挂）
     (async () => {
       try {
         const epsRes = await getEpisodes(novelId);
         if (cancelled) return;
         const eps = epsRes.data.data.episodes || [];
         setEpisodes(eps);
-        setAnalysis((await getNovelAnalysis(novelId).catch(() => ({ data: { data: {} } }))).data?.data || {});
+        const analysisData = (await getNovelAnalysis(novelId).catch(() => ({ data: { data: {} } }))).data?.data || {};
+        setAnalysis(analysisData);
+        setEditGenre(analysisData.genre || '');
+        setEditTheme(analysisData.theme || '');
+        setEditStyle(analysisData.style || '');
+        setEditTone(analysisData.tone || '');
+        setEditChars((analysisData.characters || []).map((c: any) => ({ ...c })));
+        const roleMap: Record<string, string> = { protagonist: '主角', antagonist: '反派', supporting: '配角', minor: '龙套' };
+        setCharText((analysisData.characters || []).map((c: any) => `${c.name} | ${roleMap[c.roleType] || c.roleType || '配角'} | ${c.personality || ''} | ${c.appearance || ''}`).join('\n\n'));
+        // 优先显示完整分析报告，如果没有则用全文摘要，最后用结构化数据
+        if (analysisData.analysisReport) {
+          setAnalysisText(analysisData.analysisReport);
+        } else if (analysisData.fullSummary) {
+          setAnalysisText(analysisData.fullSummary);
+        }
         await saveEpisodes(eps).catch(() => {});
         if (eps.length === 0) setLoadError('该小说暂无剧集数据');
       } catch (err: any) {
@@ -51,7 +72,6 @@ export function ScriptDetailScreen(): React.JSX.Element {
       if (!cancelled) setLoading(false);
     })();
 
-    // 15 秒超时
     const timeout = setTimeout(() => {
       if (!cancelled) {
         setLoading(false);
@@ -80,7 +100,40 @@ export function ScriptDetailScreen(): React.JSX.Element {
 
   const totalDuration = episodes.reduce((sum: number, ep: any) => sum + (ep.durationSec || 0), 0);
 
-  // novelId 为空时直接显示错误
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const t = analysisText || '';
+      const genre = (t.match(/类型[：:]\s*(.+)/) || [])[1]?.trim() || editGenre;
+      const theme = (t.match(/主题[：:]\s*(.+)/) || [])[1]?.trim() || editTheme;
+      const style = (t.match(/风格[：:]\s*(.+)/) || [])[1]?.trim() || editStyle;
+      const tone = (t.match(/基调[：:]\s*(.+)/) || [])[1]?.trim() || editTone;
+      
+      await updateNovel(novelId, { genre, theme, style, tone });
+      
+      const roleReverseMap: Record<string, string> = { '主角': 'protagonist', '反派': 'antagonist', '配角': 'supporting', '龙套': 'minor' };
+      const charSection = t.split(/角色[：:]/)[1] || t;
+      const charLines = charSection.split('\n').filter(l => l.trim() && !l.match(/^(类型|主题|风格|基调)[：:]/));
+      const origChars = analysis?.characters || [];
+      for (let i = 0; i < charLines.length && i < origChars.length; i++) {
+        const line = charLines[i].replace(/^\d+[\.、]\s*/, '');
+        const parts = line.split('|').map(p => p.trim());
+        if (parts[0]) {
+          await updateCharacter(origChars[i].id, {
+            name: parts[0],
+            roleType: roleReverseMap[parts[1]] || parts[1] || '',
+            personality: parts[2] || '',
+            appearance: parts[3] || '',
+          }).catch(() => {});
+        }
+      }
+      
+      setEditGenre(genre); setEditTheme(theme); setEditStyle(style); setEditTone(tone);
+      setAnalysis({ ...analysis, genre, theme, style, tone });
+    } catch {}
+    setSaving(false);
+  };
+
   if (!novelId) {
     return (
       <View style={styles.container}>
@@ -118,37 +171,9 @@ export function ScriptDetailScreen(): React.JSX.Element {
             {analysis && (
               <GlassCard padded={true} style={{ margin: spacing.md }}>
                 <Text style={styles.analysisTitle}>{novelTitle}</Text>
-                {(analysis.genre || analysis.theme || analysis.style) && (
-                  <View style={styles.tagRow}>
-                    {analysis.genre ? <Tag text={analysis.genre} /> : null}
-                    {analysis.theme ? <Tag text={analysis.theme} color="#00CEC9" /> : null}
-                    {analysis.style ? <Tag text={analysis.style} color="#E17055" /> : null}
-                  </View>
-                )}
-                {analysis.characters?.length > 0 && (
-                  <View style={styles.charSection}>
-                    <Text style={styles.sectionLabel}>角色（{analysis.characters.length}个）</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {analysis.characters.map((c: any, i: number) => (
-                        <View key={i} style={styles.charChip}>
-                          <Text style={styles.charName}>{c.name}</Text>
-                          <Text style={styles.charRole}>{c.role_type || 'unknown'}</Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-                {analysis.plotPoints?.length > 0 && (
-                  <View style={styles.plotSection}>
-                    <Text style={styles.sectionLabel}>剧情大纲</Text>
-                    {analysis.plotPoints.slice(0, 5).map((p: any, i: number) => (
-                      <View key={i} style={styles.plotItem}>
-                        <Text style={styles.plotBullet}>•</Text>
-                        <Text style={styles.plotText}>{p.description}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
+                <Text style={styles.analysisReportText}>
+                  {analysisText || `类型：${editGenre || '—'}\n主题：${editTheme || '—'}\n风格：${editStyle || '—'}\n基调：${editTone || '—'}\n\n角色：\n${charText}`}
+                </Text>
               </GlassCard>
             )}
             {episodes.length > 0 && (
@@ -222,19 +247,44 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
   list: { paddingBottom: 40 },
   analysisTitle: { ...typography.h2, marginBottom: spacing.sm },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  charSection: { marginBottom: spacing.md },
-  sectionLabel: { ...typography.h3, color: colors.text.secondary, marginBottom: spacing.sm },
-  charChip: {
-    backgroundColor: colors.bg.tertiary,
-    borderRadius: radii.md,
-    padding: spacing.sm + 2,
-    marginRight: spacing.sm,
-    minWidth: 70,
-    alignItems: 'center',
+  analysisReportText: { ...typography.body, color: colors.text.secondary, lineHeight: 22 },
+  editLabel: { ...typography.caption, color: colors.text.secondary, marginTop: spacing.sm, marginBottom: spacing.xs },
+  editInput: {
+    backgroundColor: colors.bg.secondary,
+    borderRadius: radii.sm,
+    padding: spacing.sm,
+    color: colors.text.primary,
+    fontSize: 14,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  charName: { ...typography.h3, color: colors.text.primary },
-  charRole: { ...typography.caption, color: colors.text.tertiary, marginTop: 2 },
+  editRow: { flexDirection: 'row', gap: spacing.sm },
+  charTextBox: {
+    backgroundColor: colors.bg.secondary,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    color: colors.text.primary,
+    ...typography.body,
+    lineHeight: 22,
+    minHeight: 120,
+    maxHeight: 400,
+    textAlignVertical: 'top',
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  expandBtn: { paddingVertical: spacing.sm, alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: spacing.sm },
+  expandText: { ...typography.caption, color: colors.accent, fontWeight: '600' },
+  analysisTextBox: { backgroundColor: colors.bg.secondary, borderRadius: radii.md, padding: spacing.sm, color: colors.text.primary, ...typography.body, lineHeight: 22, minHeight: 150, maxHeight: 500, textAlignVertical: 'top' },
+  saveBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm + 2,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  saveBtnText: { ...typography.h3, color: colors.text.inverse },
   plotSection: { marginBottom: spacing.xs },
   plotItem: { flexDirection: 'row', marginBottom: spacing.xs },
   plotBullet: { fontSize: 14, color: colors.accent, marginRight: spacing.sm, marginTop: -1 },

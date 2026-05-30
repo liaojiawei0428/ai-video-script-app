@@ -13,6 +13,16 @@ import { UploadScreen } from './src/screens/UploadScreen';
 import { ScriptDetailScreen } from './src/screens/ScriptDetailScreen';
 import { EpisodeDetailScreen } from './src/screens/EpisodeDetailScreen';
 import { TaskProgressScreen } from './src/screens/TaskProgressScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
+import { AboutScreen } from './src/screens/AboutScreen';
+import { PrivacyPolicyScreen } from './src/screens/PrivacyPolicyScreen';
+import { UserAgreementScreen } from './src/screens/UserAgreementScreen';
+import { FeedbackScreen } from './src/screens/FeedbackScreen';
+import { PricingScreen } from './src/screens/PricingScreen';
+import { BillingScreen } from './src/screens/BillingScreen';
+import { RechargeScreen } from './src/screens/RechargeScreen';
+import { AdminDashboard } from './src/screens/AdminDashboard';
+import { NotificationScreen } from './src/screens/NotificationScreen';
 import { ToastProvider } from './src/components';
 import { useNovelStore } from './src/store/useNovelStore';
 import { setAuthToken, getProfile } from './src/api/client';
@@ -127,24 +137,29 @@ function HomeTabs() {
 }
 
 function App(): React.JSX.Element {
-  // APP 启动时恢复 token，有 token 就立即登录（不等待网络验证）
+  const isAdmin = useNovelStore(s => s.isAdmin);
+
   useEffect(() => {
     (async () => {
       const token = await getToken();
       if (!token) return;
       setAuthToken(token);
       useNovelStore.getState().setLoggedIn(true);
-      // getProfile 仅用于加载用户信息，失败不影响登录状态（除非 401）
       try {
         const res = await getProfile();
         if (res.data?.data?.user) {
-          useNovelStore.getState().setUserInfo(res.data.data.user);
+          const user = res.data.data.user;
+          useNovelStore.getState().setUserInfo(user);
+          if (user.role === 'admin') {
+            useNovelStore.getState().setAdmin(true);
+          }
         }
       } catch (err: any) {
         if (err?.response?.status === 401) {
           await deleteToken();
           setAuthToken(null);
           useNovelStore.getState().setLoggedIn(false);
+          useNovelStore.getState().setAdmin(false);
         }
       }
     })();
@@ -155,55 +170,53 @@ function App(): React.JSX.Element {
       <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
       <ToastProvider>
         <NavigationContainer>
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.bg.primary },
-            }}
-          >
-            <Stack.Screen name="HomeTabs" component={HomeTabs} />
-            <Stack.Screen
-              name="ScriptDetail"
-              component={ScriptDetailScreen}
-              options={{
-                headerShown: true,
-                title: '剧本详情',
-                headerBackTitle: '返回',
-                headerStyle: { backgroundColor: colors.bg.secondary },
-                headerTintColor: colors.text.primary,
-                headerTitleStyle: { color: colors.text.primary },
-              }}
-            />
-            <Stack.Screen
-              name="EpisodeDetail"
-              component={EpisodeDetailScreen}
-              options={{
-                headerShown: true,
-                title: '剧集内容',
-                headerBackTitle: '返回',
-                headerStyle: { backgroundColor: colors.bg.secondary },
-                headerTintColor: colors.text.primary,
-                headerTitleStyle: { color: colors.text.primary },
-              }}
-            />
-            <Stack.Screen
-              name="TaskProgress"
-              component={TaskProgressScreen}
-              options={{
-                headerShown: true,
-                title: '任务进度',
-                headerBackTitle: '返回',
-                headerStyle: { backgroundColor: colors.bg.secondary },
-                headerTintColor: colors.text.primary,
-                headerTitleStyle: { color: colors.text.primary },
-              }}
-            />
-          </Stack.Navigator>
+          {isAdmin ? <AdminStack /> : <UserStack />}
           <LoginGuard />
         </NavigationContainer>
       </ToastProvider>
     </SafeAreaProvider>
   );
+}
+
+function AdminStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg.primary } }}>
+      <Stack.Screen name="AdminDashboard" component={AdminDashboard} options={{ title: '管理后台' }} />
+    </Stack.Navigator>
+  );
+}
+
+function UserStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg.primary } }}
+    >
+      <Stack.Screen name="HomeTabs" component={HomeTabs} />
+      <Stack.Screen name="ScriptDetail" component={ScriptDetailScreen} options={detailOptions('剧本详情')} />
+      <Stack.Screen name="EpisodeDetail" component={EpisodeDetailScreen} options={detailOptions('剧集内容')} />
+      <Stack.Screen name="TaskProgress" component={TaskProgressScreen} options={detailOptions('任务进度')} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={detailOptions('设置')} />
+      <Stack.Screen name="About" component={AboutScreen} options={detailOptions('关于')} />
+      <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} options={detailOptions('隐私政策')} />
+      <Stack.Screen name="UserAgreement" component={UserAgreementScreen} options={detailOptions('协议')} />
+      <Stack.Screen name="Feedback" component={FeedbackScreen} options={detailOptions('反馈')} />
+      <Stack.Screen name="Notifications" component={NotificationScreen} options={detailOptions('系统消息')} />
+      <Stack.Screen name="Pricing" component={PricingScreen} options={detailOptions('收费标准')} />
+      <Stack.Screen name="Billing" component={BillingScreen} options={detailOptions('交易记录')} />
+      <Stack.Screen name="Recharge" component={RechargeScreen} options={detailOptions('充值')} />
+    </Stack.Navigator>
+  );
+}
+
+function detailOptions(title: string) {
+  return {
+    headerShown: true,
+    title,
+    headerBackTitle: '返回',
+    headerStyle: { backgroundColor: colors.bg.secondary },
+    headerTintColor: colors.text.primary,
+    headerTitleStyle: { color: colors.text.primary },
+  };
 }
 
 export default App;

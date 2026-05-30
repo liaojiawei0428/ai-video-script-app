@@ -130,6 +130,26 @@ export class WebSocketService {
     });
   }
 
+  broadcastQueueStatus(novelId: string, position: number, runningCount: number, waitingCount: number): void {
+    this.broadcastToNovel(novelId, {
+      type: 'queue_status',
+      novelId,
+      position,
+      runningCount,
+      waitingCount,
+      timestamp: Date.now(),
+    });
+  }
+
+  broadcastBalanceUpdate(novelId: string, balance: number): void {
+    this.broadcastToNovel(novelId, {
+      type: 'balance_update',
+      novelId,
+      balance,
+      timestamp: Date.now(),
+    });
+  }
+
   private async sendProgressSnapshot(ws: WebSocket, novelId: string): Promise<void> {
     try {
       const novel = await novelModel.findById(novelId);

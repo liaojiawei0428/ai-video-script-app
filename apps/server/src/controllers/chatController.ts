@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { deepseekService } from '../services/deepseek';
+import { deepseekPool } from '../services/deepseekPool';
 import { logger } from '../utils/logger';
 
 export const chatController = {
@@ -37,7 +37,7 @@ export const chatController = {
 
       logger.info('Chat API called', { messageCount: messages.length });
 
-      const llmResult = await deepseekService.chatCompletionWithRetry(
+      const llmResult = await deepseekPool.chatCompletionWithRetry(
         systemPrompt,
         userPrompt,
         0.7

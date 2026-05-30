@@ -1,0 +1,113 @@
+import { Router, Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { adminAuth } from '../middleware/adminAuth';
+import { userModel } from '../models/user';
+import { rechargeRequestModel } from '../models/rechargeRequest';
+import { billingService } from '../services/billingService';
+import { logger } from '../utils/logger';
+
+const router = Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
+
+/** 管理员登录 */
+router.post('/login', async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: '请输入用户名和密码' } });
+    }
+    const user = await userModel.findByUsername(username);
+    if (!user || user.role !== 'admin') {
+      return res.status(401).json({ success: false, error: { code: 'AUTH_FAILED', message: '用户名或密码错误' } });
+    }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ success: false, error: { code: 'AUTH_FAILED', message: '用户名或密码错误' } });
+    }
+    const token = jwt.sign({ userId: user.id, role: 'admin' }, JWT_SECRET, { expiresIn: '365d' });
+    res.json({
+      success: true,
+      data: {
+        token,
+        user: { id: user.id, username: user.username, nickname: user.nickname, role: 'admin' as const },
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: '登录失败' } });
+  }
+});
+
+/** 仪表盘 */
+router.get('/dashboard', adminAuth, async (req: Request, res: Response) => {
+  const [totalUsers, todayUsers, pendingOrders, todayOrders] = await Promise.all([
+    userModel.countAll(),
+    userModel.countToday(),
+    rechargeRequestModel.countByStatus('pending'),
+    rechargeRequestModel.countToday(),
+  ]);
+  res.json({
+    success: true,
+    data: { totalUsers, todayUsers, pendingOrders, todayOrders },
+  });
+});
+
+/** 订单列表 */
+router.get('/orders', adminAuth, async (req: Request, res: Response) => {
+  const status = (req.query.status as string) || 'pending';
+  const orders = status === 'all'
+    ? await rechargeRequestModel.findAll()
+    : await rechargeRequestModel.findByStatus(status);
+  res.json({ success: true, data: { orders } });
+});
+
+/** 确认到账 */
+router.post('/orders/:id/approve', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const item = await rechargeRequestModel.findById(req.params.id);
+    if (!item) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '订单不存在' } });
+    if (item.status !== 'pending') return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: '订单已处理' } });
+
+    await rechargeRequestModel.updateStatus(item.id, 'approved', '管理员确认到账');
+    await billingService.topUp(item.userId, item.amount, `充值申请：¥${item.amount.toFixed(2)}`);
+    logger.info('Admin approved recharge', { orderId: item.id, userId: item.userId, amount: item.amount });
+
+    res.json({ success: true, data: { message: '已确认到账，余额已增加' } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: '操作失败' } });
+  }
+});
+
+/** 拒绝 */
+router.post('/orders/:id/reject', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const item = await rechargeRequestModel.findById(req.params.id);
+    if (!item) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '订单不存在' } });
+    if (item.status !== 'pending') return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: '订单已处理' } });
+
+    await rechargeRequestModel.updateStatus(item.id, 'rejected', req.body.remark || '管理员拒绝');
+    logger.info('Admin rejected recharge', { orderId: item.id, userId: item.userId });
+
+    res.json({ success: true, data: { message: '已拒绝' } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: '操作失败' } });
+  }
+});
+
+/** 用户列表 */
+router.get('/users', adminAuth, async (req: Request, res: Response) => {
+  const users = await userModel.list();
+  const safe = users.map(u => ({
+    id: u.id,
+    username: u.username,
+    nickname: u.nickname,
+    email: u.email,
+    balance: u.balance,
+    totalGenerations: u.totalGenerations,
+    vipLevel: u.vipLevel,
+    createdAt: u.createdAt,
+  }));
+  res.json({ success: true, data: { users: safe } });
+});
+
+export default router;

@@ -4,8 +4,8 @@ set -e
 echo "=== AI视频剧本生成应用部署脚本 ==="
 
 # 检查环境
-if [ -z "$DEEPSEEK_API_KEY" ]; then
-    echo "错误: 请设置 DEEPSEEK_API_KEY 环境变量"
+if [ -z "$DEEPSEEK_API_KEYS" ]; then
+    echo "错误: 请设置 DEEPSEEK_API_KEYS 环境变量"
     exit 1
 fi
 

@@ -3,15 +3,15 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Alert,
   ScrollView, ActivityIndicator, Image,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useNovelStore, UserInfo } from '../store/useNovelStore';
 import {
   login as apiLogin, register as apiRegister,
   getProfile, updateProfile as apiUpdateProfile,
-  recharge as apiRecharge, getUsage,
-  setAuthToken, getAuthToken,
+  setAuthToken, getAuthToken, buyVip, getUnreadCount,
 } from '../api/client';
 import { saveToken, getToken, deleteToken } from '../db/tokenStorage';
+import { colors, spacing, typography } from '../theme';
 
 
 function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
@@ -27,8 +27,9 @@ function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
 }
 
 export function HomeScreen(): React.JSX.Element {
+  const navigation = useNavigation<any>();
   const store = useNovelStore();
-  const { userInfo, isLoggedIn, setUserInfo, setLoggedIn, logout } = store;
+  const { userInfo, isLoggedIn, setUserInfo, setLoggedIn, setAdmin, logout } = store;
 
   // 登录/注册表单
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -40,8 +41,18 @@ export function HomeScreen(): React.JSX.Element {
   // 个人信息编辑
   const [editing, setEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
-  const [showRecharge, setShowRecharge] = useState(false);
-  const [rechargeUrl, setRechargeUrl] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // 获取未读消息数
+  const loadUnreadCount = async () => {
+    if (!isLoggedIn) return;
+    try {
+      const r = await getUnreadCount();
+      setUnreadCount(r.data?.data?.unreadCount || 0);
+    } catch {}
+  };
+
+  useFocusEffect(useCallback(() => { loadUnreadCount(); }, [isLoggedIn]));
 
   // APP 启动时（首次进入"我的"页面）加载用户信息
   useEffect(() => {
@@ -51,18 +62,8 @@ export function HomeScreen(): React.JSX.Element {
       try {
         const res = await getProfile();
         const user = res.data?.data?.user;
-        if (user) {
-          setUserInfo(user);
-          setLoggedIn(true);
-        }
-      } catch (err: any) {
-        // 只有 token 真的过期才清除，网络错误保留登录状态
-        if (err?.response?.status === 401) {
-          await deleteToken();
-          setAuthToken(null);
-          logout();
-        }
-      }
+        if (user) setUserInfo(user);
+      } catch { }
     })();
   }, []);
 
@@ -80,6 +81,7 @@ export function HomeScreen(): React.JSX.Element {
         await saveToken(token);
         setUserInfo(user);
         setLoggedIn(true);
+        if (user.role === 'admin') setAdmin(true);
         setFormUsername('');
         setFormPassword('');
       }
@@ -148,17 +150,27 @@ export function HomeScreen(): React.JSX.Element {
     }
   };
 
-  const handleRecharge = async () => {
-    try {
-      const res = await apiRecharge();
-      const data = res.data?.data;
-      if (data?.payUrl) {
-        setRechargeUrl(data.payUrl);
-        setShowRecharge(true);
-      }
-    } catch {
-      Alert.alert('失败', '获取充值链接失败');
-    }
+  const handleBuyVip = async () => {
+    Alert.alert('开通VIP', '¥10 尊享1年VIP会员\n享受 ¥0.01/千字和 ¥0.04/集分镜优惠费率', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '立即开通',
+        onPress: async () => {
+          try {
+            const res = await buyVip();
+            if (res.data?.success) {
+              const d = res.data.data;
+              setUserInfo({ ...info, balance: d.balance, vipLevel: 1, vipExpiresAt: d.vipExpiresAt });
+              Alert.alert('开通成功', 'VIP会员已激活（有效期1年）！');
+            } else {
+              Alert.alert('开通失败', res.data?.error?.message || '请确保余额充足');
+            }
+          } catch (e: any) {
+            Alert.alert('错误', e?.response?.data?.error?.message || '操作失败');
+          }
+        },
+      },
+    ]);
   };
 
   // ====== 渲染：未登录态 ======
@@ -249,19 +261,47 @@ export function HomeScreen(): React.JSX.Element {
           <Text style={styles.profileName}>{info.nickname || info.username}</Text>
           <Text style={styles.profileUsername}>@{info.username}</Text>
         </View>
+        <TouchableOpacity style={styles.notifButton} onPress={() => navigation.navigate('Notifications')}>
+          <Text style={styles.notifIcon}>🔔</Text>
+          {unreadCount > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
         <TouchableOpacity style={styles.editButton} onPress={() => { setEditNickname(info.nickname); setEditing(true); }}>
           <Text style={styles.editButtonText}>编辑</Text>
         </TouchableOpacity>
       </View>
 
       {/* 余额卡片 */}
-      <View style={styles.balanceCard}>
+      <TouchableOpacity style={styles.balanceCard} onPress={() => navigation.navigate('Billing')}>
         <Text style={styles.balanceLabel}>账户余额</Text>
         <Text style={styles.balanceAmount}>¥{info.balance.toFixed(2)}</Text>
-        <TouchableOpacity style={styles.rechargeButton} onPress={handleRecharge}>
+        <View style={styles.rechargeButton}>
           <Text style={styles.rechargeButtonText}>充值</Text>
+        </View>
+      </TouchableOpacity>
+
+      {info.vipLevel >= 1 ? (
+        <View style={styles.vipCard}>
+          <Text style={styles.vipIcon}>👑</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.vipTitle}>VIP 会员</Text>
+            <Text style={styles.vipSub}>¥0.01/千字 · ¥0.04/集分镜{info.vipExpiresAt ? ` · 剩余${Math.max(0, Math.ceil((info.vipExpiresAt - Date.now()) / 86400000))}天` : ''}</Text>
+          </View>
+          <Text style={styles.vipBadge}>已激活</Text>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.vipCard} onPress={handleBuyVip}>
+          <Text style={styles.vipIcon}>💎</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.vipTitle}>开通 VIP 会员</Text>
+            <Text style={styles.vipSub}>¥10/年 · 享 7.5 折优惠</Text>
+          </View>
+          <Text style={styles.vipBuyBtn}>开通 ›</Text>
         </TouchableOpacity>
-      </View>
+      )}
 
       {/* 使用记录 */}
       <View style={styles.menuCard}>
@@ -274,25 +314,31 @@ export function HomeScreen(): React.JSX.Element {
 
       {/* 设置列表 */}
       <View style={styles.menuCard}>
-        <TouchableOpacity style={styles.menuItem} onPress={handleRecharge}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Billing')}>
           <Text style={styles.menuIcon}>💰</Text>
-          <Text style={styles.menuText}>充值</Text>
+          <Text style={styles.menuText}>充值 / 交易记录</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
         <View style={styles.menuDivider} />
-        <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('提示', '缓存已清理')}>
-          <Text style={styles.menuIcon}>🧹</Text>
-          <Text style={styles.menuText}>清理缓存</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Pricing')}>
+          <Text style={styles.menuIcon}>📋</Text>
+          <Text style={styles.menuText}>收费标准</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
         <View style={styles.menuDivider} />
-        <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('意见反馈', '请发送邮件至 feedback@example.com')}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Settings')}>
+          <Text style={styles.menuIcon}>⚙️</Text>
+          <Text style={styles.menuText}>设置</Text>
+          <Text style={styles.menuArrow}>›</Text>
+        </TouchableOpacity>
+        <View style={styles.menuDivider} />
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Feedback')}>
           <Text style={styles.menuIcon}>💬</Text>
           <Text style={styles.menuText}>意见反馈</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
         <View style={styles.menuDivider} />
-        <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('关于', 'AI 剧本工坊 v1.0.0\nAI 自动分析小说并生成专业剧本')}>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('About')}>
           <Text style={styles.menuIcon}>ℹ️</Text>
           <Text style={styles.menuText}>关于我们</Text>
           <Text style={styles.menuValue}>v1.0.0</Text>
@@ -303,21 +349,6 @@ export function HomeScreen(): React.JSX.Element {
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>退出登录</Text>
       </TouchableOpacity>
-
-      {/* 充值弹窗 */}
-      {showRecharge && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>充值</Text>
-            <Text style={styles.modalBalance}>当前余额：¥{info.balance.toFixed(2)}</Text>
-            <Text style={styles.modalHint}>请在浏览器中打开以下链接完成支付：</Text>
-            <Text style={styles.modalUrl} selectable>{rechargeUrl}</Text>
-            <TouchableOpacity style={styles.modalButton} onPress={() => setShowRecharge(false)}>
-              <Text style={styles.modalButtonText}>关闭</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       {/* 编辑昵称弹窗 */}
       {editing && (
@@ -385,6 +416,13 @@ const styles = StyleSheet.create({
   profileUsername: { fontSize: 14, color: '#8E8E93', marginTop: 2 },
   editButton: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#F2F2F7', borderRadius: 8 },
   editButtonText: { fontSize: 14, fontWeight: '600', color: '#007AFF' },
+  notifButton: { position: 'relative', padding: 8, marginRight: 8 },
+  notifIcon: { fontSize: 24 },
+  notifBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, borderRadius: 9,
+    backgroundColor: '#FF3B30', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
+  },
+  notifBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
 
   balanceCard: {
     backgroundColor: '#007AFF', borderRadius: 16, padding: 20, marginBottom: 16,
@@ -394,6 +432,12 @@ const styles = StyleSheet.create({
   balanceAmount: { flex: 1, color: '#fff', fontSize: 28, fontWeight: '800', marginLeft: 12 },
   rechargeButton: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
   rechargeButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  vipCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFD70015', borderRadius: 16, padding: spacing.md, marginHorizontal: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: '#FFD70040' },
+  vipIcon: { fontSize: 28, marginRight: spacing.sm },
+  vipTitle: { ...typography.h3, color: '#FFD700' },
+  vipSub: { ...typography.caption, color: colors.text.tertiary, marginTop: 2 },
+  vipBadge: { ...typography.caption, color: '#00CEC9', fontWeight: '700', backgroundColor: '#00CEC920', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  vipBuyBtn: { ...typography.caption, color: '#FFD700', fontWeight: '700' },
 
   menuCard: {
     backgroundColor: '#fff', borderRadius: 14, marginBottom: 16, overflow: 'hidden',
@@ -420,9 +464,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 16, padding: 24, marginHorizontal: 32, width: '85%',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1C1C1E', marginBottom: 12, textAlign: 'center' },
-  modalBalance: { fontSize: 15, color: '#555', textAlign: 'center', marginBottom: 8 },
-  modalHint: { fontSize: 13, color: '#8E8E93', marginBottom: 8 },
-  modalUrl: { fontSize: 12, color: '#007AFF', marginBottom: 16, padding: 10, backgroundColor: '#F8F8FA', borderRadius: 8 },
   modalButton: {
     backgroundColor: '#007AFF', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8,
   },

@@ -1,13 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { billingService } from '../services/billingService';
 import { userModel } from '../models/user';
 import { generateUUID } from '../shared/utils';
+import { execute } from '../models/db';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
 const JWT_EXPIRES = '365d';
+const PRICING_STD = 0.012 / 1000;
+const PRICING_VIP = 0.01 / 1000;
 
 function sanitizeUser(user: any) {
   const { passwordHash, ...rest } = user;
@@ -64,15 +68,17 @@ export const userController = {
         passwordHash,
         nickname: nickname || username,
         avatarUrl: '',
-        balance: 0,
+        balance: 10,
         totalGenerations: 0,
+        vipLevel: 0,
+        role: 'user',
         createdAt: now,
         updatedAt: now,
       };
 
       await userModel.create(user);
 
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
 
       logger.info('User registered', { userId: user.id, username });
 
@@ -112,7 +118,7 @@ export const userController = {
         });
       }
 
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
 
       logger.info('User logged in', { userId: user.id, username });
 
@@ -135,6 +141,14 @@ export const userController = {
           success: false, error: { code: 'NOT_FOUND', message: '用户不存在' },
           meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
         });
+      }
+
+      // 自动检查 VIP 是否过期
+      if ((user.vipLevel || 0) >= 1 && user.vipExpiresAt && Date.now() > user.vipExpiresAt) {
+        await userModel.updateVip(userId, 0, 0);
+        (user as any).vipLevel = 0;
+        (user as any).vipExpiresAt = undefined;
+        logger.info('VIP expired for user', { userId, username: user.username });
       }
 
       res.json({
@@ -213,27 +227,46 @@ export const userController = {
     }
   },
 
-  async recharge(req: Request, res: Response, next: NextFunction) {
+  async getPricing(req: Request, res: Response, next: NextFunction) {
     try {
+      const pricing = billingService.getPricing();
       const userId = (req as any).userId;
       const user = await userModel.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false, error: { code: 'NOT_FOUND', message: '用户不存在' },
-          meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
-        });
-      }
+      const now = Date.now();
+      const isVip = (user?.vipLevel || 0) >= 1 && (!user?.vipExpiresAt || now < user.vipExpiresAt);
+      const p = isVip ? PRICING_VIP : PRICING_STD;
 
-      // 固定支付链接（可替换为真实支付渠道）
-      const payUrl = process.env.RECHARGE_URL || 'https://example.com/recharge';
+      const calcFee = (wc: number) => Math.max(0.01, Math.round(wc * p * 100) / 100);
 
       res.json({
         success: true,
         data: {
-          payUrl,
-          balance: user.balance,
-          message: '请在浏览器中打开链接完成支付',
+          standardPrice: PRICING_STD * 1000,
+          vipPrice: PRICING_VIP * 1000,
+          unitLabel: '千字',
+          shotStandard: 0.05,
+          shotVip: 0.04,
+          examples: {
+            '10万字（~10集）': { analyze: calcFee(100000), shot: Math.round(10 * (isVip ? 0.04 : 0.05) * 100) / 100 },
+            '50万字（~50集）': { analyze: calcFee(500000), shot: Math.round(50 * (isVip ? 0.04 : 0.05) * 100) / 100 },
+            '100万字（~100集）': { analyze: calcFee(1000000), shot: Math.round(100 * (isVip ? 0.04 : 0.05) * 100) / 100 },
+          },
+          isVip,
+          balance: user?.balance || 0,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getBillingLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).userId;
+      const logs = await billingService.getLogs(userId);
+      res.json({
+        success: true,
+        data: { logs },
         meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {
@@ -254,14 +287,39 @@ export const userController = {
 
       res.json({
         success: true,
-        data: {
-          totalGenerations: user.totalGenerations,
-          usageRecords: [],
-        },
+        data: { totalGenerations: user.totalGenerations, usageRecords: [] },
         meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
-    } catch (error) {
-      next(error);
-    }
+    } catch (error) { next(error); }
+  },
+
+  /** 购买 VIP */
+  async buyVip(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).userId;
+      const user = await userModel.findById(userId);
+      if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '用户不存在' } });
+      if ((user.vipLevel || 0) >= 1) return res.json({ success: false, error: { code: 'ALREADY_VIP', message: '已是VIP会员' } });
+
+      const vipPrice = 10;
+      if (user.balance < vipPrice) {
+        return res.json({
+          success: false,
+          error: { code: 'INSUFFICIENT', message: `余额不足，VIP需 ¥${vipPrice}，当前余额 ¥${user.balance}。请先充值后再开通。` },
+        });
+      }
+
+      const expiresAt = Date.now() + 365 * 24 * 3600 * 1000; // 1年后到期
+      await userModel.updateVip(userId, 1, expiresAt);
+      await userModel.updateBalance(userId, -vipPrice);
+
+      const balanceAfter = Math.round((user.balance - vipPrice) * 100) / 100;
+      await execute(
+        `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, description, created_at) VALUES (?, ?, 'consumption', ?, ?, 'VIP会员购买（1年有效）', ?)`,
+        [generateUUID(), userId, vipPrice, balanceAfter, Date.now()]
+      );
+
+      res.json({ success: true, data: { message: 'VIP购买成功！', balance: balanceAfter, vipLevel: 1, vipExpiresAt: expiresAt } });
+    } catch (err) { next(err); }
   },
 };

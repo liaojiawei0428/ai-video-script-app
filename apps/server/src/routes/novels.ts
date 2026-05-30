@@ -36,6 +36,7 @@ const upload = multer({
 });
 
 // Routes
+router.get('/estimate-fee', authMiddleware, novelController.estimateFee);
 router.post('/upload', authMiddleware, upload.single('file'), novelController.upload);
 router.post('/:novelId/analyze', authMiddleware, novelController.analyze);
 router.get('/:novelId/analysis', authMiddleware, novelController.getAnalysis);
@@ -45,5 +46,7 @@ router.post('/episodes/:episodeId/regenerate', authMiddleware, novelController.r
 router.get('/:novelId/export', authMiddleware, novelController.exportNovel);
 router.get('/', authMiddleware, novelController.list);
 router.delete('/:novelId', authMiddleware, novelController.remove);
+router.put('/:novelId', authMiddleware, novelController.updateNovel);
+router.put('/characters/:characterId', authMiddleware, novelController.updateCharacter);
 
 export default router;

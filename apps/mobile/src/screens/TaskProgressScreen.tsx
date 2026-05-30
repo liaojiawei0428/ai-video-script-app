@@ -30,6 +30,7 @@ export function TaskProgressScreen(): React.JSX.Element {
   const [chunkCurrent, setChunkCurrent] = useState(0);
   const [chunkTotal, setChunkTotal] = useState(0);
   const [streamText, setStreamText] = useState(''); // 流式输出内容
+  const [episodeTitle, setEpisodeTitle] = useState(''); // 当前集标题（如"🎬 第 1/13 集"）
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -107,7 +108,21 @@ export function TaskProgressScreen(): React.JSX.Element {
               if (data.totalEpisodes) setTotalEpisodes(data.totalEpisodes);
               if (data.currentEpisode) setCurrentEpisode(data.currentEpisode);
               if (data.detail) setPhaseDetail(data.detail);
-              if (s === 'completed') setPhaseDetail('全部完成');
+              if (s === 'completed') {
+                // 收到完成消息时，等待流式内容处理完毕再显示完成
+                const waitForStreamDone = () => {
+                  if (streamFlushTimer) {
+                    // 还有未刷新的流式内容，等待
+                    setTimeout(waitForStreamDone, 200);
+                  } else {
+                    // 流式内容已全部刷新，延迟一点确保渲染完成
+                    setTimeout(() => {
+                      setPhaseDetail('全部完成');
+                    }, 500);
+                  }
+                };
+                waitForStreamDone();
+              }
               if (s === 'analyzing') setPhaseDetail(`AI 分析中 ${data.progress || 0}%`);
               if (s === 'generating') {
                 setPhaseDetail(data.totalEpisodes
@@ -131,8 +146,9 @@ export function TaskProgressScreen(): React.JSX.Element {
                   streamFlushTimer = setTimeout(flushStream, 100);
                 }
               } else if (data.phase?.startsWith('ep_') && data.step === 'reasoning') {
-                // 新一集开始时添加分隔符，并清空上集流式内容
+                // 新一集开始：更新标题，清空上集流式内容
                 if (streamFlushTimer) { clearTimeout(streamFlushTimer); flushStream(); }
+                setEpisodeTitle(data.content || ''); // 设置当前集标题（如"🎬 第 1/13 集"）
                 setStreamText('');
               } else if (data.phase === 'analyzing' && data.step === 'reasoning') {
                 setPhaseDetail(data.content || '分析中...');
@@ -143,6 +159,8 @@ export function TaskProgressScreen(): React.JSX.Element {
                 setProgress(t.progress);
                 setStatus(t.status === 'running' ? (status === 'generating' ? 'generating' : 'analyzing') : t.status);
               }
+            } else if (data.type === 'queue_status') {
+              store.setQueueStatus(novelId, data.position || 0, data.runningCount || 0, data.waitingCount || 0);
             }
           } catch {}
         };
@@ -292,7 +310,11 @@ export function TaskProgressScreen(): React.JSX.Element {
             <View style={styles.episodeSection}>
               <ProgressBar progress={(currentEpisode / totalEpisodes) * 100} height={4} color={colors.success} />
               <Text style={styles.episodeText}>
-                第 {currentEpisode || 0} / {totalEpisodes} 集
+                {currentEpisode > 0 && currentEpisode < totalEpisodes
+                  ? `正在生成第 ${currentEpisode + 1} 集（已完成 ${currentEpisode}/${totalEpisodes}）`
+                  : currentEpisode >= totalEpisodes
+                    ? `全部 ${totalEpisodes} 集生成完毕`
+                    : `准备生成（共 ${totalEpisodes} 集）`}
               </Text>
             </View>
           )}
@@ -302,9 +324,17 @@ export function TaskProgressScreen(): React.JSX.Element {
         </GlassCard>
       )}
 
+      {/* 当前集标题（如"🎬 第 1/13 集"） */}
+      {isGenerating && episodeTitle ? (
+        <GlassCard padded={true} style={{ marginBottom: spacing.md, backgroundColor: colors.bg.secondary }}>
+          <Text style={styles.episodeTitle}>{episodeTitle}</Text>
+        </GlassCard>
+      ) : null}
+
+      {/* 剧本实时输出内容 */}
       {streamText ? (
         <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
-          <Text style={styles.sectionTitle}>📝 实时输出</Text>
+          <Text style={styles.sectionTitle}>📝 剧本内容</Text>
           <Text style={styles.streamText}>{streamText}</Text>
         </GlassCard>
       ) : null}
@@ -352,6 +382,7 @@ const styles = StyleSheet.create({
 
   episodeSection: { marginBottom: spacing.md },
   episodeText: { ...typography.body, color: colors.text.secondary, textAlign: 'center', marginTop: spacing.sm },
+  episodeTitle: { ...typography.h3, color: colors.accent, textAlign: 'center', fontWeight: '600' },
 
   hintBox: {
     flexDirection: 'row', backgroundColor: colors.bg.tertiary,
