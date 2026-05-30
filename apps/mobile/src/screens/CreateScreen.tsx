@@ -4,9 +4,11 @@ import {
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { uploadFile } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveNovel } from '../db/sqlite';
+import { colors, spacing, radii, typography } from '../theme';
 
 export function CreateScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
