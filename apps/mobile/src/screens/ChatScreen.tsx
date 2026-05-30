@@ -71,7 +71,7 @@ const MsgItem = memo(function MsgItem({ m }: { m: LlmMessage }) {
     const isLong = m.content.length > 200 || m.content.includes('\n');
     if (m.type === 'output') {
       return (
-        <CollapsibleBlock title="剧本内容" text={m.content} color="#5856D6" icon="film-outline" />
+        <CollapsibleBlock title="剧本内容" text={m.content} color="#2563EB" icon="film-outline" />
       );
     }
     if (isLong) {
@@ -79,7 +79,7 @@ const MsgItem = memo(function MsgItem({ m }: { m: LlmMessage }) {
         <CollapsibleBlock
           title={m.type === 'reasoning' ? '思考过程' : 'AI 输出结果'}
           text={m.content}
-          color={m.type === 'reasoning' ? '#FF9F0A' : '#34C759'}
+          color={m.type === 'reasoning' ? '#F97316' : '#22C55E'}
           icon={m.type === 'reasoning' ? 'bulb-outline' : 'checkmark-circle-outline'}
         />
       );
@@ -830,7 +830,7 @@ export function ChatScreen(): React.JSX.Element {
         data={flatData} keyExtractor={item => item.key}
         onScroll={handleScroll} scrollEventThrottle={100}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6C5CE7" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563EB" />
         }
         ListFooterComponent={liveText ? (
           <TouchableOpacity
@@ -874,7 +874,7 @@ export function ChatScreen(): React.JSX.Element {
                 </View>
               );
             case 'ep_collapsible':
-              return <CollapsibleBlock title={`第 ${item.epNum} 集剧本`} text={item.text} color="#5856D6" icon="film-outline" />;
+              return <CollapsibleBlock title={`第 ${item.epNum} 集剧本`} text={item.text} color="#2563EB" icon="film-outline" />;
             case 'ep_header':
               return <Text style={styles.epHeaderText}>{item.label}</Text>;
             case 'summary':
@@ -900,7 +900,7 @@ const styles = StyleSheet.create({
     padding: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.primary,
   },
   chatBubbleAI: {
-    backgroundColor: '#1A2A1A', borderRadius: radii.md, borderTopRightRadius: 4,
+    backgroundColor: '#1E293B', borderRadius: radii.md, borderTopRightRadius: 4,
     padding: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.success,
   },
   chatBubbleLabel: { fontSize: 11, fontWeight: '600', color: colors.text.secondary, marginBottom: 4 },
@@ -956,7 +956,7 @@ const styles = StyleSheet.create({
   liveStreamBox: { backgroundColor: colors.bg.secondary, borderRadius: radii.md, padding: spacing.sm, marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.warning },
   liveStreamLabel: { fontSize: 11, fontWeight: '600', color: colors.warning, marginBottom: 4 },
   liveStreamText: { fontSize: 12, color: '#DDD', lineHeight: 18, fontFamily: 'monospace' },
-  summaryBlock: { backgroundColor: '#1A2A1A', borderRadius: radii.lg, padding: spacing.md, marginTop: spacing.sm },
+  summaryBlock: { backgroundColor: '#1E293B', borderRadius: radii.lg, padding: spacing.md, marginTop: spacing.sm },
   summaryTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   summaryTitle: { fontSize: 16, fontWeight: '700', color: colors.success, marginBottom: spacing.sm },
   summaryItemRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },

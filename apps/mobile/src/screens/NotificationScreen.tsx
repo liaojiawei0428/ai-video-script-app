@@ -14,9 +14,9 @@ interface NotificationItem {
 }
 
 const typeConfig: Record<string, { icon: string; color: string }> = {
-  feedback_reply: { icon: '💬', color: '#007AFF' },
-  announcement: { icon: '📢', color: '#FF9F0A' },
-  system: { icon: '🔔', color: '#8E8E93' },
+  feedback_reply: { icon: '💬', color: '#2563EB' },
+  announcement: { icon: '📢', color: '#F97316' },
+  system: { icon: '🔔', color: '#94A3B8' },
 };
 
 export function NotificationScreen({ navigation }: any): React.JSX.Element {

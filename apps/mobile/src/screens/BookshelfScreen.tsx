@@ -13,21 +13,21 @@ import type { NavigationProp, RootStackParamList } from '../types/navigation';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const COVER_COLORS: Array<[string, string]> = [
-  ['#6C5CE7', '#A29BFE'],
-  ['#00CEC9', '#55E6C1'],
-  ['#E17055', '#FAB1A0'],
-  ['#FDCB6E', '#FFEAA7'],
-  ['#0984E3', '#74B9FF'],
+  ['#2563EB', '#60A5FA'],
+  ['#22C55E', '#55E6C1'],
+  ['#EF4444', '#FAB1A0'],
+  ['#F97316', '#FFEAA7'],
+  ['#0984E3', '#93C5FD'],
   ['#E84393', '#FD79A8'],
   ['#00B894', '#55EFC4'],
-  ['#6C5CE7', '#74B9FF'],
-  ['#D63031', '#FF7675'],
+  ['#2563EB', '#93C5FD'],
+  ['#EF4444', '#F87171'],
   ['#2D3436', '#636E72'],
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   pending: { label: '等待处理', color: colors.warning },
-  queued: { label: '排队中', color: '#FDCB6E' },
+  queued: { label: '排队中', color: '#F97316' },
   analyzing: { label: 'AI 分析中', color: colors.accent },
   analyzed: { label: '待生成剧本', color: colors.accent },
   generating: { label: '生成剧集中', color: colors.accent },

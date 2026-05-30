@@ -17,7 +17,7 @@ import { APP_VERSION } from '../config/version';
 
 
 function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
-  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#DDA0DD', '#F7DC6F', '#FF9F0A', '#34C759'];
+  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#DDA0DD', '#F7DC6F', '#F97316', '#22C55E'];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   const bg = colors[Math.abs(hash) % colors.length];
@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
   brandSection: { alignItems: 'center', marginBottom: 32, marginTop: 40 },
   brandIcon: { fontSize: 56, marginBottom: 12 },
   brandTitle: { fontSize: 28, fontWeight: '800', color: '#1C1C1E', marginBottom: 8 },
-  brandSub: { fontSize: 14, color: '#8E8E93', textAlign: 'center', lineHeight: 20 },
+  brandSub: { fontSize: 14, color: '#94A3B8', textAlign: 'center', lineHeight: 20 },
   formCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
@@ -402,11 +402,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#E8E8ED', color: '#1C1C1E',
   },
   primaryButton: {
-    backgroundColor: '#007AFF', borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 20,
+    backgroundColor: '#2563EB', borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 20,
   },
   primaryButtonText: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 4 },
   buttonDisabled: { backgroundColor: '#A2C8FF' },
-  switchText: { fontSize: 14, color: '#007AFF', textAlign: 'center', marginTop: 16 },
+  switchText: { fontSize: 14, color: '#2563EB', textAlign: 'center', marginTop: 16 },
 
   profileContent: { padding: 16, paddingBottom: 40 },
   profileHeader: {
@@ -419,30 +419,30 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontWeight: '800' },
   profileNameSection: { flex: 1, marginLeft: 16 },
   profileName: { fontSize: 20, fontWeight: '700', color: '#1C1C1E' },
-  profileUsername: { fontSize: 14, color: '#8E8E93', marginTop: 2 },
+  profileUsername: { fontSize: 14, color: '#94A3B8', marginTop: 2 },
   editButton: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#F2F2F7', borderRadius: 8 },
-  editButtonText: { fontSize: 14, fontWeight: '600', color: '#007AFF' },
+  editButtonText: { fontSize: 14, fontWeight: '600', color: '#2563EB' },
   notifButton: { position: 'relative', padding: 8, marginRight: 8 },
   notifIcon: { fontSize: 24 },
   notifBadge: {
     position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, borderRadius: 9,
-    backgroundColor: '#FF3B30', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
+    backgroundColor: '#EF4444', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
   },
   notifBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
 
   balanceCard: {
-    backgroundColor: '#007AFF', borderRadius: 16, padding: 20, marginBottom: 16,
+    backgroundColor: colors.primary, borderRadius: 16, padding: 20, marginBottom: 16,
     flexDirection: 'row', alignItems: 'center',
   },
   balanceLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
   balanceAmount: { flex: 1, color: '#fff', fontSize: 28, fontWeight: '800', marginLeft: 12 },
   rechargeButton: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
   rechargeButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  vipCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFD70015', borderRadius: 16, padding: spacing.md, marginHorizontal: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: '#FFD70040' },
+  vipCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.gold + '15', borderRadius: 16, padding: spacing.md, marginHorizontal: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.gold + '40' },
   vipIcon: { fontSize: 28, marginRight: spacing.sm },
-  vipTitle: { ...typography.h3, color: '#FFD700' },
+  vipTitle: { ...typography.h3, color: colors.gold },
   vipSub: { ...typography.caption, color: colors.text.tertiary, marginTop: 2 },
-  vipBadge: { ...typography.caption, color: '#00CEC9', fontWeight: '700', backgroundColor: '#00CEC920', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  vipBadge: { ...typography.caption, color: '#22C55E', fontWeight: '700', backgroundColor: '#22C55E20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   vipBuyBtn: { ...typography.caption, color: '#FFD700', fontWeight: '700' },
 
   menuCard: {
@@ -471,7 +471,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1C1C1E', marginBottom: 12, textAlign: 'center' },
   modalButton: {
-    backgroundColor: '#007AFF', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8,
+    backgroundColor: '#2563EB', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8,
   },
   modalButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   modalActions: { flexDirection: 'row', marginTop: 16, gap: 12 },

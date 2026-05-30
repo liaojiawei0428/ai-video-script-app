@@ -235,7 +235,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
               } catch { setLoadError('加载失败'); }
               setRefreshing(false);
             }}
-            tintColor="#6C5CE7"
+            tintColor="#2563EB"
           />
         }
       />
