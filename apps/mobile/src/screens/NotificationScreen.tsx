@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/client';
 import { colors, spacing, radii, typography } from '../theme';
 
@@ -14,9 +15,9 @@ interface NotificationItem {
 }
 
 const typeConfig: Record<string, { icon: string; color: string }> = {
-  feedback_reply: { icon: '💬', color: '#2563EB' },
-  announcement: { icon: '📢', color: '#F97316' },
-  system: { icon: '🔔', color: '#94A3B8' },
+  feedback_reply: { icon: 'chatbubble-ellipses', color: colors.primary },
+  announcement: { icon: 'megaphone', color: colors.warning },
+  system: { icon: 'notifications', color: colors.text.secondary },
 };
 
 export function NotificationScreen({ navigation }: any): React.JSX.Element {
@@ -81,7 +82,7 @@ export function NotificationScreen({ navigation }: any): React.JSX.Element {
         keyExtractor={item => item.id}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>📭</Text>
+            <Ionicons name="notifications-off" size={48} color={colors.text.tertiary} />
             <Text style={styles.emptyText}>暂无消息</Text>
           </View>
         }
@@ -94,7 +95,7 @@ export function NotificationScreen({ navigation }: any): React.JSX.Element {
               activeOpacity={0.7}
             >
               <View style={styles.itemHeader}>
-                <Text style={styles.itemIcon}>{cfg.icon}</Text>
+                <Ionicons name={cfg.icon} size={18} color={cfg.color} style={styles.itemIcon} />
                 <Text style={[styles.itemTitle, !item.isRead && styles.itemTitleUnread]}>{item.title}</Text>
                 {!item.isRead && <View style={styles.dot} />}
               </View>
