@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { getEpisodes, generateEpisodes, getTaskProgress, generateShots, getNovelAnalysis } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
@@ -106,7 +107,7 @@ export function EpisodeListScreen(): React.JSX.Element {
   const totalDuration = episodes.reduce((sum, ep) => sum + (ep.durationSec || 0), 0);
 
   if (loading) {
-    return <View style={styles.container}><ActivityIndicator style={{ marginTop: 60 }} size="large" color="#007AFF" /></View>;
+    return <View style={styles.container}><ActivityIndicator style={{ marginTop: 60 }} size="large" color="#2563EB" /></View>;
   }
 
   if (episodes.length === 0 && !generating) {
@@ -116,7 +117,7 @@ export function EpisodeListScreen(): React.JSX.Element {
           <ScrollView style={styles.analysisScroll}>
             <AnalysisCard analysis={analysis} />
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>🎬</Text>
+              <Ionicons name="film" size={48} color={colors.text.tertiary} />
               <Text style={styles.emptyText}>还未生成剧集</Text>
               <TouchableOpacity style={styles.generateButton} onPress={handleGenerate} disabled={generating}>
                 {generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.generateButtonText}>开始生成剧集</Text>}
@@ -126,7 +127,7 @@ export function EpisodeListScreen(): React.JSX.Element {
         )}
         {!analysis && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🎬</Text>
+            <Ionicons name="film" size={48} color={colors.text.tertiary} />
             <Text style={styles.emptyText}>还未生成剧集</Text>
             <TouchableOpacity style={styles.generateButton} onPress={handleGenerate} disabled={generating}>
               {generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.generateButtonText}>开始生成剧集</Text>}
@@ -167,7 +168,7 @@ export function EpisodeListScreen(): React.JSX.Element {
         ListFooterComponent={
           episodes.length > 0 ? (
             <TouchableOpacity style={styles.exportButton} onPress={handleExportAll}>
-              <Text style={styles.exportButtonText}>📤 导出全部剧本 (TXT)</Text>
+              <Text style={styles.exportButtonText}>导出全部剧本 (TXT)</Text>
             </TouchableOpacity>
           ) : null
         }
@@ -179,7 +180,7 @@ export function EpisodeListScreen(): React.JSX.Element {
 function AnalysisCard({ analysis }: { analysis: { genre: string; style: string; theme: string; scenes: Scene[]; plotPoints: PlotPoint[] } }) {
   return (
     <View style={styles.analysisCard}>
-      <Text style={styles.analysisTitle}>📊 小说分析</Text>
+      <Text style={styles.analysisTitle}>小说分析</Text>
       <View style={styles.analysisTags}>
         <View style={styles.analysisTag}><Text style={styles.analysisTagText}>{analysis.genre}</Text></View>
         <View style={styles.analysisTag}><Text style={styles.analysisTagText}>{analysis.style}</Text></View>
@@ -190,7 +191,7 @@ function AnalysisCard({ analysis }: { analysis: { genre: string; style: string; 
           <Text style={styles.plotTitle}>📜 剧情大纲</Text>
           {analysis.plotPoints.map((p, i) => (
             <View key={i} style={styles.plotItem}>
-              <View style={[styles.plotDot, { backgroundColor: p.type === 'climax' ? '#FF3B30' : p.type === 'rising_action' ? '#FF9500' : '#007AFF' }]} />
+              <View style={[styles.plotDot, { backgroundColor: p.type === 'climax' ? '#EF4444' : p.type === 'rising_action' ? '#FF9500' : '#2563EB' }]} />
               <Text style={styles.plotText}>{p.description}</Text>
             </View>
           ))}
@@ -207,29 +208,29 @@ const styles = StyleSheet.create({
   analysisCard: { backgroundColor: '#fff', margin: 16, padding: 16, borderRadius: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 },
   analysisTitle: { fontSize: 18, fontWeight: '700', color: '#1C1C1E', marginBottom: 10 },
   analysisTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  analysisTag: { backgroundColor: '#007AFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  analysisTag: { backgroundColor: '#2563EB', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   analysisTagText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   plotSection: { marginTop: 4 },
   plotTitle: { fontSize: 15, fontWeight: '600', color: '#1C1C1E', marginBottom: 8 },
   plotItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
   plotDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5, marginRight: 8, flexShrink: 0 },
   plotText: { fontSize: 13, color: '#333', lineHeight: 18, flex: 1 },
-  scenesHint: { fontSize: 13, color: '#8E8E93', marginTop: 8 },
+  scenesHint: { fontSize: 13, color: '#94A3B8', marginTop: 8 },
   header: { paddingHorizontal: 16, paddingVertical: 8 },
-  headerMeta: { fontSize: 14, color: '#8E8E93' },
+  headerMeta: { fontSize: 14, color: '#94A3B8' },
   emptyState: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 56, marginBottom: 16 },
-  emptyText: { fontSize: 18, fontWeight: '600', color: '#8E8E93', marginBottom: 24 },
-  generateButton: { backgroundColor: '#007AFF', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12 },
+  emptyText: { fontSize: 18, fontWeight: '600', color: '#94A3B8', marginBottom: 24 },
+  generateButton: { backgroundColor: '#2563EB', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12 },
   generateButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   episodeCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', marginHorizontal: 16, marginTop: 10, padding: 14, borderRadius: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  episodeNum: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  episodeNum: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#2563EB', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   episodeNumText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   episodeInfo: { flex: 1 },
   episodeTitle: { fontSize: 15, fontWeight: '600', color: '#1C1C1E', marginBottom: 2 },
-  episodeMeta: { fontSize: 12, color: '#8E8E93', marginBottom: 2 },
+  episodeMeta: { fontSize: 12, color: '#94A3B8', marginBottom: 2 },
   episodeSummary: { fontSize: 13, color: '#666', lineHeight: 18 },
   arrow: { fontSize: 24, color: '#C7C7CC', marginLeft: 8 },
-  exportButton: { marginHorizontal: 16, marginTop: 20, marginBottom: 40, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#007AFF', alignItems: 'center' },
-  exportButtonText: { fontSize: 15, fontWeight: '600', color: '#007AFF' },
+  exportButton: { marginHorizontal: 16, marginTop: 20, marginBottom: 40, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#2563EB', alignItems: 'center' },
+  exportButtonText: { fontSize: 15, fontWeight: '600', color: '#2563EB' },
 });

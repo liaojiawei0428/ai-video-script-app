@@ -1,21 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Alert,
-  ScrollView, ActivityIndicator, Image,
+  ScrollView, ActivityIndicator, Image, FlatList,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore, UserInfo } from '../store/useNovelStore';
 import {
   login as apiLogin, register as apiRegister,
   getProfile, updateProfile as apiUpdateProfile,
-  setAuthToken, getAuthToken, buyVip, getUnreadCount,
+  setAuthToken, getAuthToken, buyVip, getUnreadCount, getUserHistory,
 } from '../api/client';
 import { saveToken, getToken, deleteToken } from '../db/tokenStorage';
-import { colors, spacing, typography } from '../theme';
+import { colors, spacing, radii, typography } from '../theme';
+import { APP_VERSION } from '../config/version';
 
 
 function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
-  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#DDA0DD', '#F7DC6F', '#FF9F0A', '#34C759'];
+  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#DDA0DD', '#F7DC6F', '#F97316', '#22C55E'];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   const bg = colors[Math.abs(hash) % colors.length];
@@ -24,6 +26,22 @@ function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
       <Text style={[styles.avatarText, { fontSize: size * 0.4 }]}>{name[0] || '?'}</Text>
     </View>
   );
+}
+
+const AVATARS = [
+  { icon: 'person', avatarUrl: 'person', bg: '#2563EB' },
+  { icon: 'happy', avatarUrl: 'happy', bg: '#22C55E' },
+  { icon: 'star', avatarUrl: 'star', bg: '#F97316' },
+  { icon: 'heart', avatarUrl: 'heart', bg: '#EF4444' },
+  { icon: 'rocket', avatarUrl: 'rocket', bg: '#8B5CF6' },
+  { icon: 'sunny', avatarUrl: 'sunny', bg: '#F59E0B' },
+  { icon: 'flame', avatarUrl: 'flame', bg: '#EF4444' },
+  { icon: 'diamond', avatarUrl: 'diamond', bg: '#06B6D4' },
+];
+
+function getAvatarBg(name: string): string {
+  const found = AVATARS.find(a => a.avatarUrl === name);
+  return found?.bg || '#2563EB';
 }
 
 export function HomeScreen(): React.JSX.Element {
@@ -41,7 +59,22 @@ export function HomeScreen(): React.JSX.Element {
   // 个人信息编辑
   const [editing, setEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
+  const [selectedAvatar, setSelectedAvatar] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = async () => {
+    setShowHistory(true);
+    setHistoryLoading(true);
+    try {
+      const r = await getUserHistory();
+      setHistoryData(r.data?.data?.list || []);
+    } catch {} finally {
+      setHistoryLoading(false);
+    }
+  };
 
   // 获取未读消息数
   const loadUnreadCount = async () => {
@@ -58,13 +91,33 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     const store = useNovelStore.getState();
     if (!store.isLoggedIn) return;
+    let timeoutId: ReturnType<typeof setTimeout>;
     (async () => {
       try {
         const res = await getProfile();
         const user = res.data?.data?.user;
-        if (user) setUserInfo(user);
-      } catch { }
+        if (user) {
+          setUserInfo(user);
+        } else {
+          // API返回异常，清除登录状态
+          setLoggedIn(false);
+        }
+      } catch (err: any) {
+        // API调用失败（401过期/网络错误），清除登录状态
+        if (err?.response?.status === 401) {
+          setAuthToken(null);
+          await deleteToken();
+          setLoggedIn(false);
+        }
+      }
     })();
+    // 10秒超时保护：如果一直加载不出来，清除登录状态回到登录页
+    timeoutId = setTimeout(() => {
+      if (!useNovelStore.getState().userInfo && useNovelStore.getState().isLoggedIn) {
+        setLoggedIn(false);
+      }
+    }, 10000);
+    return () => clearTimeout(timeoutId);
   }, []);
 
   const handleLogin = async () => {
@@ -139,7 +192,7 @@ export function HomeScreen(): React.JSX.Element {
 
   const handleSaveProfile = async () => {
     try {
-      await apiUpdateProfile({ nickname: editNickname });
+      await apiUpdateProfile({ nickname: editNickname, avatarUrl: selectedAvatar || undefined });
       const res = await getProfile();
       const user = res.data?.data?.user;
       if (user) setUserInfo(user);
@@ -178,7 +231,7 @@ export function HomeScreen(): React.JSX.Element {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.loginContent}>
         <View style={styles.brandSection}>
-          <Text style={styles.brandIcon}>🎬</Text>
+          <Ionicons name="film" size={56} color={colors.primary} style={styles.brandIcon} />
           <Text style={styles.brandTitle}>AI 剧本工坊</Text>
           <Text style={styles.brandSub}>上传小说 · AI 自动分析 · 生成专业剧本</Text>
         </View>
@@ -244,15 +297,33 @@ export function HomeScreen(): React.JSX.Element {
   }
 
   // ====== 渲染：已登录态（个人信息页） ======
-  const info = userInfo!;
+  if (!userInfo) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={colors.accent} style={{ marginTop: 60 }} />
+        <Text style={{ color: colors.text.tertiary, textAlign: 'center', marginTop: 16 }}>加载个人信息中...</Text>
+        <TouchableOpacity
+          style={{ marginTop: 20, padding: 10 }}
+          onPress={() => { setAuthToken(null); deleteToken(); setLoggedIn(false); }}
+        >
+          <Text style={{ color: colors.text.tertiary, textAlign: 'center', fontSize: 13 }}>加载太慢？点击重新登录</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  const info = userInfo;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.profileContent}>
       {/* 个人信息头部 */}
       <View style={styles.profileHeader}>
         <TouchableOpacity onPress={() => setEditing(true)}>
-          {info.avatarUrl ? (
+          {info.avatarUrl && info.avatarUrl.startsWith('http') ? (
             <Image source={{ uri: info.avatarUrl }} style={styles.avatar} />
+          ) : info.avatarUrl ? (
+            <View style={[styles.avatarIcon, { backgroundColor: getAvatarBg(info.avatarUrl) }]}>
+              <Ionicons name={info.avatarUrl} size={36} color="#fff" />
+            </View>
           ) : (
             <AvatarPlaceholder name={info.nickname || info.username} size={72} />
           )}
@@ -262,14 +333,14 @@ export function HomeScreen(): React.JSX.Element {
           <Text style={styles.profileUsername}>@{info.username}</Text>
         </View>
         <TouchableOpacity style={styles.notifButton} onPress={() => navigation.navigate('Notifications')}>
-          <Text style={styles.notifIcon}>🔔</Text>
+          <Ionicons name="notifications" size={24} color={colors.text.primary} />
           {unreadCount > 0 && (
             <View style={styles.notifBadge}>
               <Text style={styles.notifBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
             </View>
           )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.editButton} onPress={() => { setEditNickname(info.nickname); setEditing(true); }}>
+        <TouchableOpacity style={styles.editButton} onPress={() => { setEditNickname(info.nickname); setSelectedAvatar(info.avatarUrl || ''); setEditing(true); }}>
           <Text style={styles.editButtonText}>编辑</Text>
         </TouchableOpacity>
       </View>
@@ -285,16 +356,19 @@ export function HomeScreen(): React.JSX.Element {
 
       {info.vipLevel >= 1 ? (
         <View style={styles.vipCard}>
-          <Text style={styles.vipIcon}>👑</Text>
+          <Ionicons name="diamond" size={28} color={colors.gold} style={styles.vipIcon} />
           <View style={{ flex: 1 }}>
             <Text style={styles.vipTitle}>VIP 会员</Text>
-            <Text style={styles.vipSub}>¥0.01/千字 · ¥0.04/集分镜{info.vipExpiresAt ? ` · 剩余${Math.max(0, Math.ceil((info.vipExpiresAt - Date.now()) / 86400000))}天` : ''}</Text>
+            <Text style={styles.vipSub}>
+              ¥0.01/千字 · ¥0.04/集分镜
+              {info.vipExpiresAt ? `\n到期时间：${new Date(info.vipExpiresAt).toLocaleDateString('zh-CN')}` : ''}
+            </Text>
           </View>
           <Text style={styles.vipBadge}>已激活</Text>
         </View>
       ) : (
         <TouchableOpacity style={styles.vipCard} onPress={handleBuyVip}>
-          <Text style={styles.vipIcon}>💎</Text>
+          <Ionicons name="diamond-outline" size={28} color={colors.gold} style={styles.vipIcon} />
           <View style={{ flex: 1 }}>
             <Text style={styles.vipTitle}>开通 VIP 会员</Text>
             <Text style={styles.vipSub}>¥10/年 · 享 7.5 折优惠</Text>
@@ -305,48 +379,52 @@ export function HomeScreen(): React.JSX.Element {
 
       {/* 使用记录 */}
       <View style={styles.menuCard}>
-        <View style={styles.menuItem}>
-          <Text style={styles.menuIcon}>📊</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={loadHistory}>
+          <Ionicons name="bar-chart" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>累计生成次数</Text>
-          <Text style={styles.menuValue}>{info.totalGenerations} 次</Text>
-        </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.menuValue}>{info.totalGenerations} 次</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.text.tertiary} style={{ marginLeft: 4 }} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* 设置列表 */}
       <View style={styles.menuCard}>
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Billing')}>
-          <Text style={styles.menuIcon}>💰</Text>
+          <Ionicons name="wallet" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>充值 / 交易记录</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Pricing')}>
-          <Text style={styles.menuIcon}>📋</Text>
+          <Ionicons name="pricetag" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>收费标准</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Settings')}>
-          <Text style={styles.menuIcon}>⚙️</Text>
+          <Ionicons name="settings-sharp" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>设置</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Feedback')}>
-          <Text style={styles.menuIcon}>💬</Text>
+          <Ionicons name="chatbubble-ellipses" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>意见反馈</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('About')}>
-          <Text style={styles.menuIcon}>ℹ️</Text>
+          <Ionicons name="information-circle" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>关于我们</Text>
-          <Text style={styles.menuValue}>v1.0.0</Text>
+          <Text style={styles.menuValue}>v{APP_VERSION}</Text>
         </TouchableOpacity>
       </View>
 
       {/* 退出登录 */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Ionicons name="log-out" size={18} color={colors.error} />
         <Text style={styles.logoutButtonText}>退出登录</Text>
       </TouchableOpacity>
 
@@ -363,6 +441,16 @@ export function HomeScreen(): React.JSX.Element {
               placeholder="输入新昵称"
               placeholderTextColor="#C7C7CC"
             />
+            <Text style={styles.inputLabel}>选择头像</Text>
+            <View style={styles.avatarGrid}>
+              {AVATARS.map((a, i) => (
+                <TouchableOpacity key={i} onPress={() => setSelectedAvatar(a.avatarUrl)}>
+                  <View style={[styles.avatarOption, { backgroundColor: a.bg }, info.avatarUrl === a.avatarUrl && styles.avatarOptionSelected]}>
+                    <Ionicons name={a.icon} size={28} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => setEditing(false)}>
                 <Text style={styles.modalCancelText}>取消</Text>
@@ -374,103 +462,185 @@ export function HomeScreen(): React.JSX.Element {
           </View>
         </View>
       )}
+
+      {/* 历史记录modal */}
+      {showHistory && (
+        <View style={styles.histOverlay}>
+          <View style={styles.histModal}>
+            <View style={styles.histHeader}>
+              <Text style={styles.histTitle}>生成历史记录</Text>
+              <TouchableOpacity onPress={() => setShowHistory(false)}>
+                <Ionicons name="close" size={24} color={colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+            {historyLoading ? (
+              <ActivityIndicator size="large" color={colors.accent} style={{ marginVertical: 40 }} />
+            ) : historyData.length === 0 ? (
+              <Text style={styles.histEmpty}>暂无生成记录</Text>
+            ) : (
+              <FlatList
+                data={historyData}
+                keyExtractor={item => item.id}
+                style={{ maxHeight: 400 }}
+                renderItem={({ item }) => (
+                  <View style={styles.histItem}>
+                    <View style={styles.histItemHeader}>
+                      <Text style={styles.histItemTitle} numberOfLines={1}>{item.title}</Text>
+                      <Text style={styles.histItemCost}>¥{item.totalCost.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.histItemMeta}>
+                      <Ionicons name="film" size={14} color={colors.text.tertiary} />
+                      <Text style={styles.histMetaText}> {item.episodeCount}集</Text>
+                      <Ionicons name="time" size={14} color={colors.text.tertiary} style={{ marginLeft: 12 }} />
+                      <Text style={styles.histMetaText}> {formatDuration(item.timeSpent)}</Text>
+                      <Ionicons name="calendar" size={14} color={colors.text.tertiary} style={{ marginLeft: 12 }} />
+                      <Text style={styles.histMetaText}> {formatDate(item.createdAt)}</Text>
+                    </View>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
 
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return '--';
+  if (seconds < 60) return `${seconds}秒`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}时${m}分`;
+}
+
+function formatDate(ts: number): string {
+  if (!ts) return '--';
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F2F2F7' },
+  container: { flex: 1, backgroundColor: colors.bg.primary },
   loginContent: { padding: 24, justifyContent: 'center', flexGrow: 1 },
   brandSection: { alignItems: 'center', marginBottom: 32, marginTop: 40 },
   brandIcon: { fontSize: 56, marginBottom: 12 },
-  brandTitle: { fontSize: 28, fontWeight: '800', color: '#1C1C1E', marginBottom: 8 },
-  brandSub: { fontSize: 14, color: '#8E8E93', textAlign: 'center', lineHeight: 20 },
+  brandTitle: { fontSize: 28, fontWeight: '800', color: colors.text.primary, marginBottom: 8 },
+  brandSub: { fontSize: 14, color: colors.text.secondary, textAlign: 'center', lineHeight: 20 },
   formCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3,
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: 20,
   },
-  formTitle: { fontSize: 20, fontWeight: '700', color: '#1C1C1E', marginBottom: 20, textAlign: 'center' },
-  inputLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, marginTop: 8 },
+  formTitle: { fontSize: 20, fontWeight: '700', color: colors.text.primary, marginBottom: 20, textAlign: 'center' },
+  inputLabel: { fontSize: 13, fontWeight: '600', color: colors.text.secondary, marginBottom: 6, marginTop: 8 },
   input: {
-    backgroundColor: '#F8F8FA', padding: 14, borderRadius: 10, fontSize: 15,
-    borderWidth: 1, borderColor: '#E8E8ED', color: '#1C1C1E',
+    backgroundColor: colors.bg.tertiary, padding: 14, borderRadius: radii.md, fontSize: 15,
+    borderWidth: 1, borderColor: colors.border, color: colors.text.primary,
   },
   primaryButton: {
-    backgroundColor: '#007AFF', borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 20,
+    backgroundColor: colors.primary, borderRadius: radii.md, padding: 14, alignItems: 'center', marginTop: 20,
   },
   primaryButtonText: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 4 },
-  buttonDisabled: { backgroundColor: '#A2C8FF' },
-  switchText: { fontSize: 14, color: '#007AFF', textAlign: 'center', marginTop: 16 },
+  buttonDisabled: { backgroundColor: colors.primaryLight },
+  switchText: { fontSize: 14, color: colors.primary, textAlign: 'center', marginTop: 16 },
 
   profileContent: { padding: 16, paddingBottom: 40 },
   profileHeader: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
-    borderRadius: 16, padding: 20, marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg.secondary,
+    borderRadius: radii.lg, padding: 20, marginBottom: 16,
   },
   avatar: { width: 72, height: 72, borderRadius: 36 },
   avatarPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   avatarText: { color: '#fff', fontWeight: '800' },
   profileNameSection: { flex: 1, marginLeft: 16 },
-  profileName: { fontSize: 20, fontWeight: '700', color: '#1C1C1E' },
-  profileUsername: { fontSize: 14, color: '#8E8E93', marginTop: 2 },
-  editButton: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#F2F2F7', borderRadius: 8 },
-  editButtonText: { fontSize: 14, fontWeight: '600', color: '#007AFF' },
+  profileName: { fontSize: 20, fontWeight: '700', color: colors.text.primary },
+  profileUsername: { fontSize: 14, color: colors.text.secondary, marginTop: 2 },
+  editButton: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: colors.bg.tertiary, borderRadius: 8 },
+  editButtonText: { fontSize: 14, fontWeight: '600', color: colors.primary },
   notifButton: { position: 'relative', padding: 8, marginRight: 8 },
   notifIcon: { fontSize: 24 },
   notifBadge: {
     position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, borderRadius: 9,
-    backgroundColor: '#FF3B30', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
+    backgroundColor: colors.error, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
   },
   notifBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
 
   balanceCard: {
-    backgroundColor: '#007AFF', borderRadius: 16, padding: 20, marginBottom: 16,
+    backgroundColor: colors.primary, borderRadius: radii.lg, padding: 20, marginBottom: 16,
     flexDirection: 'row', alignItems: 'center',
   },
   balanceLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
   balanceAmount: { flex: 1, color: '#fff', fontSize: 28, fontWeight: '800', marginLeft: 12 },
   rechargeButton: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
   rechargeButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  vipCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFD70015', borderRadius: 16, padding: spacing.md, marginHorizontal: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: '#FFD70040' },
+  vipCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.gold + '15', borderRadius: radii.lg, padding: spacing.md, marginHorizontal: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.gold + '40' },
   vipIcon: { fontSize: 28, marginRight: spacing.sm },
-  vipTitle: { ...typography.h3, color: '#FFD700' },
+  vipTitle: { ...typography.h3, color: colors.gold },
   vipSub: { ...typography.caption, color: colors.text.tertiary, marginTop: 2 },
-  vipBadge: { ...typography.caption, color: '#00CEC9', fontWeight: '700', backgroundColor: '#00CEC920', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  vipBuyBtn: { ...typography.caption, color: '#FFD700', fontWeight: '700' },
+  vipBadge: { ...typography.caption, color: colors.success, fontWeight: '700', backgroundColor: colors.success + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  vipBuyBtn: { ...typography.caption, color: colors.gold, fontWeight: '700' },
 
   menuCard: {
-    backgroundColor: '#fff', borderRadius: 14, marginBottom: 16, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, marginBottom: spacing.md, overflow: 'hidden',
   },
-  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16 },
-  menuIcon: { fontSize: 20, marginRight: 12 },
-  menuText: { flex: 1, fontSize: 15, color: '#1C1C1E' },
-  menuValue: { fontSize: 14, color: '#8E8E93' },
-  menuArrow: { fontSize: 20, color: '#C7C7CC' },
-  menuDivider: { height: 1, backgroundColor: '#F2F2F7', marginLeft: 52 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', padding: spacing.md },
+  menuIcon: { marginRight: spacing.md },
+  menuText: { flex: 1, fontSize: 15, color: colors.text.primary },
+  menuValue: { fontSize: 14, color: colors.text.secondary },
+  menuArrow: { fontSize: 20, color: colors.text.tertiary },
+  menuDivider: { height: 1, backgroundColor: colors.border, marginLeft: 52 },
 
   logoutButton: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8,
-    borderWidth: 1, borderColor: '#FF3B30',
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+    marginTop: spacing.sm, borderWidth: 1, borderColor: colors.error + '40',
   },
-  logoutButtonText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
+  logoutButtonText: { color: colors.error, fontSize: 16, fontWeight: '600' },
 
   modalOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 24, marginHorizontal: 32, width: '85%',
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: 24, marginHorizontal: 32, width: '85%',
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1C1C1E', marginBottom: 12, textAlign: 'center' },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.text.primary, marginBottom: 12, textAlign: 'center' },
   modalButton: {
-    backgroundColor: '#007AFF', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8,
+    flex: 1, backgroundColor: colors.primary, borderRadius: radii.md, padding: 12, alignItems: 'center',
   },
   modalButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   modalActions: { flexDirection: 'row', marginTop: 16, gap: 12 },
   modalCancel: {
-    flex: 1, borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#C7C7CC',
+    flex: 1, borderRadius: radii.md, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border,
   },
-  modalCancelText: { fontSize: 15, color: '#555' },
+  modalCancelText: { fontSize: 15, color: colors.text.secondary },
+  avatarIcon: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center' },
+  histOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', zIndex: 999,
+  },
+  histModal: {
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: spacing.lg,
+    width: '90%', maxHeight: '70%',
+  },
+  avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  avatarOption: {
+    width: 48, height: 48, borderRadius: 24, backgroundColor: colors.bg.tertiary,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  avatarOptionSelected: { borderWidth: 2, borderColor: colors.primary },
+  histHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md,
+  },
+  histTitle: { ...typography.h2, color: colors.text.primary },
+  histEmpty: { ...typography.body, color: colors.text.tertiary, textAlign: 'center', paddingVertical: 40 },
+  histItem: {
+    backgroundColor: colors.bg.tertiary, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm,
+  },
+  histItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs },
+  histItemTitle: { ...typography.h3, color: colors.text.primary, flex: 1 },
+  histItemCost: { ...typography.h3, color: colors.accentOrange, fontWeight: '700' },
+  histItemMeta: { flexDirection: 'row', alignItems: 'center' },
+  histMetaText: { ...typography.caption, color: colors.text.tertiary },
 });

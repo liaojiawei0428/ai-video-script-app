@@ -359,12 +359,15 @@ export class NovelService {
     const novel = await novelModel.findById(novelId);
     if (!novel) throw new AppError('NOVEL_NOT_FOUND', `Novel ${novelId} not found`, 404);
 
-    // 1. 标记取消，让正在运行的后台任务停止 AI 调用
+    // 1. 标记取消，让正在运行的后台任务停止 AI 调用（不清除标记，保持永久取消状态）
     NovelService.markCancelled(novelId);
     taskQueue.cancel(novelId);
 
+    // 2. 通知客户端任务已终止
+    websocketService.broadcastProgress(novelId, 0, 'error', { detail: '小说已被删除，任务已终止' });
+
     try {
-      // 2. 取消所有正在运行的 task_job
+      // 3. 取消所有正在运行的 task_job
       const { execute, queryAll } = await import('../models/db');
       const runningTasks = await queryAll<any>(
         "SELECT id FROM task_jobs WHERE novel_id = ? AND status IN ('running','queued')",
@@ -374,7 +377,7 @@ export class NovelService {
         await taskJobModel.cancel(t.id);
       }
 
-      // 3. 删除上传文件
+      // 4. 删除上传文件
       if (novel.filePath) {
         try {
           await fs.unlink(novel.filePath);
@@ -383,7 +386,7 @@ export class NovelService {
         }
       }
 
-      // 4. 级联删除数据库记录
+      // 5. 级联删除数据库记录
       await execute('DELETE FROM shots WHERE episode_id IN (SELECT id FROM episodes WHERE novel_id = ?)', [novelId]);
       await execute('DELETE FROM episodes WHERE novel_id = ?', [novelId]);
       await execute('DELETE FROM characters WHERE novel_id = ?', [novelId]);
@@ -391,9 +394,10 @@ export class NovelService {
       await execute('DELETE FROM novels WHERE id = ?', [novelId]);
 
       logger.info('Novel deleted with cascade', { novelId });
-    } finally {
-      // 5. 无论成功或失败，都清理取消标记
+    } catch (err) {
+      // 删除失败时才清除取消标记
       NovelService.clearCancelled(novelId);
+      throw err;
     }
   }
 }

@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getEpisode, updateEpisode, getShots, generateShots as apiGenerateShots, getTaskProgress, regenerateEpisode as apiRegenerateEpisode } from '../api/client';
 import { updateEpisodeSqlite, saveShots } from '../db/sqlite';
 import { WS_BASE_URL } from '../config';
@@ -159,9 +160,9 @@ export function EpisodeDetailScreen(): React.JSX.Element {
       });
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       await loadEpisode();
-      setStreamText(prev => prev + '\n✅ 重新生成完成');
+      setStreamText(prev => prev + '\n重新生成完成');
     } catch (err: any) {
-      setStreamText(prev => prev + `\n❌ 重新生成失败：${err?.message || '网络错误'}`);
+      setStreamText(prev => prev + `\n重新生成失败：${err?.message || '网络错误'}`);
     } finally {
       setRegenerating(false);
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -187,7 +188,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
     }
     setGenerating(true);
     setShotContent('');
-    setStreamText('🎬 AI 正在分析剧本，生成镜头描述...\n');
+    setStreamText('AI 正在分析剧本，生成镜头描述...\n');
 
     let wsConnected = false;
     try {
@@ -277,7 +278,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
                 </View>
               )}
               {episodeStatus === 'completed' && (
-                <Text style={styles.statusOkIcon}>✅</Text>
+                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               )}
             </View>
             <View style={styles.boxActions}>
@@ -367,24 +368,14 @@ const styles = StyleSheet.create({
   retryBtn: { backgroundColor: colors.warning, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   retryBtnText: { ...typography.tag, color: colors.bg.primary },
   saveBtn: {
-    flex: 1,
-    marginTop: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.sm + 2,
-    alignItems: 'center',
+    flex: 1, borderRadius: radii.md, borderWidth: 1, borderColor: colors.accent,
+    backgroundColor: colors.accent, paddingVertical: spacing.sm + 2, alignItems: 'center',
   },
   saveBtnText: { ...typography.h3, color: colors.text.inverse },
   editSaveRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   editBtn: {
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: spacing.sm + 2,
-    paddingHorizontal: spacing.lg,
-    alignItems: 'center',
+    flex: 1, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border,
+    paddingVertical: spacing.sm + 2, alignItems: 'center',
   },
   editBtnActive: { borderColor: colors.accent, backgroundColor: colors.accent + '20' },
   editBtnText: { ...typography.h3, color: colors.text.secondary },

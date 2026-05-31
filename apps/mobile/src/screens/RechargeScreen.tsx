@@ -124,9 +124,9 @@ export function RechargeScreen({ route, navigation }: any): React.JSX.Element {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; color: string }> = {
-    pending: { label: '待审核', color: '#FDCB6E' },
-    approved: { label: '已到账', color: '#00CEC9' },
-    rejected: { label: '已拒绝', color: '#E17055' },
+    pending: { label: '待审核', color: '#F97316' },
+    approved: { label: '已到账', color: '#22C55E' },
+    rejected: { label: '已拒绝', color: '#EF4444' },
   };
   const cfg = map[status] || map.pending;
   return <Text style={[styles.badge, { color: cfg.color }]}>{cfg.label}</Text>;

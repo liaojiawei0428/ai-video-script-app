@@ -2,19 +2,21 @@ import React, { useEffect, useRef, useState, useMemo, memo, useCallback } from '
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore, createLlmMessage, LlmMessage } from '../store/useNovelStore';
 import { getTaskProgress, getNovelAnalysis, getEpisodes as apiGetEpisodes, generateEpisodes, getNovels as apiGetNovels } from '../api/client';
 import { saveNovel, saveEpisodes as saveEpisodesDb, updateNovelStatus, initDatabase, getNovels } from '../db/sqlite';
 import { WS_BASE_URL } from '../config';
+import { colors, spacing, radii, typography } from '../theme';
 import type { ChatTabRouteProp } from '../types/navigation';
 
 const STEPS = [
-  { key: 'uploaded', label: '上传文件', icon: '📄' },
-  { key: 'analyzing', label: 'AI 分析小说', icon: '📊' },
-  { key: 'script_gen', label: 'AI 生成剧本', icon: '📝' },
-  { key: 'saving', label: '保存到书架', icon: '💾' },
-  { key: 'done', label: '全部完成', icon: '✅' },
+  { key: 'uploaded', label: '上传文件', icon: 'document-text-outline' },
+  { key: 'analyzing', label: 'AI 分析小说', icon: 'analytics-outline' },
+  { key: 'script_gen', label: 'AI 生成剧本', icon: 'film-outline' },
+  { key: 'saving', label: '保存到书架', icon: 'save-outline' },
+  { key: 'done', label: '全部完成', icon: 'checkmark-circle' },
 ];
 
 // ===== FlatList item types =====
@@ -56,7 +58,10 @@ const MsgItem = memo(function MsgItem({ m }: { m: LlmMessage }) {
     return (
       <View style={styles.chatBubbleRow}>
         <View style={styles.chatBubbleSystem}>
-          <Text style={styles.chatBubbleLabel}>👤 系统</Text>
+          <View style={styles.chatBubbleLabelRow}>
+            <Ionicons name="person" size={14} color={colors.text.secondary} />
+            <Text style={styles.chatBubbleLabel}> 系统</Text>
+          </View>
           <Text style={styles.chatBubbleText}>{m.content}</Text>
         </View>
       </View>
@@ -66,15 +71,16 @@ const MsgItem = memo(function MsgItem({ m }: { m: LlmMessage }) {
     const isLong = m.content.length > 200 || m.content.includes('\n');
     if (m.type === 'output') {
       return (
-        <CollapsibleBlock title="📝 剧本内容" text={m.content} color="#5856D6" />
+        <CollapsibleBlock title="剧本内容" text={m.content} color="#2563EB" icon="film-outline" />
       );
     }
     if (isLong) {
       return (
         <CollapsibleBlock
-          title={m.type === 'reasoning' ? '💭 思考过程' : '✅ AI 输出结果'}
+          title={m.type === 'reasoning' ? '思考过程' : 'AI 输出结果'}
           text={m.content}
-          color={m.type === 'reasoning' ? '#FF9F0A' : '#34C759'}
+          color={m.type === 'reasoning' ? '#F97316' : '#22C55E'}
+          icon={m.type === 'reasoning' ? 'bulb-outline' : 'checkmark-circle-outline'}
         />
       );
     }
@@ -104,9 +110,13 @@ const ChunkProgressBlock = memo(function ChunkProgressBlock() {
   if (chunkProgress.phase === 'chunking') {
     return (
       <View style={styles.phaseBlock}>
-        <Text style={styles.phaseTitle}>📊 小说分析</Text>
+        <View style={styles.phaseTitleRow}>
+          <Ionicons name="analytics" size={18} color={colors.primary} />
+          <Text style={styles.phaseTitle}> 小说分析</Text>
+        </View>
         <View style={styles.chunkProgressBox}>
-          <Text style={styles.chunkProgressSummary}>✂️ 正在分割小说...</Text>
+          <Ionicons name="cut" size={16} color={colors.text.secondary} />
+          <Text style={styles.chunkProgressSummary}> 正在分割小说...</Text>
         </View>
       </View>
     );
@@ -114,9 +124,13 @@ const ChunkProgressBlock = memo(function ChunkProgressBlock() {
   if (chunkProgress.phase === 'merging') {
     return (
       <View style={styles.phaseBlock}>
-        <Text style={styles.phaseTitle}>📊 小说分析</Text>
+        <View style={styles.phaseTitleRow}>
+          <Ionicons name="analytics" size={18} color={colors.primary} />
+          <Text style={styles.phaseTitle}> 小说分析</Text>
+        </View>
         <View style={styles.chunkProgressBox}>
-          <Text style={styles.chunkProgressSummary}>🔗 正在合并各段分析结果...</Text>
+          <Ionicons name="git-merge" size={16} color={colors.text.secondary} />
+          <Text style={styles.chunkProgressSummary}> 正在合并各段分析结果...</Text>
         </View>
       </View>
     );
@@ -124,24 +138,41 @@ const ChunkProgressBlock = memo(function ChunkProgressBlock() {
   if (chunkProgress.phase === 'final_analysis') {
     return (
       <View style={styles.phaseBlock}>
-        <Text style={styles.phaseTitle}>📊 小说分析</Text>
+        <View style={styles.phaseTitleRow}>
+          <Ionicons name="analytics" size={18} color={colors.primary} />
+          <Text style={styles.phaseTitle}> 小说分析</Text>
+        </View>
         <View style={styles.chunkProgressBox}>
-          <Text style={styles.chunkProgressSummary}>📊 正在生成最终分析...</Text>
+          <Ionicons name="document-text" size={16} color={colors.text.secondary} />
+          <Text style={styles.chunkProgressSummary}> 正在生成最终分析...</Text>
         </View>
       </View>
     );
   }
 
   const etaText = chunkProgress.eta != null
-    ? `⏳ 预计剩余 ${chunkProgress.eta >= 60 ? Math.floor(chunkProgress.eta / 60) + '分' : ''}${chunkProgress.eta % 60}秒`
+    ? `预计剩余 ${chunkProgress.eta >= 60 ? Math.floor(chunkProgress.eta / 60) + '分' : ''}${chunkProgress.eta % 60}秒`
     : '';
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed': return 'checkmark-circle';
+      case 'failed': return 'close-circle';
+      case 'running': return 'flash';
+      default: return 'ellipse-outline';
+    }
+  };
 
   return (
     <View style={styles.phaseBlock}>
-      <Text style={styles.phaseTitle}>📊 小说分析</Text>
+      <View style={styles.phaseTitleRow}>
+        <Ionicons name="analytics" size={18} color={colors.primary} />
+        <Text style={styles.phaseTitle}> 小说分析</Text>
+      </View>
       <View style={styles.chunkProgressBox}>
         <Text style={styles.chunkProgressSummary}>
-          📄 逐段分析：{completed}/{total} 段完成{failed > 0 ? ` ⚠️ ${failed}段失败` : ''}
+          <Ionicons name="document-text" size={14} color={colors.text.secondary} />
+          {' '}逐段分析：{completed}/{total} 段完成{failed > 0 ? ` ${failed}段失败` : ''}
         </Text>
         {etaText ? <Text style={styles.chunkEtaText}>{etaText}</Text> : null}
         {states.map((s, idx) => {
@@ -149,17 +180,19 @@ const ChunkProgressBlock = memo(function ChunkProgressBlock() {
           const isRunning = s.status === 'running';
           const isDone = s.status === 'completed' || s.status === 'failed';
           const isPending = s.status === 'pending';
-          const icon = isDone ? (s.status === 'completed' ? '✅' : '❌') : isRunning ? '⚡' : '◻️';
           return (
             <View key={s.index} style={[
               styles.chunkItem,
               isRunning && styles.chunkItemRunning,
               isDone && styles.chunkItemDone,
             ]}>
-              <Text style={styles.chunkItemHeader}>
-                {icon} 第 {s.index}/{total} 段
-                {isDone ? ' 分析完成' : isRunning ? ' 分析中...' : ' 等待中'}
-              </Text>
+              <View style={styles.chunkItemHeaderRow}>
+                <Ionicons name={getStatusIcon(s.status)} size={14} color={isDone ? (s.status === 'completed' ? colors.success : colors.error) : isRunning ? colors.warning : colors.text.tertiary} />
+                <Text style={styles.chunkItemHeader}>
+                  {' '}第 {s.index}/{total} 段
+                  {isDone ? ' 分析完成' : isRunning ? ' 分析中...' : ' 等待中'}
+                </Text>
+              </View>
               {isRunning && streamContent ? (
                 <Text style={styles.chunkStreamText} numberOfLines={6}>{streamContent}</Text>
               ) : null}
@@ -177,9 +210,15 @@ const ChunkProgressBlock = memo(function ChunkProgressBlock() {
 const SummaryBlock = memo(function SummaryBlock() {
   return (
     <View style={styles.summaryBlock}>
-      <Text style={styles.summaryTitle}>✅ 全部完成</Text>
+      <View style={styles.summaryTitleRow}>
+        <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+        <Text style={styles.summaryTitle}> 全部完成</Text>
+      </View>
       {STEPS.filter(s => s.key !== 'done').map(s => (
-        <Text key={s.key} style={styles.summaryItem}>✓ {s.label}</Text>
+        <View key={s.key} style={styles.summaryItemRow}>
+          <Ionicons name="checkmark" size={14} color={colors.success} />
+          <Text style={styles.summaryItem}> {s.label}</Text>
+        </View>
       ))}
       <Text style={styles.summaryHint}>前往「书架」查看剧本</Text>
     </View>
@@ -212,6 +251,7 @@ function waitForTask(taskId: string, onUpdate: (t: any) => void): Promise<void> 
 
 export function ChatScreen(): React.JSX.Element {
   const route = useRoute<ChatTabRouteProp>();
+  const navigation = useNavigation<any>();
   // 用 selector 替代全量订阅，避免不相关字段变化触发重渲染
   const llmMessages = useNovelStore(s => s.llmMessages);
   const activeTasks = useNovelStore(s => s.activeTasks);
@@ -233,7 +273,7 @@ export function ChatScreen(): React.JSX.Element {
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const MAX_RECONNECTS = 5;
 
-  const [status, setStatus] = useState<'idle' | 'analyzing' | 'generating' | 'saving' | 'done'>(
+  const [status, setStatus] = useState<'idle' | 'analyzing' | 'generating' | 'saving' | 'done' | 'error'>(
     novelId ? 'analyzing' : 'idle'
   );
   const [progress, setProgress] = useState(0);
@@ -243,12 +283,15 @@ export function ChatScreen(): React.JSX.Element {
   const [streamExpanded, setStreamExpanded] = useState(true); // 流式内容是否展开
   const [detail, setDetail] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const errorDismissedRef = useRef(false); // 用户已确认错误，不再重复显示
 
   const currentStepIdx = STEPS.findIndex(s => {
     if (status === 'idle' || status === 'analyzing') return s.key === 'analyzing';
     if (status === 'generating') return s.key === 'script_gen';
     if (status === 'saving') return s.key === 'saving';
     if (status === 'done') return s.key === 'done';
+    if (status === 'error') return s.key === 'analyzing';
     return 0;
   });
 
@@ -305,8 +348,44 @@ export function ChatScreen(): React.JSX.Element {
       accumulatedRef.current = '';
       setStatus(novelId ? 'analyzing' : 'idle');
       setProgress(0);
+      setErrorMsg('');
     }
   }, [novelId]);
+
+  // 重置到初始状态（不跳转，停留在进度页）
+  const resetToIdle = useCallback(() => {
+    // 标记错误已确认，阻止任何后续操作覆盖状态
+    errorDismissedRef.current = true;
+    // 阻止WebSocket重连和pipeline重新触发
+    reconnectAttemptsRef.current = MAX_RECONNECTS;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    // 先关闭WebSocket
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    // 阻止pipeline
+    pipelineRef.current = true;
+    // 清除store中的消息和状态
+    storeGet().clearLlmMessages();
+    storeGet().clearChunkStreams();
+    storeGet().setChunkProgress(null);
+    // 清除所有本地状态，回到初始欢迎页
+    setDiscoveredNovelId(null);
+    setLiveText('');
+    accumulatedRef.current = '';
+    setStatus('idle');
+    setProgress(0);
+    setTotalEpisodes(0);
+    setCurrentEpisode(0);
+    setEpisodeTitle('');
+    setDetail('');
+    setErrorMsg('');
+    setStreamExpanded(true);
+  }, []);
 
   // 定时轮询余额（WebSocket 更新失败时兜底）
   useEffect(() => {
@@ -324,7 +403,7 @@ export function ChatScreen(): React.JSX.Element {
 
   // 自动恢复：无 novelId 时查询服务端是否有进行中的小说
   useEffect(() => {
-    if (novelId || discoveredNovelId) return;
+    if (novelId || discoveredNovelId || errorDismissedRef.current) return;
     let cancelled = false;
     let retries = 0;
 
@@ -364,7 +443,7 @@ export function ChatScreen(): React.JSX.Element {
           if (ep.status === 'completed' && ep.scriptContent) {
             s.addLlmMessage(createLlmMessage(discoveredNovelId, 'output', `ep_${ep.episodeNumber}`, ep.scriptContent));
             // 添加剧集标题作为通知
-            s.addLlmMessage(createLlmMessage(discoveredNovelId, 'reasoning', `ep_${ep.episodeNumber}`, `🎬 第 ${ep.episodeNumber} 集 ${ep.title || ''}（已生成）`));
+            s.addLlmMessage(createLlmMessage(discoveredNovelId, 'reasoning', `ep_${ep.episodeNumber}`, `第 ${ep.episodeNumber} 集 ${ep.title || ''}（已生成）`));
           }
         }
       } catch {}
@@ -462,6 +541,19 @@ export function ChatScreen(): React.JSX.Element {
                 }
               }
             } else if (data.type === 'progress') {
+              // 检测错误状态（用户已确认则忽略）
+              if (data.status === 'error' && !errorDismissedRef.current) {
+                setStatus('error');
+                setErrorMsg(data.detail || '任务已终止');
+                if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+                if (accumulatedRef.current) {
+                  s.addLlmMessage(createLlmMessage(novelId, 'output', currentStreamPhase || 'script_gen', accumulatedRef.current));
+                  accumulatedRef.current = '';
+                  currentStreamPhase = '';
+                }
+                setLiveText('');
+                return;
+              }
               // 完成时，先flush最后一集的流式内容到store
               if (data.status === 'completed' && accumulatedRef.current) {
                 if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
@@ -538,25 +630,25 @@ export function ChatScreen(): React.JSX.Element {
           return;
         }
 
-        setDetail('⏳ 等待 AI 响应...');
+        setDetail('等待 AI 响应...');
         await waitForTask(analysisTask.taskId, (t) => {
           setProgress(t.progress || 0);
           storeGet().updateTaskProgress(novelId, t.progress, t.status, 'analyzing');
-          if (t.progress >= 100) setDetail('✅ 分析完成');
+          if (t.progress >= 100) setDetail('分析完成');
         });
         await updateNovelStatus(novelId, 'analyzed');
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'analyzing', '✅ 小说分析完成'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'analyzing', '小说分析完成'));
         setProgress(0);
 
         // ---- Phase 2: Generate episodes ----
         setStatus('generating');
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'phase_start', 'script_gen', '📝 开始生成剧集...'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'phase_start', 'script_gen', '开始生成剧集...'));
 
         const genRes = await generateEpisodes(novelId);
         const genTaskId = genRes.data.data.taskId;
 
-        setDetail('⏳ 等待 AI 划分剧集...');
+        setDetail('等待 AI 划分剧集...');
         await waitForTask(genTaskId, (t) => {
           setProgress(t.progress || 0);
           setDetail(`生成剧集中 ${t.progress}%`);
@@ -565,7 +657,7 @@ export function ChatScreen(): React.JSX.Element {
         // 等 2 秒让最后一条流式内容有时间显示到 UI 并 flush 到 store
         await new Promise<void>(r => setTimeout(r, 2000));
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 剧集生成完成！'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '剧集生成完成！'));
 
         // ---- Phase 3: Save to local ----
         setStatus('saving');
@@ -598,11 +690,13 @@ export function ChatScreen(): React.JSX.Element {
         }
         storeGet().setNovels(await getNovels());
 
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '✅ 已保存到书架！共 ' + episodes.length + ' 集'));
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', '已保存到书架！共 ' + episodes.length + ' 集'));
         setStatus('done');
         setDetail('全部完成，共 ' + episodes.length + ' 集');
       } catch (err: any) {
-        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', `❌ ${err?.message || '处理失败'}`));
+        // 如果用户已确认错误（删除小说），不再覆盖状态
+        if (errorDismissedRef.current) return;
+        storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', `${err?.message || '处理失败'}`));
         setStatus('done');
         setDetail('处理出错');
       } finally {
@@ -669,9 +763,9 @@ export function ChatScreen(): React.JSX.Element {
       }
 
       // Phase header
-      if (phase === 'analyzing') items.push({ type: 'phase_header', key: phase + '_h', label: '📊 小说分析' });
-      else if (phase === 'script_gen') items.push({ type: 'phase_header', key: phase + '_h', label: '📝 剧本生成' });
-      else if (phase === 'shot_gen') items.push({ type: 'phase_header', key: phase + '_h', label: '🎬 分镜头' });
+      if (phase === 'analyzing') items.push({ type: 'phase_header', key: phase + '_h', label: '小说分析', icon: 'analytics' });
+      else if (phase === 'script_gen') items.push({ type: 'phase_header', key: phase + '_h', label: '剧本生成', icon: 'film' });
+      else if (phase === 'shot_gen') items.push({ type: 'phase_header', key: phase + '_h', label: '分镜头', icon: 'videocam' });
 
       for (const m of msgs) {
         const isStreaming = phase === 'script_gen' && m.type === 'reasoning';
@@ -713,11 +807,11 @@ export function ChatScreen(): React.JSX.Element {
     setRefreshing(false);
   }, [novelId, status]);
 
-  if (!novelId) {
+  if (!novelId || status === 'idle') {
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>💬</Text>
+          <Ionicons name="time" size={56} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>等待任务...</Text>
           <Text style={styles.emptySub}>前往「上传」页上传小说，自动在此处理</Text>
         </View>
@@ -768,9 +862,9 @@ export function ChatScreen(): React.JSX.Element {
                   isCurrent && styles.stepDotCurrent,
                   isPending && styles.stepDotPending,
                 ]}>
-                  {isCompleted ? <Text style={styles.stepDotIcon}>✓</Text> :
+                  {isCompleted ? <Ionicons name="checkmark" size={14} color="#fff" /> :
                    isCurrent && status !== 'done' ? <ActivityIndicator size="small" color="#fff" /> :
-                   <Text style={styles.stepDotIcon}>{step.icon}</Text>}
+                   <Ionicons name={step.icon} size={14} color="#fff" />}
                 </View>
                 <Text style={[
                   styles.stepLabel,
@@ -791,7 +885,7 @@ export function ChatScreen(): React.JSX.Element {
         data={flatData} keyExtractor={item => item.key}
         onScroll={handleScroll} scrollEventThrottle={100}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6C5CE7" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563EB" />
         }
         ListFooterComponent={liveText ? (
           <TouchableOpacity
@@ -799,7 +893,7 @@ export function ChatScreen(): React.JSX.Element {
             onPress={() => setStreamExpanded(prev => !prev)}
           >
             <View style={styles.liveStreamBox}>
-              <Text style={styles.liveStreamLabel}>📝 正在输出...</Text>
+              <Text style={styles.liveStreamLabel}>正在输出...</Text>
               <Text style={styles.liveStreamText} numberOfLines={streamExpanded ? undefined : 4}>
                 {liveText}
               </Text>
@@ -810,7 +904,12 @@ export function ChatScreen(): React.JSX.Element {
         renderItem={({ item }) => {
           switch (item.type) {
             case 'phase_header':
-              return <Text style={styles.phaseTitle}>{item.label}</Text>;
+              return (
+                <View style={styles.phaseTitleRow}>
+                  <Ionicons name={item.icon || 'analytics'} size={18} color={colors.primary} />
+                  <Text style={styles.phaseTitle}> {item.label}</Text>
+                </View>
+              );
             case 'msg':
               return <MsgItem m={item.m} />;
             case 'collapsible':
@@ -822,12 +921,15 @@ export function ChatScreen(): React.JSX.Element {
             case 'awaiting':
               return (
                 <View style={styles.phaseBlock}>
-                  <Text style={styles.phaseTitle}>📊 小说分析</Text>
-                  <Text style={styles.awaitingText}>⏳ AI 思考中...</Text>
+                  <View style={styles.phaseTitleRow}>
+                    <Ionicons name="analytics" size={18} color={colors.primary} />
+                    <Text style={styles.phaseTitle}> 小说分析</Text>
+                  </View>
+                  <Text style={styles.awaitingText}>AI 思考中...</Text>
                 </View>
               );
             case 'ep_collapsible':
-              return <CollapsibleBlock title={`📝 第 ${item.epNum} 集剧本`} text={item.text} color="#5856D6" />;
+              return <CollapsibleBlock title={`第 ${item.epNum} 集剧本`} text={item.text} color="#2563EB" icon="film-outline" />;
             case 'ep_header':
               return <Text style={styles.epHeaderText}>{item.label}</Text>;
             case 'summary':
@@ -838,84 +940,106 @@ export function ChatScreen(): React.JSX.Element {
         }}
       />
 
-      <View style={styles.bottomBar}>
-        <Text style={styles.bottomBarText}>{detail || '📤 上传小说后将自动处理'}</Text>
-      </View>
+      {status === 'error' ? (
+        <View style={styles.errorBar}>
+          <Ionicons name="alert-circle" size={20} color={colors.error} />
+          <Text style={styles.errorText}>{errorMsg || '任务已终止'}</Text>
+          <TouchableOpacity style={styles.errorBtn} onPress={resetToIdle}>
+            <Text style={styles.errorBtnText}>确认返回</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.bottomBar}>
+          <Text style={styles.bottomBarText}>{detail || '上传小说后将自动处理'}</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1C1C1E' },
+  container: { flex: 1, backgroundColor: colors.bg.primary },
   chatBubbleRow: { marginBottom: 10 },
   chatBubbleSystem: {
-    backgroundColor: '#2A2A35', borderRadius: 10, borderTopLeftRadius: 4,
-    padding: 10, borderLeftWidth: 3, borderLeftColor: '#007AFF',
+    backgroundColor: colors.bg.secondary, borderRadius: radii.md, borderTopLeftRadius: 4,
+    padding: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.primary,
   },
   chatBubbleAI: {
-    backgroundColor: '#1A2A1A', borderRadius: 10, borderTopRightRadius: 4,
-    padding: 10, borderLeftWidth: 3, borderLeftColor: '#34C759',
+    backgroundColor: '#1E293B', borderRadius: radii.md, borderTopRightRadius: 4,
+    padding: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.success,
   },
-  chatBubbleLabel: { fontSize: 11, fontWeight: '600', color: '#8E8E93', marginBottom: 4 },
+  chatBubbleLabel: { fontSize: 11, fontWeight: '600', color: colors.text.secondary, marginBottom: 4 },
+  chatBubbleLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   chatBubbleText: { fontSize: 13, color: '#DDD', lineHeight: 19 },
-  phaseHint: { fontSize: 13, color: '#666', textAlign: 'center', paddingVertical: 6, fontStyle: 'italic' },
-  header: { padding: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#333' },
+  phaseHint: { fontSize: 13, color: colors.text.tertiary, textAlign: 'center', paddingVertical: spacing.sm, fontStyle: 'italic' },
+  header: { padding: spacing.md, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  headerStatus: { fontSize: 13, color: '#34C759' },
-  progressBarBg: { height: 3, backgroundColor: '#3A3A3A', borderRadius: 2, marginTop: 8, overflow: 'hidden' },
-  progressBarFill: { height: '100%', backgroundColor: '#34C759', borderRadius: 2 },
-  progressBarPulse: { height: '100%', width: '30%', backgroundColor: '#007AFF', borderRadius: 2, opacity: 0.6 },
+  headerStatus: { fontSize: 13, color: colors.success },
+  progressBarBg: { height: 3, backgroundColor: '#3A3A3A', borderRadius: 2, marginTop: spacing.sm, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
+  progressBarPulse: { height: '100%', width: '30%', backgroundColor: colors.primary, borderRadius: 2, opacity: 0.6 },
 
-  stepsContainer: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#333' },
-  stepsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
+  stepsContainer: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  stepsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md },
   stepItem: { flexDirection: 'row', alignItems: 'center' },
   stepDot: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  stepDotDone: { backgroundColor: '#34C759' },
-  stepDotCurrent: { backgroundColor: '#007AFF' },
+  stepDotDone: { backgroundColor: colors.success },
+  stepDotCurrent: { backgroundColor: colors.primary },
   stepDotPending: { backgroundColor: '#3A3A3A' },
   stepDotIcon: { fontSize: 12, color: '#fff', fontWeight: '700' },
-  stepLabel: { fontSize: 11, marginLeft: 4, color: '#8E8E93', maxWidth: 70 },
+  stepLabel: { fontSize: 11, marginLeft: 4, color: colors.text.secondary, maxWidth: 70 },
   stepLabelActive: { color: '#fff', fontWeight: '600' },
   stepLabelPending: { color: '#555' },
   stepLine: { width: 16, height: 2, backgroundColor: '#3A3A3A', marginHorizontal: 4 },
-  stepLineDone: { backgroundColor: '#34C759' },
+  stepLineDone: { backgroundColor: colors.success },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-  phaseBlock: { marginBottom: 16, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#2A2A2A' },
-  phaseTitle: { fontSize: 15, fontWeight: '700', color: '#007AFF', marginBottom: 8 },
-  epHeaderText: { fontSize: 14, fontWeight: '700', color: '#FF9F0A', marginBottom: 8, marginTop: 4 },
+  scrollContent: { padding: spacing.md, paddingBottom: 40 },
+  phaseBlock: { marginBottom: spacing.md, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  phaseTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  phaseTitle: { fontSize: 15, fontWeight: '700', color: colors.primary, marginBottom: spacing.sm },
+  epHeaderText: { fontSize: 14, fontWeight: '700', color: colors.warning, marginBottom: spacing.sm, marginTop: spacing.xs },
 
-  collapsible: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8, borderLeftWidth: 3 },
+  collapsible: { backgroundColor: colors.bg.secondary, borderRadius: radii.md, padding: spacing.sm, marginBottom: spacing.sm, borderLeftWidth: 3 },
   collapsibleTitle: { fontSize: 11, fontWeight: '600', marginBottom: 4 },
   collapsibleText: { fontSize: 12, color: '#DDD', lineHeight: 18 },
-  collapsibleToggle: { fontSize: 11, color: '#8E8E93', marginTop: 4, textAlign: 'right' },
-  awaitingText: { fontSize: 13, color: '#666', textAlign: 'center', paddingVertical: 20 },
-  episodeCounter: { marginTop: 6 },
-  episodeCounterText: { fontSize: 13, color: '#FF9F0A', fontWeight: '600' },
-  chunkProgressBox: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8 },
-  chunkProgressSummary: { fontSize: 13, color: '#0A84FF', fontWeight: '600', marginBottom: 6 },
-  chunkEtaText: { fontSize: 12, color: '#8E8E93', marginBottom: 8 },
-  chunkItem: { backgroundColor: '#1C1C1E', borderRadius: 6, padding: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: '#3A3A3A' },
-  chunkItemRunning: { borderLeftColor: '#FF9F0A' },
-  chunkItemDone: { borderLeftColor: '#34C759', opacity: 0.7 },
-  chunkItemHeader: { fontSize: 12, color: '#8E8E93', fontWeight: '600', marginBottom: 4 },
+  collapsibleToggle: { fontSize: 11, color: colors.text.secondary, marginTop: 4, textAlign: 'right' },
+  awaitingText: { fontSize: 13, color: colors.text.tertiary, textAlign: 'center', paddingVertical: 20 },
+  episodeCounter: { marginTop: spacing.sm },
+  episodeCounterText: { fontSize: 13, color: colors.warning, fontWeight: '600' },
+  chunkProgressBox: { backgroundColor: colors.bg.secondary, borderRadius: radii.md, padding: spacing.sm, marginBottom: spacing.sm },
+  chunkProgressSummary: { fontSize: 13, color: colors.info, fontWeight: '600', marginBottom: spacing.sm },
+  chunkEtaText: { fontSize: 12, color: colors.text.secondary, marginBottom: spacing.sm },
+  chunkItem: { backgroundColor: colors.bg.primary, borderRadius: radii.sm, padding: spacing.sm, marginBottom: spacing.xs, borderLeftWidth: 3, borderLeftColor: '#3A3A3A' },
+  chunkItemRunning: { borderLeftColor: colors.warning },
+  chunkItemDone: { borderLeftColor: colors.success, opacity: 0.7 },
+  chunkItemHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  chunkItemHeader: { fontSize: 12, color: colors.text.secondary, fontWeight: '600', marginBottom: 4 },
   chunkStreamText: { fontSize: 12, color: '#DDD', lineHeight: 17, fontFamily: 'monospace' },
   chunkStreamPlaceholder: { fontSize: 11, color: '#555', fontStyle: 'italic' },
 
-  liveStreamBox: { backgroundColor: '#2A2A35', borderRadius: 8, padding: 10, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9F0A' },
-  liveStreamLabel: { fontSize: 11, fontWeight: '600', color: '#FF9F0A', marginBottom: 4 },
+  liveStreamBox: { backgroundColor: colors.bg.secondary, borderRadius: radii.md, padding: spacing.sm, marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.warning },
+  liveStreamLabel: { fontSize: 11, fontWeight: '600', color: colors.warning, marginBottom: 4 },
   liveStreamText: { fontSize: 12, color: '#DDD', lineHeight: 18, fontFamily: 'monospace' },
-  summaryBlock: { backgroundColor: '#1A2A1A', borderRadius: 12, padding: 16, marginTop: 8 },
-  summaryTitle: { fontSize: 16, fontWeight: '700', color: '#34C759', marginBottom: 8 },
-  summaryItem: { fontSize: 13, color: '#34C759', marginBottom: 4 },
-  summaryHint: { fontSize: 14, color: '#8E8E93', marginTop: 12, textAlign: 'center' },
+  summaryBlock: { backgroundColor: '#1E293B', borderRadius: radii.lg, padding: spacing.md, marginTop: spacing.sm },
+  summaryTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  summaryTitle: { fontSize: 16, fontWeight: '700', color: colors.success, marginBottom: spacing.sm },
+  summaryItemRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  summaryItem: { fontSize: 13, color: colors.success, marginBottom: 4 },
+  summaryHint: { fontSize: 14, color: colors.text.secondary, marginTop: spacing.md, textAlign: 'center' },
 
-  bottomBar: { padding: 12, backgroundColor: '#2A2A35', borderTopWidth: 1, borderTopColor: '#333', alignItems: 'center' },
-  bottomBarText: { fontSize: 13, color: '#8E8E93' },
+  bottomBar: { padding: spacing.md, backgroundColor: colors.bg.secondary, borderTopWidth: 1, borderTopColor: colors.border, alignItems: 'center' },
+  bottomBarText: { fontSize: 13, color: colors.text.secondary },
+  errorBar: {
+    padding: spacing.md, backgroundColor: colors.bg.secondary, borderTopWidth: 1, borderTopColor: colors.error,
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+  },
+  errorText: { flex: 1, fontSize: 13, color: colors.error },
+  errorBtn: { backgroundColor: colors.primary, borderRadius: radii.sm, paddingHorizontal: 16, paddingVertical: 8 },
+  errorBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
 
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
-  emptyIcon: { fontSize: 56, marginBottom: 16 },
+  emptyIcon: { fontSize: 56, marginBottom: spacing.md },
   emptyText: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 4 },
-  emptySub: { fontSize: 14, color: '#666', textAlign: 'center' },
+  emptySub: { fontSize: 14, color: colors.text.tertiary, textAlign: 'center' },
 });

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import {
   Animated, Text, StyleSheet, View,
 } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { colors, radii, spacing, shadows } from '../theme';
 
 interface ToastItem {
@@ -58,7 +59,7 @@ function ToastItemView({ item }: { item: ToastItem }) {
 
   return (
     <Animated.View style={[styles.toast, { transform: [{ translateY }], opacity }]}>
-      {item.icon ? <Text style={styles.icon}>{item.icon}</Text> : null}
+      {item.icon ? <Ionicons name={item.icon} size={18} color={colors.text.primary} style={styles.icon} /> : null}
       <Text style={styles.text}>{item.message}</Text>
     </Animated.View>
   );

@@ -1,10 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
 import { setAuthToken } from '../api/client';
 import { colors, spacing, radii, typography } from '../theme';
+import { APP_DISPLAY_NAME } from '../config/version';
 
 interface MenuItem {
   icon: string;
@@ -37,12 +39,12 @@ export function SettingsScreen(): React.JSX.Element {
       title: '法律合规',
       items: [
         {
-          icon: '📜',
+          icon: 'document-text',
           label: '用户服务协议',
           onPress: () => navigation.navigate('UserAgreement'),
         },
         {
-          icon: '🔒',
+          icon: 'shield-checkmark',
           label: '隐私政策',
           onPress: () => navigation.navigate('PrivacyPolicy'),
         },
@@ -52,12 +54,12 @@ export function SettingsScreen(): React.JSX.Element {
       title: '信息公示',
       items: [
         {
-          icon: 'ℹ️',
+          icon: 'information-circle',
           label: '关于我们',
           onPress: () => navigation.navigate('About'),
         },
         {
-          icon: '⚙️',
+          icon: 'shield-checkmark',
           label: '算法备案公示',
           onPress: () => navigation.navigate('About'),
         },
@@ -67,7 +69,7 @@ export function SettingsScreen(): React.JSX.Element {
       title: '帮助与反馈',
       items: [
         {
-          icon: '💬',
+          icon: 'chatbubble-ellipses',
           label: '意见反馈',
           onPress: () => navigation.navigate('Feedback'),
         },
@@ -77,7 +79,7 @@ export function SettingsScreen(): React.JSX.Element {
       title: '账户',
       items: [
         {
-          icon: '🚪',
+          icon: 'log-out-outline',
           label: '退出登录',
           onPress: handleLogout,
           danger: true,
@@ -104,7 +106,7 @@ export function SettingsScreen(): React.JSX.Element {
                 onPress={item.onPress}
                 activeOpacity={0.6}
               >
-                <Text style={styles.menuIcon}>{item.icon}</Text>
+                <Ionicons name={item.icon} size={20} color={item.danger ? colors.error : colors.primary} style={styles.menuIcon} />
                 <Text style={[styles.menuLabel, item.danger && styles.menuLabelDanger]}>
                   {item.label}
                 </Text>
@@ -115,7 +117,7 @@ export function SettingsScreen(): React.JSX.Element {
         </View>
       ))}
 
-      <Text style={styles.versionText}>Deep剧本 v1.0.0</Text>
+      <Text style={styles.versionText}>{APP_DISPLAY_NAME}</Text>
       <View style={{ height: 60 }} />
     </ScrollView>
   );

@@ -153,16 +153,30 @@ export class WebSocketService {
   private async sendProgressSnapshot(ws: WebSocket, novelId: string): Promise<void> {
     try {
       const novel = await novelModel.findById(novelId);
-      if (!novel) return;
-      // 发送当前 novel 状态（将 analyzed 映射为 analyzing，客户端不识别 analyzed）
-      const displayStatus = novel.status === 'analyzed' ? 'analyzing' : novel.status;
+      if (!novel) {
+        // 小说已删除，通知客户端
+        ws.send(JSON.stringify({
+          type: 'progress',
+          novelId,
+          progress: 0,
+          status: 'error',
+          detail: '小说不存在或已被删除',
+          timestamp: Date.now(),
+        }));
+        return;
+      }
+      // 发送当前 novel 状态（直接使用真实状态，不做映射）
       ws.send(JSON.stringify({
         type: 'progress',
         novelId,
-        progress: 0,
-        status: displayStatus,
+        progress: novel.status === 'analyzed' ? 100 : 0,
+        status: novel.status,
         timestamp: Date.now(),
       }));
+      // 如果已完成分析或生成，不再发送任务更新，避免客户端误认为仍在进行
+      if (novel.status === 'analyzed' || novel.status === 'completed') {
+        return;
+      }
       // 查找最近的 task_job 获取详细进度
       const task = await taskJobModel.findLatestByNovelId(novelId);
       if (task) {
@@ -178,9 +192,11 @@ export class WebSocketService {
           },
           timestamp: Date.now(),
         }));
-        // 始终发送进度事件（即使 progress=0 也让客户端知道已连接到任务）
-        const resolvedNovelStatus = novel.status === 'analyzed' ? 'analyzing' : novel.status;
-        const taskStatus = task.status === 'running' ? (resolvedNovelStatus === 'analyzing' ? 'analyzing' : 'generating') : task.status;
+        // 发送进度事件
+        let taskStatus: string = task.status;
+        if (task.status === 'running') {
+          taskStatus = novel.status === 'analyzing' ? 'analyzing' : 'generating';
+        }
         // 查询已生成的剧集数和总集数
         let currentEpisode = 0;
         try {
@@ -189,7 +205,6 @@ export class WebSocketService {
             currentEpisode = Math.max(...eps.map(e => e.episodeNumber));
           }
         } catch {}
-        // totalEpisodes 始终用公式计算，不受已生成集数影响
         let totalEpisodes = 0;
         if (novel.totalChars > 0) {
           const charsPerEpisode = Math.round(1050 * 3.5);

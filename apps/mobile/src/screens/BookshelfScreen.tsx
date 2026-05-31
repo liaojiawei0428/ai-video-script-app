@@ -3,30 +3,31 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { getNovels as apiGetNovels, deleteNovel as apiDeleteNovel } from '../api/client';
-import { getNovels as getLocalNovels, deleteNovelById } from '../db/sqlite';
+import { getNovels as getLocalNovels, deleteNovelById, saveNovel as saveNovelDb } from '../db/sqlite';
 import { GlassCard, Tag, PulseProgressBar, SkeletonCard } from '../components';
 import { colors, spacing, radii, typography, layout } from '../theme';
 import type { NavigationProp, RootStackParamList } from '../types/navigation';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const COVER_COLORS: Array<[string, string]> = [
-  ['#6C5CE7', '#A29BFE'],
-  ['#00CEC9', '#55E6C1'],
-  ['#E17055', '#FAB1A0'],
-  ['#FDCB6E', '#FFEAA7'],
-  ['#0984E3', '#74B9FF'],
+  ['#2563EB', '#60A5FA'],
+  ['#22C55E', '#55E6C1'],
+  ['#EF4444', '#FAB1A0'],
+  ['#F97316', '#FFEAA7'],
+  ['#0984E3', '#93C5FD'],
   ['#E84393', '#FD79A8'],
   ['#00B894', '#55EFC4'],
-  ['#6C5CE7', '#74B9FF'],
-  ['#D63031', '#FF7675'],
+  ['#2563EB', '#93C5FD'],
+  ['#EF4444', '#F87171'],
   ['#2D3436', '#636E72'],
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   pending: { label: '等待处理', color: colors.warning },
-  queued: { label: '排队中', color: '#FDCB6E' },
+  queued: { label: '排队中', color: '#F97316' },
   analyzing: { label: 'AI 分析中', color: colors.accent },
   analyzed: { label: '待生成剧本', color: colors.accent },
   generating: { label: '生成剧集中', color: colors.accent },
@@ -54,12 +55,21 @@ function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] || { label: status || '未知', color: '#999' };
   const isActive = status === 'analyzing' || status === 'generating' || status === 'queued';
 
+  const getIcon = () => {
+    switch (status) {
+      case 'completed': return 'checkmark-circle';
+      case 'error':
+      case 'failed': return 'close-circle';
+      default: return 'document-text';
+    }
+  };
+
   return (
     <View style={styles.statusBadge}>
       {isActive ? (
         <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
       ) : (
-        <Text style={styles.statusIcon}>{status === 'completed' ? '✅' : status === 'error' || status === 'failed' ? '❌' : '📋'}</Text>
+        <Ionicons name={getIcon()} size={14} color={cfg.color} />
       )}
       <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
     </View>
@@ -96,16 +106,27 @@ export function BookshelfScreen(): React.JSX.Element {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchNovels = useCallback(async () => {
-    let serverOk = false;
+    // 1. 优先加载本地数据（离线可用）
+    const local = await getLocalNovels().catch(() => []);
+    if (local.length > 0) setNovels(local);
+    
+    // 2. 从服务端同步最新数据
     try {
       const serverRes = await apiGetNovels();
       const serverNovels = serverRes?.data?.data?.novels || [];
       setNovels(serverNovels);
-      serverOk = true;
-    } catch {}
-    if (!serverOk) {
-      const local = await getLocalNovels().catch(() => []);
-      if (local.length > 0) setNovels(local);
+      // 同步到本地SQLite
+      for (const n of serverNovels) {
+        await saveNovelDb({
+          id: n.id, title: n.title, author: n.author || 'User',
+          totalChars: n.totalChars || 0, totalWords: n.totalWords || 0,
+          genre: n.genre || '', theme: n.theme || '', style: n.style || '', tone: n.tone || '',
+          summary: n.summary || '', scenes: n.scenes || [], plotPoints: n.plotPoints || [],
+          status: n.status, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now(),
+        }).catch(() => {});
+      }
+    } catch {
+      // 服务端不可用时，已显示本地数据
     }
     setLoading(false);
   }, [setNovels]);
@@ -134,11 +155,12 @@ export function BookshelfScreen(): React.JSX.Element {
             // 先调服务端 API（停止后台任务 + 级联删除数据 + 删除文件）
             await apiDeleteNovel(item.id);
           } catch {}
-          // 清理本地 SQLite 和 store
+          // 清理本地 SQLite、store 和流式内容
           try {
             await deleteNovelById(item.id);
           } catch {}
           removeNovel(item.id);
+          useNovelStore.getState().clearChunkStreams();
         },
       },
     ]);
@@ -192,7 +214,7 @@ export function BookshelfScreen(): React.JSX.Element {
       <Text style={styles.pageTitle}>我的书架</Text>
       {novels.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📚</Text>
+          <Ionicons name="book" size={48} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>{isLoggedIn ? '书架还是空的' : '请先登录'}</Text>
           <Text style={styles.emptySub}>{isLoggedIn ? '上传一本小说开始创作' : '登录后可查看书架内容'}</Text>
           {!isLoggedIn && (

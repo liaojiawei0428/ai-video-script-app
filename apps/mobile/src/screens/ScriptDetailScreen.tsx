@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getEpisodes, getEpisode, getNovelAnalysis, updateNovel, updateCharacter } from '../api/client';
 import { saveEpisodes, getEpisodes as getLocalEpisodes } from '../db/sqlite';
 import { GlassCard, Tag, SkeletonLoader } from '../components';
@@ -35,10 +36,12 @@ export function ScriptDetailScreen(): React.JSX.Element {
 
     let cancelled = false;
     (async () => {
+      // 1. 先加载本地数据（秒开）
       try {
         const local = await getLocalEpisodes(novelId);
         if (local && local.length > 0 && !cancelled) {
           setEpisodes(local);
+          setLoading(false); // 本地有数据就停止加载动画
         }
       } catch {}
     })();
@@ -49,6 +52,8 @@ export function ScriptDetailScreen(): React.JSX.Element {
         if (cancelled) return;
         const eps = epsRes.data.data.episodes || [];
         setEpisodes(eps);
+        await saveEpisodes(eps).catch(() => {});
+        // 加载分析报告
         const analysisData = (await getNovelAnalysis(novelId).catch(() => ({ data: { data: {} } }))).data?.data || {};
         setAnalysis(analysisData);
         setEditGenre(analysisData.genre || '');
@@ -58,14 +63,11 @@ export function ScriptDetailScreen(): React.JSX.Element {
         setEditChars((analysisData.characters || []).map((c: any) => ({ ...c })));
         const roleMap: Record<string, string> = { protagonist: '主角', antagonist: '反派', supporting: '配角', minor: '龙套' };
         setCharText((analysisData.characters || []).map((c: any) => `${c.name} | ${roleMap[c.roleType] || c.roleType || '配角'} | ${c.personality || ''} | ${c.appearance || ''}`).join('\n\n'));
-        // 优先显示完整分析报告，如果没有则用全文摘要，最后用结构化数据
         if (analysisData.analysisReport) {
           setAnalysisText(analysisData.analysisReport);
         } else if (analysisData.fullSummary) {
           setAnalysisText(analysisData.fullSummary);
         }
-        await saveEpisodes(eps).catch(() => {});
-        if (eps.length === 0) setLoadError('该小说暂无剧集数据');
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.response?.status === 401 ? '登录已过期' : '加载失败，下拉刷新重试');
       }
@@ -138,7 +140,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>⚠️</Text>
+          <Ionicons name="warning" size={48} color={colors.warning} />
           <Text style={styles.emptyText}>剧本 ID 无效</Text>
         </View>
       </View>
@@ -164,7 +166,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
           <>
             {loadError && episodes.length === 0 ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyIcon}>🎬</Text>
+                <Ionicons name="film" size={48} color={colors.text.tertiary} />
                 <Text style={styles.emptyText}>{loadError}</Text>
               </View>
             ) : null}
@@ -201,9 +203,9 @@ export function ScriptDetailScreen(): React.JSX.Element {
                 <Text style={styles.episodeMeta}>{item.durationSec || 3}秒</Text>
                 {item.charCount ? <Text style={styles.episodeMeta}>· {item.charCount}字</Text> : null}
                 {item.status === 'completed' ? (
-                  <Text style={styles.statusCompleted}>✅</Text>
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                 ) : item.status === 'failed' ? (
-                  <Text style={styles.statusFailed}>❌</Text>
+                  <Ionicons name="close-circle" size={16} color={colors.error} />
                 ) : null}
               </View>
               {item.summary ? <Text style={styles.episodeSummary} numberOfLines={1}>{item.summary}</Text> : null}
@@ -218,7 +220,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
         contentContainerStyle={styles.list}
         ListEmptyComponent={loading ? null : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🎬</Text>
+            <Ionicons name="film" size={48} color={colors.text.tertiary} />
             <Text style={styles.emptyText}>{loadError || '暂无剧集数据'}</Text>
           </View>
         )}
@@ -235,7 +237,7 @@ export function ScriptDetailScreen(): React.JSX.Element {
               } catch { setLoadError('加载失败'); }
               setRefreshing(false);
             }}
-            tintColor="#6C5CE7"
+            tintColor="#2563EB"
           />
         }
       />

@@ -152,6 +152,9 @@ export const login = (username: string, password: string) =>
 export const getProfile = () =>
   apiClient.get('/users/profile');
 
+export const getUserHistory = () =>
+  apiClient.get('/users/history');
+
 export const updateProfile = (data: { nickname?: string; avatarUrl?: string }) =>
   apiClient.put('/users/profile', data);
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert, TextInput } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
@@ -95,21 +96,22 @@ export function AdminDashboard(): React.JSX.Element {
         </TouchableOpacity>
       </View>
       <View style={styles.tabs}>
-        {([['dashboard', '📊 仪表盘'], ['orders', '📋 订单'], ['feedback', '💬 反馈']] as const).map(([t, label]) => (
+        {([['dashboard', 'stats-chart', '仪表盘'], ['orders', 'receipt', '订单'], ['feedback', 'chatbubble-ellipses', '反馈']] as const).map(([t, icon, label]) => (
           <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabActive]} onPress={() => setTab(t)}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{label}</Text>
+            <Ionicons name={icon} size={18} color={tab === t ? colors.primary : colors.text.tertiary} />
+            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}> {label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {tab === 'dashboard' && data && (
         <View style={styles.dashboard}>
-          <StatCard icon="👥" label="总用户" value={data.totalUsers} />
-          <StatCard icon="🆕" label="今日注册" value={data.todayUsers} />
-          <StatCard icon="⏳" label="待审核" value={data.pendingOrders} />
-          <StatCard icon="📅" label="今日申请" value={data.todayOrders} />
+          <StatCard icon="people" label="总用户" value={data.totalUsers} />
+          <StatCard icon="person-add" label="今日注册" value={data.todayUsers} />
+          <StatCard icon="time" label="待审核" value={data.pendingOrders} />
+          <StatCard icon="calendar" label="今日申请" value={data.todayOrders} />
           <TouchableOpacity style={styles.announcementBtn} onPress={() => setShowAnnouncement(true)}>
-            <Text style={styles.announcementIcon}>📢</Text>
+            <Ionicons name="megaphone" size={20} color={colors.warning} />
             <Text style={styles.announcementText}>发送公告</Text>
           </TouchableOpacity>
         </View>
@@ -192,7 +194,7 @@ export function AdminDashboard(): React.JSX.Element {
 function StatCard({ icon, label, value }: any) {
   return (
     <View style={styles.statCard}>
-      <Text style={styles.statIcon}>{icon}</Text>
+      <Ionicons name={icon} size={28} color={colors.primary} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -342,11 +344,11 @@ const styles = StyleSheet.create({
   tabTextActive: { color: colors.accent, fontWeight: '700' },
   dashboard: { flexDirection: 'row', flexWrap: 'wrap', padding: spacing.sm, gap: spacing.sm },
   announcementBtn: {
-    width: '100%', backgroundColor: '#FF9F0A' + '20', borderRadius: radii.lg,
+    width: '100%', backgroundColor: '#F97316' + '20', borderRadius: radii.lg,
     padding: spacing.md, alignItems: 'center', flexDirection: 'row', justifyContent: 'center',
   },
   announcementIcon: { fontSize: 20, marginRight: spacing.sm },
-  announcementText: { ...typography.h3, color: '#FF9F0A' },
+  announcementText: { ...typography.h3, color: '#F97316' },
   statCard: {
     width: '47%', backgroundColor: colors.bg.secondary, borderRadius: radii.lg,
     padding: spacing.md, alignItems: 'center',
@@ -366,10 +368,10 @@ const styles = StyleSheet.create({
   orderAmt: { ...typography.h2, color: colors.accent, marginTop: 2 },
   orderMeta: { ...typography.caption, color: colors.text.tertiary, marginTop: 2 },
   orderActions: { flexDirection: 'row', marginTop: spacing.sm, gap: spacing.sm },
-  approveBtn: { backgroundColor: '#00CEC9' + '30', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.md },
-  approveText: { ...typography.caption, color: '#00CEC9', fontWeight: '700' },
-  rejectBtn: { backgroundColor: '#E17055' + '30', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.md },
-  rejectText: { ...typography.caption, color: '#E17055', fontWeight: '700' },
+  approveBtn: { backgroundColor: '#22C55E' + '30', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.md },
+  approveText: { ...typography.caption, color: '#22C55E', fontWeight: '700' },
+  rejectBtn: { backgroundColor: '#EF4444' + '30', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radii.md },
+  rejectText: { ...typography.caption, color: '#EF4444', fontWeight: '700' },
   orderStatus: { ...typography.caption, color: colors.text.tertiary, marginTop: spacing.sm },
   userItem: {
     backgroundColor: colors.bg.secondary, borderRadius: radii.lg,
@@ -392,8 +394,8 @@ const styles = StyleSheet.create({
   feedbackActions: { flexDirection: 'row', marginTop: spacing.sm, gap: spacing.sm },
   markReadBtn: { backgroundColor: colors.accent + '20', paddingHorizontal: 14, paddingVertical: 6, borderRadius: radii.md },
   markReadText: { ...typography.caption, color: colors.accent, fontWeight: '600' },
-  replyBtn: { backgroundColor: '#00CEC9' + '20', paddingHorizontal: 14, paddingVertical: 6, borderRadius: radii.md },
-  replyText: { ...typography.caption, color: '#00CEC9', fontWeight: '600' },
+  replyBtn: { backgroundColor: '#22C55E' + '20', paddingHorizontal: 14, paddingVertical: 6, borderRadius: radii.md },
+  replyText: { ...typography.caption, color: '#22C55E', fontWeight: '600' },
   replyBox: { marginTop: spacing.sm, backgroundColor: colors.bg.tertiary, borderRadius: radii.md, padding: spacing.sm },
   replyInput: { ...typography.body, color: colors.text.primary, minHeight: 60, textAlignVertical: 'top' },
   replyActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.sm, gap: spacing.sm },
@@ -418,6 +420,6 @@ const styles = StyleSheet.create({
   annActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.md, gap: spacing.sm },
   annCancelBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
   annCancelText: { ...typography.body, color: colors.text.tertiary },
-  annSubmitBtn: { backgroundColor: '#FF9F0A', paddingHorizontal: 20, paddingVertical: 10, borderRadius: radii.md },
+  annSubmitBtn: { backgroundColor: '#F97316', paddingHorizontal: 20, paddingVertical: 10, borderRadius: radii.md },
   annSubmitText: { ...typography.body, color: '#fff', fontWeight: '700' },
 });

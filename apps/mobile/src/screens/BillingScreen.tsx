@@ -28,9 +28,9 @@ export function BillingScreen(): React.JSX.Element {
   };
 
   const typeConfig: Record<string, { label: string; color: string; prefix: string }> = {
-    charge: { label: '充值', color: '#00CEC9', prefix: '+' },
-    consumption: { label: '消费', color: '#E17055', prefix: '-' },
-    refund: { label: '退款', color: '#FDCB6E', prefix: '+' },
+    charge: { label: '充值', color: '#22C55E', prefix: '+' },
+    consumption: { label: '消费', color: '#EF4444', prefix: '-' },
+    refund: { label: '退款', color: '#F97316', prefix: '+' },
   };
 
   return (

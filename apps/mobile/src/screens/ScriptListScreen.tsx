@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, Dimensions,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { getNovels, initDatabase, deleteNovelById } from '../db/sqlite';
 import type { NavigationProp } from '../types/navigation';
@@ -64,7 +65,7 @@ export function ScriptListScreen(): React.JSX.Element {
         </Text>
         <View style={styles.cardFooter}>
           <View style={[styles.statusDot, {
-            backgroundColor: item.status === 'completed' || item.status === 'analyzed' ? '#34C759' : '#FF9500'
+            backgroundColor: item.status === 'completed' || item.status === 'analyzed' ? '#22C55E' : '#FF9500'
           }]} />
           <Text style={styles.cardStatus}>
             {STATUS_LABELS[item.status] || item.status}
@@ -81,7 +82,7 @@ export function ScriptListScreen(): React.JSX.Element {
       <Text style={styles.pageTitle}>📖 我的剧本</Text>
       {completedNovels.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📚</Text>
+          <Ionicons name="book" size={48} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>书架是空的</Text>
           <Text style={styles.emptySub}>前往「创建」页上传小说开始生成剧本</Text>
         </View>
@@ -113,12 +114,12 @@ const styles = StyleSheet.create({
   coverText: { fontSize: 36, fontWeight: '800', color: '#fff' },
   cardBody: { padding: 12 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#1C1C1E', marginBottom: 2 },
-  cardMeta: { fontSize: 12, color: '#8E8E93', marginBottom: 8 },
+  cardMeta: { fontSize: 12, color: '#94A3B8', marginBottom: 8 },
   cardFooter: { flexDirection: 'row', alignItems: 'center' },
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
-  cardStatus: { fontSize: 11, color: '#8E8E93' },
+  cardStatus: { fontSize: 11, color: '#94A3B8' },
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyIcon: { fontSize: 56, marginBottom: 16 },
-  emptyText: { fontSize: 18, fontWeight: '600', color: '#8E8E93', marginBottom: 4 },
+  emptyText: { fontSize: 18, fontWeight: '600', color: '#94A3B8', marginBottom: 4 },
   emptySub: { fontSize: 14, color: '#C7C7CC' },
 });

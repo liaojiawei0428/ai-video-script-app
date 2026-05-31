@@ -144,7 +144,7 @@ ${shot.description}${shot.dialogue ? `\n对白：${shot.dialogue}` : ''}${shot.a
           <Text style={styles.shotActionText}>✏️ 编辑</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.shotActionBtn} onPress={() => handleCopyShot(item)}>
-          <Text style={styles.shotActionText}>📋 复制</Text>
+          <Text style={styles.shotActionText}>复制</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -153,7 +153,7 @@ ${shot.description}${shot.dialogue ? `\n对白：${shot.dialogue}` : ''}${shot.a
   return (
     <View style={styles.container}>
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 60 }} size="large" color="#007AFF" />
+        <ActivityIndicator style={{ marginTop: 60 }} size="large" color="#2563EB" />
       ) : currentShots.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>🎥</Text>
@@ -172,14 +172,14 @@ ${shot.description}${shot.dialogue ? `\n对白：${shot.dialogue}` : ''}${shot.a
             <View style={styles.summaryBar}>
               <Text style={styles.summaryTitle}>{episodeTitle}</Text>
               <Text style={styles.summaryMeta}>
-                🎬 {currentShots.length}个镜头 · ⏱️ {Math.floor(totalDuration / 60)}分{Math.round(totalDuration % 60)}秒
+                {currentShots.length}个镜头 · ⏱️ {Math.floor(totalDuration / 60)}分{Math.round(totalDuration % 60)}秒
               </Text>
               <View style={styles.summaryActions}>
                 <TouchableOpacity style={styles.summaryBtn} onPress={handleCopyAll}>
-                  <Text style={styles.summaryBtnText}>📋 复制全部</Text>
+                  <Text style={styles.summaryBtnText}>复制全部</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.summaryBtn} onPress={handleExportTxt}>
-                  <Text style={styles.summaryBtnText}>📤 导出TXT</Text>
+                  <Text style={styles.summaryBtnText}>导出TXT</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -256,18 +256,18 @@ const styles = StyleSheet.create({
   list: { paddingBottom: 40 },
   summaryBar: { backgroundColor: '#fff', padding: 16, marginBottom: 8 },
   summaryTitle: { fontSize: 20, fontWeight: '800', color: '#1C1C1E', marginBottom: 4 },
-  summaryMeta: { fontSize: 14, color: '#8E8E93', marginBottom: 12 },
+  summaryMeta: { fontSize: 14, color: '#94A3B8', marginBottom: 12 },
   summaryActions: { flexDirection: 'row', gap: 12 },
   summaryBtn: {
     flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F2F2F7', alignItems: 'center',
   },
-  summaryBtnText: { fontSize: 14, fontWeight: '600', color: '#007AFF' },
+  summaryBtnText: { fontSize: 14, fontWeight: '600', color: '#2563EB' },
   shotCard: {
     backgroundColor: '#fff', marginHorizontal: 16, marginTop: 8, padding: 16, borderRadius: 14,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
   shotHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  shotBadge: { backgroundColor: '#007AFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginRight: 8 },
+  shotBadge: { backgroundColor: '#2563EB', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginRight: 8 },
   shotBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   shotDuration: { fontSize: 14, fontWeight: '700', color: '#1C1C1E' },
   shotTags: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10, gap: 6 },
@@ -278,15 +278,15 @@ const styles = StyleSheet.create({
   shotDialogueLabel: { fontSize: 11, fontWeight: '600', color: '#B8860B', marginBottom: 4 },
   shotDialogueText: { fontSize: 13, color: '#333', lineHeight: 20 },
   shotAudio: { backgroundColor: '#E8F4FD', borderRadius: 8, padding: 10, marginBottom: 8 },
-  shotAudioLabel: { fontSize: 11, fontWeight: '600', color: '#007AFF', marginBottom: 4 },
+  shotAudioLabel: { fontSize: 11, fontWeight: '600', color: '#2563EB', marginBottom: 4 },
   shotAudioText: { fontSize: 13, color: '#333' },
   shotActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 4 },
   shotActionBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  shotActionText: { fontSize: 13, color: '#007AFF', fontWeight: '600' },
+  shotActionText: { fontSize: 13, color: '#2563EB', fontWeight: '600' },
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   emptyIcon: { fontSize: 56, marginBottom: 16 },
-  emptyText: { fontSize: 18, fontWeight: '600', color: '#8E8E93', marginBottom: 24 },
-  genButton: { backgroundColor: '#007AFF', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12 },
+  emptyText: { fontSize: 18, fontWeight: '600', color: '#94A3B8', marginBottom: 24 },
+  genButton: { backgroundColor: '#2563EB', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12 },
   genButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, maxHeight: '80%' },
@@ -297,6 +297,6 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 24 },
   modalCancel: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#F2F2F7' },
   modalCancelText: { fontSize: 16, fontWeight: '600', color: '#555' },
-  modalSave: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#007AFF' },
+  modalSave: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#2563EB' },
   modalSaveText: { fontSize: 16, fontWeight: '600', color: '#fff' },
 });

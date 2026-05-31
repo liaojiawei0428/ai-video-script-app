@@ -4,9 +4,11 @@ import {
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { uploadFile } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveNovel } from '../db/sqlite';
+import { colors, spacing, radii, typography } from '../theme';
 
 export function CreateScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
@@ -103,16 +105,16 @@ export function CreateScreen(): React.JSX.Element {
       <TouchableOpacity style={styles.uploadArea} onPress={pickDocument} disabled={uploading}>
         {fileInfo ? (
           <View style={styles.fileSelected}>
-            <Text style={styles.fileIcon}>📄</Text>
+            <Ionicons name="document-text" size={40} color={colors.primary} />
             <Text style={styles.fileName}>{fileInfo.name}</Text>
             <Text style={styles.fileSize}>
               {(fileInfo.size / 1024 / 1024).toFixed(1)}MB
-              {fileInfo.size > 52428800 ? ' ⚠️ 超过50MB限制' : ''}
+              {fileInfo.size > 52428800 ? ' 超过50MB限制' : ''}
             </Text>
           </View>
         ) : (
           <>
-            <Text style={styles.uploadIcon}>📤</Text>
+            <Ionicons name="cloud-upload-outline" size={48} color={colors.primary} />
             <Text style={styles.uploadText}>点击选择 TXT 文件</Text>
             <Text style={styles.uploadHint}>支持 .txt 格式，最大 50 万字</Text>
           </>
@@ -121,14 +123,14 @@ export function CreateScreen(): React.JSX.Element {
 
       {/* Info Cards */}
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>📋 处理流程</Text>
+        <Text style={styles.infoTitle}>处理流程</Text>
         <Text style={styles.infoItem}>1. 上传小说 → 自动分析角色/剧情</Text>
         <Text style={styles.infoItem}>2. 智能划分剧集（每集约120秒）</Text>
         <Text style={styles.infoItem}>3. 生成详细镜头描述（AI可直接使用）</Text>
       </View>
 
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>💰 费用参考</Text>
+        <Text style={styles.infoTitle}>费用参考</Text>
         <Text style={styles.infoItem}>每10万字约 ¥0.1（Deepseek V4 API）</Text>
         <Text style={styles.infoItem}>50万字小说全程约 ¥0.5-1.0</Text>
       </View>
@@ -163,7 +165,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F7' },
   content: { padding: 20, paddingBottom: 40 },
   pageTitle: { fontSize: 26, fontWeight: '800', color: '#1C1C1E', marginBottom: 8, marginTop: 12 },
-  pageSub: { fontSize: 14, color: '#8E8E93', lineHeight: 20, marginBottom: 24 },
+  pageSub: { fontSize: 14, color: '#94A3B8', lineHeight: 20, marginBottom: 24 },
   label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
   input: {
     backgroundColor: '#fff', padding: 14, borderRadius: 12, fontSize: 16, marginBottom: 16,
@@ -174,12 +176,12 @@ const styles = StyleSheet.create({
     padding: 32, alignItems: 'center', backgroundColor: '#fff', marginBottom: 20,
   },
   uploadIcon: { fontSize: 40, marginBottom: 12 },
-  uploadText: { fontSize: 16, fontWeight: '600', color: '#007AFF', marginBottom: 4 },
-  uploadHint: { fontSize: 13, color: '#8E8E93' },
+  uploadText: { fontSize: 16, fontWeight: '600', color: '#2563EB', marginBottom: 4 },
+  uploadHint: { fontSize: 13, color: '#94A3B8' },
   fileSelected: { alignItems: 'center' },
   fileIcon: { fontSize: 32, marginBottom: 8 },
   fileName: { fontSize: 16, fontWeight: '600', color: '#1C1C1E', marginBottom: 4 },
-  fileSize: { fontSize: 13, color: '#8E8E93' },
+  fileSize: { fontSize: 13, color: '#94A3B8' },
   infoCard: {
     backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 12,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
@@ -187,12 +189,12 @@ const styles = StyleSheet.create({
   infoTitle: { fontSize: 15, fontWeight: '700', color: '#1C1C1E', marginBottom: 10 },
   infoItem: { fontSize: 13, color: '#555', lineHeight: 22 },
   startButton: {
-    backgroundColor: '#007AFF', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 12,
+    backgroundColor: '#2563EB', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 12,
   },
   startButtonDisabled: { backgroundColor: '#A2C8FF' },
   startButtonText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   progressWrap: { marginTop: 16, alignItems: 'center' },
   progressBg: { width: '100%', height: 6, backgroundColor: '#E8E8ED', borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#007AFF', borderRadius: 3 },
-  progressText: { fontSize: 12, color: '#8E8E93', marginTop: 6 },
+  progressFill: { height: '100%', backgroundColor: '#2563EB', borderRadius: 3 },
+  progressText: { fontSize: 12, color: '#94A3B8', marginTop: 6 },
 });
