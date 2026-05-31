@@ -36,10 +36,12 @@ export function ScriptDetailScreen(): React.JSX.Element {
 
     let cancelled = false;
     (async () => {
+      // 1. 先加载本地数据（秒开）
       try {
         const local = await getLocalEpisodes(novelId);
         if (local && local.length > 0 && !cancelled) {
           setEpisodes(local);
+          setLoading(false); // 本地有数据就停止加载动画
         }
       } catch {}
     })();
@@ -50,6 +52,8 @@ export function ScriptDetailScreen(): React.JSX.Element {
         if (cancelled) return;
         const eps = epsRes.data.data.episodes || [];
         setEpisodes(eps);
+        await saveEpisodes(eps).catch(() => {});
+        // 加载分析报告
         const analysisData = (await getNovelAnalysis(novelId).catch(() => ({ data: { data: {} } }))).data?.data || {};
         setAnalysis(analysisData);
         setEditGenre(analysisData.genre || '');
@@ -59,14 +63,11 @@ export function ScriptDetailScreen(): React.JSX.Element {
         setEditChars((analysisData.characters || []).map((c: any) => ({ ...c })));
         const roleMap: Record<string, string> = { protagonist: '主角', antagonist: '反派', supporting: '配角', minor: '龙套' };
         setCharText((analysisData.characters || []).map((c: any) => `${c.name} | ${roleMap[c.roleType] || c.roleType || '配角'} | ${c.personality || ''} | ${c.appearance || ''}`).join('\n\n'));
-        // 优先显示完整分析报告，如果没有则用全文摘要，最后用结构化数据
         if (analysisData.analysisReport) {
           setAnalysisText(analysisData.analysisReport);
         } else if (analysisData.fullSummary) {
           setAnalysisText(analysisData.fullSummary);
         }
-        await saveEpisodes(eps).catch(() => {});
-        if (eps.length === 0) setLoadError('该小说暂无剧集数据');
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.response?.status === 401 ? '登录已过期' : '加载失败，下拉刷新重试');
       }

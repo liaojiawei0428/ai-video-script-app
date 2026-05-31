@@ -39,12 +39,12 @@ export function SettingsScreen(): React.JSX.Element {
       title: '法律合规',
       items: [
         {
-          icon: '📜',
+          icon: 'document-text',
           label: '用户服务协议',
           onPress: () => navigation.navigate('UserAgreement'),
         },
         {
-          icon: '🔒',
+          icon: 'shield-checkmark',
           label: '隐私政策',
           onPress: () => navigation.navigate('PrivacyPolicy'),
         },

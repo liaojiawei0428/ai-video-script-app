@@ -15,7 +15,7 @@ export function AboutScreen(): React.JSX.Element {
         <InfoRow label="版本号" value={'v' + APP_VERSION} />
         <InfoRow label="开发工作室" value="麻雀逻辑" />
         <InfoRow label="官方网站" value="maque.uno" />
-        <InfoRow label="联系邮箱" value="support@maque.uno" />
+        <InfoRow label="联系邮箱" value="378685504@qq.com" />
       </View>
 
       {/* 算法公示 */}

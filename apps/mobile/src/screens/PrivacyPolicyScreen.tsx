@@ -111,7 +111,7 @@ export function PrivacyPolicyScreen(): React.JSX.Element {
         <Text style={styles.sectionTitle}>八、联系我们</Text>
         <Text style={styles.desc}>
           如您对本隐私政策有任何疑问或建议，请通过以下方式联系我们：{'\n\n'}
-          邮箱：support@maque.uno{'\n'}
+          邮箱：378685504@qq.com{'\n'}
           地址：请在App内"意见反馈"页面提交
         </Text>
       </View>

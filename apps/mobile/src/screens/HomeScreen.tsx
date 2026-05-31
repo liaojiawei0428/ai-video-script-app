@@ -28,6 +28,17 @@ function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
   );
 }
 
+const AVATARS = [
+  { icon: 'person', avatarUrl: 'default', bg: '#2563EB' },
+  { icon: 'happy', avatarUrl: 'happy', bg: '#22C55E' },
+  { icon: 'star', avatarUrl: 'star', bg: '#F97316' },
+  { icon: 'heart', avatarUrl: 'heart', bg: '#EF4444' },
+  { icon: 'rocket', avatarUrl: 'rocket', bg: '#8B5CF6' },
+  { icon: 'sunny', avatarUrl: 'sunny', bg: '#F59E0B' },
+  { icon: 'flame', avatarUrl: 'flame', bg: '#EF4444' },
+  { icon: 'diamond', avatarUrl: 'diamond', bg: '#06B6D4' },
+];
+
 export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
   const store = useNovelStore();
@@ -43,6 +54,7 @@ export function HomeScreen(): React.JSX.Element {
   // 个人信息编辑
   const [editing, setEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
+  const [selectedAvatar, setSelectedAvatar] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
@@ -175,7 +187,7 @@ export function HomeScreen(): React.JSX.Element {
 
   const handleSaveProfile = async () => {
     try {
-      await apiUpdateProfile({ nickname: editNickname });
+      await apiUpdateProfile({ nickname: editNickname, avatarUrl: selectedAvatar || undefined });
       const res = await getProfile();
       const user = res.data?.data?.user;
       if (user) setUserInfo(user);
@@ -319,7 +331,7 @@ export function HomeScreen(): React.JSX.Element {
             </View>
           )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.editButton} onPress={() => { setEditNickname(info.nickname); setEditing(true); }}>
+        <TouchableOpacity style={styles.editButton} onPress={() => { setEditNickname(info.nickname); setSelectedAvatar(info.avatarUrl || ''); setEditing(true); }}>
           <Text style={styles.editButtonText}>编辑</Text>
         </TouchableOpacity>
       </View>
@@ -420,6 +432,16 @@ export function HomeScreen(): React.JSX.Element {
               placeholder="输入新昵称"
               placeholderTextColor="#C7C7CC"
             />
+            <Text style={styles.inputLabel}>选择头像</Text>
+            <View style={styles.avatarGrid}>
+              {AVATARS.map((a, i) => (
+                <TouchableOpacity key={i} onPress={() => setSelectedAvatar(a.avatarUrl)}>
+                  <View style={[styles.avatarOption, info.avatarUrl === a.avatarUrl && styles.avatarOptionSelected]}>
+                    <Ionicons name={a.icon} size={28} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => setEditing(false)}>
                 <Text style={styles.modalCancelText}>取消</Text>
@@ -592,6 +614,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: spacing.lg,
     width: '90%', maxHeight: '70%',
   },
+  avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  avatarOption: {
+    width: 48, height: 48, borderRadius: 24, backgroundColor: colors.bg.tertiary,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  avatarOptionSelected: { borderWidth: 2, borderColor: colors.primary },
   histHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md,
   },

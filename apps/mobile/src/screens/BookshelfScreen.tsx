@@ -6,7 +6,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { getNovels as apiGetNovels, deleteNovel as apiDeleteNovel } from '../api/client';
-import { getNovels as getLocalNovels, deleteNovelById } from '../db/sqlite';
+import { getNovels as getLocalNovels, deleteNovelById, saveNovel as saveNovelDb } from '../db/sqlite';
 import { GlassCard, Tag, PulseProgressBar, SkeletonCard } from '../components';
 import { colors, spacing, radii, typography, layout } from '../theme';
 import type { NavigationProp, RootStackParamList } from '../types/navigation';
@@ -106,16 +106,27 @@ export function BookshelfScreen(): React.JSX.Element {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchNovels = useCallback(async () => {
-    let serverOk = false;
+    // 1. 优先加载本地数据（离线可用）
+    const local = await getLocalNovels().catch(() => []);
+    if (local.length > 0) setNovels(local);
+    
+    // 2. 从服务端同步最新数据
     try {
       const serverRes = await apiGetNovels();
       const serverNovels = serverRes?.data?.data?.novels || [];
       setNovels(serverNovels);
-      serverOk = true;
-    } catch {}
-    if (!serverOk) {
-      const local = await getLocalNovels().catch(() => []);
-      if (local.length > 0) setNovels(local);
+      // 同步到本地SQLite
+      for (const n of serverNovels) {
+        await saveNovelDb({
+          id: n.id, title: n.title, author: n.author || 'User',
+          totalChars: n.totalChars || 0, totalWords: n.totalWords || 0,
+          genre: n.genre || '', theme: n.theme || '', style: n.style || '', tone: n.tone || '',
+          summary: n.summary || '', scenes: n.scenes || [], plotPoints: n.plotPoints || [],
+          status: n.status, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now(),
+        }).catch(() => {});
+      }
+    } catch {
+      // 服务端不可用时，已显示本地数据
     }
     setLoading(false);
   }, [setNovels]);

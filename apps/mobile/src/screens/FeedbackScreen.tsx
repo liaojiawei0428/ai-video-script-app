@@ -74,7 +74,7 @@ export function FeedbackScreen(): React.JSX.Element {
 
       <View style={styles.contactSection}>
         <Text style={styles.contactTitle}>其他联系方式</Text>
-        <Text style={styles.contactText}>邮箱：support@maque.uno</Text>
+        <Text style={styles.contactText}>邮箱：378685504@qq.com</Text>
         <Text style={styles.contactText}>官网：maque.uno</Text>
       </View>
 
