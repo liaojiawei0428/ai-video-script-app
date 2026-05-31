@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  StatusBar, View, Text, StyleSheet, TouchableOpacity, Animated, Linking,
+  StatusBar, View, Text, StyleSheet, TouchableOpacity, Linking,
 } from 'react-native';
-import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -49,55 +49,6 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
       size={24}
       color={focused ? colors.primary : colors.text.tertiary}
     />
-  );
-}
-
-/** 全局登录状态守卫：掉登录时全屏覆盖提醒 */
-function LoginGuard() {
-  const navigation = useNavigation<any>();
-  const isLoggedIn = useNovelStore(s => s.isLoggedIn);
-  const [visible, setVisible] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const wasLoggedIn = useRef(false);
-
-  useEffect(() => {
-    if (!wasLoggedIn.current && isLoggedIn) {
-      wasLoggedIn.current = true;
-    }
-    if (wasLoggedIn.current && !isLoggedIn) {
-      // 延迟 3 秒触发，过滤启动时瞬态的 isLoggedIn 波动
-      const timer = setTimeout(() => {
-        setVisible(true);
-        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-    if (isLoggedIn) {
-      setVisible(false);
-      fadeAnim.setValue(0);
-    }
-  }, [isLoggedIn]);
-
-  if (!visible) return null;
-
-  return (
-    <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
-      <View style={styles.overlayCard}>
-        <Text style={styles.overlayIcon}>🔒</Text>
-        <Text style={styles.overlayTitle}>登录已过期</Text>
-        <Text style={styles.overlaySub}>请重新登录后继续使用</Text>
-        <TouchableOpacity
-          style={styles.overlayBtn}
-          onPress={() => {
-            setVisible(false);
-            fadeAnim.setValue(0);
-            navigation.navigate('HomeTabs', { screen: 'Home' });
-          }}
-        >
-          <Text style={styles.overlayBtnText}>重新登录</Text>
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
   );
 }
 
@@ -226,7 +177,6 @@ function App(): React.JSX.Element {
       <ToastProvider>
         <NavigationContainer>
           {isAdmin ? <AdminStack /> : <UserStack />}
-          <LoginGuard />
         </NavigationContainer>
       </ToastProvider>
     </SafeAreaProvider>
@@ -277,33 +227,6 @@ function detailOptions(title: string) {
 export default App;
 
 const styles = StyleSheet.create({
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(13,13,18,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 99999,
-  },
-  overlayCard: {
-    backgroundColor: colors.bg.raised,
-    borderRadius: radii.xl,
-    padding: spacing.xl,
-    alignItems: 'center',
-    marginHorizontal: spacing.lg,
-    width: 300,
-  },
-  overlayIcon: { fontSize: 48, marginBottom: spacing.md },
-  overlayTitle: { ...typography.h2, color: colors.text.primary, marginBottom: spacing.sm },
-  overlaySub: { ...typography.body, color: colors.text.tertiary, marginBottom: spacing.lg },
-  overlayBtn: {
-    backgroundColor: colors.accent,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm + 4,
-    width: '100%',
-    alignItems: 'center',
-  },
-  overlayBtnText: { ...typography.h3, color: colors.text.inverse },
 });
 
 const updateStyles = StyleSheet.create({
