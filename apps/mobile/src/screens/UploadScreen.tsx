@@ -70,6 +70,15 @@ export function UploadScreen(): React.JSX.Element {
       return;
     }
 
+    // 检查余额是否足够
+    if (feeInfo && !feeInfo.sufficient) {
+      Alert.alert('余额不足', '当前余额不足以支付分析费用，请先充值', [
+        { text: '去充值', onPress: () => navigation.navigate('Recharge') },
+        { text: '取消', style: 'cancel' },
+      ]);
+      return;
+    }
+
     setUploading(true);
     setUploadProgress(0);
     const xhr = new XMLHttpRequest();
@@ -228,7 +237,7 @@ export function UploadScreen(): React.JSX.Element {
           title={uploading ? `上传中 ${uploadProgress}%` : '开始上传并分析'}
           onPress={startUpload}
           loading={uploading}
-          disabled={uploading}
+          disabled={uploading || (!!feeInfo && !feeInfo.sufficient)}
           style={{ marginBottom: spacing.lg }}
         />
           </>
