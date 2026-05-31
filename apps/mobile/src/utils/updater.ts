@@ -42,7 +42,26 @@ export function showUpdateDialog(versionInfo: VersionInfo, onDismiss?: () => voi
 
 async function downloadAndInstall(url: string): Promise<void> {
   try {
-    await Linking.openURL(url);
+    if (Platform.OS === 'android') {
+      const fileName = `DeepScript_${Date.now()}.apk`;
+      const destPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
+      Alert.alert('正在下载', '正在下载最新版本，请稍候...', [{text:'确定'}], {cancelable: false});
+
+      const download = RNFS.downloadFile({
+        fromUrl: url,
+        toFile: destPath,
+        progressDivider: 5,
+      });
+
+      const result = await download.promise;
+      if (result.statusCode === 200) {
+        await Linking.openURL('file://' + destPath);
+      } else {
+        throw new Error('下载失败: ' + result.statusCode);
+      }
+    } else {
+      await Linking.openURL(url);
+    }
   } catch (error) {
     Alert.alert('下载失败', '请访问官网 maque.uno 手动下载', [
       { text: '重试', onPress: () => downloadAndInstall(url) },
