@@ -1,7 +1,9 @@
-import { Platform, Alert, Linking } from 'react-native';
+import { Platform, Alert, Linking, NativeModules } from 'react-native';
 import RNFS from 'react-native-fs';
 import { API_BASE_URL } from '../config';
 import { APP_VERSION } from '../config/version';
+
+const { ApkInstaller } = NativeModules;
 
 interface VersionInfo {
   version: string;
@@ -45,7 +47,7 @@ async function downloadAndInstall(url: string): Promise<void> {
     if (Platform.OS === 'android') {
       const fileName = `DeepScript_${Date.now()}.apk`;
       const destPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
-      Alert.alert('正在下载', '正在下载最新版本，请稍候...', [{text:'确定'}], {cancelable: false});
+      Alert.alert('正在下载', '正在下载最新版本，请稍候...');
 
       const download = RNFS.downloadFile({
         fromUrl: url,
@@ -55,7 +57,11 @@ async function downloadAndInstall(url: string): Promise<void> {
 
       const result = await download.promise;
       if (result.statusCode === 200) {
-        await Linking.openURL('file://' + destPath);
+        if (ApkInstaller) {
+          ApkInstaller.install(destPath);
+        } else {
+          await Linking.openURL('file://' + destPath);
+        }
       } else {
         throw new Error('下载失败: ' + result.statusCode);
       }
