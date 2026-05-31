@@ -153,7 +153,18 @@ export class WebSocketService {
   private async sendProgressSnapshot(ws: WebSocket, novelId: string): Promise<void> {
     try {
       const novel = await novelModel.findById(novelId);
-      if (!novel) return;
+      if (!novel) {
+        // 小说已删除，通知客户端
+        ws.send(JSON.stringify({
+          type: 'progress',
+          novelId,
+          progress: 0,
+          status: 'error',
+          detail: '小说不存在或已被删除',
+          timestamp: Date.now(),
+        }));
+        return;
+      }
       // 发送当前 novel 状态（直接使用真实状态，不做映射）
       ws.send(JSON.stringify({
         type: 'progress',

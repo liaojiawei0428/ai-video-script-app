@@ -74,7 +74,55 @@ export const userController = {
         role: 'user',
         createdAt: now,
         updatedAt: now,
-      };
+  async getHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).userId;
+      const { queryAll } = await import('../models/db');
+      
+      const rows = await queryAll<any>(
+        `SELECT 
+          n.id, n.title, n.total_chars, n.created_at,
+          COALESCE(ep.cnt, 0) as episode_count,
+          COALESCE(bl.cost, 0) as total_cost,
+          COALESCE(tj.completed_at, n.updated_at) as completed_at
+        FROM novels n
+        LEFT JOIN (
+          SELECT novel_id, COUNT(*) as cnt FROM episodes GROUP BY novel_id
+        ) ep ON ep.novel_id = n.id
+        LEFT JOIN (
+          SELECT novel_id, ROUND(SUM(amount), 2) as cost 
+          FROM billing_logs WHERE type = 'consumption' AND novel_id != '' 
+          GROUP BY novel_id
+        ) bl ON bl.novel_id = n.id
+        LEFT JOIN (
+          SELECT novel_id, MAX(completed_at) as completed_at 
+          FROM task_jobs WHERE status = 'completed'
+          GROUP BY novel_id
+        ) tj ON tj.novel_id = n.id
+        WHERE n.user_id = ?
+        ORDER BY n.created_at DESC
+        LIMIT 50`,
+        [userId]
+      );
+
+      const list = rows.map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        totalChars: r.total_chars,
+        episodeCount: r.episode_count,
+        totalCost: parseFloat(r.total_cost || '0'),
+        timeSpent: r.completed_at && r.created_at 
+          ? Math.round((r.completed_at - r.created_at) / 1000) 
+          : 0,
+        createdAt: r.created_at,
+      }));
+
+      const totalNovels = await userModel.findById(userId).then(u => u?.totalGenerations || list.length);
+
+      res.json({ success: true, data: { list, total: totalNovels } });
+    } catch (err) { next(err); }
+  },
+};
 
       await userModel.create(user);
 

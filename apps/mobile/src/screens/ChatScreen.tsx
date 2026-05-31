@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo, memo, useCallback } from '
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore, createLlmMessage, LlmMessage } from '../store/useNovelStore';
 import { getTaskProgress, getNovelAnalysis, getEpisodes as apiGetEpisodes, generateEpisodes, getNovels as apiGetNovels } from '../api/client';
@@ -251,6 +251,7 @@ function waitForTask(taskId: string, onUpdate: (t: any) => void): Promise<void> 
 
 export function ChatScreen(): React.JSX.Element {
   const route = useRoute<ChatTabRouteProp>();
+  const navigation = useNavigation<any>();
   // 用 selector 替代全量订阅，避免不相关字段变化触发重渲染
   const llmMessages = useNovelStore(s => s.llmMessages);
   const activeTasks = useNovelStore(s => s.activeTasks);
@@ -283,6 +284,7 @@ export function ChatScreen(): React.JSX.Element {
   const [detail, setDetail] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const errorDismissedRef = useRef(false); // 用户已确认错误，不再重复显示
 
   const currentStepIdx = STEPS.findIndex(s => {
     if (status === 'idle' || status === 'analyzing') return s.key === 'analyzing';
@@ -350,11 +352,29 @@ export function ChatScreen(): React.JSX.Element {
     }
   }, [novelId]);
 
-  // 重置到初始状态
+  // 重置到初始状态（不跳转，停留在进度页）
   const resetToIdle = useCallback(() => {
-    pipelineRef.current = false;
+    // 标记错误已确认，阻止任何后续操作覆盖状态
+    errorDismissedRef.current = true;
+    // 阻止WebSocket重连和pipeline重新触发
+    reconnectAttemptsRef.current = MAX_RECONNECTS;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    // 先关闭WebSocket
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    // 阻止pipeline
+    pipelineRef.current = true;
+    // 清除store中的消息和状态
     storeGet().clearLlmMessages();
     storeGet().clearChunkStreams();
+    storeGet().setChunkProgress(null);
+    // 清除所有本地状态，回到初始欢迎页
+    setDiscoveredNovelId(null);
     setLiveText('');
     accumulatedRef.current = '';
     setStatus('idle');
@@ -365,12 +385,7 @@ export function ChatScreen(): React.JSX.Element {
     setDetail('');
     setErrorMsg('');
     setStreamExpanded(true);
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    navigation.goBack();
-  }, [navigation]);
+  }, []);
 
   // 定时轮询余额（WebSocket 更新失败时兜底）
   useEffect(() => {
@@ -388,7 +403,7 @@ export function ChatScreen(): React.JSX.Element {
 
   // 自动恢复：无 novelId 时查询服务端是否有进行中的小说
   useEffect(() => {
-    if (novelId || discoveredNovelId) return;
+    if (novelId || discoveredNovelId || errorDismissedRef.current) return;
     let cancelled = false;
     let retries = 0;
 
@@ -526,8 +541,8 @@ export function ChatScreen(): React.JSX.Element {
                 }
               }
             } else if (data.type === 'progress') {
-              // 检测错误状态
-              if (data.status === 'error') {
+              // 检测错误状态（用户已确认则忽略）
+              if (data.status === 'error' && !errorDismissedRef.current) {
                 setStatus('error');
                 setErrorMsg(data.detail || '任务已终止');
                 if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
@@ -679,6 +694,8 @@ export function ChatScreen(): React.JSX.Element {
         setStatus('done');
         setDetail('全部完成，共 ' + episodes.length + ' 集');
       } catch (err: any) {
+        // 如果用户已确认错误（删除小说），不再覆盖状态
+        if (errorDismissedRef.current) return;
         storeGet().addLlmMessage(createLlmMessage(novelId, 'completed', 'completed', `${err?.message || '处理失败'}`));
         setStatus('done');
         setDetail('处理出错');
@@ -790,11 +807,11 @@ export function ChatScreen(): React.JSX.Element {
     setRefreshing(false);
   }, [novelId, status]);
 
-  if (!novelId) {
+  if (!novelId || status === 'idle') {
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles" size={56} color={colors.text.tertiary} />
+          <Ionicons name="time" size={56} color={colors.text.tertiary} />
           <Text style={styles.emptyText}>等待任务...</Text>
           <Text style={styles.emptySub}>前往「上传」页上传小说，自动在此处理</Text>
         </View>

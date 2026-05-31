@@ -16,5 +16,6 @@ router.get('/pricing', authMiddleware, userController.getPricing);
 router.get('/billing', authMiddleware, userController.getBillingLogs);
 router.post('/vip/buy', authMiddleware, userController.buyVip);
 router.get('/usage', authMiddleware, userController.getUsage);
+router.get('/history', authMiddleware, userController.getHistory);
 
 export default router;

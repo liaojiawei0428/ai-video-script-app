@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity, Alert,
-  ScrollView, ActivityIndicator, Image,
+  ScrollView, ActivityIndicator, Image, FlatList,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -9,7 +9,7 @@ import { useNovelStore, UserInfo } from '../store/useNovelStore';
 import {
   login as apiLogin, register as apiRegister,
   getProfile, updateProfile as apiUpdateProfile,
-  setAuthToken, getAuthToken, buyVip, getUnreadCount,
+  setAuthToken, getAuthToken, buyVip, getUnreadCount, getUserHistory,
 } from '../api/client';
 import { saveToken, getToken, deleteToken } from '../db/tokenStorage';
 import { colors, spacing, radii, typography } from '../theme';
@@ -44,6 +44,20 @@ export function HomeScreen(): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [editNickname, setEditNickname] = useState('');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const loadHistory = async () => {
+    setShowHistory(true);
+    setHistoryLoading(true);
+    try {
+      const r = await getUserHistory();
+      setHistoryData(r.data?.data?.list || []);
+    } catch {} finally {
+      setHistoryLoading(false);
+    }
+  };
 
   // 获取未读消息数
   const loadUnreadCount = async () => {
@@ -60,13 +74,33 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     const store = useNovelStore.getState();
     if (!store.isLoggedIn) return;
+    let timeoutId: ReturnType<typeof setTimeout>;
     (async () => {
       try {
         const res = await getProfile();
         const user = res.data?.data?.user;
-        if (user) setUserInfo(user);
-      } catch { }
+        if (user) {
+          setUserInfo(user);
+        } else {
+          // API返回异常，清除登录状态
+          setLoggedIn(false);
+        }
+      } catch (err: any) {
+        // API调用失败（401过期/网络错误），清除登录状态
+        if (err?.response?.status === 401) {
+          setAuthToken(null);
+          await deleteToken();
+          setLoggedIn(false);
+        }
+      }
     })();
+    // 10秒超时保护：如果一直加载不出来，清除登录状态回到登录页
+    timeoutId = setTimeout(() => {
+      if (!useNovelStore.getState().userInfo && useNovelStore.getState().isLoggedIn) {
+        setLoggedIn(false);
+      }
+    }, 10000);
+    return () => clearTimeout(timeoutId);
   }, []);
 
   const handleLogin = async () => {
@@ -246,7 +280,21 @@ export function HomeScreen(): React.JSX.Element {
   }
 
   // ====== 渲染：已登录态（个人信息页） ======
-  const info = userInfo!;
+  if (!userInfo) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={colors.accent} style={{ marginTop: 60 }} />
+        <Text style={{ color: colors.text.tertiary, textAlign: 'center', marginTop: 16 }}>加载个人信息中...</Text>
+        <TouchableOpacity
+          style={{ marginTop: 20, padding: 10 }}
+          onPress={() => { setAuthToken(null); deleteToken(); setLoggedIn(false); }}
+        >
+          <Text style={{ color: colors.text.tertiary, textAlign: 'center', fontSize: 13 }}>加载太慢？点击重新登录</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  const info = userInfo;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.profileContent}>
@@ -310,11 +358,14 @@ export function HomeScreen(): React.JSX.Element {
 
       {/* 使用记录 */}
       <View style={styles.menuCard}>
-        <View style={styles.menuItem}>
+        <TouchableOpacity style={styles.menuItem} onPress={loadHistory}>
           <Ionicons name="bar-chart" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>累计生成次数</Text>
-          <Text style={styles.menuValue}>{info.totalGenerations} 次</Text>
-        </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.menuValue}>{info.totalGenerations} 次</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.text.tertiary} style={{ marginLeft: 4 }} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* 设置列表 */}
@@ -380,8 +431,64 @@ export function HomeScreen(): React.JSX.Element {
           </View>
         </View>
       )}
+
+      {/* 历史记录modal */}
+      {showHistory && (
+        <View style={styles.histOverlay}>
+          <View style={styles.histModal}>
+            <View style={styles.histHeader}>
+              <Text style={styles.histTitle}>生成历史记录</Text>
+              <TouchableOpacity onPress={() => setShowHistory(false)}>
+                <Ionicons name="close" size={24} color={colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+            {historyLoading ? (
+              <ActivityIndicator size="large" color={colors.accent} style={{ marginVertical: 40 }} />
+            ) : historyData.length === 0 ? (
+              <Text style={styles.histEmpty}>暂无生成记录</Text>
+            ) : (
+              <FlatList
+                data={historyData}
+                keyExtractor={item => item.id}
+                style={{ maxHeight: 400 }}
+                renderItem={({ item }) => (
+                  <View style={styles.histItem}>
+                    <View style={styles.histItemHeader}>
+                      <Text style={styles.histItemTitle} numberOfLines={1}>{item.title}</Text>
+                      <Text style={styles.histItemCost}>¥{item.totalCost.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.histItemMeta}>
+                      <Ionicons name="film" size={14} color={colors.text.tertiary} />
+                      <Text style={styles.histMetaText}> {item.episodeCount}集</Text>
+                      <Ionicons name="time" size={14} color={colors.text.tertiary} style={{ marginLeft: 12 }} />
+                      <Text style={styles.histMetaText}> {formatDuration(item.timeSpent)}</Text>
+                      <Ionicons name="calendar" size={14} color={colors.text.tertiary} style={{ marginLeft: 12 }} />
+                      <Text style={styles.histMetaText}> {formatDate(item.createdAt)}</Text>
+                    </View>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return '--';
+  if (seconds < 60) return `${seconds}秒`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}时${m}分`;
+}
+
+function formatDate(ts: number): string {
+  if (!ts) return '--';
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 const styles = StyleSheet.create({
@@ -477,4 +584,25 @@ const styles = StyleSheet.create({
     flex: 1, borderRadius: radii.md, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border,
   },
   modalCancelText: { fontSize: 15, color: colors.text.secondary },
+  histOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', zIndex: 999,
+  },
+  histModal: {
+    backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: spacing.lg,
+    width: '90%', maxHeight: '70%',
+  },
+  histHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md,
+  },
+  histTitle: { ...typography.h2, color: colors.text.primary },
+  histEmpty: { ...typography.body, color: colors.text.tertiary, textAlign: 'center', paddingVertical: 40 },
+  histItem: {
+    backgroundColor: colors.bg.tertiary, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm,
+  },
+  histItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs },
+  histItemTitle: { ...typography.h3, color: colors.text.primary, flex: 1 },
+  histItemCost: { ...typography.h3, color: colors.accentOrange, fontWeight: '700' },
+  histItemMeta: { flexDirection: 'row', alignItems: 'center' },
+  histMetaText: { ...typography.caption, color: colors.text.tertiary },
 });
