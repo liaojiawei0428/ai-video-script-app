@@ -68,7 +68,7 @@ export const userController = {
         passwordHash,
         nickname: nickname || username,
         avatarUrl: '',
-        balance: 10,
+        balance: 3,
         totalGenerations: 0,
         vipLevel: 0,
         role: 'user',
