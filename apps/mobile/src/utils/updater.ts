@@ -26,7 +26,7 @@ export async function checkForUpdate(): Promise<VersionInfo | null> {
 
 export function showUpdateDialog(versionInfo: VersionInfo, onDismiss?: () => void): void {
   const { version, changelog, downloadUrl } = versionInfo;
-  
+
   Alert.alert(
     '发现新版本 v' + version,
     '请更新到最新版本后使用\n\n' + changelog,

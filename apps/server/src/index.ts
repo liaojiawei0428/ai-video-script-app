@@ -66,7 +66,7 @@ app.get('/api/version', (req, res) => {
       version: currentVersion,
       downloadUrl: 'https://maque.uno/app/DeepScript_v' + currentVersion + '.apk',
       changelog: '优化性能，修复已知问题',
-      forceUpdate: false,
+      forceUpdate: needUpdate,
       needUpdate,
     },
   });
