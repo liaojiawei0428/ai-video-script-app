@@ -111,7 +111,14 @@ export class NovelService {
       logger.info('Starting novel analysis with chunk pipeline', { novelId, taskId, totalChars: content.length });
 
       // 一次性扣费：按原文总字符数
-      await billingService.chargeStep(novelId, 'analyze', content.length);
+      const charged = await billingService.chargeStep(novelId, 'analyze', content.length);
+      if (!charged) {
+        websocketService.broadcastProgress(novelId, 0, 'error', { detail: '余额不足，请先充值后再上传' });
+        await taskJobModel.fail(taskId, '余额不足，请先充值');
+        await novelModel.updateStatus(novelId, 'error');
+        logger.warn('Insufficient balance for analysis', { novelId, taskId });
+        return;
+      }
 
       // ========== Phase 0-2: 分块管道（非流式，显示进度） ==========
       websocketService.broadcastLlmUpdate(novelId, {

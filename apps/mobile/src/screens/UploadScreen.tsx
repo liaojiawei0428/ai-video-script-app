@@ -70,6 +70,15 @@ export function UploadScreen(): React.JSX.Element {
       return;
     }
 
+    // 检查余额是否足够
+    if (feeInfo && !feeInfo.sufficient) {
+      Alert.alert('余额不足', '当前余额不足以支付分析费用，请先充值', [
+        { text: '去充值', onPress: () => navigation.navigate('Recharge') },
+        { text: '取消', style: 'cancel' },
+      ]);
+      return;
+    }
+
     setUploading(true);
     setUploadProgress(0);
     const xhr = new XMLHttpRequest();
@@ -218,7 +227,7 @@ export function UploadScreen(): React.JSX.Element {
               </Text>
               {!feeInfo.sufficient && (
                 <View style={styles.feeWarningRow}>
-                  <Ionicons name="warning" size={16} color={colors.error} />
+                  <Ionicons name="warning-outline" size={16} color={colors.error} />
                   <Text style={styles.feeWarning}> 余额不足，请先充值</Text>
                 </View>
               )}
@@ -228,7 +237,7 @@ export function UploadScreen(): React.JSX.Element {
           title={uploading ? `上传中 ${uploadProgress}%` : '开始上传并分析'}
           onPress={startUpload}
           loading={uploading}
-          disabled={uploading}
+          disabled={uploading || (!!feeInfo && !feeInfo.sufficient)}
           style={{ marginBottom: spacing.lg }}
         />
           </>
@@ -291,5 +300,6 @@ const styles = StyleSheet.create({
   feeAmount: { fontSize: 28, fontWeight: '800', color: colors.accent },
   feeInsufficient: { color: colors.error },
   feeUnit: { ...typography.caption, color: colors.text.tertiary, marginTop: 4 },
-  feeWarning: { ...typography.caption, color: colors.error, marginTop: 6, fontWeight: '600' },
+  feeWarningRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
+  feeWarning: { ...typography.caption, color: colors.error, fontWeight: '600', marginLeft: 4 },
 });

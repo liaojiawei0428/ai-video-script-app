@@ -29,6 +29,8 @@ export interface Novel {
   status: 'pending' | 'analyzing' | 'analyzed' | 'generating' | 'completed' | 'error';
   /** 全文摘要（分块合并后生成，用于剧本生成和重试） */
   fullSummary?: string;
+  /** AI分析报告（JSON或文本） */
+  analysisReport?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -12,6 +12,7 @@ import {
   setAuthToken, getAuthToken, buyVip, getUnreadCount, getUserHistory,
 } from '../api/client';
 import { saveToken, getToken, deleteToken } from '../db/tokenStorage';
+import { clearAllLocalData } from '../db/sqlite';
 import { colors, spacing, radii, typography } from '../theme';
 import { APP_VERSION } from '../config/version';
 
@@ -47,7 +48,7 @@ function getAvatarBg(name: string): string {
 export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
   const store = useNovelStore();
-  const { userInfo, isLoggedIn, setUserInfo, setLoggedIn, setAdmin, logout } = store;
+  const { userInfo, isLoggedIn, setUserInfo, setLoggedIn, setAdmin, logout, clearNovels } = store;
 
   // 登录/注册表单
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -184,7 +185,9 @@ export function HomeScreen(): React.JSX.Element {
         onPress: async () => {
           setAuthToken(null);
           await deleteToken();
+          clearNovels();
           logout();
+          clearAllLocalData().catch(() => {});
         },
       },
     ]);
@@ -304,7 +307,7 @@ export function HomeScreen(): React.JSX.Element {
         <Text style={{ color: colors.text.tertiary, textAlign: 'center', marginTop: 16 }}>加载个人信息中...</Text>
         <TouchableOpacity
           style={{ marginTop: 20, padding: 10 }}
-          onPress={() => { setAuthToken(null); deleteToken(); setLoggedIn(false); }}
+          onPress={() => { setAuthToken(null); deleteToken(); useNovelStore.getState().clearNovels(); useNovelStore.getState().logout(); clearAllLocalData().catch(() => {}); }}
         >
           <Text style={{ color: colors.text.tertiary, textAlign: 'center', fontSize: 13 }}>加载太慢？点击重新登录</Text>
         </TouchableOpacity>

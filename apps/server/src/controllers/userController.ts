@@ -68,17 +68,35 @@ export const userController = {
         passwordHash,
         nickname: nickname || username,
         avatarUrl: '',
-        balance: 10,
+        balance: 3,
         totalGenerations: 0,
         vipLevel: 0,
         role: 'user',
         createdAt: now,
         updatedAt: now,
+      };
+
+      await userModel.create(user);
+
+      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+
+      logger.info('User registered', { userId: user.id, username });
+
+      res.status(201).json({
+        success: true,
+        data: { user: sanitizeUser(user), token },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   async getHistory(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).userId;
       const { queryAll } = await import('../models/db');
-      
+
       const rows = await queryAll<any>(
         `SELECT 
           n.id, n.title, n.total_chars, n.created_at,
@@ -121,23 +139,6 @@ export const userController = {
 
       res.json({ success: true, data: { list, total: totalNovels } });
     } catch (err) { next(err); }
-  },
-};
-
-      await userModel.create(user);
-
-      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
-
-      logger.info('User registered', { userId: user.id, username });
-
-      res.status(201).json({
-        success: true,
-        data: { user: sanitizeUser(user), token },
-        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
-      });
-    } catch (error) {
-      next(error);
-    }
   },
 
   async login(req: Request, res: Response, next: NextFunction) {

@@ -249,3 +249,11 @@ export async function deleteSetting(key: string): Promise<void> {
   const database = await initDatabase();
   await database.executeSql('DELETE FROM app_settings WHERE key = ?', [key]);
 }
+
+export async function clearAllLocalData(): Promise<void> {
+  const database = await initDatabase();
+  await database.executeSql('DELETE FROM novels');
+  await database.executeSql('DELETE FROM episodes');
+  await database.executeSql('DELETE FROM shots');
+  await database.executeSql('DELETE FROM characters');
+}

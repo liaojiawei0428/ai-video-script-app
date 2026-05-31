@@ -26,7 +26,7 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截器：401 清除内存登录状态（不清 SQLite，避免瞬态 401 丢失持久化 token）
+// 响应拦截器：401 清除登录状态+本地书架数据
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -36,8 +36,12 @@ apiClient.interceptors.response.use(
         const store = require('../store/useNovelStore').useNovelStore.getState();
         store.setLoggedIn(false);
         store.setUserInfo(null);
+        store.clearNovels();
       } catch {}
-      // 不再清除 SQLite，让 App.tsx 重启后可以重新验证
+      try {
+        require('../db/sqlite').clearAllLocalData().catch(() => {});
+      } catch {}
+      // 不清除SQLite token，让App.tsx重启后可重新验证
     }
     return Promise.reject(error);
   }

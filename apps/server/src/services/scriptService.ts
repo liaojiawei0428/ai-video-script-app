@@ -167,7 +167,12 @@ ${episodeText}`;
 
         // 流式调用（独立请求，不复用历史）
         // 每集开始前扣费
-        await billingService.chargeStep(novelId, 'episode', episodeText.length);
+        const charged = await billingService.chargeStep(novelId, 'episode', episodeText.length);
+        if (!charged) {
+          logger.warn('Insufficient balance for episode generation', { novelId, episodeNumber: plan.episodeNumber });
+          websocketService.broadcastLlmUpdate(novelId, { phase: epPhase, step: 'error', content: '余额不足，跳过本集生成', stream: false });
+          continue;
+        }
 
         let episodeScript = '';
         let streamSucceeded = false;
@@ -398,7 +403,12 @@ ${episodeText}`;
         stream: false,
       });
 
-      await billingService.chargeStep(novelId, 'episode', episodeText.length);
+      const charged = await billingService.chargeStep(novelId, 'episode', episodeText.length);
+      if (!charged) {
+        logger.warn('Insufficient balance for episode regeneration', { novelId, episodeId: episode.id });
+        websocketService.broadcastLlmUpdate(novelId, { phase: epPhase, step: 'error', content: '余额不足，无法重新生成', stream: false });
+        return;
+      }
 
       let scriptText = '';
       for (let attempt = 1; attempt <= 3; attempt++) {
@@ -512,7 +522,12 @@ ${episodeText}`;
         stream: false,
       });
 
-      await billingService.chargeStep(episode.novelId, 'shot');
+      const charged = await billingService.chargeStep(episode.novelId, 'shot');
+      if (!charged) {
+        logger.warn('Insufficient balance for shot generation', { episodeId: episode.id });
+        websocketService.broadcastLlmUpdate(episode.novelId, { phase: 'shot_gen', step: 'error', content: '余额不足，无法生成分镜', stream: false });
+        return;
+      }
 
       // 使用流式 API 逐 token 推送分镜头内容
       let shotContent = '';

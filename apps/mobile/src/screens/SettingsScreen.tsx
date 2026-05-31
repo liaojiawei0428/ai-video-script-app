@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
+import { clearAllLocalData } from '../db/sqlite';
 import { setAuthToken } from '../api/client';
 import { colors, spacing, radii, typography } from '../theme';
 import { APP_DISPLAY_NAME } from '../config/version';
@@ -18,6 +19,7 @@ interface MenuItem {
 export function SettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
   const logout = useNovelStore(s => s.logout);
+  const clearNovels = useNovelStore(s => s.clearNovels);
 
   const handleLogout = () => {
     Alert.alert('退出登录', '确定退出当前账号吗？', [
@@ -27,7 +29,9 @@ export function SettingsScreen(): React.JSX.Element {
         onPress: async () => {
           await deleteToken();
           setAuthToken(null);
+          clearNovels();
           logout();
+          clearAllLocalData().catch(() => {});
           navigation.navigate('HomeTabs', { screen: 'Home' });
         },
       },

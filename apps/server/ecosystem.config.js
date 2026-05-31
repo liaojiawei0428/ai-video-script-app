@@ -8,12 +8,12 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '1.1.0',
+        APP_VERSION: '1.1.1',
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '1.1.0',
+        APP_VERSION: '1.1.1',
       },
       env_development: {
         NODE_ENV: 'development',
