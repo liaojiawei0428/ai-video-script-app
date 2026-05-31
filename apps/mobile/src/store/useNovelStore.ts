@@ -88,6 +88,7 @@ interface NovelState {
   setLoggedIn: (loggedIn: boolean) => void;
   setAdmin: (admin: boolean) => void;
   logout: () => void;
+  clearNovels: () => void;
 }
 
 let msgId = 0;
@@ -173,6 +174,7 @@ export const useNovelStore = create<NovelState>((set) => ({
   setLoggedIn: (loggedIn) => set({ isLoggedIn: loggedIn }),
   setAdmin: (admin) => set({ isAdmin: admin }),
   logout: () => set({ userInfo: null, isLoggedIn: false, isAdmin: false }),
+  clearNovels: () => set({ novels: [] }),
   setQueueStatus: (novelId, position, runningCount, waitingCount) => set((state) => {
     const updatedNovels = state.novels.map(n => {
       if (n.id === novelId && position > 0 && n.status !== 'generating') {

@@ -106,7 +106,16 @@ export function BookshelfScreen(): React.JSX.Element {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchNovels = useCallback(async () => {
-    // 1. 优先加载本地数据（离线可用）
+    const loggedIn = useNovelStore.getState().isLoggedIn;
+
+    // 未登录不加载任何数据
+    if (!loggedIn) {
+      setNovels([]);
+      setLoading(false);
+      return;
+    }
+
+    // 1. 优先加载本地数据（离线可用，仅在登录状态下）
     const local = await getLocalNovels().catch(() => []);
     if (local.length > 0) setNovels(local);
     

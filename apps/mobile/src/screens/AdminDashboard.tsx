@@ -4,6 +4,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
+import { clearAllLocalData } from '../db/sqlite';
 import { setAuthToken } from '../api/client';
 import { colors, spacing, radii, typography } from '../theme';
 
@@ -13,19 +14,17 @@ export function AdminDashboard(): React.JSX.Element {
   const [orders, setOrders] = useState<any[]>([]);
   const [orderStatus, setOrderStatus] = useState('pending');
   const [loading, setLoading] = useState(true);
-  const { logout, setAdmin } = useNovelStore();
+  const { logout, setAdmin, clearNovels } = useNovelStore();
 
   // 公告弹窗
-  const [showAnnouncement, setShowAnnouncement] = useState(false);
-  const [annTitle, setAnnTitle] = useState('');
-  const [annContent, setAnnContent] = useState('');
-  const [annSending, setAnnSending] = useState(false);
 
   const handleLogout = async () => {
     await deleteToken();
     setAuthToken(null);
+    clearNovels();
     setAdmin(false);
     logout();
+    clearAllLocalData().catch(() => {});
   };
 
   const handleSendAnnouncement = async () => {
