@@ -64,7 +64,7 @@ app.get('/api/version', (req, res) => {
     success: true,
     data: {
       version: currentVersion,
-      downloadUrl: 'https://maque.uno/app/Deep剧本_v' + currentVersion + '.apk',
+      downloadUrl: 'https://maque.uno/app/DeepScript_v' + currentVersion + '.apk',
       changelog: '优化性能，修复已知问题',
       forceUpdate: false,
       needUpdate,
