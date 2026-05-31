@@ -218,7 +218,7 @@ export function UploadScreen(): React.JSX.Element {
               </Text>
               {!feeInfo.sufficient && (
                 <View style={styles.feeWarningRow}>
-                  <Ionicons name="warning" size={16} color={colors.error} />
+                  <Ionicons name="warning-outline" size={16} color={colors.error} />
                   <Text style={styles.feeWarning}> 余额不足，请先充值</Text>
                 </View>
               )}
@@ -291,5 +291,6 @@ const styles = StyleSheet.create({
   feeAmount: { fontSize: 28, fontWeight: '800', color: colors.accent },
   feeInsufficient: { color: colors.error },
   feeUnit: { ...typography.caption, color: colors.text.tertiary, marginTop: 4 },
-  feeWarning: { ...typography.caption, color: colors.error, marginTop: 6, fontWeight: '600' },
+  feeWarningRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
+  feeWarning: { ...typography.caption, color: colors.error, fontWeight: '600', marginLeft: 4 },
 });
