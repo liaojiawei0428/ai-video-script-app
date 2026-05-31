@@ -2,51 +2,51 @@ import { Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// v3.0 商业化配色方案 - 现代、专业、有活力
+// v4.0 明亮活力配色 - 渐变质感、现代前卫
 export const colors = {
-  // 主色系：深蓝（专业、可信赖）
-  primary: '#2563EB',
-  primaryLight: '#60A5FA',
-  primaryDark: '#1D4ED8',
-  accent: '#2563EB',        // 兼容旧代码
-  accentEnd: '#60A5FA',     // 兼容旧代码
+  // 主色系：渐变紫蓝（活力、年轻）
+  primary: '#6366F1',
+  primaryLight: '#A78BFA',
+  primaryDark: '#4F46E5',
+  accent: '#6366F1',          // 兼容旧代码
+  accentEnd: '#A78BFA',       // 兼容旧代码
 
-  // 强调色：橙色（活力、温暖）
-  warning: '#F97316',
-  accentOrange: '#F97316',
+  // 强调色：暖琥珀（热情、活力）
+  warning: '#F59E0B',
+  accentOrange: '#F59E0B',
 
   // 状态色
-  success: '#22C55E',
-  error: '#EF4444',
-  info: '#3B82F6',
+  success: '#10B981',
+  error: '#F43F5E',
+  info: '#06B6D4',
 
   // VIP金色
-  gold: '#EAB308',
-  goldDark: '#CA8A04',
+  gold: '#F59E0B',
+  goldDark: '#D97706',
 
-  // 背景色（深蓝灰主题，更专业）
+  // 背景色（明亮深色主题，带暖色底调）
   bg: {
-    primary: '#0F172A',
-    secondary: '#1E293B',
-    tertiary: '#334155',
-    elevated: '#475569',
-    card: '#1E293B',
+    primary: '#0A0A14',
+    secondary: '#151525',
+    tertiary: '#1E1E35',
+    elevated: '#2A2A45',
+    card: '#181830',
   },
 
   // 文字色
   text: {
     primary: '#F8FAFC',
-    secondary: '#94A3B8',
-    tertiary: '#64748B',
-    inverse: '#0F172A',
-    accent: '#60A5FA',
+    secondary: '#CBD5E1',
+    tertiary: '#94A3B8',
+    inverse: '#0A0A14',
+    accent: '#A78BFA',
   },
 
   // 边框
   overlay: 'rgba(0,0,0,0.6)',
-  border: 'rgba(255,255,255,0.08)',
-  borderLight: 'rgba(255,255,255,0.12)',
-  borderAccent: 'rgba(37,99,235,0.3)',
+  border: 'rgba(255,255,255,0.06)',
+  borderLight: 'rgba(255,255,255,0.10)',
+  borderAccent: 'rgba(99,102,241,0.3)',
 };
 
 export const spacing = {

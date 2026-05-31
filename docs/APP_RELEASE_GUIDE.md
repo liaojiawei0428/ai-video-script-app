@@ -36,13 +36,17 @@ APK下载URL：https://maque.uno/app/Deep剧本_vX.X.X.apk
 
 ### 步骤1：确定版本号
 
-版本号格式：`v主版本.次版本.修订号`（如 v1.0.0）
+版本号格式：`X.Y.Z`（如 1.1.0）
 
-- **主版本**：重大功能更新或架构变更
-- **次版本**：新功能添加
-- **修订号**：Bug修复、小改动
+按项目版本管理规范判定更新类别并计算版本号：
 
-在 `DEV_PROGRESS.md` 中记录版本变更内容。
+- **3类（大版本）X**：UI + 核心功能改动
+- **2类（中版本）Y**：UI + 小功能微调
+- **1类（小版本）Z**：仅UI逻辑改动
+
+详见 [VERSION_POLICY.md](./VERSION_POLICY.md)
+
+在 `apps/mobile/src/config/version.ts` 中修改 `APP_VERSION` 为新的版本号。
 
 ### 步骤2：编译APK
 
@@ -108,7 +112,7 @@ curl -sI https://maque.uno/app/ | head -3
 
 ---
 
-## 完整示例：发布v1.0.1
+## 完整示例：发布v1.1.0
 
 ```bash
 # 1. 编译
@@ -116,20 +120,20 @@ cd /media/jiawei/D266CE3A66CE1F5B/xiangmu/APP_kaifa/AI_shipin_jiaoben
 export ANDROID_HOME=/home/jiawei/android-sdk
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export PATH=$PATH:$ANDROID_HOME/platform-tools:$JAVA_HOME/bin
-cd apps/mobile/android && ./gradlew clean assembleRelease && cd ../../..
+cd apps/mobile/android && ./gradlew assembleRelease && cd ../../..
 
 # 2. 上传
 scp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
-    root@159.75.16.110:/www/wwwroot/shipin-APP/public/Deep剧本_v1.0.1.apk
+    root@159.75.16.110:/www/wwwroot/shipin-APP/public/DeepScript_v1.1.0.apk
 
 # 3. 更新下载页面
-ssh root@159.75.16.110 "sed -i 's|Deep剧本_v1.0.0.apk|Deep剧本_v1.0.1.apk|g' /www/wwwroot/shipin-APP/public/index.html && sed -i 's|v1.0.0|v1.0.1|g' /www/wwwroot/shipin-APP/public/index.html"
+ssh root@159.75.16.110 "sed -i 's|DeepScript_v1.0.1.apk|DeepScript_v1.1.0.apk|g' /www/wwwroot/shipin-APP/public/index.html && sed -i 's|v1.0.1|v1.1.0|g' /www/wwwroot/shipin-APP/public/index.html"
 
 # 4. 删除旧版本
-ssh root@159.75.16.110 "rm -f /www/wwwroot/shipin-APP/public/Deep剧本_v1.0.0.apk"
+ssh root@159.75.16.110 "rm -f /www/wwwroot/shipin-APP/public/DeepScript_v1.0.1.apk"
 
 # 5. 验证
-curl -sI https://maque.uno/app/Deep剧本_v1.0.1.apk | head -3
+curl -sI https://maque.uno/app/DeepScript_v1.1.0.apk | head -3
 ```
 
 ---
@@ -164,4 +168,4 @@ curl -sI https://maque.uno/app/Deep剧本_v1.0.1.apk | head -3
 
 ---
 
-*最后更新：2026-05-30*
+*最后更新：2026-05-31*

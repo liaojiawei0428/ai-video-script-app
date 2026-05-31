@@ -29,7 +29,7 @@ function AvatarPlaceholder({ name, size }: { name: string; size: number }) {
 }
 
 const AVATARS = [
-  { icon: 'person', avatarUrl: 'default', bg: '#2563EB' },
+  { icon: 'person', avatarUrl: 'person', bg: '#2563EB' },
   { icon: 'happy', avatarUrl: 'happy', bg: '#22C55E' },
   { icon: 'star', avatarUrl: 'star', bg: '#F97316' },
   { icon: 'heart', avatarUrl: 'heart', bg: '#EF4444' },
@@ -38,6 +38,11 @@ const AVATARS = [
   { icon: 'flame', avatarUrl: 'flame', bg: '#EF4444' },
   { icon: 'diamond', avatarUrl: 'diamond', bg: '#06B6D4' },
 ];
+
+function getAvatarBg(name: string): string {
+  const found = AVATARS.find(a => a.avatarUrl === name);
+  return found?.bg || '#2563EB';
+}
 
 export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
@@ -313,8 +318,12 @@ export function HomeScreen(): React.JSX.Element {
       {/* 个人信息头部 */}
       <View style={styles.profileHeader}>
         <TouchableOpacity onPress={() => setEditing(true)}>
-          {info.avatarUrl ? (
+          {info.avatarUrl && info.avatarUrl.startsWith('http') ? (
             <Image source={{ uri: info.avatarUrl }} style={styles.avatar} />
+          ) : info.avatarUrl ? (
+            <View style={[styles.avatarIcon, { backgroundColor: getAvatarBg(info.avatarUrl) }]}>
+              <Ionicons name={info.avatarUrl} size={36} color="#fff" />
+            </View>
           ) : (
             <AvatarPlaceholder name={info.nickname || info.username} size={72} />
           )}
@@ -436,7 +445,7 @@ export function HomeScreen(): React.JSX.Element {
             <View style={styles.avatarGrid}>
               {AVATARS.map((a, i) => (
                 <TouchableOpacity key={i} onPress={() => setSelectedAvatar(a.avatarUrl)}>
-                  <View style={[styles.avatarOption, info.avatarUrl === a.avatarUrl && styles.avatarOptionSelected]}>
+                  <View style={[styles.avatarOption, { backgroundColor: a.bg }, info.avatarUrl === a.avatarUrl && styles.avatarOptionSelected]}>
                     <Ionicons name={a.icon} size={28} color="#fff" />
                   </View>
                 </TouchableOpacity>
@@ -598,7 +607,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: colors.text.primary, marginBottom: 12, textAlign: 'center' },
   modalButton: {
-    backgroundColor: colors.primary, borderRadius: radii.md, padding: 12, alignItems: 'center', marginTop: 8,
+    flex: 1, backgroundColor: colors.primary, borderRadius: radii.md, padding: 12, alignItems: 'center',
   },
   modalButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   modalActions: { flexDirection: 'row', marginTop: 16, gap: 12 },
@@ -606,6 +615,7 @@ const styles = StyleSheet.create({
     flex: 1, borderRadius: radii.md, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border,
   },
   modalCancelText: { fontSize: 15, color: colors.text.secondary },
+  avatarIcon: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center' },
   histOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', zIndex: 999,

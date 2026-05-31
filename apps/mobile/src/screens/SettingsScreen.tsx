@@ -79,7 +79,7 @@ export function SettingsScreen(): React.JSX.Element {
       title: '账户',
       items: [
         {
-          icon: '🚪',
+          icon: 'log-out-outline',
           label: '退出登录',
           onPress: handleLogout,
           danger: true,
