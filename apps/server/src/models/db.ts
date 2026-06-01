@@ -201,6 +201,8 @@ async function initTables(): Promise<void> {
   try { await db.execute("ALTER TABLE users ADD COLUMN vip_expires_at BIGINT DEFAULT NULL"); } catch {}
   // 添加 last_ip 列（最近登录IP）
   try { await db.execute("ALTER TABLE users ADD COLUMN last_ip VARCHAR(45) DEFAULT ''"); } catch {}
+  // 添加 ip_location 列（IP归属地）
+  try { await db.execute("ALTER TABLE users ADD COLUMN ip_location VARCHAR(100) DEFAULT ''"); } catch {}
 
   // 通知/消息表
   await db.execute(`

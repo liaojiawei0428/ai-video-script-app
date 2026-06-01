@@ -5,11 +5,11 @@ export class UserModel {
   async create(user: User): Promise<void> {
     await execute(
       `INSERT INTO users (id, username, email, password_hash, nickname, avatar_url,
-       balance, total_generations, last_ip, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       balance, total_generations, last_ip, ip_location, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [user.id, user.username, user.email || null, user.passwordHash,
         user.nickname, user.avatarUrl, user.balance, user.totalGenerations,
-        user.lastIp || '', user.createdAt, user.updatedAt]
+        user.lastIp || '', user.ipLocation || '', user.createdAt, user.updatedAt]
     );
   }
 
@@ -104,6 +104,10 @@ export class UserModel {
     await execute('UPDATE users SET last_ip = ?, updated_at = ? WHERE id = ?', [ip, Date.now(), id]);
   }
 
+  async updateIpLocation(id: string, ip: string, location: string): Promise<void> {
+    await execute('UPDATE users SET last_ip = ?, ip_location = ?, updated_at = ? WHERE id = ?', [ip, location, Date.now(), id]);
+  }
+
   /** 管理员用户列表（含统计） */
   async listDetail(): Promise<any[]> {
     const rows = await queryAll<any>(`
@@ -136,6 +140,7 @@ export class UserModel {
       novelCount: row.novel_count || 0,
       vipLevel: row.vip_level || 0,
       lastIp: row.last_ip || '',
+      ipLocation: row.ip_location || '',
       createdAt: row.created_at,
     }));
   }
@@ -153,6 +158,7 @@ export class UserModel {
       vipLevel: row.vip_level || 0,
       vipExpiresAt: row.vip_expires_at || undefined,
       lastIp: row.last_ip || '',
+      ipLocation: row.ip_location || '',
       role: row.role || 'user',
       createdAt: row.created_at,
       updatedAt: row.updated_at,

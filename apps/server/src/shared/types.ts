@@ -169,6 +169,7 @@ export interface User {
   vipLevel: number;
   vipExpiresAt?: number;
   lastIp?: string;
+  ipLocation?: string;
   role: string;
   createdAt: number;
   updatedAt: number;

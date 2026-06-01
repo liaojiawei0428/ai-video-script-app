@@ -253,7 +253,7 @@ export function AdminDashboard(): React.JSX.Element {
                   </View>
                 </View>
                 <View style={styles.userFooter}>
-                  <Text style={styles.userIp}>IP: {item.lastIp || '未知'}</Text>
+                  <Text style={styles.userIp}>{item.ipLocation || '未知'} ({item.lastIp || '?'})</Text>
                   <TouchableOpacity
                     style={styles.userMsgBtn}
                     onPress={() => { setMsgTargetUser(item); setMsgTitle(''); setMsgContent(''); setUserMsgModal(true); }}
