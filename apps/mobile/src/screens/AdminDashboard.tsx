@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert, TextInput, Platform } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement, adminUsersDetail, adminSendUserMsg } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
@@ -101,14 +101,18 @@ export function AdminDashboard(): React.JSX.Element {
   };
 
   const handleReject = (id: string) => {
-    Alert.prompt ? Alert.prompt('拒绝原因', '输入拒绝理由', async (remark: string) => {
-      try { await adminReject(id, remark); loadOrders(orderStatus); } catch {}
-    }) : Alert.alert('拒绝', '确定拒绝此申请？', [
-      { text: '取消' },
-      { text: '拒绝', onPress: async () => {
-        try { await adminReject(id, '管理员拒绝'); loadOrders(orderStatus); } catch {}
-      }},
-    ]);
+    if (Platform.OS === 'ios') {
+      Alert.prompt('拒绝原因', '输入拒绝理由', async (remark: string) => {
+        try { await adminReject(id, remark); loadOrders(orderStatus); } catch (e: any) { Alert.alert('错误', e?.message || '操作失败'); }
+      });
+    } else {
+      Alert.alert('拒绝', '确定拒绝此申请？', [
+        { text: '取消' },
+        { text: '拒绝', style: 'destructive', onPress: async () => {
+          try { await adminReject(id, '管理员拒绝'); loadOrders(orderStatus); } catch (e: any) { Alert.alert('错误', e?.message || '操作失败'); }
+        }},
+      ]);
+    }
   };
 
   if (loading && !data) {
