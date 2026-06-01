@@ -168,6 +168,8 @@ export interface User {
   totalGenerations: number;
   vipLevel: number;
   vipExpiresAt?: number;
+  lastIp?: string;
+  ipLocation?: string;
   role: string;
   createdAt: number;
   updatedAt: number;

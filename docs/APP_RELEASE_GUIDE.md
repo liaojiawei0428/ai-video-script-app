@@ -161,6 +161,27 @@ curl -sI https://maque.uno/app/DeepScript_v1.1.0.apk | head -3
 
 ---
 
+## 服务端部署检查清单
+
+每次服务端部署**必须**严格按以下顺序执行：
+
+| # | 步骤 | 命令/API |
+|---|------|----------|
+| 1 | 检查活跃任务 | `GET /api/admin/active-tasks` |
+| 2 | 有任务→发布公告 | `POST /api/notifications/admin/announcement` |
+| 3 | 开启维护模式 | `PUT /api/admin/maintenance?enable=true` |
+| 4 | 等待任务完成 | 轮询步骤1，最长等15分钟 |
+| 5 | 执行部署 | `tar xzf dist.tar.gz && pm2 restart` |
+| 6 | 验证健康检查 | `GET /health` 返回 `{"status":"ok"}` |
+| 7 | 关闭维护模式 | `PUT /api/admin/maintenance?enable=false` |
+| 8 | 通知完成 | `POST /api/notifications/admin/announcement` |
+
+**自动化**: `apps/server/deploy.sh`（设 `ADMIN_TOKEN` 环境变量后执行）
+
+> ⚠️ 严禁跳过检查直接 `pm2 restart`，中断正在执行的分析任务将导致用户扣费但无结果。
+
+---
+
 ## 相关文档
 
 - [DEV_PROGRESS.md](../DEV_PROGRESS.md) - 开发进度追踪

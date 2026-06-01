@@ -6,6 +6,8 @@ import { userModel } from '../models/user';
 import { rechargeRequestModel } from '../models/rechargeRequest';
 import { billingService } from '../services/billingService';
 import { logger } from '../utils/logger';
+import { getMaintenance, setMaintenance } from '../shared/maintenance';
+import { queryOne } from '../models/db';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
@@ -108,6 +110,49 @@ router.get('/users', adminAuth, async (req: Request, res: Response) => {
     createdAt: u.createdAt,
   }));
   res.json({ success: true, data: { users: safe } });
+});
+
+/** 用户详情列表（含统计：书架数/充值/消费/IP） */
+router.get('/users-detail', adminAuth, async (req: Request, res: Response) => {
+  const users = await userModel.listDetail();
+  res.json({ success: true, data: { users } });
+});
+
+/** 活跃任务数（用于部署前检查） */
+router.get('/active-tasks', adminAuth, async (req: Request, res: Response) => {
+  const row = await queryOne<any>(
+    "SELECT COUNT(*) as cnt FROM task_jobs WHERE status IN ('running','queued')"
+  );
+  res.json({ success: true, data: { count: row?.cnt || 0 } });
+});
+
+/** 维护模式开关 */
+router.put('/maintenance', adminAuth, (req: Request, res: Response) => {
+  const enable = req.query.enable === 'true';
+  setMaintenance(enable);
+  logger.info(`Maintenance mode ${enable ? 'enabled' : 'disabled'}`);
+  res.json({ success: true, data: { maintenance: enable } });
+});
+
+/** 发送系统消息给单个用户 */
+router.post('/send-message', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { userId, title, content } = req.body;
+    if (!userId || !title || !content) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: '请填写完整信息' } });
+    }
+    const { execute } = await import('../models/db');
+    const { generateUUID } = await import('../shared/utils');
+    const id = generateUUID();
+    await execute(
+      `INSERT INTO notifications (id, user_id, type, title, content, is_read, created_at) VALUES (?, ?, 'system', ?, ?, 0, ?)`,
+      [id, userId, title, content, Date.now()]
+    );
+    logger.info('Admin sent message to user', { userId, title });
+    res.json({ success: true, data: { message: '消息已发送' } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: '发送失败' } });
+  }
 });
 
 export default router;

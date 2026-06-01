@@ -199,6 +199,25 @@ async function initTables(): Promise<void> {
   try { await db.execute("ALTER TABLE users ADD COLUMN vip_level TINYINT DEFAULT 0"); } catch {}
   // 添加 vip_expires_at 列（VIP 到期时间戳，毫秒）
   try { await db.execute("ALTER TABLE users ADD COLUMN vip_expires_at BIGINT DEFAULT NULL"); } catch {}
+  // 添加 last_ip 列（最近登录IP）
+  try { await db.execute("ALTER TABLE users ADD COLUMN last_ip VARCHAR(45) DEFAULT ''"); } catch {}
+  // 添加 ip_location 列（IP归属地）
+  try { await db.execute("ALTER TABLE users ADD COLUMN ip_location VARCHAR(100) DEFAULT ''"); } catch {}
+
+  // 通知/消息表
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      type VARCHAR(20) DEFAULT 'system',
+      title VARCHAR(200) DEFAULT '',
+      content TEXT,
+      is_read TINYINT DEFAULT 0,
+      related_id VARCHAR(36) DEFAULT '',
+      created_at BIGINT DEFAULT 0,
+      INDEX idx_notifications_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   // 计费记录表
   await db.execute(`

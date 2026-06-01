@@ -9,10 +9,17 @@ import { novelModel } from '../models/novel';
 import { episodeModel } from '../models/episode';
 import { characterModel } from '../models/character';
 import { logger } from '../utils/logger';
+import { getMaintenance } from '../shared/maintenance';
 
 export const novelController = {
   async upload(req: Request, res: Response, next: NextFunction) {
     try {
+      if (getMaintenance()) {
+        return res.status(503).json({
+          success: false,
+          error: { code: 'MAINTENANCE', message: '系统维护中，请稍候再试' },
+        });
+      }
       if (!req.file) {
         return res.status(400).json({
           success: false,
@@ -76,6 +83,9 @@ export const novelController = {
 
   async analyze(req: Request, res: Response, next: NextFunction) {
     try {
+      if (getMaintenance()) {
+        return res.status(503).json({ success: false, error: { code: 'MAINTENANCE', message: '系统维护中，请稍候再试' } });
+      }
       const { novelId } = req.params;
       logger.info('Starting analysis', { novelId });
       const task = await novelService.analyzeNovel(novelId);
@@ -160,6 +170,9 @@ export const novelController = {
 
   async generateEpisodes(req: Request, res: Response, next: NextFunction) {
     try {
+      if (getMaintenance()) {
+        return res.status(503).json({ success: false, error: { code: 'MAINTENANCE', message: '系统维护中，请稍候再试' } });
+      }
       const { novelId } = req.params;
       const { targetDuration = 120, tolerance = 10 } = req.body;
       logger.info('Starting episode generation', { novelId, targetDuration, tolerance });

@@ -5,11 +5,11 @@ export class UserModel {
   async create(user: User): Promise<void> {
     await execute(
       `INSERT INTO users (id, username, email, password_hash, nickname, avatar_url,
-       balance, total_generations, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       balance, total_generations, last_ip, ip_location, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [user.id, user.username, user.email || null, user.passwordHash,
-       user.nickname, user.avatarUrl, user.balance, user.totalGenerations,
-       user.createdAt, user.updatedAt]
+        user.nickname, user.avatarUrl, user.balance, user.totalGenerations,
+        user.lastIp || '', user.ipLocation || '', user.createdAt, user.updatedAt]
     );
   }
 
@@ -89,9 +89,60 @@ export class UserModel {
       [Date.now(), id]);
   }
 
+  async countByIp(ip: string): Promise<number> {
+    if (!ip) return 0;
+    const row = await queryOne<any>('SELECT COUNT(*) as c FROM users WHERE last_ip = ?', [ip]);
+    return row?.c || 0;
+  }
+
   async list(): Promise<User[]> {
     const rows = await queryAll<any>('SELECT * FROM users ORDER BY created_at DESC');
     return rows.map(row => this.mapRow(row));
+  }
+
+  async updateIp(id: string, ip: string): Promise<void> {
+    await execute('UPDATE users SET last_ip = ?, updated_at = ? WHERE id = ?', [ip, Date.now(), id]);
+  }
+
+  async updateIpLocation(id: string, ip: string, location: string): Promise<void> {
+    await execute('UPDATE users SET last_ip = ?, ip_location = ?, updated_at = ? WHERE id = ?', [ip, location, Date.now(), id]);
+  }
+
+  /** 管理员用户列表（含统计） */
+  async listDetail(): Promise<any[]> {
+    const rows = await queryAll<any>(`
+      SELECT u.*,
+        COALESCE(nc.cnt, 0) as novel_count,
+        COALESCE(rc.total, 0) as total_recharge,
+        COALESCE(cc.total, 0) as total_consumption
+      FROM users u
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) as cnt FROM novels WHERE user_id IS NOT NULL AND user_id != '' GROUP BY user_id
+      ) nc ON nc.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, ROUND(SUM(amount), 2) as total
+        FROM billing_logs WHERE type = 'charge' AND user_id != '' GROUP BY user_id
+      ) rc ON rc.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, ROUND(SUM(amount), 2) as total
+        FROM billing_logs WHERE type = 'consumption' AND user_id != '' GROUP BY user_id
+      ) cc ON cc.user_id = u.id
+      ORDER BY u.created_at DESC
+    `);
+    return rows.map(row => ({
+      id: row.id,
+      username: row.username,
+      nickname: row.nickname || '',
+      balance: parseFloat(row.balance || '0'),
+      totalGenerations: row.total_generations || 0,
+      totalRecharge: parseFloat(row.total_recharge || '0'),
+      totalConsumption: parseFloat(row.total_consumption || '0'),
+      novelCount: row.novel_count || 0,
+      vipLevel: row.vip_level || 0,
+      lastIp: row.last_ip || '',
+      ipLocation: row.ip_location || '',
+      createdAt: row.created_at,
+    }));
   }
 
   private mapRow(row: any): User {
@@ -106,6 +157,8 @@ export class UserModel {
       totalGenerations: row.total_generations || 0,
       vipLevel: row.vip_level || 0,
       vipExpiresAt: row.vip_expires_at || undefined,
+      lastIp: row.last_ip || '',
+      ipLocation: row.ip_location || '',
       role: row.role || 'user',
       createdAt: row.created_at,
       updatedAt: row.updated_at,

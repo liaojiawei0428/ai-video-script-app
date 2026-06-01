@@ -15,7 +15,7 @@ export type RootStackParamList = {
   Pricing: undefined;
   Billing: undefined;
   Recharge: { amount: number };
-  Admin: undefined;
+  AdminDashboard: undefined;
 };
 
 export type TabParamList = {

@@ -64,3 +64,5 @@ apps/mobile/android/app/build/
 # Misc
 AiScriptMobile
 
+codegraph/
+.codegraph/
