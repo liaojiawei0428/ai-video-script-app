@@ -202,6 +202,12 @@ export const adminReject = (id: string, remark?: string) =>
 export const adminUsers = () =>
   apiClient.get('/admin/users');
 
+export const adminUsersDetail = () =>
+  apiClient.get('/admin/users-detail');
+
+export const adminSendUserMsg = (userId: string, title: string, content: string) =>
+  apiClient.post('/admin/send-message', { userId, title, content });
+
 export const adminFeedbacks = (status?: string) =>
   apiClient.get(`/feedback/admin/list${status ? `?status=${status}` : ''}`);
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert, TextInput } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement } from '../api/client';
+import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement, adminUsersDetail, adminSendUserMsg } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
 import { clearAllLocalData } from '../db/sqlite';
@@ -9,7 +9,7 @@ import { setAuthToken } from '../api/client';
 import { colors, spacing, radii, typography } from '../theme';
 
 export function AdminDashboard(): React.JSX.Element {
-  const [tab, setTab] = useState<'dashboard' | 'orders' | 'feedback'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'orders' | 'feedback' | 'users'>('dashboard');
   const [data, setData] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [orderStatus, setOrderStatus] = useState('pending');
@@ -20,6 +20,15 @@ export function AdminDashboard(): React.JSX.Element {
   const [annTitle, setAnnTitle] = useState('');
   const [annContent, setAnnContent] = useState('');
   const [annSending, setAnnSending] = useState(false);
+
+  // 用户管理
+  const [users, setUsers] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userMsgModal, setUserMsgModal] = useState(false);
+  const [msgTargetUser, setMsgTargetUser] = useState<any>(null);
+  const [msgTitle, setMsgTitle] = useState('');
+  const [msgContent, setMsgContent] = useState('');
+  const [msgSending, setMsgSending] = useState(false);
 
   const handleLogout = async () => {
     await deleteToken();
@@ -52,11 +61,28 @@ export function AdminDashboard(): React.JSX.Element {
   useEffect(() => {
     if (tab === 'dashboard') loadDashboard();
     if (tab === 'orders') loadOrders('pending');
+    if (tab === 'users') loadUsers();
   }, [tab]);
 
   const loadDashboard = async () => {
     setLoading(true);
     try { const r = await adminDashboard(); setData(r.data?.data); } catch {} finally { setLoading(false); }
+  };
+
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    try { const r = await adminUsersDetail(); setUsers(r.data?.data?.users || []); } catch {} finally { setUsersLoading(false); }
+  };
+
+  const handleSendUserMsg = async () => {
+    if (!msgTitle.trim() || !msgContent.trim()) { Alert.alert('提示', '请填写标题和内容'); return; }
+    setMsgSending(true);
+    try {
+      await adminSendUserMsg(msgTargetUser.id, msgTitle.trim(), msgContent.trim());
+      Alert.alert('成功', `已发送消息给 ${msgTargetUser?.nickname || msgTargetUser?.username}`);
+      setUserMsgModal(false); setMsgTitle(''); setMsgContent(''); setMsgTargetUser(null);
+    } catch (e: any) { Alert.alert('失败', e?.response?.data?.error?.message || '发送失败'); }
+    finally { setMsgSending(false); }
   };
 
   const loadOrders = async (status: string) => {
@@ -98,7 +124,7 @@ export function AdminDashboard(): React.JSX.Element {
         </TouchableOpacity>
       </View>
       <View style={styles.tabs}>
-        {([['dashboard', 'stats-chart', '仪表盘'], ['orders', 'receipt', '订单'], ['feedback', 'chatbubble-ellipses', '反馈']] as const).map(([t, icon, label]) => (
+        {([['dashboard', 'stats-chart', '仪表盘'], ['orders', 'receipt', '订单'], ['feedback', 'chatbubble-ellipses', '反馈'], ['users', 'people', '用户']] as const).map(([t, icon, label]) => (
           <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabActive]} onPress={() => setTab(t)}>
             <Ionicons name={icon} size={18} color={tab === t ? colors.primary : colors.text.tertiary} />
             <Text style={[styles.tabText, tab === t && styles.tabTextActive]}> {label}</Text>
@@ -189,6 +215,74 @@ export function AdminDashboard(): React.JSX.Element {
       )}
 
       {tab === 'feedback' && <AdminFeedbacks />}
+
+      {tab === 'users' && (
+        usersLoading ? (
+          <View style={styles.centered}><ActivityIndicator color={colors.accent} size="large" /></View>
+        ) : (
+          <FlatList
+            data={users}
+            keyExtractor={(item: any) => item.id}
+            contentContainerStyle={{ padding: spacing.sm }}
+            renderItem={({ item }: { item: any }) => (
+              <View style={styles.userCard}>
+                <View style={styles.userHeader}>
+                  <Text style={styles.userName}>{item.nickname || item.username}</Text>
+                  <Text style={styles.userMeta}>@{item.username}</Text>
+                </View>
+                <View style={styles.userStats}>
+                  <View style={styles.userStat}>
+                    <Text style={styles.userStatVal}>{item.novelCount}</Text>
+                    <Text style={styles.userStatLabel}>书架</Text>
+                  </View>
+                  <View style={styles.userStat}>
+                    <Text style={styles.userStatVal}>¥{item.totalRecharge.toFixed(2)}</Text>
+                    <Text style={styles.userStatLabel}>充值</Text>
+                  </View>
+                  <View style={styles.userStat}>
+                    <Text style={styles.userStatVal}>¥{item.totalConsumption.toFixed(2)}</Text>
+                    <Text style={styles.userStatLabel}>消费</Text>
+                  </View>
+                  <View style={styles.userStat}>
+                    <Text style={[styles.userStatVal, { color: item.balance <= 0 ? colors.error : colors.success }]}>¥{item.balance.toFixed(2)}</Text>
+                    <Text style={styles.userStatLabel}>余额</Text>
+                  </View>
+                </View>
+                <View style={styles.userFooter}>
+                  <Text style={styles.userIp}>IP: {item.lastIp || '未知'}</Text>
+                  <TouchableOpacity
+                    style={styles.userMsgBtn}
+                    onPress={() => { setMsgTargetUser(item); setMsgTitle(''); setMsgContent(''); setUserMsgModal(true); }}
+                  >
+                    <Ionicons name="mail-outline" size={14} color={colors.primary} />
+                    <Text style={styles.userMsgBtnText}>发消息</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          />
+        )
+      )}
+
+      {/* 发送用户消息弹窗 */}
+      {userMsgModal && msgTargetUser && (
+        <View style={styles.annOverlay}>
+          <View style={styles.annModal}>
+            <Text style={styles.annTitle}>发送消息</Text>
+            <Text style={{ ...typography.caption, color: colors.text.secondary, marginBottom: spacing.md }}>收件人: {msgTargetUser.nickname || msgTargetUser.username}</Text>
+            <TextInput style={styles.annInput} placeholder="标题" value={msgTitle} onChangeText={setMsgTitle} />
+            <TextInput style={[styles.annInput, styles.annTextArea]} placeholder="内容" value={msgContent} onChangeText={setMsgContent} multiline numberOfLines={3} textAlignVertical="top" />
+            <View style={styles.annActions}>
+              <TouchableOpacity style={styles.annCancelBtn} onPress={() => { setUserMsgModal(false); setMsgTargetUser(null); }}>
+                <Text style={styles.annCancelText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.annSubmitBtn, msgSending && { opacity: 0.5 }]} onPress={handleSendUserMsg} disabled={msgSending}>
+                <Text style={styles.annSubmitText}>{msgSending ? '发送中...' : '发送'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -424,4 +518,16 @@ const styles = StyleSheet.create({
   annCancelText: { ...typography.body, color: colors.text.tertiary },
   annSubmitBtn: { backgroundColor: '#F97316', paddingHorizontal: 20, paddingVertical: 10, borderRadius: radii.md },
   annSubmitText: { ...typography.body, color: '#fff', fontWeight: '700' },
+  userCard: { backgroundColor: colors.bg.secondary, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.sm },
+  userHeader: { flexDirection: 'row', alignItems: 'baseline', marginBottom: spacing.sm, gap: spacing.sm },
+  userName: { ...typography.h3, color: colors.text.primary },
+  userMeta: { ...typography.caption, color: colors.text.tertiary },
+  userStats: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
+  userStat: { alignItems: 'center' },
+  userStatVal: { ...typography.h3, color: colors.text.primary },
+  userStatLabel: { ...typography.caption, color: colors.text.tertiary, marginTop: 2 },
+  userFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
+  userIp: { ...typography.caption, color: colors.text.tertiary },
+  userMsgBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.primary + '15', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radii.sm },
+  userMsgBtnText: { ...typography.caption, color: colors.primary, fontWeight: '600' },
 });

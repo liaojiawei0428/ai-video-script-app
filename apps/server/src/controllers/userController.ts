@@ -77,6 +77,8 @@ export const userController = {
       };
 
       await userModel.create(user);
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+      userModel.updateIp(user.id, clientIp).catch(() => {});
 
       const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
 
@@ -168,6 +170,9 @@ export const userController = {
       }
 
       const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+      userModel.updateIp(user.id, clientIp).catch(() => {});
 
       logger.info('User logged in', { userId: user.id, username });
 

@@ -94,6 +94,46 @@ export class UserModel {
     return rows.map(row => this.mapRow(row));
   }
 
+  async updateIp(id: string, ip: string): Promise<void> {
+    await execute('UPDATE users SET last_ip = ?, updated_at = ? WHERE id = ?', [ip, Date.now(), id]);
+  }
+
+  /** 管理员用户列表（含统计） */
+  async listDetail(): Promise<any[]> {
+    const rows = await queryAll<any>(`
+      SELECT u.*,
+        COALESCE(nc.cnt, 0) as novel_count,
+        COALESCE(rc.total, 0) as total_recharge,
+        COALESCE(cc.total, 0) as total_consumption
+      FROM users u
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) as cnt FROM novels WHERE user_id IS NOT NULL AND user_id != '' GROUP BY user_id
+      ) nc ON nc.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, ROUND(SUM(amount), 2) as total
+        FROM billing_logs WHERE type = 'charge' AND user_id != '' GROUP BY user_id
+      ) rc ON rc.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, ROUND(SUM(amount), 2) as total
+        FROM billing_logs WHERE type = 'consumption' AND user_id != '' GROUP BY user_id
+      ) cc ON cc.user_id = u.id
+      ORDER BY u.created_at DESC
+    `);
+    return rows.map(row => ({
+      id: row.id,
+      username: row.username,
+      nickname: row.nickname || '',
+      balance: parseFloat(row.balance || '0'),
+      totalGenerations: row.total_generations || 0,
+      totalRecharge: parseFloat(row.total_recharge || '0'),
+      totalConsumption: parseFloat(row.total_consumption || '0'),
+      novelCount: row.novel_count || 0,
+      vipLevel: row.vip_level || 0,
+      lastIp: row.last_ip || '',
+      createdAt: row.created_at,
+    }));
+  }
+
   private mapRow(row: any): User {
     return {
       id: row.id,
@@ -106,6 +146,7 @@ export class UserModel {
       totalGenerations: row.total_generations || 0,
       vipLevel: row.vip_level || 0,
       vipExpiresAt: row.vip_expires_at || undefined,
+      lastIp: row.last_ip || '',
       role: row.role || 'user',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
