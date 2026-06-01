@@ -16,7 +16,10 @@ export function AdminDashboard(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const { logout, setAdmin, clearNovels } = useNovelStore();
 
-  // 公告弹窗
+  const [showAnnouncement, setShowAnnouncement] = useState(false);
+  const [annTitle, setAnnTitle] = useState('');
+  const [annContent, setAnnContent] = useState('');
+  const [annSending, setAnnSending] = useState(false);
 
   const handleLogout = async () => {
     await deleteToken();

@@ -6,6 +6,8 @@ import { userModel } from '../models/user';
 import { rechargeRequestModel } from '../models/rechargeRequest';
 import { billingService } from '../services/billingService';
 import { logger } from '../utils/logger';
+import { getMaintenance, setMaintenance } from '../shared/maintenance';
+import { queryOne } from '../models/db';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
@@ -108,6 +110,22 @@ router.get('/users', adminAuth, async (req: Request, res: Response) => {
     createdAt: u.createdAt,
   }));
   res.json({ success: true, data: { users: safe } });
+});
+
+/** 活跃任务数（用于部署前检查） */
+router.get('/active-tasks', adminAuth, async (req: Request, res: Response) => {
+  const row = await queryOne<any>(
+    "SELECT COUNT(*) as cnt FROM task_jobs WHERE status IN ('running','queued')"
+  );
+  res.json({ success: true, data: { count: row?.cnt || 0 } });
+});
+
+/** 维护模式开关 */
+router.put('/maintenance', adminAuth, (req: Request, res: Response) => {
+  const enable = req.query.enable === 'true';
+  setMaintenance(enable);
+  logger.info(`Maintenance mode ${enable ? 'enabled' : 'disabled'}`);
+  res.json({ success: true, data: { maintenance: enable } });
 });
 
 export default router;
