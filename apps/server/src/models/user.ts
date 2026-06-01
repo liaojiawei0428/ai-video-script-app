@@ -5,11 +5,11 @@ export class UserModel {
   async create(user: User): Promise<void> {
     await execute(
       `INSERT INTO users (id, username, email, password_hash, nickname, avatar_url,
-       balance, total_generations, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       balance, total_generations, last_ip, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [user.id, user.username, user.email || null, user.passwordHash,
-       user.nickname, user.avatarUrl, user.balance, user.totalGenerations,
-       user.createdAt, user.updatedAt]
+        user.nickname, user.avatarUrl, user.balance, user.totalGenerations,
+        user.lastIp || '', user.createdAt, user.updatedAt]
     );
   }
 
@@ -87,6 +87,12 @@ export class UserModel {
   async incrementGenerations(id: string): Promise<void> {
     await execute('UPDATE users SET total_generations = total_generations + 1, updated_at = ? WHERE id = ?',
       [Date.now(), id]);
+  }
+
+  async countByIp(ip: string): Promise<number> {
+    if (!ip) return 0;
+    const row = await queryOne<any>('SELECT COUNT(*) as c FROM users WHERE last_ip = ?', [ip]);
+    return row?.c || 0;
   }
 
   async list(): Promise<User[]> {

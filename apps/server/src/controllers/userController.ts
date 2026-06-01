@@ -61,6 +61,14 @@ export const userController = {
 
       const passwordHash = await bcrypt.hash(password, 10);
       const now = Date.now();
+
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+      const ipCount = await userModel.countByIp(clientIp);
+      const giftBalance = ipCount >= 2 ? 0 : 3;
+      if (ipCount >= 2) {
+        logger.info('IP registration limit reached, no gift balance', { ip: clientIp, username, ipCount });
+      }
+
       const user = {
         id: generateUUID(),
         username,
@@ -68,17 +76,16 @@ export const userController = {
         passwordHash,
         nickname: nickname || username,
         avatarUrl: '',
-        balance: 3,
+        balance: giftBalance,
         totalGenerations: 0,
         vipLevel: 0,
+        lastIp: clientIp,
         role: 'user',
         createdAt: now,
         updatedAt: now,
       };
 
       await userModel.create(user);
-      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
-      userModel.updateIp(user.id, clientIp).catch(() => {});
 
       const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
 
