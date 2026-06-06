@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getNovelsApi, uploadNovelApi, deleteNovelApi } from '../lib/api';
 import { Search, Upload, BookOpen, Filter, X, Trash2 } from 'lucide-react';
 
-interface Novel { id: string; title: string; author: string; status: string; totalChars?: number; createdAt: number; }
+interface Novel { id: string; title: string; author: string; status: string; totalChars?: number; createdAt: number; styleId?: string; }
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   pending: { label: '等待中', color: 'text-warning' },
@@ -11,6 +11,14 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   generating: { label: '生成中', color: 'text-accent' },
   completed: { label: '已完成', color: 'text-success' },
   failed: { label: '失败', color: 'text-error' },
+};
+
+const STYLE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  realistic: { label: '电影写实', color: 'text-blue-400', bg: 'bg-blue-500/15 border-blue-500/30' },
+  ancient: { label: '古风水墨', color: 'text-amber-400', bg: 'bg-amber-500/15 border-amber-500/30' },
+  anime: { label: '国漫动漫', color: 'text-pink-400', bg: 'bg-pink-500/15 border-pink-500/30' },
+  cyber: { label: '赛博朋克', color: 'text-cyan-400', bg: 'bg-cyan-500/15 border-cyan-500/30' },
+  '3d': { label: '3D CG', color: 'text-purple-400', bg: 'bg-purple-500/15 border-purple-500/30' },
 };
 
 export function BookshelfPage() {
@@ -140,7 +148,14 @@ export function BookshelfPage() {
             return (
               <div key={n.id} className="glass p-5 hover:border-primary/40 transition-colors flex items-center gap-3">
                 <Link to={`/novels/${n.id}`} className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-text-primary mb-2 line-clamp-1">{n.title}</h3>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-semibold text-text-primary line-clamp-1">{n.title}</h3>
+                    {n.styleId && STYLE_BADGE[n.styleId] && (
+                      <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${STYLE_BADGE[n.styleId].color} ${STYLE_BADGE[n.styleId].bg}`}>
+                        {STYLE_BADGE[n.styleId].label}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-text-tertiary mb-3">{n.author || '佚名'} · {n.totalChars || 0} 字</p>
                   <div className="flex items-center justify-between">
                     <span className={`text-sm font-medium ${cfg.color}`}>{cfg.label}</span>

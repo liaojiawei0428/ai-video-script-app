@@ -238,6 +238,27 @@ export function EpisodeDetailPage() {
       setTaskId(tid || null);
       // 启动 WS
       connectShotWs(episode.novelId);
+      // 轮询兜底: 每3秒检查任务状态, WebSocket 失效时仍能刷新
+      if (tid) {
+        const poll = setInterval(async () => {
+          try {
+            const tr = await getEpisodeApi(id);
+            const ep = tr.data?.data?.episode || tr.data?.data;
+            // 如果 shots 已有数据, 说明生成完成
+            const sr = await getShotsApi(id);
+            const shotsData = sr.data?.data?.shots || [];
+            if (shotsData.length > 0) {
+              clearInterval(poll);
+              setShots(shotsData);
+              setGenState('completed');
+              setGenStep(SHOT_STEPS.length - 1);
+              setTimeout(() => { setGenState('idle'); setStreamText(''); setStreamPhase(''); }, 2000);
+            }
+          } catch {}
+        }, 3000);
+        // 5分钟后停止轮询
+        setTimeout(() => clearInterval(poll), 300000);
+      }
     } catch (e: any) {
       setGenState('failed');
       const msg = e?.response?.data?.error?.message || '提交失败';
