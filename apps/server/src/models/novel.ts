@@ -5,18 +5,30 @@ export class NovelModel {
   async create(novel: Novel): Promise<void> {
     await execute(
       `INSERT INTO novels (id, title, author, user_id, file_path, total_chars, total_words,
-       genre, theme, style, tone, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       genre, theme, style, tone, status, created_at, updated_at, style_id, style_bible)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [novel.id, novel.title, novel.author, novel.userId || null, novel.filePath, novel.totalChars,
        novel.totalWords, novel.genre || '', novel.theme || '', novel.style || '', novel.tone || '',
-       novel.status, novel.createdAt, novel.updatedAt]
+       novel.status, novel.createdAt, novel.updatedAt, (novel as any).styleId || 'realistic',
+       (novel as any).styleBible ? JSON.stringify((novel as any).styleBible) : null]
     );
   }
 
-  async findByUserId(userId: string): Promise<Novel[]> {
+  async findByUserId(userId: string, opts: { q?: string; status?: string } = {}): Promise<Novel[]> {
+    const wheres: string[] = ['user_id = ?'];
+    const params: any[] = [userId];
+    if (opts.q && opts.q.trim()) {
+      wheres.push('(title LIKE ? OR author LIKE ? OR genre LIKE ?)');
+      const like = `%${opts.q.trim()}%`;
+      params.push(like, like, like);
+    }
+    if (opts.status && opts.status !== 'all') {
+      wheres.push('status = ?');
+      params.push(opts.status);
+    }
     const rows = await queryAll<any>(
-      'SELECT * FROM novels WHERE user_id = ? ORDER BY created_at DESC',
-      [userId]
+      `SELECT * FROM novels WHERE ${wheres.join(' AND ')} ORDER BY created_at DESC LIMIT 200`,
+      params
     );
     return rows.map(row => this.mapRowToNovel(row));
   }
@@ -62,6 +74,37 @@ export class NovelModel {
   async list(): Promise<Novel[]> {
     const rows = await queryAll<any>('SELECT * FROM novels ORDER BY created_at DESC');
     return rows.map(row => this.mapRowToNovel(row));
+  }
+
+  async findManyByStatus(statuses: string[]): Promise<Novel[]> {
+    if (statuses.length === 0) return [];
+    const placeholders = statuses.map(() => '?').join(',');
+    const rows = await queryAll<any>(
+      `SELECT * FROM novels WHERE status IN (${placeholders}) ORDER BY updated_at ASC LIMIT 50`,
+      statuses
+    );
+    return rows.map(row => this.mapRowToNovel(row));
+  }
+
+  async updateOutline(id: string, outlineText: string): Promise<void> {
+    await execute(
+      'UPDATE novels SET outline_text = ?, outline_confirmed = 0, outline_confirmed_at = NULL, updated_at = ? WHERE id = ?',
+      [outlineText, Date.now(), id]
+    );
+  }
+
+  async confirmOutline(id: string, outlineText: string): Promise<void> {
+    await execute(
+      'UPDATE novels SET outline_text = ?, outline_confirmed = 1, outline_confirmed_at = ?, updated_at = ? WHERE id = ?',
+      [outlineText, Date.now(), Date.now(), id]
+    );
+  }
+
+  async updatePlotGraph(id: string, plotGraph: string): Promise<void> {
+    await execute(
+      'UPDATE novels SET plot_graph = ?, plot_graph_generated_at = ?, updated_at = ? WHERE id = ?',
+      [plotGraph, Date.now(), Date.now(), id]
+    );
   }
 
   private mapRowToNovel(row: any): Novel {

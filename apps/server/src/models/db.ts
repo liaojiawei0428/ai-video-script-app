@@ -235,6 +235,126 @@ async function initTables(): Promise<void> {
       INDEX idx_billing_time (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // ════════════════════════════════════════════════════════════
+  //  v2.0.0 增量迁移（角色一致性 + 资产库 + 章节图谱 + 订单）
+  //  兼容迁移: try/catch 包装, 列已存在则忽略
+  // ════════════════════════════════════════════════════════════
+
+  // ── characters: 加 8 字段 ──
+  try { await db.execute("ALTER TABLE characters ADD COLUMN description JSON DEFAULT NULL COMMENT '11维度结构化描述'"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN extra_description JSON DEFAULT NULL COMMENT '4维度补充描述'"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '画风ID'"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN confirmed TINYINT(1) DEFAULT 0 COMMENT '用户是否已确认描述'"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN image_variants JSON DEFAULT NULL COMMENT '3张变体图'"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN image_gen_status VARCHAR(20) DEFAULT 'none' COMMENT 'none/generating/partial/completed/failed'"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN confirmed_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN image_generated_at BIGINT DEFAULT NULL"); } catch {}
+
+  // ── novels: 加 5 字段 ──
+  try { await db.execute("ALTER TABLE novels ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '小说统一画风'"); } catch {}
+  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph JSON DEFAULT NULL COMMENT '章节事件图谱'"); } catch {}
+  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_confirmed TINYINT(1) DEFAULT 0"); } catch {}
+  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_confirmed_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph_generated_at BIGINT DEFAULT NULL"); } catch {}
+
+  // ── episodes: 加 3 字段 ──
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN outline_text TEXT COMMENT '分集大纲'"); } catch {}
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN confirmed TINYINT(1) DEFAULT 0"); } catch {}
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN character_descriptions JSON DEFAULT NULL COMMENT '生成时角色描述快照'"); } catch {}
+
+  // ── shots: 加 5 字段 ──
+  try { await db.execute("ALTER TABLE shots ADD COLUMN image_url VARCHAR(500) DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE shots ADD COLUMN character_ids JSON DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE shots ADD COLUMN style_id VARCHAR(36) DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE shots ADD COLUMN image_prompt TEXT"); } catch {}
+  try { await db.execute("ALTER TABLE shots ADD COLUMN image_generated_at BIGINT DEFAULT NULL"); } catch {}
+
+  // ── notifications: 加 2 字段 ──
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN expires_at BIGINT DEFAULT NULL"); } catch {}
+
+  // ── 新表: assets 资产库 ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS assets (
+      id VARCHAR(36) PRIMARY KEY,
+      novel_id VARCHAR(36) NOT NULL,
+      type VARCHAR(20) NOT NULL DEFAULT 'character' COMMENT 'character/scene/prop/costume',
+      name VARCHAR(200) NOT NULL,
+      description JSON DEFAULT NULL,
+      style_id VARCHAR(36) DEFAULT 'realistic',
+      reference_image VARCHAR(500) DEFAULT '',
+      created_at BIGINT DEFAULT 0,
+      INDEX idx_assets_novel (novel_id),
+      INDEX idx_assets_type (type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── 新表: chapters 章节表 ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS chapters (
+      id VARCHAR(36) PRIMARY KEY,
+      novel_id VARCHAR(36) NOT NULL,
+      chapter_number INT NOT NULL DEFAULT 0,
+      title VARCHAR(255) DEFAULT '',
+      content LONGTEXT,
+      start_char INT DEFAULT 0,
+      end_char INT DEFAULT 0,
+      created_at BIGINT DEFAULT 0,
+      INDEX idx_chapters_novel (novel_id),
+      INDEX idx_chapters_number (novel_id, chapter_number)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── 新表: points_orders 积分订单 ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS points_orders (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      type VARCHAR(20) NOT NULL COMMENT 'recharge/consumption/refund',
+      amount DECIMAL(10,2) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT 'pending/paid/completed/failed/refunded/cancelled',
+      payment_method VARCHAR(30) DEFAULT '',
+      transaction_id VARCHAR(100) DEFAULT '',
+      related_id VARCHAR(36) DEFAULT '',
+      remark VARCHAR(500) DEFAULT '',
+      created_at BIGINT DEFAULT 0,
+      completed_at BIGINT DEFAULT NULL,
+      INDEX idx_orders_user (user_id),
+      INDEX idx_orders_status (status),
+      INDEX idx_orders_time (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── 新表: style_presets 画风预设 ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS style_presets (
+      id VARCHAR(36) PRIMARY KEY,
+      name VARCHAR(50) NOT NULL UNIQUE,
+      label VARCHAR(100) NOT NULL,
+      description VARCHAR(500) DEFAULT '',
+      prompt_suffix TEXT,
+      sample_image_url VARCHAR(500) DEFAULT '',
+      is_default TINYINT(1) DEFAULT 0,
+      sort_order INT DEFAULT 0,
+      created_at BIGINT DEFAULT 0
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── style_presets seed（5 画风） ──
+  try {
+    await db.execute(`
+      INSERT INTO style_presets (id, name, label, description, prompt_suffix, sample_image_url, is_default, sort_order, created_at) VALUES
+        ('sp_realistic', 'realistic', '写实电影风', '真人质感, 电影级光影, 写实摄影, 高细节', 'photorealistic, cinematic lighting, high detail, 8K, film grain, DSLR quality, real human skin texture, natural color grading', '/static/styles/realistic.png', 1, 1, UNIX_TIMESTAMP() * 1000),
+        ('sp_ancient',   'ancient',   '古风水墨',   '中国传统水墨画风格, 飘逸写意, 古韵悠长', 'Chinese ink painting, traditional shuimo style, flowing brushwork, misty mountains, ancient costume, elegant composition, rice paper texture', '/static/styles/ancient.png', 0, 2, UNIX_TIMESTAMP() * 1000),
+        ('sp_cyber',     'cyber',     '赛博朋克',   '未来科技感, 霓虹灯光, 数字朋克美学', 'cyberpunk aesthetic, neon lights, futuristic, holographic displays, dark urban atmosphere, rain-soaked streets, high-tech low-life', '/static/styles/cyber.png', 0, 3, UNIX_TIMESTAMP() * 1000),
+        ('sp_anime',     'anime',     '动漫风',     '日系动漫插画, 鲜艳色彩, 精致线条', 'anime style illustration, vibrant colors, detailed line art, expressive eyes, cel shading, studio quality, Japanese animation aesthetic', '/static/styles/anime.png', 0, 4, UNIX_TIMESTAMP() * 1000),
+        ('sp_3d',        '3d',        '3D 渲染',    '3D 渲染风, Pixar 质感, 半写实卡通', '3D render, Pixar style, soft lighting, subsurface scattering, stylized realism, octane render, depth of field', '/static/styles/3d.png', 0, 5, UNIX_TIMESTAMP() * 1000)
+      ON DUPLICATE KEY UPDATE label=VALUES(label), description=VALUES(description), prompt_suffix=VALUES(prompt_suffix), sort_order=VALUES(sort_order)
+    `);
+  } catch (err) {
+    logger.warn('style_presets seed failed (可能已存在)', { error: err });
+  }
 }
 
 // 辅助函数：执行 SQL 并返回单行

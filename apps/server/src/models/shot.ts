@@ -1,4 +1,4 @@
-import { queryAll, execute } from './db';
+import { queryAll, execute, queryOne } from './db';
 import { Shot } from '../shared/types';
 
 export class ShotModel {
@@ -6,11 +6,15 @@ export class ShotModel {
     await execute(
       `INSERT INTO shots (id, episode_id, shot_number, scene_type, location, time_of_day,
        description, camera_angle, camera_move, lighting, duration_sec, audio_note,
-       dialogue, action, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       dialogue, action, status, image_url, character_ids, style_id, image_prompt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [shot.id, shot.episodeId, shot.shotNumber, shot.sceneType, shot.location || '',
        shot.timeOfDay, shot.description || '', shot.cameraAngle, shot.cameraMove, shot.lighting || '',
-       shot.durationSec, shot.audioNote || '', shot.dialogue || '', shot.action || '', shot.status]
+       shot.durationSec, shot.audioNote || '', shot.dialogue || '', shot.action || '', shot.status,
+       (shot as any).imageUrl || '',
+       JSON.stringify((shot as any).characterIds || []),
+       (shot as any).styleId || null,
+       (shot as any).imagePrompt || null]
     );
   }
 
@@ -20,6 +24,12 @@ export class ShotModel {
       [episodeId]
     );
     return rows.map(row => this.mapRowToShot(row));
+  }
+
+  async findById(id: string): Promise<Shot | undefined> {
+    const row = await queryOne<any>('SELECT * FROM shots WHERE id = ?', [id]);
+    if (!row) return undefined;
+    return this.mapRowToShot(row);
   }
 
   async update(id: string, data: Partial<Shot>): Promise<void> {
@@ -37,6 +47,9 @@ export class ShotModel {
     if (data.audioNote !== undefined) { fields.push('audio_note = ?'); values.push(data.audioNote); }
     if (data.dialogue !== undefined) { fields.push('dialogue = ?'); values.push(data.dialogue); }
     if (data.action !== undefined) { fields.push('action = ?'); values.push(data.action); }
+    if ((data as any).imageUrl !== undefined) { fields.push('image_url = ?'); values.push((data as any).imageUrl); }
+    if ((data as any).imagePrompt !== undefined) { fields.push('image_prompt = ?'); values.push((data as any).imagePrompt); }
+    if ((data as any).imageGeneratedAt !== undefined) { fields.push('image_generated_at = ?'); values.push((data as any).imageGeneratedAt); }
     if (fields.length === 0) return;
     values.push(id);
     await execute(`UPDATE shots SET ${fields.join(', ')} WHERE id = ?`, values);
@@ -65,7 +78,13 @@ export class ShotModel {
       dialogue: row.dialogue,
       action: row.action,
       status: row.status,
-    };
+      // v2.0.0
+      imageUrl: row.image_url || '',
+      characterIds: typeof row.character_ids === 'string' ? JSON.parse(row.character_ids || '[]') : (row.character_ids || []),
+      styleId: row.style_id || null,
+      imagePrompt: row.image_prompt || '',
+      imageGeneratedAt: row.image_generated_at || null,
+    } as any;
   }
 }
 

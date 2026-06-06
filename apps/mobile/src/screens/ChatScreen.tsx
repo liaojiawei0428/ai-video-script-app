@@ -822,7 +822,19 @@ export function ChatScreen(): React.JSX.Element {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle} numberOfLines={1}>{novelTitle || '小说分析'}</Text>
+        <View style={styles.headerTitleRow}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{novelTitle || '小说分析'}</Text>
+          {route.params?.novelId && (
+            <TouchableOpacity
+              style={styles.charactersBtn}
+              onPress={() => navigation.navigate('CharacterList', { novelId: route.params.novelId })}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="people" size={16} color={colors.primary} />
+              <Text style={styles.charactersBtnText}> 角色</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text style={styles.headerStatus}>{detail || '等待开始'}</Text>
         {status !== 'done' && status !== 'idle' && status !== 'saving' && (
           <View style={styles.progressBarBg}>

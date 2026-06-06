@@ -128,3 +128,177 @@ export interface ApiResponse<T> {
     requestId: string;
   };
 }
+
+// ════════════════════════════════════════════════════════════
+//  v2.0.0 新增类型: 角色一致性 + 资产库 + 章节图谱
+// ════════════════════════════════════════════════════════════
+
+// 画风预设
+export type StylePresetId = 'realistic' | 'ancient' | 'cyber' | 'anime' | '3d';
+
+export interface StylePreset {
+  id: StylePresetId;
+  name: StylePresetId;
+  label: string;
+  description: string;
+  promptSuffix: string;
+  sampleImageUrl?: string;
+  isDefault?: boolean;
+}
+
+// 11 维度基础结构化描述
+export interface CharacterDescription {
+  name: string;
+  age: string;
+  height: string;
+  build: string;
+  face: string;
+  features: string;
+  hair: string;
+  signature: string;
+  clothes: string;
+  personality: string;
+  aliases: string[];
+}
+
+// 4 维度补充描述
+export interface CharacterExtraDescription {
+  relationshipsText: string;
+  emotionRange: string;
+  actionHabits: string;
+  signatureLines: string;
+}
+
+// 角色变体图
+export interface ImageVariant {
+  angle: 'front_bust' | 'side_bust' | 'full_body';
+  url: string;
+  prompt: string;
+  seed?: number;
+  createdAt: number;
+}
+
+export type ImageGenStatus = 'none' | 'generating' | 'partial' | 'completed' | 'failed';
+
+// 角色 v2.0 扩展 (Character 已有, 这里加可选字段)
+declare module './index' {
+  interface Character {
+    description?: CharacterDescription;
+    extraDescription?: CharacterExtraDescription;
+    styleId?: StylePresetId;
+    confirmed?: boolean;
+    imageVariants?: ImageVariant[];
+    imageGenStatus?: ImageGenStatus;
+    confirmedAt?: number;
+    imageGeneratedAt?: number;
+  }
+}
+
+// 章节事件图谱
+export type PlotEventType =
+  | 'setup'
+  | 'rising_action'
+  | 'climax'
+  | 'falling_action'
+  | 'resolution'
+  | 'turning_point';
+
+export interface PlotGraphEvent {
+  type: PlotEventType;
+  summary: string;
+  characters: string[];
+  importance: number;
+}
+
+export interface PlotGraphChapter {
+  chapter: number;
+  title: string;
+  events: PlotGraphEvent[];
+}
+
+export interface PlotGraph {
+  chapters: PlotGraphChapter[];
+  generatedAt: number;
+}
+
+// 分集大纲
+export interface EpisodeOutlineItem {
+  episodeNumber: number;
+  title: string;
+  summary: string;
+  keyCharacters: string[];
+  estimatedDuration: number;
+}
+
+export interface EpisodeOutline {
+  novelId: string;
+  items: EpisodeOutlineItem[];
+  generatedAt: number;
+  confirmedAt?: number;
+}
+
+// 导出
+export type ExportFormat = 'pdf' | 'docx' | 'md';
+
+export interface ExportOptions {
+  episodeId: string;
+  format: ExportFormat;
+  includeCharacterIntro?: boolean;
+  includeShotList?: boolean;
+  includeDialogue?: boolean;
+  includeAction?: boolean;
+}
+
+// 资产库
+export type AssetType = 'character' | 'scene' | 'prop' | 'costume';
+
+export interface Asset {
+  id: string;
+  novelId: string;
+  type: AssetType;
+  name: string;
+  description?: Record<string, unknown>;
+  styleId?: StylePresetId;
+  referenceImage?: string;
+  createdAt: number;
+}
+
+// 积分订单
+export type PointsOrderType = 'recharge' | 'consumption' | 'refund';
+export type PointsOrderStatus = 'pending' | 'paid' | 'completed' | 'failed' | 'refunded' | 'cancelled';
+
+export interface PointsOrder {
+  id: string;
+  userId: string;
+  type: PointsOrderType;
+  amount: number;
+  status: PointsOrderStatus;
+  paymentMethod?: string;
+  transactionId?: string;
+  relatedId?: string;
+  remark?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+// Novel/Episode/Shot v2.0 扩展 (在原接口加可选字段)
+declare module './index' {
+  interface Novel {
+    styleId?: StylePresetId;
+    plotGraph?: PlotGraph;
+    outlineConfirmed?: boolean;
+    outlineConfirmedAt?: number;
+  }
+  interface Episode {
+    outlineText?: string;
+    confirmed?: boolean;
+    characterDescriptions?: CharacterDescription[];
+  }
+  interface Shot {
+    imageUrl?: string;
+    characterIds?: string[];
+    styleId?: StylePresetId;
+    imagePrompt?: string;
+    imageGeneratedAt?: number;
+  }
+}

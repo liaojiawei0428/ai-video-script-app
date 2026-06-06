@@ -44,7 +44,8 @@ export const novelController = {
 
       logger.info('Uploading novel', { title, author, filePath });
       const userId = (req as any).userId;
-      const novel = await novelService.createNovel(title, author, filePath, userId);
+      const styleId = req.body.styleId as string | undefined; // v2.0.0
+      const novel = await novelService.createNovel(title, author, filePath, userId, styleId);
 
       // Clean up temp upload file
       try {
@@ -99,6 +100,33 @@ export const novelController = {
           timestamp: new Date().toISOString(),
           requestId: req.requestId,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // v2.5.10: 从已有 analysis_report 回填角色 (不重跑 LLM)
+  async backfillCharacters(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { novelId } = req.params;
+      const userId = (req as any).userId;
+      if (!novelId) {
+        return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: '缺少 novelId' } });
+      }
+      const novel = await novelModel.findById(novelId);
+      if (!novel) {
+        return res.status(404).json({ success: false, error: { code: 'NOVEL_NOT_FOUND', message: '小说不存在' } });
+      }
+      if (userId && novel.userId && novel.userId !== userId) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权操作此小说' } });
+      }
+      const result = await novelService.backfillCharactersFromReport(novelId);
+      logger.info('backfillCharacters completed', { novelId, userId, ...result });
+      res.json({
+        success: true,
+        data: result,
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {
       next(error);
@@ -174,9 +202,11 @@ export const novelController = {
         return res.status(503).json({ success: false, error: { code: 'MAINTENANCE', message: '系统维护中，请稍候再试' } });
       }
       const { novelId } = req.params;
-      const { targetDuration = 120, tolerance = 10 } = req.body;
-      logger.info('Starting episode generation', { novelId, targetDuration, tolerance });
-      const task = await scriptService.generateEpisodes(novelId, targetDuration, tolerance);
+      const { targetDuration = 120, tolerance = 10, continue: continueFlag } = req.body;
+      logger.info('Starting episode generation', { novelId, targetDuration, tolerance, continueFlag });
+      const task = continueFlag
+        ? await scriptService.continueEpisodeGeneration(novelId, targetDuration)
+        : await scriptService.generateEpisodes(novelId, targetDuration, tolerance);
       res.json({
         success: true,
         data: {
@@ -294,8 +324,10 @@ ${ep.scriptContent || ''}`;
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).userId;
+      const q = (req.query.q as string) || undefined; // v2.0.0
+      const status = (req.query.status as string) || undefined; // v2.0.0
       const novels = userId
-        ? await novelModel.findByUserId(userId)
+        ? await novelModel.findByUserId(userId, { q, status })
         : await novelService.listNovels();
       res.json({
         success: true,
@@ -304,6 +336,37 @@ ${ep.scriptContent || ''}`;
           timestamp: new Date().toISOString(),
           requestId: req.requestId,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // v2.0.1 补: 获取单本小说详情
+  async getNovel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { novelId } = req.params;
+      const userId = (req as any).userId;
+      const novel = await novelService.getNovel(novelId);
+      if (!novel) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOVEL_NOT_FOUND', message: '小说不存在' },
+          meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+        });
+      }
+      // 越权保护: 只能看自己的小说 (v2.0)
+      if (userId && (novel as any).userId && (novel as any).userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: '无权访问此小说' },
+          meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+        });
+      }
+      res.json({
+        success: true,
+        data: novel,
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {
       next(error);
@@ -344,6 +407,96 @@ ${ep.scriptContent || ''}`;
       const { characterId } = req.params;
       const { name, appearance, personality, roleType } = req.body;
       await characterModel.update(characterId, { name, appearance, personality, roleType });
+      res.json({
+        success: true,
+        data: { updated: true },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // v2.5.11: 全字段更新 (含 description/extraDescription JSON)
+  async updateCharacterFull(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { characterId } = req.params;
+      const userId = (req as any).userId;
+      const { name, appearance, personality, roleType, description, extraDescription } = req.body;
+
+      // 越权校验: 通过 character → novel 链路确认所有权
+      const char = await characterModel.findById(characterId);
+      if (!char) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'CHARACTER_NOT_FOUND', message: '角色不存在' },
+        });
+      }
+      if (char.novelId) {
+        const novel = await novelModel.findById(char.novelId);
+        if (novel?.userId && userId && novel.userId !== userId) {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: '无权编辑此角色' },
+          });
+        }
+      }
+
+      await characterModel.updateFull(characterId, { name, appearance, personality, roleType, description, extraDescription });
+      logger.info('Character full update', { characterId, userId, hasDesc: !!description, fields: description ? Object.keys(description).length : 0 });
+      res.json({
+        success: true,
+        data: { updated: true },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // v2.5.11: 编辑小说元信息 (genre/theme/style/tone)
+  async updateNovelMeta(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { novelId } = req.params;
+      const userId = (req as any).userId;
+      const novel = await novelModel.findById(novelId);
+      if (!novel) {
+        return res.status(404).json({ success: false, error: { code: 'NOVEL_NOT_FOUND', message: '小说不存在' } });
+      }
+      if (userId && novel.userId && novel.userId !== userId) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权操作此小说' } });
+      }
+      const { genre, theme, style, tone } = req.body;
+      await novelModel.updateAnalysis(novelId, { genre, theme, style, tone } as any);
+      logger.info('Novel meta update', { novelId, userId });
+      res.json({
+        success: true,
+        data: { updated: true },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // v2.5.11: 编辑完整 analysis_report
+  async updateAnalysisReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { novelId } = req.params;
+      const userId = (req as any).userId;
+      const novel = await novelModel.findById(novelId);
+      if (!novel) {
+        return res.status(404).json({ success: false, error: { code: 'NOVEL_NOT_FOUND', message: '小说不存在' } });
+      }
+      if (userId && novel.userId && novel.userId !== userId) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权操作此小说' } });
+      }
+      const { analysisReport } = req.body;
+      if (typeof analysisReport !== 'string') {
+        return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'analysisReport 必须是字符串' } });
+      }
+      await novelModel.updateAnalysisReport(novelId, analysisReport);
+      logger.info('Analysis report update', { novelId, userId, length: analysisReport.length });
       res.json({
         success: true,
         data: { updated: true },

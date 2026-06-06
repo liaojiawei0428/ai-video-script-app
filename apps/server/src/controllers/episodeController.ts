@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { scriptService } from '../services/scriptService';
 import { episodeModel } from '../models/episode';
 import { shotModel } from '../models/shot';
+import { novelModel } from '../models/novel';
+import { exportService } from '../services/exportService';
 import { logger } from '../utils/logger';
 
 export const episodeController = {
@@ -43,23 +45,66 @@ export const episodeController = {
     }
   },
 
+  // v2.5.12: 编辑剧集 (含完整越权校验)
   async updateEpisode(req: Request, res: Response, next: NextFunction) {
     try {
       const { episodeId } = req.params;
+      const userId = (req as any).userId;
+      const ep = await episodeModel.findById(episodeId);
+      if (!ep) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '剧集不存在' } });
+      if (ep.novelId) {
+        const novel = await novelModel.findById(ep.novelId);
+        if (novel?.userId && userId && novel.userId !== userId) {
+          return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权编辑此剧集' } });
+        }
+      }
       const updates = req.body;
       await episodeModel.update(episodeId, updates);
+      logger.info('Episode update', { episodeId, userId, fields: Object.keys(updates) });
       res.json({ success: true, data: { updated: true }, meta: { timestamp: new Date().toISOString(), requestId: req.requestId } });
     } catch (error) {
       next(error);
     }
   },
 
+  // v2.5.12: 编辑镜头 (含完整越权校验)
   async updateShot(req: Request, res: Response, next: NextFunction) {
     try {
       const { shotId } = req.params;
+      const userId = (req as any).userId;
+      const shot = await shotModel.findById(shotId);
+      if (!shot) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '镜头不存在' } });
+      if (shot.episodeId) {
+        const ep = await episodeModel.findById(shot.episodeId);
+        if (ep?.novelId) {
+          const novel = await novelModel.findById(ep.novelId);
+          if (novel?.userId && userId && novel.userId !== userId) {
+            return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权编辑此镜头' } });
+          }
+        }
+      }
       const updates = req.body;
       await shotModel.update(shotId, updates);
+      logger.info('Shot update', { shotId, userId, fields: Object.keys(updates) });
       res.json({ success: true, data: { updated: true }, meta: { timestamp: new Date().toISOString(), requestId: req.requestId } });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async exportEpisode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { episodeId } = req.params;
+      const format = (req.query.format === 'docx' ? 'docx' : 'pdf') as 'pdf' | 'docx';
+      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
+      const host = req.headers.host || 'localhost';
+      const baseUrl = `${proto}://${host}`;
+      const result = await exportService.exportEpisode(episodeId, format, baseUrl);
+      res.json({
+        success: true,
+        data: result,
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
     } catch (error) {
       next(error);
     }

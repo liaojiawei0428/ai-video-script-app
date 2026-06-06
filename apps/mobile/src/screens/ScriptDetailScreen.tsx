@@ -184,6 +184,50 @@ export function ScriptDetailScreen(): React.JSX.Element {
                 <Text style={styles.episodeHeaderMeta}>{episodes.length}集 · 总时长 {Math.floor(totalDuration / 60)}分</Text>
               </View>
             )}
+
+            {/* v2.0.0 工具栏 */}
+            <View style={styles.v2Toolbar}>
+              <TouchableOpacity
+                style={styles.v2Btn}
+                onPress={() => navigation.navigate('CharacterList' as any, { novelId })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="people" size={20} color={colors.primary} />
+                <Text style={styles.v2BtnText}>角色库</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.v2Btn}
+                onPress={() => navigation.navigate('OutlineReview' as any, { novelId })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="list" size={20} color={colors.primary} />
+                <Text style={styles.v2BtnText}>分集大纲</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.v2Btn}
+                onPress={() => navigation.navigate('PlotGraph' as any, { novelId })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="git-network" size={20} color={colors.primary} />
+                <Text style={styles.v2BtnText}>事件图谱</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.v2Btn}
+                onPress={() => navigation.navigate('AssetLibrary' as any, { novelId })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="images" size={20} color={colors.primary} />
+                <Text style={styles.v2BtnText}>资产库</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.v2Btn}
+                onPress={() => navigation.navigate('AIAssistant' as any, { novelId, contextTitle: novelTitle })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="sparkles" size={20} color={colors.primary} />
+                <Text style={styles.v2BtnText}>AI助手</Text>
+              </TouchableOpacity>
+            </View>
           </>
         }
         data={episodes}
@@ -294,6 +338,16 @@ const styles = StyleSheet.create({
   episodeHeader: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   episodeHeaderTitle: { ...typography.h2, color: colors.text.primary },
   episodeHeaderMeta: { ...typography.caption, marginTop: spacing.xs },
+  v2Toolbar: {
+    flexDirection: 'row', gap: spacing.sm,
+    paddingHorizontal: spacing.md, marginBottom: spacing.md,
+  },
+  v2Btn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: spacing.sm, borderRadius: radii.md,
+    backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.primary,
+  },
+  v2BtnText: { ...typography.caption, color: colors.primary, fontWeight: '700', marginLeft: 4 },
   episodeCard: {
     flexDirection: 'row',
     alignItems: 'center',

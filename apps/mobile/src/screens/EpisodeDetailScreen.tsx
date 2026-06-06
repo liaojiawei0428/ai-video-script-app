@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert,
+  View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert, Linking,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { getEpisode, updateEpisode, getShots, generateShots as apiGenerateShots, getTaskProgress, regenerateEpisode as apiRegenerateEpisode } from '../api/client';
+import { getEpisode, updateEpisode, getShots, generateShots as apiGenerateShots, getTaskProgress, regenerateEpisode as apiRegenerateEpisode, exportEpisode as apiExportEpisode } from '../api/client';
 import { updateEpisodeSqlite, saveShots } from '../db/sqlite';
 import { WS_BASE_URL } from '../config';
 import { useNovelStore } from '../store/useNovelStore';
@@ -61,6 +61,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [exporting, setExporting] = useState<'pdf' | 'docx' | null>(null); // v2.0.0
   const [episodeStatus, setEpisodeStatus] = useState<string>('');
   const [streamText, setStreamText] = useState('');
   const [editing, setEditing] = useState(false);
@@ -257,6 +258,34 @@ export function EpisodeDetailScreen(): React.JSX.Element {
     }
   };
 
+  // v2.0.0 导出
+  const handleExport = async (format: 'pdf' | 'docx') => {
+    if (!episodeId) return;
+    setExporting(format);
+    try {
+      const res = await apiExportEpisode(episodeId, format);
+      const data = res.data?.data;
+      if (!data?.url) throw new Error('未获取到文件 URL');
+      const sizeKB = (data.sizeBytes / 1024).toFixed(1);
+      Alert.alert(
+        '导出成功',
+        `文件: ${data.filename}\n大小: ${sizeKB} KB\n有效期: 24 小时\n\n点击"打开"在浏览器中下载`,
+        [
+          { text: '复制链接', onPress: () => {
+            // RN 没有原生 Clipboard 简单实现, 改用 Alert 显示完整链接
+            Alert.alert('下载链接', data.url);
+          }},
+          { text: '打开', onPress: () => Linking.openURL(data.url) },
+          { text: '关闭', style: 'cancel' },
+        ],
+      );
+    } catch (e: any) {
+      Alert.alert('导出失败', e?.response?.data?.error?.message || e?.message || '请稍后重试');
+    } finally {
+      setExporting(null);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -337,6 +366,40 @@ export function EpisodeDetailScreen(): React.JSX.Element {
           style={{ marginBottom: spacing.md }}
         />
 
+        {/* v2.0.0 导出按钮组 */}
+        <View style={styles.exportRow}>
+          <TouchableOpacity
+            style={styles.exportBtn}
+            onPress={() => handleExport('pdf')}
+            disabled={exporting !== null || !scriptContent}
+            activeOpacity={0.7}
+          >
+            {exporting === 'pdf' ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <>
+                <Ionicons name="document-text" size={18} color={colors.accent} />
+                <Text style={styles.exportBtnText}> 导出 PDF</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.exportBtn}
+            onPress={() => handleExport('docx')}
+            disabled={exporting !== null || !scriptContent}
+            activeOpacity={0.7}
+          >
+            {exporting === 'docx' ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <>
+                <Ionicons name="document" size={18} color={colors.accent} />
+                <Text style={styles.exportBtnText}> 导出 Word</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {shotContent || generating ? (
           <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
             <Text style={styles.boxTitle}>镜头语言</Text>
@@ -413,4 +476,12 @@ const styles = StyleSheet.create({
   shotText: { ...typography.body, color: colors.text.secondary, lineHeight: 22 },
   shotStreamScroll: { maxHeight: 300, minHeight: 100, padding: spacing.sm + 2, backgroundColor: colors.bg.tertiary, borderRadius: radii.md },
   shotStreamText: { ...typography.body, color: colors.text.secondary, fontFamily: 'monospace' },
+  // v2.0.0
+  exportRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  exportBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: spacing.sm, borderRadius: radii.md,
+    backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.accent,
+  },
+  exportBtnText: { ...typography.caption, color: colors.accent, fontWeight: '700' },
 });

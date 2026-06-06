@@ -78,4 +78,40 @@
 
 ---
 
+## 禁止新旧版并存（强制清理规则）
+
+**规则**: 任何模块、组件、字段、API 端点、状态变量、数据结构在迭代时, **必须立即清理旧版实现**, 不得新旧版并存于同一文件/同一接口/同一页面。
+
+### 必须遵守的清理动作
+
+1. **替换式升级**: 升级某模块时, 必须**一次性移除**旧版的 state、UI、handler、API 字段。
+   - 错误示例: `CharacterDetailPage.tsx` 同时存在新版 37 字段 `description` 编辑 **和** 旧版 `appearanceDraft/personalityDraft/roleTypeDraft` 编辑块, 两个并存导致用户混乱。
+   - 正确做法: 新版上线当 PR 内, 删除旧版 state + UI + 保存字段, 保留迁移代码 (从旧版字段一次性迁移到新版的脚本)。
+2. **明确标注**: 如果必须保留旧版代码作过渡 (如 1 周迁移期), 必须在文件顶部注释 `// LEGACY: 计划于 v2.x.x 删除` + 列表说明清理计划。
+3. **零冗余代码**: 升级后**禁止**保留未引用的 import、变量、函数、UI 块。
+4. **数据库字段**: 旧版字段 (如 `appearance/personality/roleType` 在 v2.5 已合并进 `description` JSON) **不应在前端展示**, 也不再写入。如需保留数据, 加 `_deprecated` 后缀或迁移脚本清理。
+5. **PR 自检清单**: 每次提交前, 自行搜索 `(旧版|legacy|fallback|deprecated|旧)` 关键字, 评估是否需要清理。
+
+### 触发清理的时机
+
+- 新版功能已上线
+- 用户反馈"功能混乱/不知道用哪个"
+- 旧版数据已迁移完成
+- 同名字段有两个不同的语义
+
+### 违反此规则的处理
+
+任何 AI 助手在升级时若遗留旧版代码, **必须**在 PR 描述中明确列出:
+- 旧版代码位置 (file:line)
+- 计划清理时间
+- 当前未清理的原因 (如数据迁移未完成)
+
+否则视为违规, 不予通过。
+
+### 历史违规清单 (持续更新)
+
+- **v2.5.13 修复**: `CharacterDetailPage.tsx` 删除 v2.5.0 之前遗留的 `appearanceDraft/personalityDraft/roleTypeDraft` 状态 + 基础信息编辑块 (旧版 fallback), 角色信息统一走 37 字段 `description` JSON, 见 `apps/web/src/pages/CharacterDetailPage.tsx:1-100` 重构记录。
+
+---
+
 > 本文档为强制执行规范。所有 AI 助手在参与本项目时必须遵守。

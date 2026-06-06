@@ -129,6 +129,36 @@ export const updateEpisode = (episodeId: string, data: any) =>
 export const generateEpisodes = (novelId: string, targetDuration?: number) =>
   apiClient.post(`/novels/${novelId}/episodes/generate`, { targetDuration });
 
+// ---- v2.0.0 Outline & PlotGraph ----
+
+export const generateOutline = (novelId: string) =>
+  apiClient.post(`/novels/${novelId}/outline/generate`);
+
+export const getOutline = (novelId: string) =>
+  apiClient.get(`/novels/${novelId}/outline`);
+
+export const updateOutline = (novelId: string, items: any[]) =>
+  apiClient.put(`/novels/${novelId}/outline`, { items });
+
+export const confirmOutline = (novelId: string) =>
+  apiClient.post(`/novels/${novelId}/outline/confirm`);
+
+export const generatePlotGraph = (novelId: string) =>
+  apiClient.post(`/novels/${novelId}/plot-graph/generate`);
+
+export const getPlotGraph = (novelId: string) =>
+  apiClient.get(`/novels/${novelId}/plot-graph`);
+
+// ---- v2.0.0 Export ----
+
+export const exportEpisode = (episodeId: string, format: 'pdf' | 'docx' = 'pdf') =>
+  apiClient.get(`/episodes/${episodeId}/export?format=${format}`);
+
+// ---- v2.0.0 Asset Library ----
+
+export const listAssets = (novelId: string) =>
+  apiClient.get(`/novels/${novelId}/assets`);
+
 // ---- Shots ----
 
 export const getShots = (episodeId: string) =>
@@ -259,3 +289,30 @@ export const exportNovelTxt = async (novelId: string): Promise<string> => {
   const response = await apiClient.get(`/novels/${novelId}/export?format=txt`);
   return response.data;
 };
+
+// ---- v2.0.0 角色一致性 ----
+
+export const extractCharacterDescriptions = (novelId: string) =>
+  apiClient.post(`/novels/${novelId}/characters/extract`);
+
+export const getCharacters = (novelId: string) =>
+  apiClient.get(`/novels/${novelId}/characters`);
+
+export const getCharacter = (characterId: string) =>
+  apiClient.get(`/characters/${characterId}`);
+
+export const confirmCharacter = (
+  characterId: string,
+  data: { description: any; extraDescription: any }
+) => apiClient.post(`/characters/${characterId}/confirm`, data);
+
+export const generateCharacterImages = (
+  characterId: string,
+  onlyAngles?: Array<'front_bust' | 'side_bust' | 'full_body'>
+) => apiClient.post(`/characters/${characterId}/generate-images`, { onlyAngles });
+
+export const generateShotImage = (shotId: string) =>
+  apiClient.post(`/shots/${shotId}/generate-image`);
+
+export const getStylePresets = () =>
+  apiClient.get('/style-presets');

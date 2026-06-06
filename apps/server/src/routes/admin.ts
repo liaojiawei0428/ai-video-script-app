@@ -134,6 +134,21 @@ router.put('/maintenance', adminAuth, (req: Request, res: Response) => {
   res.json({ success: true, data: { maintenance: enable } });
 });
 
+/** 手动触发续集生成（管理员） */
+router.post('/resume-novel/:novelId', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { novelId } = req.params;
+    const { targetDuration = 120 } = req.body;
+    const { scriptService } = await import('../services/scriptService');
+    const task = await scriptService.continueEpisodeGeneration(novelId, targetDuration);
+    logger.info('Admin triggered resume', { novelId, taskId: task.id });
+    res.json({ success: true, data: { taskId: task.id, status: task.status } });
+  } catch (err: any) {
+    logger.error('Admin resume failed', { novelId: req.params.novelId, error: err?.message || String(err) });
+    res.status(500).json({ success: false, error: { code: 'RESUME_FAILED', message: err?.message || '续集失败' } });
+  }
+});
+
 /** 发送系统消息给单个用户 */
 router.post('/send-message', adminAuth, async (req: Request, res: Response) => {
   try {

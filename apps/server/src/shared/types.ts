@@ -1,3 +1,5 @@
+import type { StyleBible } from '../services/styleBible';
+
 export interface Scene {
   name: string;
   description: string;
@@ -31,6 +33,15 @@ export interface Novel {
   fullSummary?: string;
   /** AI分析报告（JSON或文本） */
   analysisReport?: string;
+  // ── v2.0.0 ──
+  styleId?: string;                    // 画风 ID (默认 'realistic')
+  /** v2.5.9: 风格圣经（不可变锚点，所有生成流必须引用） */
+  styleBible?: StyleBible;
+  outlineText?: string;                // 分集大纲 JSON
+  outlineConfirmed?: boolean;          // 大纲是否已确认
+  outlineConfirmedAt?: number;        // 大纲确认时间
+  plotGraph?: string;                  // 事件图谱 JSON
+  plotGraphGeneratedAt?: number;       // plotGraph 生成时间
   createdAt: number;
   updatedAt: number;
 }
@@ -67,6 +78,12 @@ export interface Shot {
   dialogue: string;
   action: string;
   status: 'pending' | 'completed';
+  // ── v2.0.0 ──
+  imageUrl?: string;                  // 镜头参考图 (base64 或 URL)
+  imagePrompt?: string;               // AI 生图 prompt
+  imageGeneratedAt?: number;          // 生图时间
+  characterIds?: string[];            // 涉及角色 ID
+  styleId?: string;                   // 画风 (继承自小说)
 }
 
 export interface Character {
@@ -79,6 +96,17 @@ export interface Character {
   roleType: 'protagonist' | 'antagonist' | 'supporting' | 'minor';
   relationships: Array<{ target: string; relation: string }>;
   referenceImage?: string;
+  // ── v2.0.0 ──
+  gender?: string;                    // 别名 '男/女/其他' (移动端用)
+  role?: string;                      // 别名 'protagonist/antagonist/...' (移动端用)
+  description?: string;               // 11 维度结构化描述 JSON
+  extraDescription?: string;          // 4 维度补充描述 JSON
+  styleId?: string;                   // 画风 ID
+  confirmed?: boolean;                // 用户是否已确认
+  confirmedAt?: number;
+  imageVariants?: Array<{ angle: string; imageData: string; prompt: string; createdAt: number }>;
+  imageGenStatus?: 'none' | 'generating' | 'partial' | 'completed' | 'failed';
+  imageGeneratedAt?: number;
   createdAt: number;
 }
 
@@ -145,7 +173,7 @@ export interface ChunkStatus {
 
 /** 分块进度广播消息 */
 export interface ChunkProgress {
-  phase: 'chunking' | 'analyzing_chunks' | 'merging' | 'final_analysis' | 'generating_episodes' | 'completed' | 'error';
+  phase: 'chunking' | 'analyzing_chunks' | 'merging' | 'final_analysis' | 'character_extracting' | 'generating_episodes' | 'completed' | 'error';
   current: number;
   total: number;
   unitLabel: string;
@@ -201,4 +229,191 @@ export interface ApiResponse<T> {
     timestamp: string;
     requestId: string;
   };
+}
+
+// ════════════════════════════════════════════════════════════
+//  v2.0.0 新增类型：角色一致性 + 资产库 + 章节图谱 + 导出
+// ════════════════════════════════════════════════════════════
+
+// ── 画风预设 ──
+
+export type StylePresetId = 'realistic' | 'ancient' | 'cyber' | 'anime' | '3d';
+
+/** 画风预设定义（也存于数据库 style_presets 表, 此处为前端常量） */
+export interface StylePreset {
+  id: StylePresetId;
+  name: StylePresetId;
+  label: string;
+  description: string;
+  promptSuffix: string;
+  sampleImageUrl?: string;
+  isDefault?: boolean;
+}
+
+// ── 15 维度角色描述 ──
+
+/** 11 维度基础结构化描述（生成时存, 必填） */
+export interface CharacterDescription {
+  name: string;
+  age: string;
+  height: string;
+  build: string;
+  face: string;
+  features: string;
+  hair: string;
+  signature: string;
+  clothes: string;
+  personality: string;
+  aliases: string[];
+}
+
+/** 4 维度补充描述（生成时存, 可空） */
+export interface CharacterExtraDescription {
+  relationshipsText: string;
+  emotionRange: string;
+  actionHabits: string;
+  signatureLines: string;
+}
+
+/** 角色变体图 */
+export interface ImageVariant {
+  angle: 'front_bust' | 'side_bust' | 'full_body' | 'sheet';
+  url: string;
+  prompt: string;
+  seed?: number;
+  createdAt: number;
+}
+
+export type ImageGenStatus = 'none' | 'generating' | 'partial' | 'completed' | 'failed';
+
+// ── 角色 v2.0 扩展字段 ──
+
+export interface CharacterV2Fields {
+  description?: CharacterDescription;
+  extraDescription?: CharacterExtraDescription;
+  styleId?: StylePresetId;
+  confirmed?: boolean;
+  imageVariants?: ImageVariant[];
+  imageGenStatus?: ImageGenStatus;
+  confirmedAt?: number;
+  imageGeneratedAt?: number;
+}
+
+// ── 章节事件图谱 ──
+
+export type PlotEventType =
+  | 'setup'
+  | 'rising_action'
+  | 'climax'
+  | 'falling_action'
+  | 'resolution'
+  | 'turning_point';
+
+export interface PlotGraphEvent {
+  type: PlotEventType;
+  summary: string;
+  characters: string[];
+  importance: number; // 1-5
+}
+
+export interface PlotGraphChapter {
+  chapter: number;
+  title: string;
+  events: PlotGraphEvent[];
+}
+
+export interface PlotGraph {
+  chapters: PlotGraphChapter[];
+  generatedAt: number;
+}
+
+// ── 分集大纲 ──
+
+export interface EpisodeOutlineItem {
+  episodeNumber: number;
+  title: string;
+  summary: string;
+  keyCharacters: string[];
+  estimatedDuration: number;
+}
+
+export interface EpisodeOutline {
+  novelId: string;
+  items: EpisodeOutlineItem[];
+  generatedAt: number;
+  confirmedAt?: number;
+}
+
+// ── 导出 ──
+
+export type ExportFormat = 'pdf' | 'docx' | 'md';
+
+export interface ExportOptions {
+  episodeId: string;
+  format: ExportFormat;
+  includeCharacterIntro?: boolean;
+  includeShotList?: boolean;
+  includeDialogue?: boolean;
+  includeAction?: boolean;
+}
+
+// ── 资产库 ──
+
+export type AssetType = 'character' | 'scene' | 'prop' | 'costume';
+
+export interface Asset {
+  id: string;
+  novelId: string;
+  type: AssetType;
+  name: string;
+  description?: Record<string, unknown>;
+  styleId?: StylePresetId;
+  referenceImage?: string;
+  createdAt: number;
+}
+
+// ── 积分订单 ──
+
+export type PointsOrderType = 'recharge' | 'consumption' | 'refund';
+export type PointsOrderStatus = 'pending' | 'paid' | 'completed' | 'failed' | 'refunded' | 'cancelled';
+
+export interface PointsOrder {
+  id: string;
+  userId: string;
+  type: PointsOrderType;
+  amount: number;
+  status: PointsOrderStatus;
+  paymentMethod?: string;
+  transactionId?: string;
+  relatedId?: string;
+  remark?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+// ── 小说 v2.0 扩展字段 ──
+
+export interface NovelV2Fields {
+  styleId?: StylePresetId;
+  plotGraph?: PlotGraph;
+  outlineConfirmed?: boolean;
+  outlineConfirmedAt?: number;
+}
+
+// ── 剧集 v2.0 扩展字段 ──
+
+export interface EpisodeV2Fields {
+  outlineText?: string;
+  confirmed?: boolean;
+  characterDescriptions?: CharacterDescription[];
+}
+
+// ── 镜头 v2.0 扩展字段 ──
+
+export interface ShotV2Fields {
+  imageUrl?: string;
+  characterIds?: string[];
+  styleId?: StylePresetId;
+  imagePrompt?: string;
+  imageGeneratedAt?: number;
 }

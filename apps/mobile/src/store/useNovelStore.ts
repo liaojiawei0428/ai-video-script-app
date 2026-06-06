@@ -66,6 +66,8 @@ interface NovelState {
   isLoggedIn: boolean;
   isAdmin: boolean;
   queueStatus: Record<string, { position: number; runningCount: number; waitingCount: number }>;
+  // v2.0.0
+  stylePresets: any[];
 
   setNovels: (novels: Novel[]) => void;
   addNovel: (novel: Novel) => void;
@@ -89,6 +91,9 @@ interface NovelState {
   setAdmin: (admin: boolean) => void;
   logout: () => void;
   clearNovels: () => void;
+  // v2.0.0 actions
+  setStylePresets: (presets: any[]) => void;
+  updateCharacter: (character: Character) => void;
 }
 
 let msgId = 0;
@@ -107,6 +112,8 @@ export const useNovelStore = create<NovelState>((set) => ({
   isLoggedIn: false,
   isAdmin: false,
   queueStatus: {},
+  // v2.0.0
+  stylePresets: [],
 
   setNovels: (novels) => set({ novels }),
   setCurrentNovel: (novel) => set({ currentNovel: novel }),
@@ -195,6 +202,11 @@ export const useNovelStore = create<NovelState>((set) => ({
     delete next[novelId];
     return { queueStatus: next };
   }),
+  // v2.0.0
+  setStylePresets: (presets) => set({ stylePresets: presets }),
+  updateCharacter: (character) => set((state) => ({
+    characters: state.characters.map(c => c.id === character.id ? character : c),
+  })),
 }));
 
 export function createLlmMessage(novelId: string, type: LlmMessage['type'], phase: string, content: string, tokens?: number): LlmMessage {

@@ -39,14 +39,20 @@ const upload = multer({
 router.get('/estimate-fee', authMiddleware, novelController.estimateFee);
 router.post('/upload', authMiddleware, upload.single('file'), novelController.upload);
 router.post('/:novelId/analyze', authMiddleware, novelController.analyze);
+router.post('/:novelId/backfill-characters', authMiddleware, novelController.backfillCharacters);
 router.get('/:novelId/analysis', authMiddleware, novelController.getAnalysis);
 router.get('/:novelId/episodes', authMiddleware, novelController.getEpisodes);
 router.post('/:novelId/episodes/generate', authMiddleware, novelController.generateEpisodes);
 router.post('/episodes/:episodeId/regenerate', authMiddleware, novelController.regenerateEpisode);
 router.get('/:novelId/export', authMiddleware, novelController.exportNovel);
 router.get('/', authMiddleware, novelController.list);
+// v2.0.1 补: 单本小说详情 (web 端 ScriptDetailPage 必需)
+router.get('/:novelId', authMiddleware, novelController.getNovel);
 router.delete('/:novelId', authMiddleware, novelController.remove);
 router.put('/:novelId', authMiddleware, novelController.updateNovel);
+router.put('/:novelId/meta', authMiddleware, novelController.updateNovelMeta);
+router.put('/:novelId/analysis-report', authMiddleware, novelController.updateAnalysisReport);
 router.put('/characters/:characterId', authMiddleware, novelController.updateCharacter);
+router.put('/characters/:characterId/full', authMiddleware, novelController.updateCharacterFull);
 
 export default router;

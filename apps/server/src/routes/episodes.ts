@@ -6,6 +6,7 @@ const router = Router();
 router.get('/:episodeId/shots', episodeController.getShots);
 router.post('/:episodeId/shots/generate', episodeController.generateShots);
 router.put('/:episodeId/shots/:shotId', episodeController.updateShot);
+router.get('/:episodeId/export', episodeController.exportEpisode); // v2.0.0
 router.get('/:episodeId', episodeController.getEpisode);
 router.put('/:episodeId', episodeController.updateEpisode);
 

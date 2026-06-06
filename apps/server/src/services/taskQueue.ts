@@ -10,7 +10,7 @@ interface TaskItem {
 }
 
 const MAX_GLOBAL = 20;
-const MAX_PER_USER = 1;
+const MAX_PER_USER = 2;
 
 class TaskQueue {
   private running: Map<string, TaskItem> = new Map();
@@ -48,15 +48,23 @@ class TaskQueue {
     return idx >= 0 ? idx + 1 : 0;
   }
 
-  enqueue(novelId: string, userId: string, taskId: string, executor: () => Promise<void>): void {
+  enqueue(novelId: string, userId: string, taskId: string, executor: () => Promise<void>, taskType?: string): void {
     const userIdKey = userId || novelId;
 
-    if (this.running.has(novelId) || this.waiting.some(i => i.novelId === novelId)) {
-      logger.warn('Task already queued or running', { novelId, taskId });
-      return;
+    const existing = this.running.get(novelId) || this.waiting.find(i => i.novelId === novelId);
+    if (existing) {
+      if (taskType === 'episode_generate' && (existing as any).taskType !== 'episode_generate') {
+        logger.info('Replacing non-episode task with episode_generate', { novelId, oldTaskId: existing.taskId, newTaskId: taskId });
+        if (this.running.has(novelId)) this.running.delete(novelId);
+        else this.waiting = this.waiting.filter(i => i.novelId !== novelId);
+      } else {
+        logger.warn('Task already queued or running', { novelId, taskId });
+        return;
+      }
     }
 
     const item: TaskItem = { novelId, userId: userIdKey, taskId, executor };
+    (item as any).taskType = taskType;
 
     if (this.running.size < MAX_GLOBAL && this.getUserRunningCount(userIdKey) < MAX_PER_USER) {
       this.startTask(item);

@@ -165,15 +165,27 @@ export class WebSocketService {
         }));
         return;
       }
-      // 发送当前 novel 状态（直接使用真实状态，不做映射）
+      // 发送当前 novel 状态
+      let currentEpisode = 0;
+      let totalEpisodes = 0;
+      try {
+        const eps = await episodeModel.findByNovelId(novelId);
+        currentEpisode = eps.length > 0 ? Math.max(...eps.map(e => e.episodeNumber)) : 0;
+        totalEpisodes = eps.length;
+      } catch {}
+      if (novel.totalChars > 0 && totalEpisodes === 0) {
+        const charsPerEpisode = Math.round(1050 * 3.5);
+        totalEpisodes = Math.min(500, Math.max(1, Math.ceil(novel.totalChars / charsPerEpisode)));
+      }
       ws.send(JSON.stringify({
         type: 'progress',
         novelId,
-        progress: novel.status === 'analyzed' ? 100 : 0,
+        progress: novel.status === 'completed' ? 100 : novel.status === 'analyzed' ? 100 : 0,
         status: novel.status,
+        totalEpisodes,
+        currentEpisode,
         timestamp: Date.now(),
       }));
-      // 如果已完成分析或生成，不再发送任务更新，避免客户端误认为仍在进行
       if (novel.status === 'analyzed' || novel.status === 'completed') {
         return;
       }
@@ -196,6 +208,10 @@ export class WebSocketService {
         let taskStatus: string = task.status;
         if (task.status === 'running') {
           taskStatus = novel.status === 'analyzing' ? 'analyzing' : 'generating';
+        }
+        // 如果 task 已完成，使用 novel 的真实状态
+        if (task.status === 'completed') {
+          taskStatus = novel.status;
         }
         // 查询已生成的剧集数和总集数
         let currentEpisode = 0;

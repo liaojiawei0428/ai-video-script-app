@@ -106,7 +106,8 @@ export class ChunkService {
   async analyzeAllChunks(
     chunks: Chunk[],
     novelId: string,
-    onProgress: (progress: ChunkProgress) => void
+    onProgress: (progress: ChunkProgress) => void,
+    styleBibleBlock?: string,
   ): Promise<ChunkSummary[]> {
     const total = chunks.length;
     const chunkStates: ChunkStatus[] = chunks.map(c => ({
@@ -143,8 +144,8 @@ export class ChunkService {
           let chunkContent = '';
           await deepseekPool.chatCompletionStreamWithMessages(
             [
-              { role: 'system', content: chunkAnalysisSystemPrompt },
-              { role: 'user', content: chunkAnalysisUserPrompt(chunk.content) },
+              { role: 'system', content: chunkAnalysisSystemPrompt(styleBibleBlock) },
+              { role: 'user', content: chunkAnalysisUserPrompt(chunk.content, styleBibleBlock) },
             ],
             (token) => {
               if (NovelService.isCancelled(novelId)) {
@@ -253,7 +254,7 @@ export class ChunkService {
   /**
    * 一次性合并所有块摘要为全文摘要
    */
-  async mergeSummaries(summaries: ChunkSummary[], novelId?: string): Promise<string> {
+  async mergeSummaries(summaries: ChunkSummary[], novelId?: string, styleBibleBlock?: string): Promise<string> {
     const sorted = [...summaries].sort((a, b) => a.index - b.index);
 
     const validSummaries = sorted.filter(s => !s.failed && s.content);
@@ -288,8 +289,8 @@ export class ChunkService {
         // 计费统一在 novelService 中进行
       }
       const result = await deepseekPool.chatCompletion(
-        chunkMergeSystemPrompt,
-        chunkMergeUserPrompt(summariesText),
+        chunkMergeSystemPrompt(styleBibleBlock),
+        chunkMergeUserPrompt(summariesText, styleBibleBlock),
         0.3
       );
 

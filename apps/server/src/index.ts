@@ -39,6 +39,14 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestIdMiddleware);
 app.use(limiter);
 
+// v2.0.0 静态服务: 导出文件 + 角色图片 (只读)
+import { config as appConfig } from './config';
+app.use('/uploads', express.static(appConfig.uploadDir, {
+  setHeaders: (res, fp) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+  },
+}));
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({
@@ -92,6 +100,8 @@ import rechargeRoutes from './routes/recharge';
 import adminRoutes from './routes/admin';
 import feedbackRoutes from './routes/feedback';
 import notificationRoutes from './routes/notification';
+import characterRoutes from './routes/characters';
+import { outlineRoutes } from './routes/outlines';
 
 app.use('/api/novels', novelRoutes);
 app.use('/api/tasks', taskRoutes);
@@ -102,6 +112,8 @@ app.use('/api/recharge', rechargeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api', characterRoutes);
+app.use('/api', outlineRoutes);
 
 // Error handling
 app.use(errorHandler);
@@ -116,4 +128,25 @@ server.listen(config.port, '0.0.0.0', () => {
   import('./services/deepseekPool').then(({ deepseekPool }) => {
     logger.info(`Deepseek pool ready: ${deepseekPool.keyCount} key(s), ${deepseekPool.totalMaxConcurrent} total AI slots`);
   });
+
+  // 启动恢复: 找到 status=analyzed 但没有生成剧集的小说，自动触发
+  setTimeout(async () => {
+    try {
+      const { novelModel } = await import('./models/novel');
+      const { episodeModel } = await import('./models/episode');
+      const { scriptService } = await import('./services/scriptService');
+      const stuckNovels = await novelModel.findManyByStatus(['analyzed']);
+      for (const n of stuckNovels) {
+        const eps = await episodeModel.findByNovelId(n.id);
+        if (eps.length === 0) {
+          logger.info('Auto-recovery: triggering episode generation for stuck novel', { novelId: n.id });
+          try { await scriptService.generateEpisodes(n.id); } catch (e) {
+            logger.warn('Auto-recovery failed for novel', { novelId: n.id, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+      }
+    } catch (e) {
+      logger.warn('Auto-recovery scan failed', { error: e instanceof Error ? e.message : String(e) });
+    }
+  }, 5000);
 });

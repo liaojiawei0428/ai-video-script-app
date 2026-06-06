@@ -11,6 +11,7 @@ import { saveNovel } from '../db/sqlite';
 import { API_BASE_URL } from '../config';
 import { GradientButton, GlassCard, ToastProvider, useToast } from '../components';
 import { colors, spacing, radii, typography, shadows, layout } from '../theme';
+import { STYLE_PRESETS } from '@ai-script/shared-types';
 
 export function UploadScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
@@ -22,6 +23,7 @@ export function UploadScreen(): React.JSX.Element {
   const [uri, setUri] = useState<string | null>(null);
   const toast = useToast();
   const [feeInfo, setFeeInfo] = useState<{ amount: number; unitPrice: number; sufficient: boolean } | null>(null);
+  const [styleId, setStyleId] = useState<string>('realistic'); // v2.0.0
 
   useEffect(() => {
     if (fileInfo && isLoggedIn) {
@@ -131,6 +133,7 @@ export function UploadScreen(): React.JSX.Element {
         formData.append('file', { uri, name: safeName, type: 'text/plain' } as any);
         if (title) formData.append('title', title);
         formData.append('author', 'User');
+        formData.append('styleId', styleId); // v2.0.0
         xhr.send(formData);
       });
 
@@ -148,6 +151,7 @@ export function UploadScreen(): React.JSX.Element {
         totalChars: totalChars || fileInfo.size,
         totalWords: Math.floor((totalChars || fileInfo.size) / 2),
         genre: '', theme: '', style: '', tone: '',
+        styleId, // v2.0.0
         status: 'analyzing' as const,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -195,6 +199,23 @@ export function UploadScreen(): React.JSX.Element {
         placeholder="默认使用文件名"
         placeholderTextColor={colors.text.tertiary}
       />
+
+      <Text style={styles.label}>画风选择（v2.0.0）</Text>
+      <View style={styles.styleGrid}>
+        {STYLE_PRESETS.map(p => (
+          <TouchableOpacity
+            key={p.id}
+            style={[styles.styleChip, styleId === p.id && styles.styleChipActive]}
+            onPress={() => setStyleId(p.id)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.styleChipEmoji}>{p.emoji}</Text>
+            <Text style={[styles.styleChipText, styleId === p.id && styles.styleChipTextActive]}>
+              {p.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       <TouchableOpacity style={styles.uploadArea} onPress={pickDocument} disabled={uploading}>
         {fileInfo ? (
@@ -302,4 +323,27 @@ const styles = StyleSheet.create({
   feeUnit: { ...typography.caption, color: colors.text.tertiary, marginTop: 4 },
   feeWarningRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
   feeWarning: { ...typography.caption, color: colors.error, fontWeight: '600', marginLeft: 4 },
+  styleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  styleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.full,
+    backgroundColor: colors.bg.secondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  styleChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  styleChipEmoji: { fontSize: 18, marginRight: spacing.xs },
+  styleChipText: { ...typography.caption, color: colors.text.secondary, fontWeight: '600' },
+  styleChipTextActive: { color: '#fff' },
 });

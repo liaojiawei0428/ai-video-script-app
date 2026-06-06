@@ -24,6 +24,14 @@ import { BillingScreen } from './src/screens/BillingScreen';
 import { RechargeScreen } from './src/screens/RechargeScreen';
 import { AdminDashboard } from './src/screens/AdminDashboard';
 import { NotificationScreen } from './src/screens/NotificationScreen';
+import { CharacterDescriptionReviewScreen } from './src/screens/CharacterDescriptionReviewScreen';
+import { CharacterDetailScreen } from './src/screens/CharacterDetailScreen';
+import { CharacterListScreen } from './src/screens/CharacterListScreen';
+import { OutlineReviewScreen } from './src/screens/OutlineReviewScreen';
+import { PlotGraphScreen } from './src/screens/PlotGraphScreen';
+import { AssetLibraryScreen } from './src/screens/AssetLibraryScreen';
+import { AIAssistantScreen } from './src/screens/AIAssistantScreen';
+import { PointsOrderScreen } from './src/screens/PointsOrderScreen';
 import { ToastProvider } from './src/components';
 import { useNovelStore } from './src/store/useNovelStore';
 import { setAuthToken, getProfile } from './src/api/client';
@@ -209,6 +217,14 @@ function UserStack() {
       <Stack.Screen name="Pricing" component={PricingScreen} options={detailOptions('收费标准')} />
       <Stack.Screen name="Billing" component={BillingScreen} options={detailOptions('交易记录')} />
       <Stack.Screen name="Recharge" component={RechargeScreen} options={detailOptions('充值')} />
+      <Stack.Screen name="CharacterDescriptionReview" component={CharacterDescriptionReviewScreen} options={detailOptions('角色描述确认')} />
+      <Stack.Screen name="CharacterDetail" component={CharacterDetailScreen} options={detailOptions('角色详情')} />
+      <Stack.Screen name="CharacterList" component={CharacterListScreen} options={detailOptions('角色列表')} />
+      <Stack.Screen name="OutlineReview" component={OutlineReviewScreen} options={detailOptions('分集大纲')} />
+      <Stack.Screen name="PlotGraph" component={PlotGraphScreen} options={detailOptions('事件图谱')} />
+      <Stack.Screen name="AssetLibrary" component={AssetLibraryScreen} options={detailOptions('资产库')} />
+      <Stack.Screen name="AIAssistant" component={AIAssistantScreen} options={{ headerShown: true, title: 'AI 助手' }} />
+      <Stack.Screen name="PointsOrder" component={PointsOrderScreen} options={detailOptions('积分订单')} />
     </Stack.Navigator>
   );
 }

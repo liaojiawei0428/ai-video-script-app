@@ -1,6 +1,7 @@
 import { execute, poolQuery, queryOne } from '../models/db';
 import { userModel } from '../models/user';
 import { novelModel } from '../models/novel';
+import { taskJobModel } from '../models/taskJob';
 import { websocketService } from './websocket';
 import { generateUUID } from '../shared/utils';
 import { BillingLog } from '../shared/types';
@@ -60,7 +61,46 @@ export class BillingService {
     return { analyzeFee, shotFee, total, balance: user?.balance || 0, isVip: vip };
   }
 
-  /** 按阶段扣费（核心方法） */
+  /** 余额守门——调用 API 前检查余额，不足则强制停止并通知客户端 */
+  async guardBalance(novelId: string, taskId: string, stage: 'analyze' | 'episode' | 'shot', wordCount: number = 0): Promise<void> {
+    const novel = await novelModel.findById(novelId);
+    const user = novel?.userId ? await userModel.findById(novel.userId) : null;
+    const balance = user?.balance || 0;
+    const vip = isVipActive(user);
+    const p = vip ? PRICING.vip : PRICING.standard;
+
+    let amount: number;
+    let label: string;
+    if (stage === 'shot') {
+      amount = p.shot;
+      label = '分镜生成';
+    } else {
+      amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
+      label = stage === 'analyze' ? '小说分析' : '剧本生成';
+    }
+
+    if (balance >= amount) return; // 余额充足，继续
+
+    // ---- 余额不足，停止所有操作 ----
+    const detail = `余额不足 (需 ¥${amount.toFixed(2)}，当前 ¥${balance.toFixed(2)})，请先充值后重试`;
+    logger.warn(`Guard: balance insufficient`, { novelId, taskId, stage, amount, balance });
+
+    websocketService.broadcastProgress(novelId, 0, 'error', { detail });
+    websocketService.broadcastLlmUpdate(novelId, {
+      phase: 'error', step: 'balance_insufficient',
+      content: `❌ ${label}余额不足（需 ¥${amount.toFixed(2)}，余额 ¥${balance.toFixed(2)}），任务已暂停。请充值后重试。`,
+      stream: false,
+    });
+    websocketService.broadcastBalanceUpdate(novelId, balance);
+
+    await taskJobModel.fail(taskId, `${label}余额不足（需 ¥${amount.toFixed(2)}，余额 ¥${balance.toFixed(2)}）`);
+    await novelModel.updateStatus(novelId, 'error');
+
+    // 抛错终止当前操作
+    throw new Error(`BALANCE_INSUFFICIENT: ${label} 需 ¥${amount.toFixed(2)}，余额 ¥${balance.toFixed(2)}`);
+  }
+
+  /** 实际扣费（余额守门通过后调用） */
   async chargeStep(novelId: string, stage: 'analyze' | 'episode' | 'shot', wordCount: number = 0): Promise<boolean> {
     const novel = await novelModel.findById(novelId);
     if (!novel?.userId) return true;

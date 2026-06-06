@@ -1,6 +1,6 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, TextInput,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -104,6 +104,30 @@ export function BookshelfScreen(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // v2.0.0 搜索/筛选
+  const [searchQ, setSearchQ] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed' | 'failed'>('all');
+
+  // v2.0.0 过滤后的列表
+  const filteredNovels = useMemo(() => {
+    let list = novels;
+    if (searchQ.trim()) {
+      const q = searchQ.trim().toLowerCase();
+      list = list.filter(n =>
+        (n.title || '').toLowerCase().includes(q) ||
+        (n.author || '').toLowerCase().includes(q) ||
+        (n.genre || '').toLowerCase().includes(q)
+      );
+    }
+    if (filterStatus === 'active') {
+      list = list.filter(n => ['pending', 'queued', 'analyzing', 'analyzed', 'generating'].includes(n.status));
+    } else if (filterStatus === 'completed') {
+      list = list.filter(n => n.status === 'completed');
+    } else if (filterStatus === 'failed') {
+      list = list.filter(n => n.status === 'failed' || n.status === 'error');
+    }
+    return list;
+  }, [novels, searchQ, filterStatus]);
 
   const fetchNovels = useCallback(async () => {
     const loggedIn = useNovelStore.getState().isLoggedIn;
@@ -221,6 +245,45 @@ export function BookshelfScreen(): React.JSX.Element {
   return (
     <View style={styles.container}>
       <Text style={styles.pageTitle}>我的书架</Text>
+
+      {/* v2.0.0 搜索框 + 状态筛选 */}
+      {novels.length > 0 && (
+        <View style={styles.filterBar}>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={16} color={colors.text.tertiary} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchQ}
+              onChangeText={setSearchQ}
+              placeholder="搜索标题/作者/类型"
+              placeholderTextColor={colors.text.tertiary}
+              returnKeyType="search"
+            />
+            {searchQ ? (
+              <TouchableOpacity onPress={() => setSearchQ('')}>
+                <Ionicons name="close-circle" size={16} color={colors.text.tertiary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <View style={styles.statusTabs}>
+            {([
+              ['all', '全部'],
+              ['active', '进行中'],
+              ['completed', '已完成'],
+              ['failed', '失败'],
+            ] as const).map(([key, label]) => (
+              <TouchableOpacity
+                key={key}
+                style={[styles.statusTab, filterStatus === key && styles.statusTabActive]}
+                onPress={() => setFilterStatus(key as any)}
+              >
+                <Text style={[styles.statusTabText, filterStatus === key && styles.statusTabTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
       {novels.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="book" size={48} color={colors.text.tertiary} />
@@ -232,9 +295,15 @@ export function BookshelfScreen(): React.JSX.Element {
             </TouchableOpacity>
           )}
         </View>
+      ) : filteredNovels.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="search" size={48} color={colors.text.tertiary} />
+          <Text style={styles.emptyText}>没有匹配的剧本</Text>
+          <Text style={styles.emptySub}>尝试调整搜索词或筛选</Text>
+        </View>
       ) : (
         <FlatList
-          data={novels}
+          data={filteredNovels}
           keyExtractor={(item) => item.id}
           numColumns={2}
           columnWrapperStyle={styles.row}
@@ -253,6 +322,23 @@ export function BookshelfScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
   pageTitle: { ...typography.h1, paddingHorizontal: spacing.md, paddingTop: spacing.lg, paddingBottom: spacing.md },
+  // v2.0.0 搜索/筛选
+  filterBar: { paddingHorizontal: spacing.md, marginBottom: spacing.md },
+  searchBox: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    backgroundColor: colors.bg.secondary, borderRadius: radii.md,
+    paddingHorizontal: spacing.md, paddingVertical: 8,
+    borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm,
+  },
+  searchInput: { flex: 1, ...typography.body, color: colors.text.primary, padding: 0 },
+  statusTabs: { flexDirection: 'row', gap: 6 },
+  statusTab: {
+    flex: 1, paddingVertical: 6, borderRadius: radii.full, alignItems: 'center',
+    backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.border,
+  },
+  statusTabActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  statusTabText: { ...typography.caption, color: colors.text.secondary, fontSize: 12, fontWeight: '600' },
+  statusTabTextActive: { color: '#fff' },
   list: { paddingHorizontal: spacing.sm, paddingBottom: spacing.xxl },
   row: { justifyContent: 'space-between' },
   cardOuter: { width: layout.cardWidth, marginBottom: spacing.md, marginHorizontal: spacing.xs },
