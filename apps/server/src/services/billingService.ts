@@ -93,6 +93,13 @@ export class BillingService {
     });
     websocketService.broadcastBalanceUpdate(novelId, balance);
 
+    // v2.5.15: 创建系统通知
+    if (novel?.userId) {
+      const { notifyError } = await import('./notify');
+      await notifyError(novel.userId, '余额不足',
+        `${label}失败：需要 ¥${amount.toFixed(2)}，当前余额 ¥${balance.toFixed(2)}。\n请前往充值页面充值后重试。`, novelId);
+    }
+
     await taskJobModel.fail(taskId, `${label}余额不足（需 ¥${amount.toFixed(2)}，余额 ¥${balance.toFixed(2)}）`);
     await novelModel.updateStatus(novelId, 'error');
 

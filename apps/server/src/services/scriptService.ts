@@ -963,12 +963,33 @@ ${episodeText}`;
       await taskJobModel.complete(taskId, { shotCount: shots.length });
       logger.info('Shots generation completed', { episodeId, taskId, shotCount: shots.length });
 
+      // v2.5.15: 创建成功通知
+      try {
+        const novelForNotify = await novelModel.findById(episode.novelId);
+        if (novelForNotify?.userId) {
+          const { notifySuccess } = await import('./notify');
+          await notifySuccess(novelForNotify.userId, '分镜生成完成',
+            `《${novelForNotify.title || '未知小说'}》第${episode.episodeNumber}集已生成 ${shots.length} 个分镜镜头。`, episodeId);
+        }
+      } catch {}
+
       // v2.0.0: 异步触发镜头生图 (不阻塞主流程, 失败也不影响)
       setImmediate(() => this.generateShotImagesAsync(episode, shots, characters));
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       logger.error('Shot generation failed', { episodeId, taskId, error: errorMsg });
       await taskJobModel.fail(taskId, errorMsg);
+
+      // v2.5.15: 创建失败通知
+      try {
+        const episodeForNotify = await episodeModel.findById(episodeId);
+        const novelForNotify = episodeForNotify ? await novelModel.findById(episodeForNotify.novelId) : null;
+        if (novelForNotify?.userId) {
+          const { notifyError } = await import('./notify');
+          await notifyError(novelForNotify.userId, '分镜生成失败',
+            `《${novelForNotify.title || '未知小说'}》分镜生成失败：${errorMsg.slice(0, 200)}`, episodeId);
+        }
+      } catch {}
     }
   }
 

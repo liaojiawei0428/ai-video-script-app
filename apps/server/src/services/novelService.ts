@@ -370,6 +370,16 @@ export class NovelService {
       websocketService.broadcastProgress(novelId, 0, 'error');
       await taskJobModel.fail(taskId, errorMsg);
       await novelModel.updateStatus(novelId, 'error');
+
+      // v2.5.15: 创建系统通知
+      try {
+        const novel = await novelModel.findById(novelId);
+        if (novel?.userId) {
+          const { notifyError } = await import('./notify');
+          await notifyError(novel.userId, '小说分析失败',
+            `《${novel.title || '未知小说'}》分析失败：${errorMsg.slice(0, 200)}\n请重试或联系客服。`, novelId);
+        }
+      } catch {}
     }
   }
 

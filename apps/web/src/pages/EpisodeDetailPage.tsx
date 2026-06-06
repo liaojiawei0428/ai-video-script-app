@@ -188,7 +188,11 @@ export function EpisodeDetailPage() {
             }
           } else if (data.type === 'llm_update') {
             const phase = data.phase || '';
-            if (phase === 'shot_gen') {
+            if (phase === 'error') {
+              // v2.5.15: 显示错误消息 (余额不足等)
+              setStreamText(prev => prev + '\n\n❌ ' + (data.content || '任务失败'));
+              setGenState('failed');
+            } else if (phase === 'shot_gen') {
               setStreamPhase('AI 实时生成分镜');
               if (data.stream) {
                 streamBuffer += data.content || '';
@@ -236,8 +240,9 @@ export function EpisodeDetailPage() {
       connectShotWs(episode.novelId);
     } catch (e: any) {
       setGenState('failed');
-      setPolling(false);
-      alert(e?.response?.data?.error?.message || '提交失败');
+      const msg = e?.response?.data?.error?.message || '提交失败';
+      setStreamText('❌ ' + msg);
+      alert(msg);
     }
   };
 

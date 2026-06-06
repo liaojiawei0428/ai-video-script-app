@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { BookOpen, Sparkles, Wallet, LogOut, Home, ListChecks } from 'lucide-react';
+import { NotificationBell, NotificationPanel, NotificationToast } from './Notifications';
 
 export function Layout() {
   const { user, logout } = useAuthStore();
@@ -42,6 +43,7 @@ export function Layout() {
           </nav>
           <div className="flex items-center gap-3">
             <span className="text-sm text-text-secondary">{user?.email}</span>
+            <NotificationBell />
             <button
               onClick={() => { logout(); nav('/login'); }}
               className="p-2 rounded-lg text-text-tertiary hover:text-error transition-colors"
@@ -52,6 +54,10 @@ export function Layout() {
           </div>
         </div>
       </header>
+
+      {/* 全局通知组件 */}
+      <NotificationPanel />
+      <NotificationToast />
 
       {/* Main */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
