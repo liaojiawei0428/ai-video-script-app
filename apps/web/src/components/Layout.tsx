@@ -2,11 +2,19 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { BookOpen, Sparkles, Wallet, LogOut, Home, ListChecks } from 'lucide-react';
 import { NotificationBell, NotificationPanel, NotificationToast } from './Notifications';
+import { useEffect } from 'react';
 
 export function Layout() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, fetchBalance } = useAuthStore();
   const location = useLocation();
   const nav = useNavigate();
+
+  // 页面加载时刷新余额, 每60秒轮询
+  useEffect(() => {
+    fetchBalance();
+    const timer = setInterval(fetchBalance, 60000);
+    return () => clearInterval(timer);
+  }, [fetchBalance]);
 
   const navItem = (to: string, Icon: any, label: string) => {
     const active = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
@@ -42,7 +50,12 @@ export function Layout() {
             {navItem('/recharge', Wallet, '充值')}
           </nav>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-text-secondary">{user?.email}</span>
+            {/* 余额显示 */}
+            <Link to="/recharge" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors" title="充值">
+              <Wallet size={14} className="text-primary" />
+              <span className="text-sm font-medium text-primary">¥{(user?.balance ?? 0).toFixed(2)}</span>
+            </Link>
+            <span className="text-sm text-text-secondary hidden sm:inline">{user?.email}</span>
             <NotificationBell />
             <button
               onClick={() => { logout(); nav('/login'); }}

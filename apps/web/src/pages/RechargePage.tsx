@@ -1,20 +1,20 @@
 import { useState, useEffect } from 'react';
-import { getMeApi, createRechargeApi } from '../lib/api';
+import { createRechargeApi } from '../lib/api';
 import { Wallet, CheckCircle, AlertCircle } from 'lucide-react';
+import { useAuthStore } from '../store/auth';
 
 const PRESETS = [10, 30, 50, 100, 200, 500];
 
 export function RechargePage() {
-  const [balance, setBalance] = useState(0);
+  const { user, fetchBalance } = useAuthStore();
+  const balance = user?.balance ?? 0;
   const [amount, setAmount] = useState(30);
   const [loading, setLoading] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [orderId, setOrderId] = useState('');
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    getMeApi().then((r: any) => setBalance(r.data?.data?.balance || 0)).catch(() => {});
-  }, []);
+  useEffect(() => { fetchBalance(); }, [fetchBalance]);
 
   const submit = async () => {
     setLoading(true);

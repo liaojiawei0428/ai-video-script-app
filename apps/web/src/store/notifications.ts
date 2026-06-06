@@ -5,6 +5,7 @@ import {
   markNotificationReadApi,
   markAllReadApi,
 } from '../lib/api';
+import { useAuthStore } from './auth';
 
 export interface Notification {
   id: string;
@@ -56,11 +57,17 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     try {
       const r = await getNotificationsApi();
       const data = r.data?.data;
+      const notifications = data?.notifications || [];
       set({
-        notifications: data?.notifications || [],
+        notifications,
         unreadCount: data?.unreadCount || 0,
         loading: false,
       });
+      // v2.5.17: 如果有未读的"充值成功"通知, 自动刷新余额
+      const hasRecharge = notifications.some((n: Notification) => !n.isRead && n.title.includes('充值成功'));
+      if (hasRecharge) {
+        useAuthStore.getState().fetchBalance();
+      }
     } catch {
       set({ loading: false });
     }
