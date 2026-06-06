@@ -881,6 +881,15 @@ ${episodeText}`;
       const styleBibleBlock = (novel as any)?.styleBible ? buildStyleAnchorPrefix((novel as any).styleBible, 'zh') : undefined;
       const voiceAndTone = (novel as any)?.styleBible ? buildVoiceAndToneBlock((novel as any).styleBible) : undefined;
 
+      // v2.5.18: 记录风格圣经状态
+      logger.info('Shot generation style check', {
+        episodeId, novelId: episode.novelId,
+        hasStyleBible: !!(novel as any)?.styleBible,
+        styleId: (novel as any)?.styleId,
+        styleName: (novel as any)?.styleBible?.styleName,
+        styleBibleBlockLen: styleBibleBlock?.length || 0,
+      });
+
       await taskJobModel.updateProgress(taskId, 50, 1);
       logger.info('Generating shots', { episodeId, taskId });
 

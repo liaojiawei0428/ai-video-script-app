@@ -127,7 +127,10 @@ export class NovelModel {
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    };
+      // v2.5.18: 映射 style_id 和 style_bible (之前遗漏导致风格圣经丢失)
+      styleId: row.style_id || 'realistic',
+      styleBible: row.style_bible ? (typeof row.style_bible === 'string' ? JSON.parse(row.style_bible) : row.style_bible) : null,
+    } as any;
   }
 }
 
