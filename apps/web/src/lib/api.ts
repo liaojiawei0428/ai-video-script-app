@@ -108,3 +108,28 @@ export const markAllReadApi = () => apiClient.post('/notifications/read-all');
 export const createFeedbackApi = (content: string, type: string = 'suggestion') =>
   apiClient.post('/feedback/', { content, type });
 export const getMyFeedbacksApi = () => apiClient.get('/feedback/my');
+
+// === Admin ===
+// Admin API 使用独立的 admin_token, 不走普通用户 token
+const getAdminHeaders = () => {
+  const token = localStorage.getItem('admin_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export const adminLoginApi = (username: string, password: string) =>
+  apiClient.post('/admin/login', { username, password });
+export const adminDashboardApi = () => apiClient.get('/admin/dashboard', { headers: getAdminHeaders() });
+export const adminOrdersApi = (status: string = 'pending') =>
+  apiClient.get(`/admin/orders?status=${status}`, { headers: getAdminHeaders() });
+export const adminApproveApi = (id: string) =>
+  apiClient.post(`/admin/orders/${id}/approve`, {}, { headers: getAdminHeaders() });
+export const adminRejectApi = (id: string, remark?: string) =>
+  apiClient.post(`/admin/orders/${id}/reject`, { remark }, { headers: getAdminHeaders() });
+export const adminUsersDetailApi = () => apiClient.get('/admin/users-detail', { headers: getAdminHeaders() });
+export const adminSendMsgApi = (userId: string, title: string, content: string) =>
+  apiClient.post('/admin/send-message', { userId, title, content }, { headers: getAdminHeaders() });
+export const sendAnnouncementApi = (title: string, content: string) =>
+  apiClient.post('/notifications/admin/announcement', { title, content }, { headers: getAdminHeaders() });
+export const adminActiveTasksApi = () => apiClient.get('/admin/active-tasks', { headers: getAdminHeaders() });
+export const adminMaintenanceApi = (enable: boolean) =>
+  apiClient.put(`/admin/maintenance?enable=${enable}`, {}, { headers: getAdminHeaders() });

@@ -14,6 +14,8 @@ import { PlotGraphPage } from './pages/PlotGraphPage';
 import { AssetLibraryPage } from './pages/AssetLibraryPage';
 import { TaskProgressPage } from './pages/TaskProgressPage';
 import { TasksPage } from './pages/TasksPage';
+import { AdminLoginPage } from './pages/AdminLoginPage';
+import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { useAuthStore } from './store/auth';
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -22,9 +24,16 @@ function Protected({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminProtected({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('admin_token');
+  if (!token) return <Navigate to="/admin/login" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <Routes>
+      {/* 普通用户 */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route element={<Protected><Layout /></Protected>}>
@@ -42,6 +51,11 @@ export default function App() {
         <Route path="/assistant" element={<AIAssistantPage />} />
         <Route path="/assistant/:novelId" element={<AIAssistantPage />} />
       </Route>
+
+      {/* 管理员 */}
+      <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route path="/admin" element={<AdminProtected><AdminDashboardPage /></AdminProtected>} />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
