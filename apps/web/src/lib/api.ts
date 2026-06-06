@@ -6,8 +6,11 @@ const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
 export const apiClient = axios.create({ baseURL, timeout: 30000 });
 
 apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  // v2.5.17: 如果请求已自带 Authorization (如 admin token), 不覆盖
+  if (!config.headers.Authorization) {
+    const token = useAuthStore.getState().token;
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 

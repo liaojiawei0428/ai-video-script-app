@@ -74,6 +74,13 @@ router.post('/orders/:id/approve', adminAuth, async (req: Request, res: Response
     await billingService.topUp(item.userId, item.amount, `充值申请：¥${item.amount.toFixed(2)}`);
     logger.info('Admin approved recharge', { orderId: item.id, userId: item.userId, amount: item.amount });
 
+    // v2.5.17: 通知用户充值成功
+    try {
+      const { notifySuccess } = await import('../services/notify');
+      await notifySuccess(item.userId, '充值成功',
+        `您的 ¥${item.amount.toFixed(2)} 充值申请已通过审核，余额已到账。`, item.id);
+    } catch {}
+
     res.json({ success: true, data: { message: '已确认到账，余额已增加' } });
   } catch (err) {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: '操作失败' } });
@@ -89,6 +96,13 @@ router.post('/orders/:id/reject', adminAuth, async (req: Request, res: Response)
 
     await rechargeRequestModel.updateStatus(item.id, 'rejected', req.body.remark || '管理员拒绝');
     logger.info('Admin rejected recharge', { orderId: item.id, userId: item.userId });
+
+    // v2.5.17: 通知用户充值被拒
+    try {
+      const { notifyWarning } = await import('../services/notify');
+      await notifyWarning(item.userId, '充值申请被拒绝',
+        `您的 ¥${item.amount.toFixed(2)} 充值申请被拒绝。${req.body.remark ? '\n原因：' + req.body.remark : ''}`, item.id);
+    } catch {}
 
     res.json({ success: true, data: { message: '已拒绝' } });
   } catch (err) {
