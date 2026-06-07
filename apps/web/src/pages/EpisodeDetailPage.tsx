@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   getEpisodeApi, updateEpisodeApi,
@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/auth';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
+  ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash,
 } from 'lucide-react';
 
 interface Episode {
@@ -266,9 +267,8 @@ export function EpisodeDetailPage() {
 
   const handleGenerateShots = async () => {
     if (!id || !episode?.novelId) return;
-    useTaskProgressStore.getState().setShotGenState(episode.novelId, id, 'queued');
-    useTaskProgressStore.getState().setShotStreamText(episode.novelId, id, '');
-    useTaskProgressStore.getState().setShotMsgCount(episode.novelId, id, 0);
+    // 一次性重置面板状态 (避免多次 setState 触发多次重渲染)
+    useTaskProgressStore.getState().resetShotPanel(episode.novelId, id);
     streamBufferRef.current = '';
     setGenStep(0);
     try {
@@ -486,30 +486,125 @@ export function EpisodeDetailPage() {
       {validShots.length === 0 ? (
         <div className="glass p-10 text-center">
           <ImageIcon size={48} className="mx-auto mb-3 text-text-tertiary" />
-          <p className="text-text-tertiary mb-4">暂无分镜</p>
-          {!isGenerating && (
-            <button onClick={handleGenerateShots} className="btn-primary inline-flex items-center gap-2">
-              <Sparkles size={16} /> 立即生成分镜
-            </button>
-          )}
+          <p className="text-text-tertiary">暂无分镜 — 点击右上"生成分镜"按钮开始</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {validShots.map(s => (
-            <ShotCard
-              key={s.id}
-              shot={s}
-              editing={editShotId === s.id}
-              draft={editShotId === s.id ? shotDraft : null}
-              onStartEdit={() => startEditShot(s)}
-              onCancelEdit={cancelEditShot}
-              onChangeDraft={setShotDraft}
-              onSave={saveShot}
-              saving={savingShot && editShotId === s.id}
-            />
-          ))}
-        </div>
+        <ShotsByScene
+          shots={validShots}
+          editingId={editShotId}
+          draft={editShotId ? shotDraft : null}
+          onStartEdit={startEditShot}
+          onCancelEdit={cancelEditShot}
+          onChangeDraft={setShotDraft}
+          onSave={saveShot}
+          savingShot={savingShot}
+        />
       )}
+    </div>
+  );
+}
+
+/**
+ * 按场景分组的分镜列表
+ * 每个场景作为一个可折叠卡片, 内部是镜头卡片
+ */
+function ShotsByScene({ shots, editingId, draft, onStartEdit, onCancelEdit, onChangeDraft, onSave, savingShot }: {
+  shots: Shot[];
+  editingId: string | null;
+  draft: Partial<Shot> | null;
+  onStartEdit: (s: Shot) => void;
+  onCancelEdit: () => void;
+  onChangeDraft: (d: Partial<Shot>) => void;
+  onSave: () => void;
+  savingShot: boolean;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // 按场景分组 (从 description 提取场景标识)
+  const groups = useMemo(() => {
+    const map = new Map<string, Shot[]>();
+    for (const shot of shots) {
+      // 优先用 description 中"画面:"后面的第一句前 12 字符作为场景标识
+      const visualMatch = (shot.description || '').match(/画面[::]\s*([^。\n]+)/);
+      const firstSentence = visualMatch ? visualMatch[1] : (shot.description || '').split(/[。\n]/)[0] || '';
+      let sceneName = firstSentence.slice(0, 14).trim();
+      if (!sceneName) sceneName = `场景 ${shot.shotNumber}`;
+      if (!map.has(sceneName)) map.set(sceneName, []);
+      map.get(sceneName)!.push(shot);
+    }
+    return Array.from(map.entries()).map(([sceneName, list]) => {
+      const totalDuration = list.reduce((sum, s) => sum + (s.durationSec || 0), 0);
+      const dialogueCount = list.filter(s => s.dialogue && s.dialogue.trim()).length;
+      return { sceneName, shots: list, totalDuration, dialogueCount };
+    });
+  }, [shots]);
+
+  // 默认全部展开
+  useEffect(() => {
+    const init: Record<string, boolean> = {};
+    for (const g of groups) init[g.sceneName] = true;
+    setExpanded(prev => ({ ...init, ...prev }));
+  }, [groups.length]);
+
+  // 总计
+  const totalShots = shots.length;
+  const totalDuration = shots.reduce((s, sh) => s + (sh.durationSec || 0), 0);
+  const totalDialogues = shots.filter(s => s.dialogue && s.dialogue.trim()).length;
+
+  return (
+    <div className="space-y-3">
+      {/* 顶部统计 */}
+      <div className="glass p-3 flex items-center gap-4 text-xs text-text-secondary flex-wrap">
+        <span className="flex items-center gap-1"><Hash size={12} className="text-accent" /> <strong className="text-text-primary">{totalShots}</strong> 个镜头</span>
+        <span className="flex items-center gap-1"><Clock size={12} className="text-accent" /> <strong className="text-text-primary">{totalDuration.toFixed(1)}</strong> 秒</span>
+        <span className="flex items-center gap-1"><MessageSquare size={12} className="text-accent" /> <strong className="text-text-primary">{totalDialogues}</strong> 句对白</span>
+        <span className="flex items-center gap-1"><Layers size={12} className="text-accent" /> <strong className="text-text-primary">{groups.length}</strong> 个场景</span>
+        <span className="ml-auto text-text-tertiary text-[10px]">💡 数据可被漫画生成/视频生图复用</span>
+      </div>
+
+      {/* 场景分组 */}
+      {groups.map((group, gi) => {
+        const isOpen = expanded[group.sceneName] ?? true;
+        return (
+          <div key={group.sceneName} className="glass overflow-hidden">
+            <button
+              onClick={() => setExpanded(prev => ({ ...prev, [group.sceneName]: !prev[group.sceneName] }))}
+              className="w-full flex items-center gap-2 p-3 hover:bg-bg-secondary/40 transition-colors"
+            >
+              {isOpen ? <ChevronUp size={16} className="text-text-tertiary flex-shrink-0" /> : <ChevronDown size={16} className="text-text-tertiary flex-shrink-0" />}
+              <div className="w-7 h-7 rounded bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {gi + 1}
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <div className="text-sm font-semibold text-text-primary truncate">📍 {group.sceneName}</div>
+                <div className="text-[10px] text-text-tertiary flex items-center gap-2 mt-0.5">
+                  <span>{group.shots.length} 镜头</span>
+                  <span>·</span>
+                  <span>{group.totalDuration.toFixed(1)}秒</span>
+                  {group.dialogueCount > 0 && <><span>·</span><span>{group.dialogueCount} 对白</span></>}
+                </div>
+              </div>
+            </button>
+            {isOpen && (
+              <div className="border-t border-border space-y-2 p-2 bg-bg-secondary/20">
+                {group.shots.map(s => (
+                  <ShotCard
+                    key={s.id}
+                    shot={s}
+                    editing={editingId === s.id}
+                    draft={editingId === s.id ? draft : null}
+                    onStartEdit={() => onStartEdit(s)}
+                    onCancelEdit={onCancelEdit}
+                    onChangeDraft={onChangeDraft}
+                    onSave={onSave}
+                    saving={savingShot && editingId === s.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -934,28 +934,38 @@ ${episodeText}`;
         episodeId, taskId, preview: shotContent.slice(0, 500),
       });
 
-      // AI 返回自然文本格式，直接保存为单条描述
+      // AI 返回自然文本格式，解析为结构化字段
       const rawText = shotContent.trim();
-      logger.info('Shot generation completed, saving raw text', {
+      logger.info('Shot generation completed, parsing', {
         episodeId, taskId, contentLength: rawText.length,
         preview: rawText.slice(0, 200),
       });
 
-      // 按 --- 分割成多条镜头，每条保存为一个 shot
-      const segments = rawText.split(/---+/).filter(s => s.trim().length > 0);
-      const shots: Shot[] = segments.length > 0 ? segments.map((seg, index) => {
-        const durationMatch = seg.match(/镜头\d+\s*\|\s*(\d+(?:\.\d+)?)\s*秒/);
-        const durationSec = durationMatch ? parseFloat(durationMatch[1]) : 5;
+      const { parseShotList } = await import('./shotParser');
+      const parsed = parseShotList(rawText);
+      logger.info('Shot parsing done', {
+        episodeId, rawLength: rawText.length, parsedCount: parsed.length,
+        firstParsed: parsed[0] ? { n: parsed[0].shotNumber, type: parsed[0].sceneType, hasDialogue: !!parsed[0].dialogue, hasImagePrompt: !!parsed[0].imagePrompt } : null,
+      });
+
+      // 转换为 Shot 模型
+      const shots: Shot[] = parsed.length > 0 ? parsed.map((p) => {
         return {
-          id: generateUUID(), episodeId, shotNumber: index + 1,
-          sceneType: seg.includes('EXT') ? 'EXT' : 'INT',
+          id: generateUUID(), episodeId, shotNumber: p.shotNumber,
+          sceneType: p.sceneType || (p.rawText.includes('EXT') ? 'EXT' : 'INT'),
           location: episode.sceneLocation || '',
-          timeOfDay: seg.includes('夜') ? '夜' : '日',
-          description: seg.trim().slice(0, 30000),
-          cameraAngle: '', cameraMove: '', lighting: '',
-          durationSec, audioNote: '', dialogue: '', action: '',
+          timeOfDay: p.rawText.includes('夜') ? '夜' : '日',
+          description: p.rawText.slice(0, 30000),
+          cameraAngle: p.composition || '',
+          cameraMove: p.cameraMove || '',
+          lighting: p.lighting || '',
+          durationSec: p.durationSec,
+          audioNote: p.audioNote || '',
+          dialogue: p.dialogue || '',
+          action: p.action || '',
           status: 'completed' as const,
-        };
+          imagePrompt: p.imagePrompt || '',
+        } as any;
       }) : [{
         id: generateUUID(), episodeId, shotNumber: 1,
         sceneType: 'INT', location: episode.sceneLocation || '',
@@ -1026,7 +1036,9 @@ ${episodeText}`;
             .map(c => ({ id: c.id, name: c.name, description: c.description, styleId: c.styleId }));
           const involvedIds = involvedChars.map(c => c.id);
 
-          const imagePrompt = `${shot.description || ''} ${shot.cameraAngle || ''} ${shot.lighting || ''}`.trim();
+          // 优先使用 parser 提取的 [image_prompt], 否则用 description 拼装
+          const parserPrompt = (shot as any).imagePrompt?.trim();
+          const imagePrompt = parserPrompt || `${shot.description || ''} ${shot.cameraAngle || ''} ${shot.lighting || ''}`.trim();
           // 增强 prompt: 把涉及角色的描述拼上
           const charDescSnippet = involvedChars
             .map(c => (c as any).description ? ` (${c.name}: ${(c as any).description.slice(0, 100)})` : ` (${c.name})`)

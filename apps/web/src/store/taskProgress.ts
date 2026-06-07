@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 interface NovelProgress {
   novelId: string;
@@ -31,300 +30,199 @@ interface TaskProgressState {
   setShotGenState: (novelId: string, episodeId: string, state: 'idle' | 'queued' | 'running' | 'completed' | 'failed') => void;
   setShotWsConnected: (novelId: string, episodeId: string, connected: boolean) => void;
   setShotMsgCount: (novelId: string, episodeId: string, count: number) => void;
+  resetShotPanel: (novelId: string, episodeId: string) => void;
   clearNovelProgress: (novelId: string) => void;
   clearAllProgress: () => void;
   getNovelProgress: (novelId: string) => NovelProgress | undefined;
 }
 
-export const useTaskProgressStore = create<TaskProgressState>()(
-  persist(
-    (set, get) => ({
-      novels: {},
+const empty: Omit<NovelProgress, 'novelId'> = {
+  novelTitle: '',
+  status: 'pending',
+  progress: 0,
+  totalEpisodes: 0,
+  currentEpisode: 0,
+  generatingEp: 0,
+  analysisText: '',
+  episodeTexts: {},
+  episodeTitles: {},
+  shotStreamText: {},
+  shotGenState: {},
+  shotWsConnected: {},
+  shotMsgCount: {},
+  lastUpdated: Date.now(),
+};
 
-      setNovelProgress: (novelId, data) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId,
-          novelTitle: '',
-          status: 'pending',
-          progress: 0,
-          totalEpisodes: 0,
-          currentEpisode: 0,
-          generatingEp: 0,
-          analysisText: '',
-          episodeTexts: {},
-          episodeTitles: {},
-          shotStreamText: {},
-          shotGenState: {},
-          shotWsConnected: {},
-          shotMsgCount: {},
+export const useTaskProgressStore = create<TaskProgressState>()((set, get) => ({
+  novels: {},
+
+  setNovelProgress: (novelId, data) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: { ...existing, ...data, lastUpdated: Date.now() },
+      },
+    };
+  }),
+
+  appendAnalysisText: (novelId, text) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          analysisText: existing.analysisText + text,
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: { ...existing, ...data, lastUpdated: Date.now() },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      appendAnalysisText: (novelId, text) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId,
-          novelTitle: '',
-          status: 'pending',
-          progress: 0,
-          totalEpisodes: 0,
-          currentEpisode: 0,
-          generatingEp: 0,
-          analysisText: '',
-          episodeTexts: {},
-          episodeTitles: {},
-          shotStreamText: {},
-          shotGenState: {},
-          shotWsConnected: {},
-          shotMsgCount: {},
+  appendEpisodeText: (novelId, epNum, text) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          episodeTexts: {
+            ...existing.episodeTexts,
+            [epNum]: (existing.episodeTexts[epNum] || '') + text,
+          },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              analysisText: existing.analysisText + text,
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      appendEpisodeText: (novelId, epNum, text) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId,
-          novelTitle: '',
-          status: 'pending',
-          progress: 0,
-          totalEpisodes: 0,
-          currentEpisode: 0,
-          generatingEp: 0,
-          analysisText: '',
-          episodeTexts: {},
-          episodeTitles: {},
-          shotStreamText: {},
-          shotGenState: {},
-          shotWsConnected: {},
-          shotMsgCount: {},
+  setEpisodeTitle: (novelId, epNum, title) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          episodeTitles: { ...existing.episodeTitles, [epNum]: title },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              episodeTexts: {
-                ...existing.episodeTexts,
-                [epNum]: (existing.episodeTexts[epNum] || '') + text,
-              },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      setEpisodeTitle: (novelId, epNum, title) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId,
-          novelTitle: '',
-          status: 'pending',
-          progress: 0,
-          totalEpisodes: 0,
-          currentEpisode: 0,
-          generatingEp: 0,
-          analysisText: '',
-          episodeTexts: {},
-          episodeTitles: {},
-          shotStreamText: {},
-          shotGenState: {},
-          shotWsConnected: {},
-          shotMsgCount: {},
+  setGeneratingEp: (novelId, epNum) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          generatingEp: epNum,
+          episodeTexts: {
+            ...existing.episodeTexts,
+            [epNum]: existing.episodeTexts[epNum] || '',
+          },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              episodeTitles: {
-                ...existing.episodeTitles,
-                [epNum]: title,
-              },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      setGeneratingEp: (novelId, epNum) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId,
-          novelTitle: '',
-          status: 'pending',
-          progress: 0,
-          totalEpisodes: 0,
-          currentEpisode: 0,
-          generatingEp: 0,
-          analysisText: '',
-          episodeTexts: {},
-          episodeTitles: {},
-          shotStreamText: {},
-          shotGenState: {},
-          shotWsConnected: {},
-          shotMsgCount: {},
+  appendShotStreamText: (novelId, episodeId, text) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    const prev = existing.shotStreamText[episodeId] || '';
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          shotStreamText: { ...existing.shotStreamText, [episodeId]: prev + text },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              generatingEp: epNum,
-              episodeTexts: {
-                ...existing.episodeTexts,
-                [epNum]: existing.episodeTexts[epNum] || '',
-              },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      appendShotStreamText: (novelId, episodeId, text) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId, novelTitle: '', status: 'pending', progress: 0,
-          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
-          analysisText: '', episodeTexts: {}, episodeTitles: {},
-          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+  setShotStreamText: (novelId, episodeId, text) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          shotStreamText: { ...existing.shotStreamText, [episodeId]: text },
           lastUpdated: Date.now(),
-        };
-        const prev = existing.shotStreamText[episodeId] || '';
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              shotStreamText: { ...existing.shotStreamText, [episodeId]: prev + text },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      setShotStreamText: (novelId, episodeId, text) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId, novelTitle: '', status: 'pending', progress: 0,
-          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
-          analysisText: '', episodeTexts: {}, episodeTitles: {},
-          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+  setShotGenState: (novelId, episodeId, shotGenState) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          shotGenState: { ...existing.shotGenState, [episodeId]: shotGenState },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              shotStreamText: { ...existing.shotStreamText, [episodeId]: text },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      setShotGenState: (novelId, episodeId, shotGenState) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId, novelTitle: '', status: 'pending', progress: 0,
-          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
-          analysisText: '', episodeTexts: {}, episodeTitles: {},
-          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+  setShotWsConnected: (novelId, episodeId, connected) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          shotWsConnected: { ...existing.shotWsConnected, [episodeId]: connected },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              shotGenState: { ...existing.shotGenState, [episodeId]: shotGenState },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      setShotWsConnected: (novelId, episodeId, connected) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId, novelTitle: '', status: 'pending', progress: 0,
-          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
-          analysisText: '', episodeTexts: {}, episodeTitles: {},
-          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+  setShotMsgCount: (novelId, episodeId, count) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          shotMsgCount: { ...existing.shotMsgCount, [episodeId]: count },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              shotWsConnected: { ...existing.shotWsConnected, [episodeId]: connected },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      setShotMsgCount: (novelId, episodeId, count) => set((state) => {
-        const existing = state.novels[novelId] || {
-          novelId, novelTitle: '', status: 'pending', progress: 0,
-          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
-          analysisText: '', episodeTexts: {}, episodeTitles: {},
-          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+  resetShotPanel: (novelId, episodeId) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          shotStreamText: { ...existing.shotStreamText, [episodeId]: '' },
+          shotGenState: { ...existing.shotGenState, [episodeId]: 'queued' },
+          shotWsConnected: { ...existing.shotWsConnected, [episodeId]: false },
+          shotMsgCount: { ...existing.shotMsgCount, [episodeId]: 0 },
           lastUpdated: Date.now(),
-        };
-        return {
-          novels: {
-            ...state.novels,
-            [novelId]: {
-              ...existing,
-              shotMsgCount: { ...existing.shotMsgCount, [episodeId]: count },
-              lastUpdated: Date.now(),
-            },
-          },
-        };
-      }),
+        },
+      },
+    };
+  }),
 
-      clearNovelProgress: (novelId) => set((state) => {
-        const { [novelId]: _, ...rest } = state.novels;
-        return { novels: rest };
-      }),
+  clearNovelProgress: (novelId) => set((state) => {
+    const { [novelId]: _, ...rest } = state.novels;
+    return { novels: rest };
+  }),
 
-      clearAllProgress: () => set({ novels: {} }),
+  clearAllProgress: () => set({ novels: {} }),
 
-      getNovelProgress: (novelId) => get().novels[novelId],
-    }),
-    {
-      name: 'ai-script-task-progress',
-      partialize: (state) => ({
-        novels: Object.fromEntries(
-          Object.entries(state.novels).map(([id, data]) => [id, {
-            ...data,
-            episodeTexts: Object.fromEntries(
-              Object.entries(data.episodeTexts).map(([ep, text]) => [ep, text.slice(-50000)])
-            ),
-            analysisText: data.analysisText.slice(-100000),
-            // shotStreamText/shotGenState/shotWsConnected/shotMsgCount 不持久化, 临时数据
-            shotStreamText: {},
-            shotGenState: {},
-            shotWsConnected: {},
-            shotMsgCount: {},
-          }])
-        ),
-      }),
-    }
-  )
-);
+  getNovelProgress: (novelId) => get().novels[novelId],
+}));
