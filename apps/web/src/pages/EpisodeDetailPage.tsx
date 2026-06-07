@@ -633,48 +633,120 @@ export function EpisodeDetailPage() {
         </div>
       )}
 
-      {/* v2.5.19: 漫画显示区域 */}
-      {comicImages.length > 0 && (
-        <div className="glass p-4 mb-4 border border-pink-500/30">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <BookOpen size={18} className="text-pink-400" />
-              <h3 className="font-bold text-pink-400">📖 漫画预览</h3>
-              <span className="text-xs text-text-tertiary">
-                ({comicLayout} 布局 · 共 {comicTotalPages} 页
-                {comicGeneratedAt && ` · ${new Date(comicGeneratedAt).toLocaleString('zh-CN')}`})
-              </span>
-            </div>
-            <div className="flex gap-2">
-              {comicImages.map((url, i) => (
-                <a
-                  key={i}
-                  href={url}
-                  download={`comic-page-${i + 1}.png`}
-                  className="text-xs px-2 py-1 bg-bg-tertiary hover:bg-bg-secondary rounded flex items-center gap-1"
-                >
-                  <Download size={12} /> 下载第 {i + 1} 页
-                </a>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {comicImages.map((url, i) => (
-              <div key={i} className="bg-bg-tertiary rounded-lg overflow-hidden">
-                <img
-                  src={url.startsWith('data:') ? url : `data:image/png;base64,${url}`}
-                  alt={`漫画第 ${i + 1} 页`}
-                  className="w-full h-auto object-contain"
-                  loading="lazy"
-                />
-                <div className="p-2 text-center text-xs text-text-tertiary">
-                  第 {i + 1} / {comicTotalPages} 页
-                </div>
+      {/* v2.5.22: 漫画显示区域 - 优先用 shots.imageUrl 在 CSS 网格中合成 (保证 3x3 布局) */}
+      {/* 备选: 如果 shots 没有图片, 用 comicImages (单张多格图) */}
+      {(() => {
+        // 收集有 imageUrl 的 shots
+        const shotsWithImage = validShots.filter(s => s.imageUrl && s.imageUrl.length > 0);
+        if (shotsWithImage.length === 0 && comicImages.length === 0) return null;
+
+        // 选择布局: 优先用 shots CSS 网格 (3x3 真实强制), 备选用 comicImages 多格图
+        const useShotsGrid = shotsWithImage.length > 0;
+
+        return (
+          <div className="glass p-4 mb-4 border border-pink-500/30">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <BookOpen size={18} className="text-pink-400" />
+                <h3 className="font-bold text-pink-400">📖 漫画预览</h3>
+                <span className="text-xs text-text-tertiary">
+                  ({comicLayout || '3x3'} 布局
+                  {useShotsGrid
+                    ? ` · 共 ${shotsWithImage.length} 个分镜面板`
+                    : ` · 共 ${comicTotalPages} 页`}
+                  {comicGeneratedAt && !useShotsGrid && ` · ${new Date(comicGeneratedAt).toLocaleString('zh-CN')}`})
+                </span>
               </div>
-            ))}
+              <div className="text-xs text-text-tertiary">
+                {useShotsGrid ? '🧩 CSS 网格合成 (每格 = 1 个分镜)' : '🖼️ AI 多格图'}
+              </div>
+            </div>
+
+            {useShotsGrid ? (
+              /* 模式1: 用 shots.imageUrl 在 CSS 网格中合成 (3x3 严格保证) */
+              <div className="space-y-3">
+                {(() => {
+                  // 按 shotsPerPage 切片 (3x3=9, 3x2=6, 2x2=4)
+                  const pageSize = comicLayout === '3x2' ? 6 : comicLayout === '2x2' ? 4 : 9;
+                  const totalPages = Math.ceil(shotsWithImage.length / pageSize);
+                  const gridCols = comicLayout === '3x2' ? 3 : comicLayout === '2x2' ? 2 : 3;
+                  return Array.from({ length: totalPages }).map((_, pageIdx) => {
+                    const pageShots = shotsWithImage.slice(pageIdx * pageSize, (pageIdx + 1) * pageSize);
+                    return (
+                      <div key={pageIdx} className="bg-bg-secondary/30 rounded-lg p-2">
+                        <div className="text-[10px] text-text-tertiary mb-2 px-1">第 {pageIdx + 1} / {totalPages} 页</div>
+                        <div
+                          className="grid gap-1"
+                          style={{
+                            gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+                          }}
+                        >
+                          {pageShots.map((s, i) => (
+                            <div
+                              key={s.id}
+                              className="relative bg-bg-tertiary rounded overflow-hidden border border-border"
+                              style={{ aspectRatio: '3 / 4' }}
+                            >
+                              <img
+                                src={comicImageSrc(s.imageUrl!)}
+                                alt={`镜头 ${s.shotNumber}`}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                              <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                                #{s.shotNumber}
+                              </div>
+                              {s.sceneType && (
+                                <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
+                                  {s.sceneType}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {/* 填充空白格 (如果最后一页不满) */}
+                          {Array.from({ length: pageSize - pageShots.length }).map((_, i) => (
+                            <div
+                              key={`empty-${i}`}
+                              className="bg-bg-tertiary/50 rounded border border-dashed border-border flex items-center justify-center text-text-tertiary text-xs"
+                              style={{ aspectRatio: '3 / 4' }}
+                            >
+                              空
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            ) : (
+              /* 模式2: 备选 - 显示 AI 生成的多格图 */
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {comicImages.map((url, i) => (
+                  <div key={i} className="bg-bg-tertiary rounded-lg overflow-hidden">
+                    <img
+                      src={comicImageSrc(url)}
+                      alt={`漫画第 ${i + 1} 页`}
+                      className="w-full h-auto object-contain"
+                      loading="lazy"
+                    />
+                    <div className="p-2 flex items-center justify-between">
+                      <span className="text-xs text-text-tertiary">第 {i + 1} / {comicTotalPages} 页</span>
+                      <a
+                        href={url}
+                        download={`comic-page-${i + 1}.png`}
+                        className="text-xs px-2 py-1 bg-bg-tertiary hover:bg-bg-secondary rounded flex items-center gap-1"
+                      >
+                        <Download size={12} /> 下载
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {validShots.length === 0 ? (
         <div className="glass p-10 text-center">
@@ -1002,4 +1074,18 @@ function Field({ label, value, onChange, textarea, rows = 1, icon }: { label: st
       )}
     </div>
   );
+}
+
+/**
+ * 规范化漫画图片 src:
+ * - 如果是 http(s) URL → 直接使用
+ * - 如果是 data: URL → 直接使用
+ * - 如果是纯 base64 字符串 → 加上 data:image/png;base64, 前缀
+ */
+function comicImageSrc(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('data:')) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  // 纯 base64 字符串
+  return `data:image/png;base64,${url}`;
 }
