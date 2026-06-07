@@ -164,27 +164,56 @@ export class ComicService {
           stream: false,
         });
 
-        const startMs = Date.now();
-        const result = await imageProvider.generate({
-          prompt: systemPrompt + '\n\n' + userPrompt,
-          styleId: (novel as any)?.styleId,
-          angle: 'comic' as any,
-          width: 2048,
-          height: 2048,
-          seed: Date.now() + page,
-        });
-        const durationMs = Date.now() - startMs;
+        try {
+          const startMs = Date.now();
+          const result = await imageProvider.generate({
+            prompt: systemPrompt + '\n\n' + userPrompt,
+            styleId: (novel as any)?.styleId,
+            angle: 'comic' as any,
+            width: 2048,
+            height: 2048,
+            seed: Date.now() + page,
+          });
+          const durationMs = Date.now() - startMs;
 
-        allPageImages.push(result.url);
-        logger.info('Comic page generated', {
-          episodeId, taskId, page, totalPages: layoutInfo.totalPages,
-          layout, durationMs, imageLen: result.url.length,
-        });
-        websocketService.broadcastLlmUpdate(episode.novelId, {
-          phase: 'comic_gen', step: 'generating',
-          content: `✅ 第 ${page}/${layoutInfo.totalPages} 页完成 (${Math.round(durationMs/1000)}s)`,
-          stream: false,
-        });
+          allPageImages.push(result.url);
+          logger.info('Comic page generated', {
+            episodeId, taskId, page, totalPages: layoutInfo.totalPages,
+            layout, durationMs, imageLen: result.url.length,
+          });
+          websocketService.broadcastLlmUpdate(episode.novelId, {
+            phase: 'comic_gen', step: 'generating',
+            content: `✅ 第 ${page}/${layoutInfo.totalPages} 页完成 (${Math.round(durationMs/1000)}s)`,
+            stream: false,
+          });
+
+          // v2.5.19: 每生成一页就立即持久化, 防止后续页失败导致全部丢失
+          const partialUrl = allPageImages.length === 1
+            ? allPageImages[0]
+            : JSON.stringify(allPageImages);
+          await episodeModel.update(episodeId, {
+            comicImageUrl: partialUrl,
+            comicGeneratedAt: Date.now(),
+            comicLayout: layoutInfo.layout,
+            comicTotalPages: layoutInfo.totalPages,
+          } as any);
+          logger.info('Comic partial saved', {
+            episodeId, taskId, page, totalPages: layoutInfo.totalPages,
+            completedPages: allPageImages.length,
+          });
+        } catch (pageErr: any) {
+          const errMsg = pageErr?.message || 'unknown';
+          logger.error('Comic page failed', {
+            episodeId, taskId, page, totalPages: layoutInfo.totalPages, error: errMsg,
+          });
+          websocketService.broadcastLlmUpdate(episode.novelId, {
+            phase: 'comic_gen', step: 'error',
+            content: `❌ 第 ${page}/${layoutInfo.totalPages} 页生成失败: ${errMsg} (前 ${allPageImages.length} 页已保存)`,
+            stream: false,
+          });
+          // v2.5.19: 即使后续页失败, 已成功的页仍然保存, 直接跳出循环
+          throw new Error(`第 ${page} 页失败: ${errMsg} (已完成 ${allPageImages.length} 页)`);
+        }
       }
 
       // 8. 保存到 DB

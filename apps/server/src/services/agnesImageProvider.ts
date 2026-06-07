@@ -49,6 +49,11 @@ export class AgnesImageProvider implements ImageProvider {
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        // v2.5.19: 5 分钟超时 (漫画 2048x2048 生成较慢)
+        const controller = new AbortController();
+        const timeoutMs = 5 * 60 * 1000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
         const response = await fetch(AGNES_API_URL, {
           method: 'POST',
           headers: {
@@ -56,7 +61,9 @@ export class AgnesImageProvider implements ImageProvider {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         if (response.status === 429) {
           lastError = new Error('Agnes API 速率限制(429)');
