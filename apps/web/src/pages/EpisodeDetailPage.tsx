@@ -619,6 +619,7 @@ function ShotCard({ shot, editing, draft, onStartEdit, onCancelEdit, onChangeDra
   onSave: () => void;
   saving: boolean;
 }) {
+  const [shotExpanded, setShotExpanded] = useState(false);
   if (editing && draft) {
     return (
       <div className="glass p-4 border border-primary/40">
@@ -666,40 +667,138 @@ function ShotCard({ shot, editing, draft, onStartEdit, onCancelEdit, onChangeDra
   }
 
   return (
-    <div className="glass p-4">
-      <div className="flex items-start gap-3">
-        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold flex-shrink-0">
+    <div className="glass overflow-hidden">
+      {/* 头部: 始终显示 (镜头号 + 元数据 + 操作) */}
+      <div className="flex items-center gap-3 p-3">
+        <button
+          onClick={() => setShotExpanded(prev => !prev)}
+          className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold flex-shrink-0 hover:opacity-90 transition-opacity"
+          title={shotExpanded ? '收起详情' : '展开全部内容'}
+        >
           {shot.shotNumber}
-        </div>
+        </button>
         {shot.imageUrl ? (
-          <img src={shot.imageUrl.startsWith('data:') ? shot.imageUrl : `data:image/svg+xml;base64,${shot.imageUrl}`} alt="" className="w-32 h-20 object-cover rounded flex-shrink-0" />
+          <img src={shot.imageUrl.startsWith('data:') ? shot.imageUrl : `data:image/svg+xml;base64,${shot.imageUrl}`} alt="" className="w-24 h-16 object-cover rounded flex-shrink-0" />
         ) : (
-          <div className="w-32 h-20 bg-bg-tertiary rounded flex items-center justify-center flex-shrink-0">
-            <ImageIcon size={20} className="text-text-tertiary" />
+          <div className="w-24 h-16 bg-bg-tertiary rounded flex items-center justify-center flex-shrink-0">
+            <ImageIcon size={16} className="text-text-tertiary" />
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2 text-xs text-text-tertiary flex-wrap">
-              <span>镜头 {shot.shotNumber}</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[10px] text-text-tertiary flex-wrap min-w-0">
+              <span className="font-semibold text-text-secondary">镜头 {shot.shotNumber}</span>
               <span>· {shot.durationSec}秒</span>
-              {shot.location && <span>· 📍 {shot.location}</span>}
-              {shot.sceneType && <span>· {shot.sceneType}</span>}
-              {shot.cameraAngle && <span>· 📷 {shot.cameraAngle}</span>}
+              {shot.sceneType && <span className="px-1 bg-primary/20 text-primary rounded">{shot.sceneType}</span>}
+              {shot.cameraMove && <span>🎥 {shot.cameraMove}</span>}
             </div>
-            <button onClick={onStartEdit} className="text-xs px-1.5 py-0.5 bg-primary/20 text-primary rounded hover:bg-primary/30 flex items-center gap-0.5">
-              <Edit2 size={10} /> 编辑
-            </button>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button onClick={onStartEdit} className="text-[10px] px-1.5 py-0.5 bg-primary/20 text-primary rounded hover:bg-primary/30 flex items-center gap-0.5">
+                <Edit2 size={10} /> 编辑
+              </button>
+              <button
+                onClick={() => setShotExpanded(prev => !prev)}
+                className="text-[10px] px-1.5 py-0.5 bg-bg-tertiary text-text-secondary rounded hover:bg-bg-secondary flex items-center gap-0.5"
+                title={shotExpanded ? '收起' : '展开全部内容'}
+              >
+                {shotExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                {shotExpanded ? '收起' : '展开'}
+              </button>
+            </div>
           </div>
-          <p className="text-sm text-text-primary leading-relaxed line-clamp-3 mb-1">{shot.description || <span className="text-text-tertiary">（空）</span>}</p>
-          {(shot.dialogue || shot.action) && (
-            <p className="text-xs text-text-secondary line-clamp-2">
-              {shot.action && <span>🏃 {shot.action} </span>}
-              {shot.dialogue && <span>💬 "{shot.dialogue}"</span>}
+          {/* 折叠时只显示一行 description 摘要 */}
+          {!shotExpanded && (
+            <p className="text-xs text-text-secondary mt-1 truncate">
+              {shot.description?.replace(/\n/g, ' ').slice(0, 100) || <span className="text-text-tertiary">（空）</span>}
             </p>
           )}
         </div>
       </div>
+
+      {/* 展开时显示全部内容 */}
+      {shotExpanded && (
+        <div className="border-t border-border p-3 space-y-2 bg-bg-secondary/20">
+          {/* 镜头描述 (完整, 无截断) */}
+          <div>
+            <div className="text-[10px] text-text-tertiary mb-1 flex items-center gap-1">
+              🎬 <span className="font-semibold">镜头描述</span>
+            </div>
+            <div className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words">
+              {shot.description || <span className="text-text-tertiary">（空）</span>}
+            </div>
+          </div>
+
+          {/* 动作 + 对白 (完整) */}
+          {(shot.action || shot.dialogue) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {shot.action && (
+                <div>
+                  <div className="text-[10px] text-text-tertiary mb-1 flex items-center gap-1">🏃 <span className="font-semibold">动作</span></div>
+                  <div className="text-xs text-text-primary whitespace-pre-wrap break-words">{shot.action}</div>
+                </div>
+              )}
+              {shot.dialogue && (
+                <div>
+                  <div className="text-[10px] text-text-tertiary mb-1 flex items-center gap-1">💬 <span className="font-semibold">对白/旁白</span></div>
+                  <div className="text-xs text-text-primary whitespace-pre-wrap break-words">{shot.dialogue}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 字段网格 (元数据) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
+            {shot.location && (
+              <div className="bg-bg-secondary/40 rounded p-2">
+                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><MapPin size={10} /> 场景/地点</div>
+                <div className="text-text-primary break-words">{shot.location}</div>
+              </div>
+            )}
+            {shot.timeOfDay && (
+              <div className="bg-bg-secondary/40 rounded p-2">
+                <div className="text-[10px] text-text-tertiary mb-0.5">🕐 时间</div>
+                <div className="text-text-primary">{shot.timeOfDay}</div>
+              </div>
+            )}
+            {shot.cameraAngle && (
+              <div className="bg-bg-secondary/40 rounded p-2">
+                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Camera size={10} /> 镜头角度</div>
+                <div className="text-text-primary break-words">{shot.cameraAngle}</div>
+              </div>
+            )}
+            {shot.cameraMove && (
+              <div className="bg-bg-secondary/40 rounded p-2">
+                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Camera size={10} /> 镜头运动</div>
+                <div className="text-text-primary break-words">{shot.cameraMove}</div>
+              </div>
+            )}
+            {shot.lighting && (
+              <div className="bg-bg-secondary/40 rounded p-2">
+                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Sun size={10} /> 光线</div>
+                <div className="text-text-primary break-words">{shot.lighting}</div>
+              </div>
+            )}
+            {shot.audioNote && (
+              <div className="bg-bg-secondary/40 rounded p-2">
+                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Mic size={10} /> 音效/音乐</div>
+                <div className="text-text-primary break-words">{shot.audioNote}</div>
+              </div>
+            )}
+          </div>
+
+          {/* AI 生图 prompt */}
+          {shot.imagePrompt && (
+            <details className="bg-bg-secondary/40 rounded p-2">
+              <summary className="text-[10px] text-text-tertiary cursor-pointer hover:text-text-secondary flex items-center gap-1">
+                🤖 <span className="font-semibold">AI 生图 prompt ({shot.imagePrompt.length} 字符)</span>
+              </summary>
+              <div className="text-[10px] text-text-secondary mt-1.5 whitespace-pre-wrap break-words font-mono leading-relaxed">
+                {shot.imagePrompt}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
     </div>
   );
 }
