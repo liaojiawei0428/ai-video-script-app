@@ -259,13 +259,20 @@ export class ComicService {
       });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const novelIdForErr = (await episodeModel.findById(episodeId))?.novelId || '';
       logger.error('Comic generation failed', { episodeId, taskId, error: errorMsg });
-      websocketService.broadcastLlmUpdate((await episodeModel.findById(episodeId))?.novelId || '', {
+      // 广播 llm_update 让 UI 显示错误信息
+      websocketService.broadcastLlmUpdate(novelIdForErr, {
         phase: 'comic_gen', step: 'error',
         content: `❌ 漫画生成失败: ${errorMsg}`,
         stream: false,
       });
       await taskJobModel.fail(taskId, errorMsg);
+      // 关键: 广播 task_update (status='failed') 让前端 WS handler 把 comicGenState 设为 'failed'
+      // 不然面板会一直显示 "正在生成漫画"
+      websocketService.broadcastTaskUpdate(novelIdForErr, {
+        id: taskId, status: 'failed', progress: 20,
+      });
     }
   }
 }

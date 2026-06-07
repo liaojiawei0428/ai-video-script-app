@@ -278,8 +278,17 @@ export function EpisodeDetailPage() {
               }
             } else if (phase === 'comic_gen') {
               // v2.5.19 漫画生成进度
-              useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'running');
-              useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, data.step || '');
+              if (data.step === 'error') {
+                // v2.5.20: 漫画自己的 error 阶段 (不是顶层 phase='error')
+                useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'failed');
+                useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, 'error');
+              } else if (data.step === 'done') {
+                useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'completed');
+                useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, 'done');
+              } else {
+                useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'running');
+                useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, data.step || '');
+              }
             }
           } else if (data.type === 'task_update') {
             const t = data.task;
