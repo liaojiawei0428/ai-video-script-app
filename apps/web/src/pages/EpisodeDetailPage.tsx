@@ -283,8 +283,10 @@ export function EpisodeDetailPage() {
                 useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'failed');
                 useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, 'error');
               } else if (data.step === 'done') {
+                // v2.5.21: 漫画完成 - 立即 load() 刷新显示 (不等 task_update)
                 useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'completed');
                 useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, 'done');
+                setTimeout(() => { load(); }, 1000);
               } else {
                 useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'running');
                 useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, data.step || '');
@@ -293,12 +295,16 @@ export function EpisodeDetailPage() {
           } else if (data.type === 'task_update') {
             const t = data.task;
             if (t?.status === 'completed') {
-              // 区分: 如果当前正在漫画生成阶段, 不更新 shot state
+              // v2.5.21: 检查 comicGenState 状态 (running/completed 都需要 load)
               const curComic = useTaskProgressStore.getState().novels[novelId]?.comicGenState?.[episodeId];
-              if (curComic === 'running') {
-                useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'completed');
-                setTimeout(() => { load(); }, 1500);
+              if (curComic === 'running' || curComic === 'completed') {
+                // 漫画生成完成 (running→completed 转换或已 completed)
+                if (curComic === 'running') {
+                  useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'completed');
+                }
+                setTimeout(() => { load(); }, 1000);
               } else {
+                // 分镜生成完成
                 useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'completed');
                 setGenStep(SHOT_STEPS.length - 1);
                 if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
