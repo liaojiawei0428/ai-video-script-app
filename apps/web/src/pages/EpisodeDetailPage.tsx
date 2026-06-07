@@ -81,6 +81,7 @@ export function EpisodeDetailPage() {
   const streamBufferRef = useRef<string>('');
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsMsgCountRef = useRef(0);
+  const wsContextRef = useRef<'shot' | 'comic'>('shot');
   const episodeIdRef = useRef<string | null>(null);
   const novelIdRef = useRef<string | null>(null);
   const rafIdRef = useRef<number | null>(null);
@@ -202,18 +203,26 @@ export function EpisodeDetailPage() {
     flushTimerRef.current = null;
   };
 
-  const connectShotWs = (novelId: string, episodeId: string) => {
+  const connectShotWs = (novelId: string, episodeId: string, context: 'shot' | 'comic' = 'shot') => {
     if (wsRef.current) { try { wsRef.current.close(); } catch {} }
+    wsContextRef.current = context;
     try {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const wsHost = window.location.host;
       const ws = new WebSocket(`${wsProtocol}://${wsHost}/ws`);
       wsRef.current = ws;
       wsMsgCountRef.current = 0;
+      // 同时重置 shot 和 comic 的 WS 状态 (共享一个连接, 但两个面板都需要显示)
       useTaskProgressStore.getState().setShotWsConnected(novelId, episodeId, false);
       useTaskProgressStore.getState().setShotMsgCount(novelId, episodeId, 0);
-      useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'queued');
-      setGenStep(0);
+      useTaskProgressStore.getState().setComicWsConnected(novelId, episodeId, false);
+      useTaskProgressStore.getState().setComicMsgCount(novelId, episodeId, 0);
+      if (context === 'shot') {
+        useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'queued');
+        setGenStep(0);
+      } else {
+        // comic 不需要 genStep
+      }
 
       const connTimer = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) { try { ws.close(); } catch {} }
@@ -222,14 +231,17 @@ export function EpisodeDetailPage() {
       ws.onopen = () => {
         clearTimeout(connTimer);
         useTaskProgressStore.getState().setShotWsConnected(novelId, episodeId, true);
+        useTaskProgressStore.getState().setComicWsConnected(novelId, episodeId, true);
         ws.send(JSON.stringify({ type: 'subscribe', novelId }));
       };
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data);
           wsMsgCountRef.current += 1;
+          // 同时更新 shot 和 comic 的消息计数 (共享一个 WS, 两个面板都需要显示)
           if (wsMsgCountRef.current % 5 === 0 || data.type !== 'llm_update') {
             useTaskProgressStore.getState().setShotMsgCount(novelId, episodeId, wsMsgCountRef.current);
+            useTaskProgressStore.getState().setComicMsgCount(novelId, episodeId, wsMsgCountRef.current);
           }
           if (data.type === 'progress') {
             const s = data.status || '';
@@ -296,6 +308,7 @@ export function EpisodeDetailPage() {
       ws.onerror = () => { try { ws.close(); } catch {} };
       ws.onclose = () => {
         useTaskProgressStore.getState().setShotWsConnected(novelId, episodeId, false);
+        useTaskProgressStore.getState().setComicWsConnected(novelId, episodeId, false);
         if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
       };
     } catch (e) {
@@ -355,7 +368,7 @@ export function EpisodeDetailPage() {
         return;
       }
       // 确保 WS 已连接 (用于接收 comic_gen 进度)
-      connectShotWs(episode.novelId, id);
+      connectShotWs(episode.novelId, id, 'comic');
       // 轮询兜底: 每5秒检查任务/漫画完成
       const poll = setInterval(async () => {
         try {
@@ -591,6 +604,16 @@ export function EpisodeDetailPage() {
             <div className="text-text-tertiary text-[10px] ml-5">
               💡 数据源: 仅使用本集已生成的分镜 (景别/运镜/画面/对白/灯光/色彩/音效/AI生图prompt), 严格按真实分镜数据生成
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* v2.5.19: 漫画生成失败提示 */}
+      {comicGenState === 'failed' && comicImages.length === 0 && (
+        <div className="glass p-4 mb-4 border border-red-500/30 bg-red-500/5">
+          <div className="flex items-center gap-2 text-sm text-red-400">
+            <AlertCircle size={16} />
+            <span>上次漫画生成失败, 请点击"重新生成漫画"重试 (常见原因: AI 出图超时/余额不足)</span>
           </div>
         </div>
       )}
