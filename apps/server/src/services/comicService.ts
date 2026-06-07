@@ -1,6 +1,7 @@
 // apps/server/src/services/comicService.ts
-// v2.5.19: 漫画生成服务
+// v2.5.20: 漫画生成服务 - JSON 模板架构
 // 数据源唯一性: 仅使用 episode.scriptContent 和 episode 的 shots 数组, 禁止硬写入参考内容
+// v2.5.20 重构: 使用多风格统一生成 JSON 模板, 每格内容严格独立
 
 import { episodeModel } from '../models/episode';
 import { novelModel } from '../models/novel';
@@ -20,11 +21,12 @@ import {
   comicGenerationSystemPrompt,
   comicGenerationUserPrompt,
   calculateComicLayout,
+  inferComicStyle,
   ComicLayout,
+  ComicStyle,
   ComicShotInput,
   ComicCharacterInput,
 } from '../prompts/comicGeneration';
-import { buildStyleAnchorPrefix, buildVoiceAndToneBlock, buildStyleBibleJsonBlock } from './styleBible';
 
 export class ComicService {
 
@@ -111,17 +113,14 @@ export class ComicService {
         description: (c as any).description || '',
       }));
 
-      // 5. 风格圣经
+      // 5. 风格 (v2.5.20: 从 novel styleBible 自动推断)
       const styleBible = (novel as any)?.styleBible;
-      const styleBibleBlock = styleBible
-        ? `${buildStyleAnchorPrefix(styleBible, 'zh')}\n${buildStyleBibleJsonBlock(styleBible)}`
-        : '';
-      const voiceAndTone = styleBible ? buildVoiceAndToneBlock(styleBible) : '';
+      const comicStyle: ComicStyle = inferComicStyle(styleBible);
 
       // 6. 扣费
       await billingService.chargeStep(episode.novelId, 'comic', 0, layoutInfo.totalPages);
 
-      // 7. 分页生成 (v2.5.19 支持多页)
+      // 7. 分页生成 (v2.5.19 支持多页, v2.5.20 JSON 模板)
       const episodeTitle = episode.title || `第 ${episode.episodeNumber} 集`;
       const episodeScript = episode.scriptContent || '';
       const allPageImages: string[] = [];
@@ -140,12 +139,12 @@ export class ComicService {
         );
         websocketService.broadcastLlmUpdate(episode.novelId, {
           phase: 'comic_gen', step: 'building_prompt',
-          content: `📝 正在构建第 ${page}/${layoutInfo.totalPages} 页提示词 (含 ${pageShots.length} 个分镜)...`,
+          content: `📝 正在构建第 ${page}/${layoutInfo.totalPages} 页 JSON 提示词 (含 ${pageShots.length} 个分镜, 风格: ${comicStyle})...`,
           stream: false,
         });
 
         const layout = layoutInfo.layout;
-        const systemPrompt = comicGenerationSystemPrompt(styleBibleBlock, voiceAndTone, layout);
+        const systemPrompt = comicGenerationSystemPrompt(comicStyle, layout, comicCharacters);
         const userPrompt = comicGenerationUserPrompt({
           pageNumber: page,
           totalPages: layoutInfo.totalPages,
@@ -153,8 +152,7 @@ export class ComicService {
           episodeScript,
           shots: pageShots,
           characters: comicCharacters,
-          styleBibleBlock,
-          voiceAndTone,
+          style: comicStyle,
           layout,
         });
 
