@@ -193,18 +193,36 @@ ${(() => {
   return lines.join('\n');
 })()}
 
-- Each panel shows the EXACT scene described above (Panel 1 → cell 1, Panel 2 → cell 2, etc.)
+🎯 CRITICAL CONTENT RULES (each panel MUST be unique):
+- Cell 1 (top-left): shows ONLY the scene from "Panel 1" above
+- Cell 2 (top-center): shows ONLY the scene from "Panel 2" above
+- ... (each cell = its corresponding Panel's scene)
+- ${shots.length > 9 ? 'Cells 10-' + shots.length + ': show ONLY their corresponding Panel' : ''}
+- Each panel MUST show DIFFERENT content — no two panels can look the same!
+- Each panel shows a different moment/angle/action/scene from the story
+- Even if two scenes look textually similar, the visual composition MUST differ
+
+📐 PHYSICAL LAYOUT (image is portrait 1024x1536):
+- Cell 1 (top-left): covers image area from x=0-340, y=0-510
+- Cell 2 (top-center): covers x=340-680, y=0-510
+- Cell 3 (top-right): covers x=680-1024, y=0-510
+- Cell 4 (middle-left): covers x=0-340, y=510-1020
+- Cell 5 (middle-center): covers x=340-680, y=510-1020
+- Cell 6 (middle-right): covers x=680-1024, y=510-1020
+- Cell 7 (bottom-left): covers x=0-340, y=1020-1530
+- Cell 8 (bottom-center): covers x=340-680, y=1020-1530
+- Cell 9 (bottom-right): covers x=680-1024, y=1020-1530
 - Each panel is rectangular and roughly equal size
-- Bold BLACK panel borders clearly separating each panel
+- Bold BLACK panel borders (3-5px thick) clearly separating each panel
 - Thin WHITE gutters between panels
 - Speech bubbles INSIDE their panel only
 - NO text, watermark, logo, page number outside the panels
 
 Negative (NEVER do these):
-- 4x4 grid layout (16 panels) — only ${rows}x${cols} = ${shots.length} cells allowed
+- 4x4 grid layout (16 panels) — ONLY ${rows}x${cols} = ${shots.length} cells allowed
 - 5x5 grid layout (25 panels)
 - 2x3 or 3x4 grid (wrong column/row count)
-- All panels showing the same content
+- All panels showing the same content or repeating the first panel
 - Panels merged into one big image without borders
 - Watermarks, signatures, or page numbers
 - Low quality, blurry, deformed, extra limbs
