@@ -9,6 +9,7 @@ const SIZE_OPTIONS: Record<string, string> = {
   side_bust: '768x1024',
   full_body: '768x1024',
   sheet: '1536x1024',
+  comic: '2048x2048',     // v2.5.19: 漫画分格页 (1:1 方形)
 };
 
 export class AgnesImageProvider implements ImageProvider {

@@ -12,10 +12,12 @@ const PRICING = {
   standard: {
     analyze: 0.012 / 1000,  // ¥0.012/千字 → 分析+剧本阶段按字数计费
     shot: 0.05,              // ¥0.05/集
+    comic: 0.10,             // ¥0.10/页 → 漫画生成按页计费 (v2.5.19)
   },
   vip: {
     analyze: 0.01 / 1000,   // ¥0.01/千字
     shot: 0.04,              // ¥0.04/集
+    comic: 0.08,             // ¥0.08/页 (v2.5.19)
   },
   minCharge: 0.01,
 };
@@ -29,20 +31,20 @@ function isVipActive(user: any): boolean {
 export class BillingService {
 
   /** 获取用户定价档位 */
-  async getUserPricing(userId: string): Promise<{ isVip: boolean; unitPrice: number; shotPrice: number }> {
+  async getUserPricing(userId: string): Promise<{ isVip: boolean; unitPrice: number; shotPrice: number; comicPrice: number }> {
     const user = await userModel.findById(userId);
     const vip = isVipActive(user);
     const p = vip ? PRICING.vip : PRICING.standard;
-    return { isVip: vip, unitPrice: p.analyze * 1000, shotPrice: p.shot };
+    return { isVip: vip, unitPrice: p.analyze * 1000, shotPrice: p.shot, comicPrice: p.comic };
   }
 
   getPricing(): typeof PRICING & { slogan: string; breakup: any } {
     return {
       ...PRICING,
-      slogan: '分析+剧本按字数，分镜按集数',
+      slogan: '分析+剧本按字数，分镜按集数，漫画按页',
       breakup: {
-        standard: { analyze: (PRICING.standard.analyze * 1000).toFixed(4) + '/千字', shot: PRICING.standard.shot + '/集' },
-        vip: { analyze: (PRICING.vip.analyze * 1000).toFixed(4) + '/千字', shot: PRICING.vip.shot + '/集' },
+        standard: { analyze: (PRICING.standard.analyze * 1000).toFixed(4) + '/千字', shot: PRICING.standard.shot + '/集', comic: PRICING.standard.comic + '/页' },
+        vip: { analyze: (PRICING.vip.analyze * 1000).toFixed(4) + '/千字', shot: PRICING.vip.shot + '/集', comic: PRICING.vip.comic + '/页' },
       },
     };
   }
@@ -62,7 +64,7 @@ export class BillingService {
   }
 
   /** 余额守门——调用 API 前检查余额，不足则强制停止并通知客户端 */
-  async guardBalance(novelId: string, taskId: string, stage: 'analyze' | 'episode' | 'shot', wordCount: number = 0): Promise<void> {
+  async guardBalance(novelId: string, taskId: string, stage: 'analyze' | 'episode' | 'shot' | 'comic', wordCount: number = 0, pageCount: number = 1): Promise<void> {
     const novel = await novelModel.findById(novelId);
     const user = novel?.userId ? await userModel.findById(novel.userId) : null;
     const balance = user?.balance || 0;
@@ -74,6 +76,9 @@ export class BillingService {
     if (stage === 'shot') {
       amount = p.shot;
       label = '分镜生成';
+    } else if (stage === 'comic') {
+      amount = Math.round(p.comic * pageCount * 100) / 100;
+      label = `漫画生成 (${pageCount}页)`;
     } else {
       amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
       label = stage === 'analyze' ? '小说分析' : '剧本生成';
@@ -108,7 +113,7 @@ export class BillingService {
   }
 
   /** 实际扣费（余额守门通过后调用） */
-  async chargeStep(novelId: string, stage: 'analyze' | 'episode' | 'shot', wordCount: number = 0): Promise<boolean> {
+  async chargeStep(novelId: string, stage: 'analyze' | 'episode' | 'shot' | 'comic', wordCount: number = 0, pageCount: number = 1): Promise<boolean> {
     const novel = await novelModel.findById(novelId);
     if (!novel?.userId) return true;
     const user = await userModel.findById(novel.userId);
@@ -121,6 +126,9 @@ export class BillingService {
     if (stage === 'shot') {
       amount = p.shot;
       desc = '分镜生成';
+    } else if (stage === 'comic') {
+      amount = Math.round(p.comic * pageCount * 100) / 100;
+      desc = `漫画生成 (${pageCount}页)`;
     } else {
       amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
       desc = stage === 'analyze' ? '分析阶段' : '剧本生成';

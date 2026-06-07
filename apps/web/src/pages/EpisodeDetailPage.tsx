@@ -4,19 +4,25 @@ import {
   getEpisodeApi, updateEpisodeApi,
   generateShotsApi, getShotsApi, updateShotApi,
   exportEpisodeApi,
+  generateComicApi, getComicApi,
 } from '../lib/api';
 import { useTaskProgressStore } from '../store/taskProgress';
 import { useAuthStore } from '../store/auth';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
-  ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash,
+  ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash, BookOpen,
 } from 'lucide-react';
 
 interface Episode {
   id: string; novelId?: string; episodeNumber: number;
   title: string; summary?: string; scriptContent: string;
   durationSec: number; status: string; sceneLocation?: string;
+  // v2.5.19 漫画字段
+  comicImageUrl?: string;
+  comicGeneratedAt?: number;
+  comicLayout?: string;
+  comicTotalPages?: number;
 }
 interface Shot {
   id: string; shotNumber: number; description: string; durationSec: number;
@@ -59,7 +65,18 @@ export function EpisodeDetailPage() {
   const genState = (novelId && id) ? (store.novels[novelId]?.shotGenState?.[id] || 'idle') : 'idle';
   const wsConnected = (novelId && id) ? (store.novels[novelId]?.shotWsConnected?.[id] || false) : false;
   const wsMsgCount = (novelId && id) ? (store.novels[novelId]?.shotMsgCount?.[id] || 0) : 0;
+  // v2.5.19 漫画生成状态
+  const comicGenState = (novelId && id) ? (store.novels[novelId]?.comicGenState?.[id] || 'idle') : 'idle';
+  const comicWsConnected = (novelId && id) ? (store.novels[novelId]?.comicWsConnected?.[id] || false) : false;
+  const comicMsgCount = (novelId && id) ? (store.novels[novelId]?.comicMsgCount?.[id] || 0) : 0;
+  const comicCurrentStep = (novelId && id) ? (store.novels[novelId]?.comicCurrentStep?.[id] || '') : '';
   const [genStep, setGenStep] = useState(0);
+
+  // 漫画显示状态 (从后端加载)
+  const [comicImages, setComicImages] = useState<string[]>([]);
+  const [comicLayout, setComicLayout] = useState<string>('');
+  const [comicTotalPages, setComicTotalPages] = useState<number>(0);
+  const [comicGeneratedAt, setComicGeneratedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamBufferRef = useRef<string>('');
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -94,7 +111,8 @@ export function EpisodeDetailPage() {
     Promise.all([
       getEpisodeApi(id).catch(() => null),
       getShotsApi(id).catch(() => ({ data: { data: { shots: [] } } })),
-    ]).then(([e, s]) => {
+      getComicApi(id).catch(() => ({ data: { data: { images: [], layout: null, totalPages: 0, generatedAt: null } } })),
+    ]).then(([e, s, c]) => {
       const ep = e?.data?.data?.episode || e?.data?.data;
       if (ep) {
         setEpisode(ep);
@@ -107,6 +125,12 @@ export function EpisodeDetailPage() {
         });
       }
       setShots(s.data?.data?.shots || []);
+      // v2.5.19 漫画
+      const cd = c?.data?.data || {};
+      setComicImages(cd.images || []);
+      setComicLayout(cd.layout || '');
+      setComicTotalPages(cd.totalPages || 0);
+      setComicGeneratedAt(cd.generatedAt || null);
     }).finally(() => setLoading(false));
   }, [id]);
 
@@ -227,6 +251,8 @@ export function EpisodeDetailPage() {
             if (phase === 'error') {
               useTaskProgressStore.getState().appendShotStreamText(novelId, episodeId, '\n\n❌ ' + (data.content || '任务失败'));
               useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'failed');
+              // v2.5.19: 漫画错误也透传
+              useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'failed');
             } else if (phase === 'shot_gen') {
               useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'running');
               if (data.stream) {
@@ -238,19 +264,31 @@ export function EpisodeDetailPage() {
               } else if (data.step === 'reasoning') {
                 setGenStep(prev => Math.max(prev, 2));
               }
+            } else if (phase === 'comic_gen') {
+              // v2.5.19 漫画生成进度
+              useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'running');
+              useTaskProgressStore.getState().setComicCurrentStep(novelId, episodeId, data.step || '');
             }
           } else if (data.type === 'task_update') {
             const t = data.task;
             if (t?.status === 'completed') {
-              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'completed');
-              setGenStep(SHOT_STEPS.length - 1);
-              if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
-              setTimeout(() => { load(); }, 1500);
+              // 区分: 如果当前正在漫画生成阶段, 不更新 shot state
+              const curComic = useTaskProgressStore.getState().novels[novelId]?.comicGenState?.[episodeId];
+              if (curComic === 'running') {
+                useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'completed');
+                setTimeout(() => { load(); }, 1500);
+              } else {
+                useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'completed');
+                setGenStep(SHOT_STEPS.length - 1);
+                if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
+                setTimeout(() => { load(); }, 1500);
+              }
             } else if (t?.status === 'running') {
               useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'running');
               setGenStep(prev => Math.max(prev, 1));
             } else if (t?.status === 'failed') {
               useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'failed');
+              useTaskProgressStore.getState().setComicGenState(novelId, episodeId, 'failed');
             }
           }
         } catch {}
@@ -297,6 +335,47 @@ export function EpisodeDetailPage() {
       const msg = e?.response?.data?.error?.message || '提交失败';
       useTaskProgressStore.getState().appendShotStreamText(episode.novelId, id, '❌ ' + msg);
       alert(msg);
+    }
+  };
+
+  // v2.5.19: 漫画生成
+  const handleGenerateComic = async () => {
+    if (!id || !episode?.novelId) return;
+    if (shots.length === 0) {
+      alert('请先生成分镜, 再生成漫画');
+      return;
+    }
+    useTaskProgressStore.getState().resetComicPanel(episode.novelId, id);
+    try {
+      const r = await generateComicApi(id);
+      const tid = r.data?.data?.taskId;
+      if (!tid) {
+        useTaskProgressStore.getState().setComicGenState(episode.novelId, id, 'failed');
+        alert('提交漫画生成失败');
+        return;
+      }
+      // 确保 WS 已连接 (用于接收 comic_gen 进度)
+      connectShotWs(episode.novelId, id);
+      // 轮询兜底: 每5秒检查任务/漫画完成
+      const poll = setInterval(async () => {
+        try {
+          const cr = await getComicApi(id);
+          const cd = cr?.data?.data || {};
+          if (cd.images && cd.images.length > 0) {
+            clearInterval(poll);
+            setComicImages(cd.images);
+            setComicLayout(cd.layout || '');
+            setComicTotalPages(cd.totalPages || 0);
+            setComicGeneratedAt(cd.generatedAt || null);
+            useTaskProgressStore.getState().setComicGenState(episode.novelId!, id, 'completed');
+          }
+        } catch {}
+      }, 5000);
+      setTimeout(() => clearInterval(poll), 600000); // 10分钟超时
+    } catch (e: any) {
+      useTaskProgressStore.getState().setComicGenState(episode.novelId, id, 'failed');
+      const msg = e?.response?.data?.error?.message || '提交失败';
+      alert('❌ ' + msg);
     }
   };
 
@@ -393,6 +472,14 @@ export function EpisodeDetailPage() {
               <button onClick={handleGenerateShots} disabled={isGenerating} className="btn-primary flex items-center gap-1 text-sm">
                 {isGenerating ? <><Loader size={16} className="animate-spin" /> 生成中...</> : <><Sparkles size={16} /> {validShots.length > 0 ? '重新生成分镜' : '生成分镜'}</>}
               </button>
+              {/* v2.5.19: 漫画生成按钮 (仅在有分镜时显示) */}
+              {validShots.length > 0 && (
+                <button onClick={handleGenerateComic} disabled={comicGenState === 'running' || comicGenState === 'queued'} className="btn-primary flex items-center gap-1 text-sm">
+                  {comicGenState === 'running' || comicGenState === 'queued'
+                    ? <><Loader size={16} className="animate-spin" /> 漫画生成中...</>
+                    : <><BookOpen size={16} /> {comicImages.length > 0 ? '重新生成漫画' : '生成漫画'}</>}
+                </button>
+              )}
             </>
           )}
         </div>
@@ -480,8 +567,76 @@ export function EpisodeDetailPage() {
           <button onClick={handleGenerateShots} className="text-xs px-2 py-1 bg-primary/20 text-primary rounded hover:bg-primary/30 flex items-center gap-1">
             <RefreshCw size={12} /> 重新生成
           </button>
-        )}
+         )}
       </div>
+
+      {/* v2.5.19: 漫画生成进度面板 */}
+      {(comicGenState === 'running' || comicGenState === 'queued') && (
+        <div className="glass p-5 mb-4 border border-pink-500/40 bg-pink-500/5">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <BookOpen size={18} className="text-pink-400 animate-pulse" />
+            <h3 className="font-bold text-pink-400">📖 正在生成漫画</h3>
+            <span className="text-xs text-text-tertiary ml-2">
+              (当前步骤: {comicCurrentStep || 'preparing'} · 已接收 {comicMsgCount} 条消息)
+            </span>
+            <span className={`text-xs ml-2 px-1.5 py-0.5 rounded ${comicWsConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+              WS {comicWsConnected ? '✓ 已连接' : '✗ 断开'}
+            </span>
+          </div>
+          <div className="space-y-1.5 text-xs text-text-secondary">
+            <div className="flex items-center gap-2">
+              <Loader size={12} className="animate-spin text-pink-400" />
+              <span>AI 正在根据本集所有分镜数据生成漫画分格图, 请耐心等待...</span>
+            </div>
+            <div className="text-text-tertiary text-[10px] ml-5">
+              💡 数据源: 仅使用本集已生成的分镜 (景别/运镜/画面/对白/灯光/色彩/音效/AI生图prompt), 严格按真实分镜数据生成
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v2.5.19: 漫画显示区域 */}
+      {comicImages.length > 0 && (
+        <div className="glass p-4 mb-4 border border-pink-500/30">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <BookOpen size={18} className="text-pink-400" />
+              <h3 className="font-bold text-pink-400">📖 漫画预览</h3>
+              <span className="text-xs text-text-tertiary">
+                ({comicLayout} 布局 · 共 {comicTotalPages} 页
+                {comicGeneratedAt && ` · ${new Date(comicGeneratedAt).toLocaleString('zh-CN')}`})
+              </span>
+            </div>
+            <div className="flex gap-2">
+              {comicImages.map((url, i) => (
+                <a
+                  key={i}
+                  href={url}
+                  download={`comic-page-${i + 1}.png`}
+                  className="text-xs px-2 py-1 bg-bg-tertiary hover:bg-bg-secondary rounded flex items-center gap-1"
+                >
+                  <Download size={12} /> 下载第 {i + 1} 页
+                </a>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {comicImages.map((url, i) => (
+              <div key={i} className="bg-bg-tertiary rounded-lg overflow-hidden">
+                <img
+                  src={url.startsWith('data:') ? url : `data:image/png;base64,${url}`}
+                  alt={`漫画第 ${i + 1} 页`}
+                  className="w-full h-auto object-contain"
+                  loading="lazy"
+                />
+                <div className="p-2 text-center text-xs text-text-tertiary">
+                  第 {i + 1} / {comicTotalPages} 页
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {validShots.length === 0 ? (
         <div className="glass p-10 text-center">
@@ -677,13 +832,6 @@ function ShotCard({ shot, editing, draft, onStartEdit, onCancelEdit, onChangeDra
         >
           {shot.shotNumber}
         </button>
-        {shot.imageUrl ? (
-          <img src={shot.imageUrl.startsWith('data:') ? shot.imageUrl : `data:image/svg+xml;base64,${shot.imageUrl}`} alt="" className="w-24 h-16 object-cover rounded flex-shrink-0" />
-        ) : (
-          <div className="w-24 h-16 bg-bg-tertiary rounded flex items-center justify-center flex-shrink-0">
-            <ImageIcon size={16} className="text-text-tertiary" />
-          </div>
-        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-[10px] text-text-tertiary flex-wrap min-w-0">

@@ -11,7 +11,7 @@ export interface ImageGenOptions {
   prompt: string;
   negativePrompt?: string;
   styleId?: StylePresetId;
-  angle: 'front_bust' | 'side_bust' | 'full_body' | 'sheet';
+  angle: 'front_bust' | 'side_bust' | 'full_body' | 'sheet' | 'comic';
   width?: number;
   height?: number;
   seed?: number;
@@ -48,6 +48,7 @@ const ANGLE_LABELS: Record<ImageVariant['angle'], string> = {
   side_bust: '侧面半身',
   full_body: '全身',
   sheet: '三视图',
+  comic: '漫画分格',
 };
 
 /** 根据 prompt + style + angle 生成 SVG 占位图 */

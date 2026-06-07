@@ -85,6 +85,9 @@ export const exportEpisodeApi = (id: string, format: 'pdf' | 'docx' = 'pdf') =>
   apiClient.get(`/episodes/${id}/export?format=${format}`);
 // v2.5.12: 编辑镜头 (含完整越权校验)
 export const updateShotApi = (shotId: string, data: any) => apiClient.put(`/shots/${shotId}`, data);
+// v2.5.19: 漫画生成
+export const generateComicApi = (id: string) => apiClient.post(`/episodes/${id}/comic/generate`);
+export const getComicApi = (id: string) => apiClient.get(`/episodes/${id}/comic`);
 
 // === Recharge (后端 /recharge/submit, /recharge/my) ===
 export const createRechargeApi = (amount: number, method: string = 'wxpay') =>

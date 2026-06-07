@@ -15,6 +15,11 @@ interface NovelProgress {
   shotGenState: Record<string, 'idle' | 'queued' | 'running' | 'completed' | 'failed'>;
   shotWsConnected: Record<string, boolean>;
   shotMsgCount: Record<string, number>;
+  // v2.5.19: 漫画生成状态
+  comicGenState: Record<string, 'idle' | 'queued' | 'running' | 'completed' | 'failed'>;
+  comicWsConnected: Record<string, boolean>;
+  comicMsgCount: Record<string, number>;
+  comicCurrentStep: Record<string, string>;  // 当前步骤标签
   lastUpdated: number;
 }
 
@@ -31,6 +36,12 @@ interface TaskProgressState {
   setShotWsConnected: (novelId: string, episodeId: string, connected: boolean) => void;
   setShotMsgCount: (novelId: string, episodeId: string, count: number) => void;
   resetShotPanel: (novelId: string, episodeId: string) => void;
+  // v2.5.19: 漫画生成
+  setComicGenState: (novelId: string, episodeId: string, state: 'idle' | 'queued' | 'running' | 'completed' | 'failed') => void;
+  setComicWsConnected: (novelId: string, episodeId: string, connected: boolean) => void;
+  setComicMsgCount: (novelId: string, episodeId: string, count: number) => void;
+  setComicCurrentStep: (novelId: string, episodeId: string, step: string) => void;
+  resetComicPanel: (novelId: string, episodeId: string) => void;
   clearNovelProgress: (novelId: string) => void;
   clearAllProgress: () => void;
   getNovelProgress: (novelId: string) => NovelProgress | undefined;
@@ -50,6 +61,10 @@ const empty: Omit<NovelProgress, 'novelId'> = {
   shotGenState: {},
   shotWsConnected: {},
   shotMsgCount: {},
+  comicGenState: {},
+  comicWsConnected: {},
+  comicMsgCount: {},
+  comicCurrentStep: {},
   lastUpdated: Date.now(),
 };
 
@@ -211,6 +226,80 @@ export const useTaskProgressStore = create<TaskProgressState>()((set, get) => ({
           shotGenState: { ...existing.shotGenState, [episodeId]: 'queued' },
           shotWsConnected: { ...existing.shotWsConnected, [episodeId]: false },
           shotMsgCount: { ...existing.shotMsgCount, [episodeId]: 0 },
+          lastUpdated: Date.now(),
+        },
+      },
+    };
+  }),
+
+  // v2.5.19: 漫画生成
+  setComicGenState: (novelId, episodeId, comicGenState) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          comicGenState: { ...existing.comicGenState, [episodeId]: comicGenState },
+          lastUpdated: Date.now(),
+        },
+      },
+    };
+  }),
+
+  setComicWsConnected: (novelId, episodeId, connected) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          comicWsConnected: { ...existing.comicWsConnected, [episodeId]: connected },
+          lastUpdated: Date.now(),
+        },
+      },
+    };
+  }),
+
+  setComicMsgCount: (novelId, episodeId, count) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          comicMsgCount: { ...existing.comicMsgCount, [episodeId]: count },
+          lastUpdated: Date.now(),
+        },
+      },
+    };
+  }),
+
+  setComicCurrentStep: (novelId, episodeId, step) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          comicCurrentStep: { ...existing.comicCurrentStep, [episodeId]: step },
+          lastUpdated: Date.now(),
+        },
+      },
+    };
+  }),
+
+  resetComicPanel: (novelId, episodeId) => set((state) => {
+    const existing = state.novels[novelId] || { novelId, ...empty };
+    return {
+      novels: {
+        ...state.novels,
+        [novelId]: {
+          ...existing,
+          comicGenState: { ...existing.comicGenState, [episodeId]: 'queued' },
+          comicWsConnected: { ...existing.comicWsConnected, [episodeId]: false },
+          comicMsgCount: { ...existing.comicMsgCount, [episodeId]: 0 },
+          comicCurrentStep: { ...existing.comicCurrentStep, [episodeId]: 'preparing' },
           lastUpdated: Date.now(),
         },
       },

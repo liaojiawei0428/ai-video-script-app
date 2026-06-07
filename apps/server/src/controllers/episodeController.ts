@@ -4,6 +4,7 @@ import { episodeModel } from '../models/episode';
 import { shotModel } from '../models/shot';
 import { novelModel } from '../models/novel';
 import { exportService } from '../services/exportService';
+import { comicService } from '../services/comicService';
 import { logger } from '../utils/logger';
 
 export const episodeController = {
@@ -103,6 +104,61 @@ export const episodeController = {
       res.json({
         success: true,
         data: result,
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // ──────────────────────────────────────────────────
+  // v2.5.19: 漫画生成
+  // ──────────────────────────────────────────────────
+
+  async generateComic(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { episodeId } = req.params;
+      logger.info('Starting comic generation', { episodeId });
+      const task = await comicService.generateComic(episodeId);
+      res.json({
+        success: true,
+        data: { taskId: task.id, status: task.status },
+        meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getComic(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { episodeId } = req.params;
+      const episode = await episodeModel.findById(episodeId);
+      if (!episode) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Episode not found' },
+          meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
+        });
+      }
+      const rawUrl = (episode as any).comicImageUrl as string | undefined;
+      // 兼容多页 (JSON 数组) 和单页
+      let images: string[] = [];
+      if (rawUrl) {
+        if (rawUrl.startsWith('[')) {
+          try { images = JSON.parse(rawUrl); } catch { images = [rawUrl]; }
+        } else {
+          images = [rawUrl];
+        }
+      }
+      res.json({
+        success: true,
+        data: {
+          images,
+          layout: (episode as any).comicLayout || null,
+          totalPages: (episode as any).comicTotalPages || (images.length || 0),
+          generatedAt: (episode as any).comicGeneratedAt || null,
+        },
         meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {

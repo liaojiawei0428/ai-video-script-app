@@ -76,6 +76,10 @@ export class EpisodeModel {
     if (data.sceneLocation !== undefined) { fields.push('scene_location = ?'); values.push(data.sceneLocation); }
     if (data.scriptContent !== undefined) { fields.push('script_content = ?'); values.push(data.scriptContent); }
     if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
+    if (data.comicImageUrl !== undefined) { fields.push('comic_image_url = ?'); values.push(data.comicImageUrl); }
+    if (data.comicGeneratedAt !== undefined) { fields.push('comic_generated_at = ?'); values.push(data.comicGeneratedAt); }
+    if (data.comicLayout !== undefined) { fields.push('comic_layout = ?'); values.push(data.comicLayout); }
+    if (data.comicTotalPages !== undefined) { fields.push('comic_total_pages = ?'); values.push(data.comicTotalPages); }
     fields.push('updated_at = ?'); values.push(Date.now());
     if (fields.length === 0) return;
     values.push(id);
@@ -97,6 +101,10 @@ export class EpisodeModel {
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      comicImageUrl: row.comic_image_url,
+      comicGeneratedAt: row.comic_generated_at,
+      comicLayout: row.comic_layout,
+      comicTotalPages: row.comic_total_pages,
     };
   }
 }

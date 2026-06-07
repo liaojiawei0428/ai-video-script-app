@@ -60,6 +60,11 @@ export interface Episode {
   status: 'pending' | 'generating' | 'completed' | 'failed' | 'error';
   createdAt: number;
   updatedAt?: number;
+  // ── v2.5.19 漫画生成 ──
+  comicImageUrl?: string;       // 漫画图 URL (data:image/... 或 http)
+  comicGeneratedAt?: number;    // 漫画生成时间戳
+  comicLayout?: string;         // '2x2' | '3x2' | '3x3'
+  comicTotalPages?: number;     // 漫画总页数
 }
 
 export interface Shot {
@@ -113,7 +118,7 @@ export interface Character {
 export interface TaskJob {
   id: string;
   novelId: string;
-  type: 'upload' | 'analyze' | 'episode_generate' | 'shot_generate';
+  type: 'upload' | 'analyze' | 'episode_generate' | 'shot_generate' | 'comic_generate';
   status: 'queued' | 'running' | 'completed' | 'failed';
   progress: number;
   totalSteps: number;
@@ -277,7 +282,7 @@ export interface CharacterExtraDescription {
 
 /** 角色变体图 */
 export interface ImageVariant {
-  angle: 'front_bust' | 'side_bust' | 'full_body' | 'sheet';
+  angle: 'front_bust' | 'side_bust' | 'full_body' | 'sheet' | 'comic';
   url: string;
   prompt: string;
   seed?: number;
