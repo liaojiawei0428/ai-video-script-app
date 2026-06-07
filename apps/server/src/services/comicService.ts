@@ -28,6 +28,30 @@ import {
   ComicCharacterInput,
 } from '../prompts/comicGeneration';
 
+/**
+ * v2.5.23: 根据 layout 选择最优 aspect ratio
+ * 关键发现: agnes 模型对 aspect ratio 敏感
+ *   - portrait (1024x1536) → 自动生成 3x3 网格
+ *   - landscape (1536x1024) → 自动生成 3x2 网格
+ *   - square (1024x1024) → 自动生成 2x2 网格
+ *   - square (2048x2048) → 默认 4x4 (错!)
+ * 优先级: 1024 (快) > 2048 (慢但清晰)
+ */
+function sizeForLayout(layout: ComicLayout): { width: number; height: number; sizeStr: string; aspect: string } {
+  switch (layout) {
+    case '2x2':
+      // 2x2 是对称网格, 方形最自然
+      return { width: 1024, height: 1024, sizeStr: '1024x1024', aspect: 'square' };
+    case '3x2':
+      // 3 列 2 行 = landscape 宽于高
+      return { width: 1536, height: 1024, sizeStr: '1536x1024', aspect: 'landscape' };
+    case '3x3':
+    default:
+      // 3 列 3 行 = portrait 高于宽 (关键! 不是 square)
+      return { width: 1024, height: 1536, sizeStr: '1024x1536', aspect: 'portrait' };
+  }
+}
+
 export class ComicService {
 
   /** 入口: 队列任务并立即返回 task */
@@ -164,12 +188,17 @@ export class ComicService {
 
         try {
           const startMs = Date.now();
+          // v2.5.23: 按 layout 选择正确 aspect ratio (portrait→3x3, landscape→3x2, square→2x2)
+          const sizeInfo = sizeForLayout(layout);
+          logger.info('Comic page using aspect ratio', {
+            episodeId, taskId, page, layout, ...sizeInfo,
+          });
           const result = await imageProvider.generate({
             prompt: systemPrompt + '\n\n' + userPrompt,
             styleId: (novel as any)?.styleId,
             angle: 'comic' as any,
-            width: 2048,
-            height: 2048,
+            width: sizeInfo.width,
+            height: sizeInfo.height,
             seed: Date.now() + page,
           });
           const durationMs = Date.now() - startMs;

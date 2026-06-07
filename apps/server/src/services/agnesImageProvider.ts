@@ -31,7 +31,10 @@ export class AgnesImageProvider implements ImageProvider {
     }
 
     const start = Date.now();
-    const size = SIZE_OPTIONS[options.angle] || '1024x1024';
+    // v2.5.23: 优先使用调用方传入的 width/height, 否则按 angle 查表
+    const size = (options.width && options.height)
+      ? `${options.width}x${options.height}`
+      : (SIZE_OPTIONS[options.angle] || '1024x1024');
 
     const body = {
       model: AGNES_MODEL,

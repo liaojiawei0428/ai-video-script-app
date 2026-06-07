@@ -139,7 +139,7 @@ Render style: ${styleDef.en}.`;
     prompt += `\n\nStory context: ${summary}${episodeScript.length > 500 ? '...' : ''}`;
   }
 
-  // ── 第四部分: 每格显式编号 + 内容 (核心: 解决 5x5 问题) ──
+  // ── 第四部分: 每格显式编号 + 内容 (核心: 解决网格错乱问题) ──
   prompt += `\n\n===== PANELS (each MUST be rendered in its specified position) =====`;
 
   shots.forEach((shot, i) => {
@@ -163,6 +163,7 @@ Render style: ${styleDef.en}.`;
 
   // ── 第五部分: 强风格一致性 + 强制网格 (末尾强调) ──
   // 实验证明末尾指令权重更高, 这是关键
+  // v2.5.23: 强调正确的行列分布, 帮助模型按 aspect ratio 正确分配
   prompt += `\n\n===== STYLE & LAYOUT (MANDATORY) =====
 
 Style consistency (ALL panels MUST share):
@@ -172,22 +173,24 @@ Style consistency (ALL panels MUST share):
 - SAME level of detail and rendering quality
 
 Layout (MUST be exactly ${layout} grid, NO other layout):
-- Exactly ${shots.length} panels arranged in a ${cols}-column by ${rows}-row grid
-- Bold BLACK panel borders (3-5 pixels thick) clearly separating each panel
-- Thin WHITE gutters between panels
+- Count the panels: this page has EXACTLY ${shots.length} panels in ${rows} rows and ${cols} columns
+- Row 1 (top): ${cols} panels — top-left, top-center${cols >= 3 ? ', top-right' : ''}${cols >= 4 ? ', top-far-right' : ''}
+- Row 2 (middle): ${cols} panels${rows >= 2 ? ' — middle-left, middle-center' + (cols >= 3 ? ', middle-right' : '') + (cols >= 4 ? ', middle-far-right' : '') : ''}
+${rows >= 3 ? `- Row 3 (bottom): ${cols} panels — bottom-left, bottom-center${cols >= 3 ? ', bottom-right' : ''}${cols >= 4 ? ', bottom-far-right' : ''}` : ''}
 - Each panel is rectangular and roughly equal size
+- Bold BLACK panel borders clearly separating each panel
+- Thin WHITE gutters between panels
 - Speech bubbles INSIDE their panel only
 - NO text, watermark, logo, page number outside the panels
 
 Negative (NEVER do these):
-- 5x5 grid layout
-- 4x4 grid layout
+- 4x4 grid layout (16 panels)
+- 5x5 grid layout (25 panels)
 - 2x3 or 3x4 grid (wrong column/row count)
-- All panels showing the same content or repeating the first panel
+- All panels showing the same content
 - Panels merged into one big image without borders
-- Watermarks, signatures, or page numbers in the borders
-- Low quality, blurry, deformed, extra limbs
-- 3D rendered panels if style is 2D anime (or vice versa)`;
+- Watermarks, signatures, or page numbers
+- Low quality, blurry, deformed, extra limbs`;
 
   return prompt;
 }
