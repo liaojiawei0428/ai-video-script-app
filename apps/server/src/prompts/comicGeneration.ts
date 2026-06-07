@@ -173,10 +173,27 @@ Style consistency (ALL panels MUST share):
 - SAME level of detail and rendering quality
 
 Layout (MUST be exactly ${layout} grid, NO other layout):
-- Count the panels: this page has EXACTLY ${shots.length} panels in ${rows} rows and ${cols} columns
-- Row 1 (top): ${cols} panels — top-left, top-center${cols >= 3 ? ', top-right' : ''}${cols >= 4 ? ', top-far-right' : ''}
-- Row 2 (middle): ${cols} panels${rows >= 2 ? ' — middle-left, middle-center' + (cols >= 3 ? ', middle-right' : '') + (cols >= 4 ? ', middle-far-right' : '') : ''}
-${rows >= 3 ? `- Row 3 (bottom): ${cols} panels — bottom-left, bottom-center${cols >= 3 ? ', bottom-right' : ''}${cols >= 4 ? ', bottom-far-right' : ''}` : ''}
+
+The page has EXACTLY ${shots.length} panels. Visualize the layout as this ASCII grid:
+${(() => {
+  // Build ASCII grid showing positions
+  const lines: string[] = [];
+  for (let r = 0; r < rows; r++) {
+    const cells: string[] = [];
+    for (let c = 0; c < cols; c++) {
+      const n = r * cols + c + 1;
+      if (n <= shots.length) cells.push(String(n));
+      else cells.push('.');
+    }
+    // Each cell is 5 chars wide with content centered
+    const fmtCells = cells.map(n => `  ${n.padStart(2, ' ')}  `);
+    // Build the row: | cell1 | cell2 | cell3 |
+    lines.push('│' + fmtCells.join('│') + '│');
+  }
+  return lines.join('\n');
+})()}
+
+- Each panel shows the EXACT scene described above (Panel 1 → cell 1, Panel 2 → cell 2, etc.)
 - Each panel is rectangular and roughly equal size
 - Bold BLACK panel borders clearly separating each panel
 - Thin WHITE gutters between panels
@@ -184,13 +201,14 @@ ${rows >= 3 ? `- Row 3 (bottom): ${cols} panels — bottom-left, bottom-center${
 - NO text, watermark, logo, page number outside the panels
 
 Negative (NEVER do these):
-- 4x4 grid layout (16 panels)
+- 4x4 grid layout (16 panels) — only ${rows}x${cols} = ${shots.length} cells allowed
 - 5x5 grid layout (25 panels)
 - 2x3 or 3x4 grid (wrong column/row count)
 - All panels showing the same content
 - Panels merged into one big image without borders
 - Watermarks, signatures, or page numbers
-- Low quality, blurry, deformed, extra limbs`;
+- Low quality, blurry, deformed, extra limbs
+- Extra empty cells with no content — fill ONLY ${shots.length} cells, not more`;
 
   return prompt;
 }
