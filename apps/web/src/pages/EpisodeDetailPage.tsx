@@ -633,42 +633,101 @@ export function EpisodeDetailPage() {
         </div>
       )}
 
-      {/* v2.5.23: 漫画显示区域 - 单张多格图模式 (用户明确要求"1 张图包含所有分镜") */}
+      {/* v2.5.26: 漫画显示区域 - 完全重构, 1 张图 = 1 页漫画包含 N 个分镜 */}
+      {/* 核心设计: 每页是 1 张图, 内部通过 AI prompt 包含多个分镜面板 */}
       {comicImages.length > 0 && (
-        <div className="glass p-4 mb-4 border border-pink-500/30">
+        <div className="glass p-4 mb-4 border-2 border-pink-500/50 bg-pink-500/5">
+          {/* 顶部状态条 - 明确告知用户"1 张图 = 1 页" */}
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <BookOpen size={18} className="text-pink-400" />
-              <h3 className="font-bold text-pink-400">📖 漫画预览</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <BookOpen size={20} className="text-pink-400" />
+              <h3 className="font-bold text-pink-400 text-base">📖 漫画预览</h3>
               <span className="text-xs text-text-tertiary">
-                ({comicLayout} 布局 · 共 {comicTotalPages} 页
-                {comicGeneratedAt && ` · ${new Date(comicGeneratedAt).toLocaleString('zh-CN')}`})
+                <span className="px-1.5 py-0.5 bg-pink-500/20 text-pink-300 rounded font-semibold">
+                  {comicLayout} 网格
+                </span>
+                <span className="ml-2">
+                  {comicTotalPages} 张图 · 每张图含 {comicLayout === '3x3' ? 9 : comicLayout === '3x2' ? 6 : 4} 个分镜
+                </span>
+                {comicGeneratedAt && (
+                  <span className="ml-2 text-text-tertiary">
+                    · {new Date(comicGeneratedAt).toLocaleString('zh-CN')}
+                  </span>
+                )}
               </span>
             </div>
-            <div className="flex gap-2">
+            <div className="text-xs text-text-tertiary">
+              {comicTotalPages > 1 ? `共 ${comicTotalPages} 页` : '1 页漫画'}
+            </div>
+          </div>
+
+          {/* 关键提示: 明确告诉用户每张图是什么 */}
+          <div className="bg-pink-500/10 border border-pink-500/30 rounded-lg p-3 mb-3 text-xs text-pink-200">
+            <p className="font-semibold mb-1">📌 阅读说明</p>
+            <p>
+              {comicTotalPages === 1 ? (
+                <>下方显示 <strong>1 张完整的漫画页</strong> (像漫画书的一页),
+                内部通过 {comicLayout} 网格切分为 {comicLayout === '3x3' ? 9 : comicLayout === '3x2' ? 6 : 4} 个分镜面板,
+                每个分镜面板对应本集的一个分镜头。</>
+              ) : (
+                <>下方显示 <strong>{comicTotalPages} 张完整的漫画页</strong> (像漫画书的 {comicTotalPages} 页),
+                每页通过 {comicLayout} 网格切分为 {comicLayout === '3x3' ? 9 : comicLayout === '3x2' ? 6 : 4} 个分镜面板。</>
+              )}
+            </p>
+            <p className="mt-1 text-pink-300/80">
+              ✨ 每张图都是 <strong>AI 一次性生成的多格漫画</strong>, 不是 1 张图 = 1 个分镜。
+              网格内的不同分镜是同一张图的不同区域。
+            </p>
+          </div>
+
+          {/* 下载按钮 (顶部) */}
+          {comicTotalPages > 1 && (
+            <div className="flex gap-2 flex-wrap mb-3">
               {comicImages.map((url, i) => (
                 <a
                   key={i}
                   href={url}
                   download={`comic-page-${i + 1}.png`}
-                  className="text-xs px-2 py-1 bg-bg-tertiary hover:bg-bg-secondary rounded flex items-center gap-1"
+                  className="text-xs px-3 py-1.5 bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 rounded flex items-center gap-1.5 font-semibold"
                 >
-                  <Download size={12} /> 下载第 {i + 1} 页
+                  <Download size={14} /> 📥 下载第 {i + 1} 页 ({comicLayout})
                 </a>
               ))}
             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {comicImages.map((url, i) => (
-              <div key={i} className="bg-bg-tertiary rounded-lg overflow-hidden">
-                <img
-                  src={comicImageSrc(url)}
-                  alt={`漫画第 ${i + 1} 页`}
-                  className="w-full h-auto object-contain"
-                  loading="lazy"
-                />
-                <div className="p-2 text-center text-xs text-text-tertiary">
-                  第 {i + 1} / {comicTotalPages} 页
+          )}
+
+          {/* 漫画图片显示 - 单张大图, 不用 grid 切碎 */}
+          <div className="space-y-4">
+            {comicImages.map((url, pageIdx) => (
+              <div key={pageIdx} className="bg-bg-tertiary rounded-xl overflow-hidden border border-pink-500/20">
+                {/* 页码标签 */}
+                {comicTotalPages > 1 && (
+                  <div className="bg-pink-500/15 px-3 py-1.5 text-xs text-pink-200 font-semibold flex items-center justify-between">
+                    <span>📄 第 {pageIdx + 1} / {comicTotalPages} 页</span>
+                    <a
+                      href={url}
+                      download={`comic-page-${pageIdx + 1}.png`}
+                      className="text-pink-300 hover:text-pink-100 flex items-center gap-1"
+                    >
+                      <Download size={12} /> 下载此页
+                    </a>
+                  </div>
+                )}
+                {/* 单张漫画图 (整张图, 不是切碎) */}
+                <div className="p-2 bg-black/20">
+                  <img
+                    src={comicImageSrc(url)}
+                    alt={`第 ${pageIdx + 1} 页漫画 (${comicLayout} 网格)`}
+                    className="w-full h-auto object-contain rounded"
+                    loading="lazy"
+                  />
+                </div>
+                {/* 图下方说明: 这张图内部包含 N 个分镜 */}
+                <div className="p-3 text-center text-xs text-text-secondary bg-pink-500/5">
+                  这张图内部包含 <strong className="text-pink-300">
+                    {comicLayout === '3x3' ? '9' : comicLayout === '3x2' ? '6' : '4'}
+                  </strong> 个分镜面板
+                  (按从左到右、从上到下顺序对应本集的分镜头)
                 </div>
               </div>
             ))}

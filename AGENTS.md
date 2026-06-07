@@ -1,21 +1,43 @@
 # AGENTS.md — AI 助手项目指令
 
-## Thinking Language Constraint
+## Thinking & Response Language Constraint
 
+### 思考过程 (Thought)
 你必须在进行逻辑推理、规划和"思考"过程时使用中文（简体中文）。
 
 在采取行动之前，你的每一个推理步骤都必须用中文表述。
 
 强制要求：你必须使用中文进行逻辑推理和思考（Thought 过程），严禁使用英文。
 
+### 回复内容 (Response)
+**所有给用户看的输出（解释、报告、错误信息、确认等）必须使用中文。**
+
+包括但不限于：
+- 任务实施完成后的状态报告
+- 错误排查与解释
+- 决策建议与方案对比
+- 代码注释外的任何文字输出
+- 提交说明 (commit message / PR description)
+
+允许使用英文的场景（必须保持英文原文）：
+- 代码本身（变量名、函数名、类名、注释）
+- 技术专有名词（如 `git`, `npm`, `webpack`, `JSON`, `WebSocket` 等无法翻译的术语）
+- 用户明确使用英文提问时的部分术语
+- Git 提交信息中的 `type(scope)` 前缀
+
+禁止在回复中使用：
+- 整段英文段落解释
+- 英文对话（如 "Hello" 而不用"你好"）
+- 英文状态报告
+
 ## Persistence Guard
 
 当对话轮次超过 10 轮时，初始指令可能会被上下文窗口压制。
 为防止语言漂移回英文，你必须在每个用户提示后追加以下后缀：
 
-(Reminder: Think in Chinese)
+(Reminder: Think in Chinese, respond in Chinese)
 
-此后缀确保每次用户提问后，AI 都会重新读取到中文思考的指令，避免上下文窗口压制。
+此后缀确保每次用户提问后，AI 都会重新读取到中文思考与回复的指令，避免上下文窗口压制。
 
 ---
 
@@ -45,7 +67,7 @@
   └─ 验证实施结果（lint / typecheck / 功能测试）
   └─ 将 DEV_PROGRESS.md 中该任务状态改为 [已验收]
   └─ 在 DEV_PROGRESS.md 底部的"AI 会话追踪"表中追加一行当前会话记录
-  └─ 向用户报告完成情况，并指出下一个任务
+  └─ 向用户报告完成情况（**用中文**），并指出下一个任务
 ```
 
 ### 状态变更规则
@@ -111,7 +133,9 @@
 ### 历史违规清单 (持续更新)
 
 - **v2.5.13 修复**: `CharacterDetailPage.tsx` 删除 v2.5.0 之前遗留的 `appearanceDraft/personalityDraft/roleTypeDraft` 状态 + 基础信息编辑块 (旧版 fallback), 角色信息统一走 37 字段 `description` JSON, 见 `apps/web/src/pages/CharacterDetailPage.tsx:1-100` 重构记录。
+- **v2.5.22 修复**: 移除 `v2.5.22 CSS 网格合成` 方案, 因为用户明确要求"1 张图包含所有分镜"。回归到 v2.5.21 风格的单图多格方案 + 通过 portrait aspect 优化网格, 见 v2.5.23/24/25 提交记录。
 
 ---
 
 > 本文档为强制执行规范。所有 AI 助手在参与本项目时必须遵守。
+
