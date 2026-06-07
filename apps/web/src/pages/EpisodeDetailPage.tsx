@@ -5,6 +5,8 @@ import {
   generateShotsApi, getShotsApi, updateShotApi,
   exportEpisodeApi,
 } from '../lib/api';
+import { useTaskProgressStore } from '../store/taskProgress';
+import { useAuthStore } from '../store/auth';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
@@ -35,6 +37,7 @@ const SHOT_STEPS = [
 
 export function EpisodeDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const token = useAuthStore(s => s.token);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,20 +51,28 @@ export function EpisodeDetailPage() {
   const [shotDraft, setShotDraft] = useState<Partial<Shot>>({});
   const [savingShot, setSavingShot] = useState(false);
 
-  // 分镜生成状态
-  const [genState, setGenState] = useState<'idle' | 'queued' | 'running' | 'completed' | 'failed'>('idle');
-  const [genStep, setGenStep] = useState(0);  // 0..SHOT_STEPS.length-1
-  const [streamText, setStreamText] = useState('');
-  const [streamPhase, setStreamPhase] = useState('');
-  const [wsMsgCount, setWsMsgCount] = useState(0);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [polling, setPolling] = useState(false);
+  // 分镜生成状态 - 使用 zustand store
+  const store = useTaskProgressStore();
+  const novelId = episode?.novelId;
+  const streamText = (novelId && id) ? (store.novels[novelId]?.shotStreamText?.[id] || '') : '';
+  const genState = (novelId && id) ? (store.novels[novelId]?.shotGenState?.[id] || 'idle') : 'idle';
+  const wsConnected = (novelId && id) ? (store.novels[novelId]?.shotWsConnected?.[id] || false) : false;
+  const wsMsgCount = (novelId && id) ? (store.novels[novelId]?.shotMsgCount?.[id] || 0) : 0;
+  const [genStep, setGenStep] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
-  const streamScrollRef = useRef<HTMLDivElement | null>(null);
   const streamBufferRef = useRef<string>('');
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsMsgCountRef = useRef(0);
+  const episodeIdRef = useRef<string | null>(null);
+  const novelIdRef = useRef<string | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    episodeIdRef.current = id || null;
+  }, [id]);
+  useEffect(() => {
+    novelIdRef.current = novelId || null;
+  }, [novelId]);
 
   useEffect(() => {
     if (!id) return;
@@ -69,15 +80,12 @@ export function EpisodeDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    return () => { if (wsRef.current) wsRef.current.close(); if (flushTimerRef.current) clearTimeout(flushTimerRef.current); };
+    return () => {
+      if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    };
   }, []);
-
-  // 流式内容变化时自动滚动到底部
-  useEffect(() => {
-    if (streamScrollRef.current) {
-      streamScrollRef.current.scrollTop = streamScrollRef.current.scrollHeight;
-    }
-  }, [streamText]);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -160,66 +168,66 @@ export function EpisodeDetailPage() {
 
   const flushStream = () => {
     const buf = streamBufferRef.current;
-    if (buf) {
-      setStreamText(prev => prev + buf);
+    const eid = episodeIdRef.current;
+    const nid = novelIdRef.current;
+    if (buf && eid && nid) {
+      useTaskProgressStore.getState().appendShotStreamText(nid, eid, buf);
       streamBufferRef.current = '';
     }
     flushTimerRef.current = null;
-    if (streamScrollRef.current) {
-      streamScrollRef.current.scrollTop = streamScrollRef.current.scrollHeight;
-    }
   };
 
-  const connectShotWs = (novelId: string) => {
+  const connectShotWs = (novelId: string, episodeId: string) => {
     if (wsRef.current) { try { wsRef.current.close(); } catch {} }
     try {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const wsHost = window.location.host;
       const ws = new WebSocket(`${wsProtocol}://${wsHost}/ws`);
       wsRef.current = ws;
-      setWsConnected(false);
-      setWsMsgCount(0);
       wsMsgCountRef.current = 0;
+      useTaskProgressStore.getState().setShotWsConnected(novelId, episodeId, false);
+      useTaskProgressStore.getState().setShotMsgCount(novelId, episodeId, 0);
+      useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'queued');
+      setGenStep(0);
+
       const connTimer = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) { try { ws.close(); } catch {} }
       }, 5000);
+
       ws.onopen = () => {
         clearTimeout(connTimer);
-        setWsConnected(true);
-        console.log('[shot-ws] connected, subscribing to', novelId);
+        useTaskProgressStore.getState().setShotWsConnected(novelId, episodeId, true);
         ws.send(JSON.stringify({ type: 'subscribe', novelId }));
       };
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data);
           wsMsgCountRef.current += 1;
-          // 每 5 条消息刷新一次计数器（避免每条都触发 React re-render）
           if (wsMsgCountRef.current % 5 === 0 || data.type !== 'llm_update') {
-            setWsMsgCount(wsMsgCountRef.current);
+            useTaskProgressStore.getState().setShotMsgCount(novelId, episodeId, wsMsgCountRef.current);
           }
           if (data.type === 'progress') {
             const s = data.status || '';
-            console.log('[shot-ws] progress', s, data.progress);
             if (s === 'shot_gen' || s === 'generating' || s === 'running') {
-              setGenState('running');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'running');
               setGenStep(prev => Math.max(prev, 2));
             }
             if (s === 'completed') {
-              setGenState('completed');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'completed');
               setGenStep(SHOT_STEPS.length - 1);
               if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
-              setTimeout(() => { load(); setGenState('idle'); setStreamText(''); setStreamPhase(''); setTaskId(null); }, 2000);
+              setTimeout(() => { load(); }, 1500);
             }
             if (s === 'error' || s === 'failed') {
-              setGenState('failed');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'failed');
             }
           } else if (data.type === 'llm_update') {
             const phase = data.phase || '';
             if (phase === 'error') {
-              setStreamText(prev => prev + '\n\n❌ ' + (data.content || '任务失败'));
-              setGenState('failed');
+              useTaskProgressStore.getState().appendShotStreamText(novelId, episodeId, '\n\n❌ ' + (data.content || '任务失败'));
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'failed');
             } else if (phase === 'shot_gen') {
-              setStreamPhase('AI 实时生成分镜');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'running');
               if (data.stream) {
                 streamBufferRef.current += data.content || '';
                 if (!flushTimerRef.current) {
@@ -232,27 +240,23 @@ export function EpisodeDetailPage() {
             }
           } else if (data.type === 'task_update') {
             const t = data.task;
-            console.log('[shot-ws] task_update', t?.status, t?.progress);
             if (t?.status === 'completed') {
-              setGenState('completed');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'completed');
               setGenStep(SHOT_STEPS.length - 1);
               if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
-              setTimeout(() => { load(); setGenState('idle'); setStreamText(''); setStreamPhase(''); setTaskId(null); }, 2000);
+              setTimeout(() => { load(); }, 1500);
             } else if (t?.status === 'running') {
-              setGenState('running');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'running');
               setGenStep(prev => Math.max(prev, 1));
             } else if (t?.status === 'failed') {
-              setGenState('failed');
+              useTaskProgressStore.getState().setShotGenState(novelId, episodeId, 'failed');
             }
           }
-        } catch (e) {
-          console.error('[shot-ws] parse err', e);
-        }
+        } catch {}
       };
-      ws.onerror = (e) => { console.error('[shot-ws] error', e); try { ws.close(); } catch {} };
+      ws.onerror = () => { try { ws.close(); } catch {} };
       ws.onclose = () => {
-        console.log('[shot-ws] closed');
-        setWsConnected(false);
+        useTaskProgressStore.getState().setShotWsConnected(novelId, episodeId, false);
         if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
       };
     } catch (e) {
@@ -262,18 +266,15 @@ export function EpisodeDetailPage() {
 
   const handleGenerateShots = async () => {
     if (!id || !episode?.novelId) return;
-    setGenState('queued');
-    setGenStep(0);
-    setStreamText('');
-    setStreamPhase('');
+    useTaskProgressStore.getState().setShotGenState(episode.novelId, id, 'queued');
+    useTaskProgressStore.getState().setShotStreamText(episode.novelId, id, '');
+    useTaskProgressStore.getState().setShotMsgCount(episode.novelId, id, 0);
     streamBufferRef.current = '';
-    setPolling(true);
+    setGenStep(0);
     try {
       const r = await generateShotsApi(id);
       const tid = r.data?.data?.taskId;
-      setTaskId(tid || null);
-      // 启动 WS
-      connectShotWs(episode.novelId);
+      connectShotWs(episode.novelId, id);
       // 轮询兜底: 每3秒检查任务状态, WebSocket 失效时仍能刷新
       if (tid) {
         const poll = setInterval(async () => {
@@ -283,19 +284,18 @@ export function EpisodeDetailPage() {
             if (shotsData.length > 0) {
               clearInterval(poll);
               setShots(shotsData);
-              setGenState('completed');
+              useTaskProgressStore.getState().setShotGenState(episode.novelId!, id, 'completed');
               setGenStep(SHOT_STEPS.length - 1);
-              setTimeout(() => { setGenState('idle'); setStreamText(''); setStreamPhase(''); }, 2000);
+              if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushStream(); }
             }
           } catch {}
         }, 3000);
-        // 5分钟后停止轮询
         setTimeout(() => clearInterval(poll), 300000);
       }
     } catch (e: any) {
-      setGenState('failed');
+      useTaskProgressStore.getState().setShotGenState(episode.novelId, id, 'failed');
       const msg = e?.response?.data?.error?.message || '提交失败';
-      setStreamText('❌ ' + msg);
+      useTaskProgressStore.getState().appendShotStreamText(episode.novelId, id, '❌ ' + msg);
       alert(msg);
     }
   };
@@ -418,15 +418,34 @@ export function EpisodeDetailPage() {
                 <div key={s.key} className={`flex items-center gap-2 text-xs ${done ? 'text-success' : active ? 'text-accent' : 'text-text-tertiary'}`}>
                   {done ? <CheckCircle size={14} /> : active ? <Loader size={14} className="animate-spin" /> : <div className="w-3.5 h-3.5 rounded-full border border-current" />}
                   <span className={active ? 'font-semibold' : ''}>{s.label}</span>
-                  {active && streamPhase && <span className="text-text-tertiary">— {streamPhase}</span>}
+                  {active && <span className="text-text-tertiary">— AI 实时生成分镜</span>}
                 </div>
               );
             })}
           </div>
-          {/* 实时流式输出 - 自动滚动到底部 */}
-          <div ref={streamScrollRef} className="mt-2 p-3 bg-bg-secondary rounded-lg max-h-96 overflow-y-auto border border-border">
+          {/* 实时流式输出 - 用 callback ref + requestAnimationFrame 持续 autoScroll */}
+          <div
+            ref={(el) => {
+              if (el && isGenerating) {
+                const tick = () => {
+                  if (el.isConnected) {
+                    el.scrollTop = el.scrollHeight;
+                    rafIdRef.current = requestAnimationFrame(tick);
+                  } else {
+                    rafIdRef.current = null;
+                  }
+                };
+                if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+                rafIdRef.current = requestAnimationFrame(tick);
+              } else if (rafIdRef.current) {
+                cancelAnimationFrame(rafIdRef.current);
+                rafIdRef.current = null;
+              }
+            }}
+            className="mt-2 p-3 bg-bg-secondary rounded-lg max-h-[500px] overflow-y-auto border border-border"
+          >
             {streamText ? (
-              <pre className="text-xs font-mono text-text-secondary whitespace-pre-wrap leading-relaxed">{streamText}<span className="animate-pulse text-accent">▌</span></pre>
+              <pre className="text-xs font-mono text-text-primary whitespace-pre-wrap leading-relaxed">{streamText}<span className="inline-block w-2 h-3.5 bg-accent animate-pulse ml-0.5 align-text-bottom" /></pre>
             ) : (
               <div className="text-xs text-text-tertiary text-center py-4">⏳ 等待 AI 开始输出...</div>
             )}

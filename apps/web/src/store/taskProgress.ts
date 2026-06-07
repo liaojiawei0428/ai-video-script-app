@@ -12,6 +12,10 @@ interface NovelProgress {
   analysisText: string;
   episodeTexts: Record<number, string>;
   episodeTitles: Record<number, string>;
+  shotStreamText: Record<string, string>;
+  shotGenState: Record<string, 'idle' | 'queued' | 'running' | 'completed' | 'failed'>;
+  shotWsConnected: Record<string, boolean>;
+  shotMsgCount: Record<string, number>;
   lastUpdated: number;
 }
 
@@ -22,6 +26,11 @@ interface TaskProgressState {
   appendEpisodeText: (novelId: string, epNum: number, text: string) => void;
   setEpisodeTitle: (novelId: string, epNum: number, title: string) => void;
   setGeneratingEp: (novelId: string, epNum: number) => void;
+  appendShotStreamText: (novelId: string, episodeId: string, text: string) => void;
+  setShotStreamText: (novelId: string, episodeId: string, text: string) => void;
+  setShotGenState: (novelId: string, episodeId: string, state: 'idle' | 'queued' | 'running' | 'completed' | 'failed') => void;
+  setShotWsConnected: (novelId: string, episodeId: string, connected: boolean) => void;
+  setShotMsgCount: (novelId: string, episodeId: string, count: number) => void;
   clearNovelProgress: (novelId: string) => void;
   clearAllProgress: () => void;
   getNovelProgress: (novelId: string) => NovelProgress | undefined;
@@ -44,6 +53,10 @@ export const useTaskProgressStore = create<TaskProgressState>()(
           analysisText: '',
           episodeTexts: {},
           episodeTitles: {},
+          shotStreamText: {},
+          shotGenState: {},
+          shotWsConnected: {},
+          shotMsgCount: {},
           lastUpdated: Date.now(),
         };
         return {
@@ -66,6 +79,10 @@ export const useTaskProgressStore = create<TaskProgressState>()(
           analysisText: '',
           episodeTexts: {},
           episodeTitles: {},
+          shotStreamText: {},
+          shotGenState: {},
+          shotWsConnected: {},
+          shotMsgCount: {},
           lastUpdated: Date.now(),
         };
         return {
@@ -92,6 +109,10 @@ export const useTaskProgressStore = create<TaskProgressState>()(
           analysisText: '',
           episodeTexts: {},
           episodeTitles: {},
+          shotStreamText: {},
+          shotGenState: {},
+          shotWsConnected: {},
+          shotMsgCount: {},
           lastUpdated: Date.now(),
         };
         return {
@@ -121,6 +142,10 @@ export const useTaskProgressStore = create<TaskProgressState>()(
           analysisText: '',
           episodeTexts: {},
           episodeTitles: {},
+          shotStreamText: {},
+          shotGenState: {},
+          shotWsConnected: {},
+          shotMsgCount: {},
           lastUpdated: Date.now(),
         };
         return {
@@ -150,6 +175,10 @@ export const useTaskProgressStore = create<TaskProgressState>()(
           analysisText: '',
           episodeTexts: {},
           episodeTitles: {},
+          shotStreamText: {},
+          shotGenState: {},
+          shotWsConnected: {},
+          shotMsgCount: {},
           lastUpdated: Date.now(),
         };
         return {
@@ -162,6 +191,107 @@ export const useTaskProgressStore = create<TaskProgressState>()(
                 ...existing.episodeTexts,
                 [epNum]: existing.episodeTexts[epNum] || '',
               },
+              lastUpdated: Date.now(),
+            },
+          },
+        };
+      }),
+
+      appendShotStreamText: (novelId, episodeId, text) => set((state) => {
+        const existing = state.novels[novelId] || {
+          novelId, novelTitle: '', status: 'pending', progress: 0,
+          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
+          analysisText: '', episodeTexts: {}, episodeTitles: {},
+          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+          lastUpdated: Date.now(),
+        };
+        const prev = existing.shotStreamText[episodeId] || '';
+        return {
+          novels: {
+            ...state.novels,
+            [novelId]: {
+              ...existing,
+              shotStreamText: { ...existing.shotStreamText, [episodeId]: prev + text },
+              lastUpdated: Date.now(),
+            },
+          },
+        };
+      }),
+
+      setShotStreamText: (novelId, episodeId, text) => set((state) => {
+        const existing = state.novels[novelId] || {
+          novelId, novelTitle: '', status: 'pending', progress: 0,
+          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
+          analysisText: '', episodeTexts: {}, episodeTitles: {},
+          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+          lastUpdated: Date.now(),
+        };
+        return {
+          novels: {
+            ...state.novels,
+            [novelId]: {
+              ...existing,
+              shotStreamText: { ...existing.shotStreamText, [episodeId]: text },
+              lastUpdated: Date.now(),
+            },
+          },
+        };
+      }),
+
+      setShotGenState: (novelId, episodeId, shotGenState) => set((state) => {
+        const existing = state.novels[novelId] || {
+          novelId, novelTitle: '', status: 'pending', progress: 0,
+          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
+          analysisText: '', episodeTexts: {}, episodeTitles: {},
+          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+          lastUpdated: Date.now(),
+        };
+        return {
+          novels: {
+            ...state.novels,
+            [novelId]: {
+              ...existing,
+              shotGenState: { ...existing.shotGenState, [episodeId]: shotGenState },
+              lastUpdated: Date.now(),
+            },
+          },
+        };
+      }),
+
+      setShotWsConnected: (novelId, episodeId, connected) => set((state) => {
+        const existing = state.novels[novelId] || {
+          novelId, novelTitle: '', status: 'pending', progress: 0,
+          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
+          analysisText: '', episodeTexts: {}, episodeTitles: {},
+          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+          lastUpdated: Date.now(),
+        };
+        return {
+          novels: {
+            ...state.novels,
+            [novelId]: {
+              ...existing,
+              shotWsConnected: { ...existing.shotWsConnected, [episodeId]: connected },
+              lastUpdated: Date.now(),
+            },
+          },
+        };
+      }),
+
+      setShotMsgCount: (novelId, episodeId, count) => set((state) => {
+        const existing = state.novels[novelId] || {
+          novelId, novelTitle: '', status: 'pending', progress: 0,
+          totalEpisodes: 0, currentEpisode: 0, generatingEp: 0,
+          analysisText: '', episodeTexts: {}, episodeTitles: {},
+          shotStreamText: {}, shotGenState: {}, shotWsConnected: {}, shotMsgCount: {},
+          lastUpdated: Date.now(),
+        };
+        return {
+          novels: {
+            ...state.novels,
+            [novelId]: {
+              ...existing,
+              shotMsgCount: { ...existing.shotMsgCount, [episodeId]: count },
               lastUpdated: Date.now(),
             },
           },
@@ -187,6 +317,11 @@ export const useTaskProgressStore = create<TaskProgressState>()(
               Object.entries(data.episodeTexts).map(([ep, text]) => [ep, text.slice(-50000)])
             ),
             analysisText: data.analysisText.slice(-100000),
+            // shotStreamText/shotGenState/shotWsConnected/shotMsgCount 不持久化, 临时数据
+            shotStreamText: {},
+            shotGenState: {},
+            shotWsConnected: {},
+            shotMsgCount: {},
           }])
         ),
       }),
