@@ -1,0 +1,21 @@
+{
+  "presetId": "wuxia-hero__hyperrealistic-cinematic__advanced",
+  "fixture": "wuxia-hero",
+  "character": "萧逸尘",
+  "role": "protagonist",
+  "style": "hyperrealistic-cinematic",
+  "template": "advanced",
+  "platform": "midjourney",
+  "prompt": "萧逸尘 (protagonist), # 基本信息 | - 年龄: 二十二岁 | - 身份: 江湖剑客，剑宗传人 | # 外貌与服装 | - 身形挺拔如松，剑眉星目 | - 玄色劲装，腰悬三尺青锋 | - 银色发带束发，鬓边几缕碎发 | # 性格 | - 侠肝义胆，洒脱不羁 | - 重情重义，嗜酒如命 # 武器 | - 青锋剑 (师门传承) | # 标志动作 | - 拔剑瞬间双目如电 | - 醉后舞剑，飘逸出尘 || hyperrealistic, photorealistic, 8k, 16k, shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, Kodak Portra 400, Kodak Vision3 500T, teal and orange, cinematic color grading || shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, 8k, ultra-detailed, masterpiece || --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "negativePrompt": "cartoon, illustration, painting, drawing, anime, 3d render, cgi, blurry, low quality, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, distorted face, extra digits, fewer digits, cropped, worst quality, normal quality, jpeg artifacts, username, artist name, trademark, title",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "metadata": {
+    "styleId": "hyperrealistic-cinematic",
+    "templateId": "advanced",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 651
+  },
+  "generatedAt": "2026-06-09T01:09:26.635Z"
+}

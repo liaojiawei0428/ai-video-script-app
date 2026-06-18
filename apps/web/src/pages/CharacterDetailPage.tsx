@@ -1,73 +1,28 @@
-import { useEffect, useState, useRef } from 'react';
+// v2.5.34: 角色库重构 - 简化编辑界面
+// 之前 7 大分组 37 字段, 现在 2 个 textarea (主描述 + 补充描述)
+// 优势:
+//   - 用户视角: 一个编辑框看完全部内容
+//   - LLM 视角: 自由文本输出, 描述丰度由角色在小说中的出场量决定
+//   - 不再臆测配角 (旧版会给"5句话的配角"生成 200 字臆测档案)
+
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getCharacterApi, apiClient, updateCharacterFullApi } from '../lib/api';
+import { getCharacterApi, updateCharacterFullApi } from '../lib/api';
 import {
-  ArrowLeft, CheckCircle, Image as ImageIcon, Loader, AlertCircle, Palette, Sparkles,
-  Edit2, Save, X,
+  ArrowLeft, CheckCircle, Image as ImageIcon, Loader, AlertCircle, Sparkles,
+  Edit2, Save, X, User, BookOpen,
 } from 'lucide-react';
+import { extractDescriptionText } from '../lib/characterUtils';
 
 interface CharacterDetail {
-  id: string; novelId: string; name: string; aliases: string[];
-  appearance: string; personality: string; roleType: string;
-  relationships: any[]; referenceImage: string; imageVariants: any[];
+  id: string; novelId: string;
+  name: string; aliases: string[];
+  roleType: string;
+  referenceImage: string; imageVariants: any[];
   confirmed: boolean; imageGenStatus: string;
-  description?: any; extraDescription?: any;
-  gender?: string; role?: string;
-}
-
-const SCALAR_DESC_FIELDS: Array<{ key: string; label: string; icon: string; long?: boolean }> = [
-  { key: 'age', label: '年龄', icon: '🎂' },
-  { key: 'gender', label: '性别', icon: '⚧' },
-  { key: 'height', label: '身高', icon: '📏' },
-  { key: 'build', label: '体型', icon: '🏃' },
-  { key: 'skin', label: '肤色', icon: '🧖' },
-  { key: 'makeup', label: '妆容', icon: '💄' },
-  { key: 'face', label: '脸型', icon: '👤', long: true },
-  { key: 'eyes', label: '眼睛', icon: '👁', long: true },
-  { key: 'eyebrows', label: '眉毛', icon: '✏️' },
-  { key: 'nose', label: '鼻子', icon: '👃' },
-  { key: 'lips', label: '嘴唇', icon: '👄' },
-  { key: 'ears', label: '耳朵', icon: '👂' },
-  { key: 'hair_color', label: '发色', icon: '🎨' },
-  { key: 'hair_style', label: '发型', icon: '💇', long: true },
-  { key: 'hair_length', label: '发长', icon: '📏' },
-  { key: 'hair_texture', label: '发质', icon: '✨' },
-  { key: 'hair_accessories', label: '发饰', icon: '🎀' },
-  { key: 'clothing_top', label: '上衣', icon: '👕', long: true },
-  { key: 'clothing_bottom', label: '下装', icon: '👖' },
-  { key: 'clothing_outer', label: '外披', icon: '🧥', long: true },
-  { key: 'clothing_shoes', label: '鞋履', icon: '👟' },
-  { key: 'clothing_underwear', label: '内衣', icon: '🎽' },
-  { key: 'clothing_socks', label: '袜', icon: '🧦' },
-  { key: 'accessories_neck', label: '颈饰', icon: '📿' },
-  { key: 'accessories_ears', label: '耳饰', icon: '🪩' },
-  { key: 'accessories_hands', label: '手饰', icon: '💍' },
-  { key: 'accessories_waist', label: '腰饰', icon: '🎗' },
-  { key: 'accessories_other', label: '其他配饰', icon: '🎁' },
-  { key: 'props', label: '道具', icon: '🗡', long: true },
-  { key: 'distinctive_features', label: '显著特征', icon: '✨', long: true },
-  { key: 'default_expression', label: '默认表情', icon: '😊' },
-  { key: 'emotional_range', label: '情绪范围', icon: '🎭', long: true },
-  { key: 'body_language', label: '肢体语言', icon: '🤸', long: true },
-  { key: 'personality_visual', label: '性格(视觉)', icon: '🧠', long: true },
-  { key: 'social_class_visual', label: '社会阶层(视觉)', icon: '👑', long: true },
-  { key: 'role_type', label: '角色类型', icon: '🏷' },
-];
-
-const SECTION_GROUPS: Array<{ title: string; icon: string; keys: string[] }> = [
-  { title: '基本信息', icon: '📋', keys: ['age', 'gender', 'height', 'build', 'skin', 'makeup'] },
-  { title: '五官面容', icon: '👁', keys: ['face', 'eyes', 'eyebrows', 'nose', 'lips', 'ears'] },
-  { title: '发型发色', icon: '💇', keys: ['hair_color', 'hair_style', 'hair_length', 'hair_texture', 'hair_accessories'] },
-  { title: '服装', icon: '👕', keys: ['clothing_top', 'clothing_bottom', 'clothing_outer', 'clothing_shoes', 'clothing_underwear', 'clothing_socks'] },
-  { title: '配饰', icon: '💍', keys: ['accessories_neck', 'accessories_ears', 'accessories_hands', 'accessories_waist', 'accessories_other'] },
-  { title: '道具与特征', icon: '🗡', keys: ['props', 'distinctive_features', 'default_expression', 'emotional_range', 'body_language'] },
-  { title: '性格与社会属性', icon: '🧠', keys: ['personality_visual', 'social_class_visual', 'role_type'] },
-];
-
-function parseDesc(c: CharacterDetail) {
-  const desc = typeof c.description === 'string' ? JSON.parse(c.description || '{}') : (c.description || {});
-  const extra = typeof c.extraDescription === 'string' ? JSON.parse(c.extraDescription || '{}') : (c.extraDescription || {});
-  return { desc, extra };
+  gender?: string;
+  description?: any;      // 兼容: 旧版是 JSON 对象, 新版是字符串
+  extraDescription?: any; // 兼容: 旧版是 JSON 对象, 新版是字符串
 }
 
 export function CharacterDetailPage() {
@@ -81,12 +36,11 @@ export function CharacterDetailPage() {
 
   // 编辑模式
   const [editing, setEditing] = useState(false);
-  const [descDraft, setDescDraft] = useState<Record<string, any>>({});
-  const [extraDraft, setExtraDraft] = useState<Record<string, any>>({});
-  const [paletteDraft, setPaletteDraft] = useState<string>('');
-  const [doNotChangeDraft, setDoNotChangeDraft] = useState<string>('');
-  const [aliasesDraft, setAliasesDraft] = useState<string>('');
   const [nameDraft, setNameDraft] = useState<string>('');
+  const [aliasesDraft, setAliasesDraft] = useState<string>('');
+  const [roleTypeDraft, setRoleTypeDraft] = useState<string>('supporting');
+  const [descriptionDraft, setDescriptionDraft] = useState<string>('');
+  const [extraDescriptionDraft, setExtraDescriptionDraft] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [saveBanner, setSaveBanner] = useState<string>('');
 
@@ -96,155 +50,126 @@ export function CharacterDetailPage() {
     if (!id) return;
     setLoading(true);
     getCharacterApi(id)
-      .then(r => setCharacter(r.data?.data || r.data))
+      .then(r => {
+        const c = r.data?.data || r.data;
+        setCharacter(c);
+        setDescriptionDraft(extractDescriptionText(c?.description));
+        setExtraDescriptionDraft(extractDescriptionText(c?.extraDescription));
+        setNameDraft(c?.name || '');
+        setAliasesDraft((c?.aliases || []).join(', '));
+        setRoleTypeDraft(c?.roleType || 'supporting');
+      })
       .catch(() => setCharacter(null))
       .finally(() => setLoading(false));
   };
 
-  const startEdit = () => {
-    if (!character) return;
-    const { desc, extra } = parseDesc(character);
-    setDescDraft({ ...desc });
-    setExtraDraft({ ...extra });
-    setPaletteDraft(Array.isArray(desc.color_palette) ? desc.color_palette.join(', ') : (desc.color_palette || ''));
-    setDoNotChangeDraft(Array.isArray(desc.do_not_change) ? desc.do_not_change.join('\n') : (desc.do_not_change || ''));
-    setAliasesDraft((character.aliases || []).join('、'));
-    setNameDraft(character.name || '');
-    setEditing(true);
-  };
-
-  const cancelEdit = () => { setEditing(false); setSaveBanner(''); };
-
-  const saveEdit = async () => {
-    if (!id || saving) return;
+  const handleSave = async () => {
+    if (!id) return;
     setSaving(true);
     setSaveBanner('');
     try {
-      const newDesc: Record<string, any> = { ...descDraft, name: nameDraft || character?.name || '' };
-      if (paletteDraft.trim()) newDesc.color_palette = paletteDraft.split(/[,，]/).map(s => s.trim()).filter(Boolean);
-      else delete newDesc.color_palette;
-      if (doNotChangeDraft.trim()) newDesc.do_not_change = doNotChangeDraft.split('\n').map(s => s.trim()).filter(Boolean);
-      else delete newDesc.do_not_change;
-      const aliases = aliasesDraft.split(/[、,,]/).map(s => s.trim()).filter(Boolean);
-      const newExtra: Record<string, any> = {
-        ...extraDraft,
-        color_palette: newDesc.color_palette || [],
-        do_not_change: newDesc.do_not_change || [],
-      };
+      // v2.5.34: description / extraDescription 是字符串, 直接存
       await updateCharacterFullApi(id, {
-        name: nameDraft,
-        description: newDesc,
-        extraDescription: newExtra,
+        name: nameDraft.trim() || character?.name,
+        aliases: aliasesDraft.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+        roleType: roleTypeDraft,
+        description: descriptionDraft,
+        extraDescription: extraDescriptionDraft,
       });
       setCharacter(prev => prev ? {
         ...prev,
-        name: nameDraft || prev.name,
-        aliases,
-        description: newDesc,
-        extraDescription: newExtra,
+        name: nameDraft.trim() || prev.name,
+        aliases: aliasesDraft.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+        roleType: roleTypeDraft,
+        description: descriptionDraft,
+        extraDescription: extraDescriptionDraft,
       } : prev);
-      setSaveBanner('✅ 已保存');
-      setTimeout(() => { setEditing(false); setSaveBanner(''); }, 800);
+      setSaveBanner('✅ 保存成功');
+      setTimeout(() => setSaveBanner(''), 2500);
+      setEditing(false);
     } catch (e: any) {
-      setSaveBanner('❌ 保存失败: ' + (e?.response?.data?.error?.message || e.message));
-    } finally { setSaving(false); }
+      setSaveBanner('❌ 保存失败: ' + (e?.response?.data?.error?.message || e?.message || '未知错误'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleConfirm = async () => {
-    if (!id || confirming) return;
+    if (!id) return;
     setConfirming(true);
     try {
-      await apiClient.post(`/characters/${id}/confirm`, {});
+      // 调用 confirm API (后端路由: /characters/:characterId/confirm)
+      const apiClient = (await import('../lib/api')).apiClient;
+      await apiClient.post(`/characters/${id}/confirm`, { description: {}, extraDescription: {} });
       setCharacter(prev => prev ? { ...prev, confirmed: true } : prev);
-    } catch (e: any) { alert(e?.response?.data?.error?.message || '确认失败'); }
-    finally { setConfirming(false); }
+      setSaveBanner('✅ 已确认');
+      setTimeout(() => setSaveBanner(''), 2500);
+    } catch (e: any) {
+      setSaveBanner('❌ 确认失败: ' + (e?.response?.data?.error?.message || e?.message || '未知错误'));
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const handleGenerateImages = async () => {
-    if (!id || generatingImages) return;
+    if (!id) return;
     setGeneratingImages(true);
     setGeneratingResult('');
     try {
-      const res = await apiClient.post(`/characters/${id}/generate-images`);
-      const data = res.data?.data || res.data;
-      const count = data?.variants?.length || data?.imageVariants?.length || 0;
-      setGeneratingResult(count > 0 ? '角色三视图生成成功！' : '生成失败，请稍后重试');
-      load();
+      const apiClient = (await import('../lib/api')).apiClient;
+      const r = await apiClient.post(`/characters/${id}/generate-images`);
+      const data = r.data?.data || r.data;
+      const succeeded = data?.totalSucceeded || 0;
+      setGeneratingResult(`✅ 已生成 ${succeeded} 张三视图变体图`);
+      setTimeout(() => {
+        setGeneratingResult('');
+        load();
+      }, 1500);
     } catch (e: any) {
-      setGeneratingResult(e?.response?.data?.error?.message || '生图失败');
-    } finally { setGeneratingImages(false); }
+      setGeneratingResult('❌ 生成失败: ' + (e?.response?.data?.error?.message || e?.message || '未知错误'));
+    } finally {
+      setGeneratingImages(false);
+    }
   };
 
-  if (loading) return <div className="text-center py-20 text-text-tertiary">加载中...</div>;
-  if (!character) return (
-    <div className="text-center py-20">
-      <AlertCircle size={48} className="text-error mx-auto mb-3" />
-      <p className="text-text-secondary">角色不存在</p>
-      <button className="btn-ghost mt-4" onClick={() => nav(-1)}>返回</button>
-    </div>
-  );
+  if (loading) {
+    return <div className="p-6 text-center text-text-tertiary"><Loader className="inline animate-spin mr-2" size={16} />加载中...</div>;
+  }
+  if (!character) {
+    return <div className="p-6 text-center text-red-400"><AlertCircle className="inline mr-2" size={16} />角色不存在</div>;
+  }
 
-  const { desc, extra } = parseDesc(character);
-  const roleLabel = desc.role_type === 'protagonist' ? '主角' :
-                    desc.role_type === 'antagonist' ? '反派' :
-                    desc.role_type === 'supporting' ? '配角' :
-                    desc.role_type === 'minor' ? '龙套' : desc.role_type || character.roleType || '未知角色';
-  const hasPalette = Array.isArray(desc.color_palette) && desc.color_palette.length > 0;
-  const hasDoNot = desc.do_not_change && (Array.isArray(desc.do_not_change) ? desc.do_not_change.length : desc.do_not_change);
+  const descText = extractDescriptionText(character.description);
+  const extraText = extractDescriptionText(character.extraDescription);
+  const sheetImg = (character.imageVariants || []).find((v: any) => v.angle === 'sheet');
 
   return (
-    <div className="max-w-2xl mx-auto pb-24">
-      <Link to={`/novels/${character.novelId}/characters`} className="inline-flex items-center gap-1 text-text-secondary hover:text-text-primary mb-4 text-sm">
-        <ArrowLeft size={16} /> 返回角色库
-      </Link>
-
-      {/* 头部 */}
-      <div className="glass p-6 mb-4 flex items-center gap-4">
-        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-3xl font-bold flex-shrink-0">
-          {character.name?.[0] || '?'}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            {editing ? (
-              <input
-                value={nameDraft}
-                onChange={e => setNameDraft(e.target.value)}
-                className="text-2xl font-bold bg-bg-secondary border border-border rounded px-2 py-1 w-full max-w-[200px]"
-              />
-            ) : (
-              <h1 className="text-2xl font-bold">{character.name}</h1>
-            )}
-            {character.confirmed && <CheckCircle size={18} className="text-success" />}
-            <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">{roleLabel}</span>
-            {desc.gender && <span className="text-xs bg-bg-tertiary px-1.5 py-0.5 rounded text-text-secondary">{desc.gender}</span>}
-            {editing && <span className="text-xs bg-warning/20 text-warning px-1.5 py-0.5 rounded">编辑中</span>}
-          </div>
+    <div className="max-w-3xl mx-auto p-4">
+      {/* 顶部: 返回 + 名称 + 状态 */}
+      <div className="flex items-center gap-3 mb-4">
+        <Link to={`/novels/${character.novelId}/characters`} className="text-text-tertiary hover:text-text-primary">
+          <ArrowLeft size={20} />
+        </Link>
+        <User size={20} className="text-pink-400" />
+        <h1 className="text-xl font-bold flex-1">
           {editing ? (
-            <input
-              value={aliasesDraft}
-              onChange={e => setAliasesDraft(e.target.value)}
-              placeholder="别名（用 、 或 , 分隔）"
-              className="text-xs bg-bg-secondary border border-border rounded px-2 py-1 w-full mt-1"
-            />
+            <input value={nameDraft} onChange={e => setNameDraft(e.target.value)}
+              className="bg-bg-secondary border border-border rounded px-2 py-1 text-lg w-full" />
           ) : (
-            character.aliases && character.aliases.length > 0 && (
-              <p className="text-xs text-text-tertiary">别名：{character.aliases.join('、')}</p>
-            )
+            character.name
           )}
-        </div>
-        {!editing ? (
-          <button onClick={startEdit} className="px-3 py-1.5 text-sm bg-primary/20 text-primary rounded-lg hover:bg-primary/30 flex items-center gap-1 flex-shrink-0">
-            <Edit2 size={14} /> 编辑
-          </button>
+        </h1>
+        {character.confirmed ? (
+          <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded flex items-center gap-1">
+            <CheckCircle size={12} />已确认
+          </span>
         ) : (
-          <div className="flex gap-1.5 flex-shrink-0">
-            <button onClick={cancelEdit} className="px-2.5 py-1.5 text-sm border border-border rounded-lg hover:bg-bg-secondary flex items-center gap-1">
-              <X size={14} /> 取消
-            </button>
-            <button onClick={saveEdit} disabled={saving} className="px-2.5 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 flex items-center gap-1 disabled:opacity-50">
-              <Save size={14} /> {saving ? '保存中' : '保存'}
-            </button>
-          </div>
+          <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">待确认</span>
+        )}
+        {character.imageGenStatus === 'completed' && (
+          <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded flex items-center gap-1">
+            <ImageIcon size={12} />已生图
+          </span>
         )}
       </div>
 
@@ -252,177 +177,153 @@ export function CharacterDetailPage() {
         <div className="glass p-3 mb-3 text-sm text-center">{saveBanner}</div>
       )}
 
-      {/* 7 大分组 (v2.5.13 — 旧版 appearance/personality/roleType 编辑块已清理, 全部走 37 字段 description) */}
-      {SECTION_GROUPS.map(group => {
-        if (editing) {
-          return (
-            <div key={group.title} className="glass p-5 mb-4">
-              <h2 className="font-semibold mb-3 text-text-primary">{group.icon} {group.title}</h2>
-              <div className="space-y-2">
-                {group.keys.map(key => {
-                  const f = SCALAR_DESC_FIELDS.find(x => x.key === key);
-                  if (!f) return null;
-                  const val = descDraft[key] ?? desc[key] ?? '';
-                  return (
-                    <div key={key}>
-                      <label className="text-xs text-text-tertiary">{f.icon} {f.label}</label>
-                      {f.long ? (
-                        <textarea value={val} onChange={e => setDescDraft({ ...descDraft, [key]: e.target.value })} rows={2}
-                          className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-2 mt-1 resize-y" />
-                      ) : (
-                        <input value={val} onChange={e => setDescDraft({ ...descDraft, [key]: e.target.value })}
-                          className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-2 mt-1" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        }
-        const hasContent = group.keys.some(k => desc[k]);
-        if (!hasContent) return null;
-        return (
-          <div key={group.title} className="glass p-5 mb-4">
-            <h2 className="font-semibold mb-3 text-text-primary">{group.icon} {group.title}</h2>
-            <div className="space-y-1.5">
-              {group.keys.map(key => {
-                if (!desc[key]) return null;
-                const f = SCALAR_DESC_FIELDS.find(x => x.key === key)!;
-                return (
-                  <div key={key} className="text-sm">
-                    <span className="text-text-tertiary font-medium">{f.icon} {f.label}：</span>
-                    <span className="text-text-secondary ml-1 whitespace-pre-line">{desc[key]}</span>
-                  </div>
-                );
-              })}
-            </div>
+      {/* 基本信息 (只读 / 编辑) */}
+      <div className="glass p-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+          <div>
+            <div className="text-xs text-text-tertiary mb-1">🏷 角色类型</div>
+            {editing ? (
+              <select value={roleTypeDraft} onChange={e => setRoleTypeDraft(e.target.value)}
+                className="w-full bg-bg-secondary border border-border rounded px-2 py-1">
+                <option value="protagonist">主角 (protagonist)</option>
+                <option value="antagonist">反派 (antagonist)</option>
+                <option value="supporting">配角 (supporting)</option>
+                <option value="minor">次要 (minor)</option>
+              </select>
+            ) : (
+              <div className="text-text-primary">{character.roleType || '-'}</div>
+            )}
           </div>
-        );
-      })}
-
-      {/* 色板 & 不可变元素 */}
-      {(editing || hasPalette || hasDoNot) && (
-        <div className="glass p-5 mb-4">
-          <h2 className="font-semibold mb-3 text-text-primary flex items-center gap-1.5"><Palette size={16} /> 色板 & 不可变元素</h2>
-          {editing ? (
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-text-tertiary">🎨 色彩主调 (用 , 或 ， 分隔多个 hex)</label>
-                <input value={paletteDraft} onChange={e => setPaletteDraft(e.target.value)}
-                  placeholder="#0D0D0D, #B22222, #C0C0C0"
-                  className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-2 mt-1 font-mono" />
-              </div>
-              <div>
-                <label className="text-xs text-text-tertiary">🔒 不可变元素 (每行一个)</label>
-                <textarea value={doNotChangeDraft} onChange={e => setDoNotChangeDraft(e.target.value)} rows={3}
-                  placeholder="苍白脸色及血红嘴唇&#10;狭长上挑眼及剑眉&#10;紫金冠与红宝石"
-                  className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-2 mt-1 resize-y" />
-              </div>
-            </div>
-          ) : (
-            <>
-              {hasPalette && (
-                <div className="mb-3">
-                  <div className="text-xs text-text-tertiary mb-2">🎨 色彩主调</div>
-                  <div className="flex flex-wrap gap-2">
-                    {desc.color_palette.map((color: string, i: number) => (
-                      <div key={i} className="flex items-center gap-1.5 text-xs">
-                        <div className="w-6 h-6 rounded border border-white/20" style={{ backgroundColor: color }} />
-                        <span className="text-text-tertiary font-mono">{color}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {hasDoNot && (
-                <div>
-                  <div className="text-xs text-text-tertiary mb-2">🔒 不可变元素</div>
-                  <div className="text-sm text-text-secondary whitespace-pre-line">
-                    {Array.isArray(desc.do_not_change) ? desc.do_not_change.join('\n') : desc.do_not_change}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* prompt 提示词 */}
-      {(editing || desc.prompt_safe_description) && (
-        <PromptEdit editing={editing} label="AI 生图英文提示词 (prompt_safe_description)" icon={<Sparkles size={16} />}
-          value={descDraft.prompt_safe_description ?? desc.prompt_safe_description ?? ''}
-          onChange={v => setDescDraft({ ...descDraft, prompt_safe_description: v })} />
-      )}
-      {(editing || desc.negative_prompt_suggestion) && (
-        <PromptEdit editing={editing} label="Negative Prompt (负面提示词)" icon={<span>⚠️</span>}
-          value={descDraft.negative_prompt_suggestion ?? desc.negative_prompt_suggestion ?? ''}
-          onChange={v => setDescDraft({ ...descDraft, negative_prompt_suggestion: v })} />
-      )}
-
-      {/* 角色三视图 */}
-      {(character.imageVariants?.length > 0) && (
-        <div className="glass p-5 mb-4">
-          <h2 className="font-semibold mb-3 text-text-primary">角色三视图</h2>
-          <div className="space-y-3">
-            {character.imageVariants.map((v: any, i: number) => (
-              <div key={i} className="bg-bg-secondary rounded-lg overflow-hidden">
-                {v.url ? (
-                  <img src={v.url} alt={`${character.name} ${v.angle}`} className="w-full object-contain" />
-                ) : (
-                  <div className="w-full aspect-[3/2] flex items-center justify-center text-text-tertiary text-xs">生成中...</div>
-                )}
-                <div className="text-xs text-text-secondary text-center py-1">
-                  {v.angle === 'sheet' ? '三视图' : v.angle === 'front_bust' ? '正面' : v.angle === 'side_bust' ? '侧面' : '全身'}
-                </div>
-              </div>
-            ))}
+          <div>
+            <div className="text-xs text-text-tertiary mb-1">📛 别名</div>
+            {editing ? (
+              <input value={aliasesDraft} onChange={e => setAliasesDraft(e.target.value)}
+                placeholder="别名1, 别名2"
+                className="w-full bg-bg-secondary border border-border rounded px-2 py-1" />
+            ) : (
+              <div className="text-text-primary">{(character.aliases || []).join(', ') || '-'}</div>
+            )}
+          </div>
+          <div>
+            <div className="text-xs text-text-tertiary mb-1">⚧ 性别</div>
+            <div className="text-text-primary">{character.gender || '-'}</div>
           </div>
         </div>
-      )}
+      </div>
 
-      {generatingResult && (
-        <div className="glass p-3 mb-4 text-sm text-accent text-center">{generatingResult}</div>
+      {/* 角色描述 (主) - 1 个大 textarea */}
+      <div className="glass p-5 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-semibold text-text-primary flex items-center gap-1.5">
+            <BookOpen size={16} className="text-pink-400" />
+            角色描述 (从小说提取)
+          </h2>
+          <div className="text-xs text-text-tertiary">
+            {descText.length} 字符
+          </div>
+        </div>
+        {editing ? (
+          <textarea
+            value={descriptionDraft}
+            onChange={e => setDescriptionDraft(e.target.value)}
+            rows={18}
+            placeholder={`角色的完整描述 (Markdown 格式)\n\n示例:\n# 基本信息\n- 年龄: 18岁\n- 身份: 后宫女官\n\n# 外貌与服装 (尽量引用原文)\n- 瓜子脸, 身形纤细\n- 藕荷色交领襦裙\n\n# 性格与行为\n- 谨慎机敏, 不轻易表态`}
+            className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-3 font-mono resize-y"
+          />
+        ) : descText ? (
+          <div className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">{descText}</div>
+        ) : (
+          <div className="text-sm text-text-tertiary italic">暂无描述. 点击右上角"编辑"按钮添加, 或在角色库列表页重新分析小说.</div>
+        )}
+      </div>
+
+      {/* 补充描述 (可选) - 1 个 textarea */}
+      <div className="glass p-5 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-semibold text-text-primary flex items-center gap-1.5">
+            <Sparkles size={16} className="text-purple-400" />
+            补充描述 (可选, 关系/情绪/名言)
+          </h2>
+          <div className="text-xs text-text-tertiary">
+            {extraText.length} 字符
+          </div>
+        </div>
+        {editing ? (
+          <textarea
+            value={extraDescriptionDraft}
+            onChange={e => setExtraDescriptionDraft(e.target.value)}
+            rows={8}
+            placeholder={`角色与其他角色的关系 / 情绪范围 / 名言 / 标志性动作 等\n\n示例:\n# 与其他角色的关系\n- 苏蓉蓉: 主仆, 自幼相识\n- 独孤琰: 君臣, 表面恭敬\n\n# 情绪范围\n- 平日: 谨慎内敛\n- 危急: 偶尔决断`}
+            className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-3 font-mono resize-y"
+          />
+        ) : extraText ? (
+          <div className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">{extraText}</div>
+        ) : (
+          <div className="text-sm text-text-tertiary italic">无补充描述</div>
+        )}
+      </div>
+
+      {/* 三视图预览 */}
+      {sheetImg?.url && (
+        <div className="glass p-4 mb-4">
+          <h2 className="font-semibold mb-2 text-text-primary flex items-center gap-1.5">
+            <ImageIcon size={16} className="text-blue-400" />
+            三视图预览
+          </h2>
+          <img src={sheetImg.url} alt="character sheet" className="w-full rounded border border-border" />
+        </div>
       )}
 
       {/* 底部操作栏 */}
-      <div className="fixed bottom-0 left-0 right-0 bg-bg-primary/95 backdrop-blur border-t border-white/5 p-3 z-10">
-        <div className="max-w-2xl mx-auto flex gap-3">
-          <Link to={`/novels/${character.novelId}/characters`} className="btn-ghost flex-1 text-center">返回列表</Link>
-          {!character.confirmed ? (
-            <button onClick={handleConfirm} disabled={confirming} className="btn-primary flex-1 flex items-center justify-center gap-2">
-              {confirming ? <><Loader size={16} className="animate-spin" /> 确认中...</> : <><CheckCircle size={16} /> 确认角色</>}
+      <div className="flex gap-2 flex-wrap items-center justify-end sticky bottom-0 bg-bg-primary/80 backdrop-blur p-2 -mx-2">
+        {editing ? (
+          <>
+            <button onClick={() => {
+              setEditing(false);
+              // 恢复原值
+              setNameDraft(character.name);
+              setAliasesDraft((character.aliases || []).join(', '));
+              setRoleTypeDraft(character.roleType || 'supporting');
+              setDescriptionDraft(descText);
+              setExtraDescriptionDraft(extraText);
+            }} className="btn-ghost text-sm flex items-center gap-1">
+              <X size={14} /> 取消
             </button>
-          ) : (
-            <button onClick={handleGenerateImages} disabled={generatingImages} className="btn-primary flex-1 flex items-center justify-center gap-2">
-              {generatingImages ? <><Loader size={16} className="animate-spin" /> 生成中 (约20s)...</> : <><ImageIcon size={16} /> 生成三视图 (¥0.10)</>}
+            <button onClick={handleSave} disabled={saving} className="btn-primary text-sm flex items-center gap-1">
+              {saving ? <><Loader size={14} className="animate-spin" />保存中...</> : <><Save size={14} />保存</>}
             </button>
-          )}
-        </div>
+          </>
+        ) : (
+          <>
+            <button onClick={() => setEditing(true)} className="btn-ghost text-sm flex items-center gap-1">
+              <Edit2 size={14} /> 编辑
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={confirming || character.confirmed}
+              className="btn-primary text-sm flex items-center gap-1"
+            >
+              {confirming ? <><Loader size={14} className="animate-spin" />确认中...</>
+                : character.confirmed ? <><CheckCircle size={14} />已确认</>
+                : <><CheckCircle size={14} />确认描述</>}
+            </button>
+            <button
+              onClick={handleGenerateImages}
+              disabled={generatingImages || !character.confirmed || character.imageGenStatus === 'generating'}
+              className="btn-primary text-sm flex items-center gap-1"
+              title={!character.confirmed ? '请先确认描述' : ''}
+            >
+              {generatingImages ? <><Loader size={14} className="animate-spin" />生成中...</>
+                : character.imageGenStatus === 'completed' ? <><Sparkles size={14} />重新生图</>
+                : <><Sparkles size={14} />生成三视图</>}
+            </button>
+          </>
+        )}
       </div>
-    </div>
-  );
-}
 
-function PromptEdit({ editing, label, icon, value, onChange }: { editing: boolean; label: string; icon: React.ReactNode; value: string; onChange: (v: string) => void }) {
-  if (editing) {
-    return (
-      <div className="glass p-5 mb-4">
-        <h2 className="font-semibold mb-3 text-text-primary flex items-center gap-1.5">{icon} {label}</h2>
-        <textarea value={value} onChange={e => onChange(e.target.value)} rows={4}
-          className="w-full text-xs bg-bg-secondary border border-border rounded-lg p-2 font-mono leading-relaxed resize-y" />
-        <div className="text-xs text-text-tertiary mt-1 text-right">{value.length} 字符</div>
-      </div>
-    );
-  }
-  return (
-    <details className="glass p-5 mb-4">
-      <summary className="font-semibold text-text-primary cursor-pointer flex items-center gap-1.5">
-        {icon} {label} ({value.length} 字符)
-      </summary>
-      <p className="text-xs text-text-secondary leading-relaxed mt-3 font-mono bg-bg-secondary p-3 rounded whitespace-pre-wrap">
-        {value}
-      </p>
-    </details>
+      {generatingResult && (
+        <div className="glass p-3 mt-3 text-sm text-center">{generatingResult}</div>
+      )}
+    </div>
   );
 }

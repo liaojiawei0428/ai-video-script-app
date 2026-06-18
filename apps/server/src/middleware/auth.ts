@@ -3,9 +3,22 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
 
+// v2.5.36: 生产环境强制要求 JWT_SECRET, 不能用 dev 默认值 (安全防护)
+if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'ai-script-jwt-secret-dev') {
+  throw new Error('JWT_SECRET is required in production (dev default is not allowed)');
+}
+
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
+  // v3.0.0: 同时支持 Authorization header + ?token= query (供 <a download href> 用, 因为浏览器 GET 不会自动带 Authorization 头)
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : '';
+
+  let token = '';
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if (queryToken) {
+    token = queryToken;
+  } else {
     res.status(401).json({
       success: false,
       error: { code: 'AUTH_REQUIRED', message: '请先登录' },
@@ -14,7 +27,6 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  const token = authHeader.slice(7);
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
     (req as any).userId = decoded.userId;

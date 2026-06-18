@@ -14,7 +14,8 @@ router.get('/qrcode', async (req: Request, res: Response) => {
 
 /** 直接返回收款码图片（手机无法访问 maque.uno 时通过 API 中转） */
 router.get('/qr-image', (req: Request, res: Response) => {
-  const imgPath = path.resolve('/www/wwwroot/sparrow-logic/QRerweima/QR.png');
+  // v2.5.36: 路径从 config.qrLocalPath 读, 避免硬编码
+  const imgPath = path.resolve(config.qrLocalPath);
   if (fs.existsSync(imgPath)) {
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

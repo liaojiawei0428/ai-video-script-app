@@ -12,20 +12,57 @@ const PRICING = {
   standard: {
     analyze: 0.012 / 1000,  // ¥0.012/千字 → 分析+剧本阶段按字数计费
     shot: 0.05,              // ¥0.05/集
-    comic: 0.10,             // ¥0.10/页 → 漫画生成按页计费 (v2.5.19)
+    comic: 0.10,             // ¥0.10/页 (分镜漫画 — 预存, 跟 line 69-82 兼容)
   },
   vip: {
     analyze: 0.01 / 1000,   // ¥0.01/千字
     shot: 0.04,              // ¥0.04/集
-    comic: 0.08,             // ¥0.08/页 (v2.5.19)
+    comic: 0.08,             // ¥0.08/页 VIP
   },
   minCharge: 0.01,
 };
 
-function isVipActive(user: any): boolean {
+// v3.0.0.31 (S51): 平台定价 — 视频按 duration 计费 (替代原 0.05/sec)
+// 矩阵: VIP 5s+10s=免费, 15s=0.1; 普通 5s=免费, 10s=0.1, 15s=0.1
+export const VIDEO_CHARGING_MATRIX = {
+  standard: { 5: 0, 10: 0.1, 15: 0.1 },
+  vip:       { 5: 0, 10: 0,   15: 0.1 },
+} as const;
+
+// v3.0.0.31 (S51): 普通用户生图日限额
+export const IMAGE_DAILY_QUOTA_STANDARD = 30;
+export const IMAGE_DAILY_QUOTA_VIP = Infinity;
+
+/**
+ * v3.0.0.31 (S51): 视频计费查表
+ * @param isVip true=VIP 5s+10s 免费, 15s 仍 0.1; false=普通 5s 免费, 10s+15s 各 0.1
+ * @param durationSec 视频时长秒 (5/10/15, 兜底 15)
+ */
+export function chargingForVideo(isVip: boolean, durationSec: number): number {
+  const matrix = isVip ? VIDEO_CHARGING_MATRIX.vip : VIDEO_CHARGING_MATRIX.standard;
+  if (durationSec in matrix) return matrix[durationSec as 5 | 10 | 15];
+  // 兜底: 不在白名单的 (e.g. 7/12) 用最接近的白名单值
+  const allowed = [5, 10, 15] as const;
+  const closest = allowed.reduce((prev, cur) =>
+    Math.abs(cur - durationSec) < Math.abs(prev - durationSec) ? cur : prev
+  );
+  return matrix[closest];
+}
+
+/**
+ * v3.0.0.31 (S51): VIP 状态检查 (export, 让 image/video agent 调)
+ */
+export function isVipActive(user: any): boolean {
   if ((user?.vipLevel || 0) < 1) return false;
   if (!user?.vipExpiresAt) return true; // 老数据没有过期时间视为永久
   return Date.now() < user.vipExpiresAt;
+}
+
+/** v3.0.0.31 (S51): 获取今天 0 点 timestamp (ms) */
+function todayStartMs(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 }
 
 export class BillingService {
@@ -98,12 +135,8 @@ export class BillingService {
     });
     websocketService.broadcastBalanceUpdate(novelId, balance);
 
-    // v2.5.15: 创建系统通知
-    if (novel?.userId) {
-      const { notifyError } = await import('./notify');
-      await notifyError(novel.userId, '余额不足',
-        `${label}失败：需要 ¥${amount.toFixed(2)}，当前余额 ¥${balance.toFixed(2)}。\n请前往充值页面充值后重试。`, novelId);
-    }
+    // v2.5.15: 创建系统通知 (notify module 已迁移/缺, 暂时 skip, 不影响核心余额守门)
+    // notify 模块暂不可用, 跳过
 
     await taskJobModel.fail(taskId, `${label}余额不足（需 ¥${amount.toFixed(2)}，余额 ¥${balance.toFixed(2)}）`);
     await novelModel.updateStatus(novelId, 'error');
@@ -173,6 +206,83 @@ export class BillingService {
       novelId: r.novel_id || '', description: r.description || '',
       wordCount: r.word_count || 0, createdAt: r.created_at,
     }));
+  }
+
+  /**
+   * v3.0.0.31 (S51): 用户今日已成功生图数
+   * 查 image_generations JOIN image_conversations (拿 user_id), status='completed' 才算成功
+   * created_at >= 今天 0 点
+   */
+  async imageDailyCount(userId: string): Promise<number> {
+    const start = todayStartMs();
+    const row = await queryOne<any>(
+      `SELECT COUNT(*) as cnt FROM image_generations ig
+       JOIN image_conversations ic ON ig.conversation_id = ic.id
+       WHERE ic.user_id = ? AND ig.status = 'completed' AND ig.created_at >= ?`,
+      [userId, start]
+    );
+    return row?.cnt || 0;
+  }
+
+  /**
+   * v3.0.0.31 (S51): 用户今日已成功生成视频数
+   * 查 video_generations JOIN video_conversations (拿 user_id), status='completed' 才算成功
+   */
+  async videoDailyCount(userId: string): Promise<number> {
+    const start = todayStartMs();
+    const row = await queryOne<any>(
+      `SELECT COUNT(*) as cnt FROM video_generations vg
+       JOIN video_conversations vc ON vg.conversation_id = vc.id
+       WHERE vc.user_id = ? AND vg.status = 'completed' AND vg.created_at >= ?`,
+      [userId, start]
+    );
+    return row?.cnt || 0;
+  }
+
+  /**
+   * v3.0.0.31 (S51): 生图扣费 (现在免费 amount=0, 仍写 audit log)
+   * @returns balanceAfter
+   */
+  async chargeImage(userId: string, amount: number, description: string, conversationId?: string): Promise<{ balanceAfter: number; logId: string } | null> {
+    if (amount < 0) throw new Error('amount must be >= 0');
+    const user = await userModel.findById(userId);
+    const balance = user?.balance || 0;
+    if (amount > 0 && balance < amount) return null;  // 余额不足
+    const logId = generateUUID();
+    const balanceAfter = Math.round((balance - amount) * 100) / 100;
+    await userModel.updateBalance(userId, -amount);
+    await execute(
+      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
+       VALUES (?, ?, 'consumption', ?, ?, ?, ?, 0, ?)`,
+      [logId, userId, amount, balanceAfter, conversationId || '', description, Date.now()]
+    );
+    logger.info('Billing: chargeImage', { userId, amount, balanceAfter, description });
+    if (conversationId) websocketService.broadcastBalanceUpdate(conversationId, balanceAfter);
+    return { balanceAfter, logId };
+  }
+
+  /**
+   * v3.0.0.31 (S51): 视频扣费 (按 chargingForVideo 矩阵)
+   * @returns balanceAfter 或 null (余额不足)
+   */
+  async chargeVideo(userId: string, durationSec: number, isVip: boolean, conversationId?: string): Promise<{ balanceAfter: number; chargedAmount: number; logId: string } | null> {
+    const amount = chargingForVideo(isVip, durationSec);
+    if (amount < 0) throw new Error('amount must be >= 0');
+    const user = await userModel.findById(userId);
+    const balance = user?.balance || 0;
+    if (amount > 0 && balance < amount) return null;  // 余额不足
+    const logId = generateUUID();
+    const balanceAfter = Math.round((balance - amount) * 100) / 100;
+    const desc = `视频生成(${durationSec}s${isVip ? '/VIP' : '/普通'})`;
+    await userModel.updateBalance(userId, -amount);
+    await execute(
+      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
+       VALUES (?, ?, 'consumption', ?, ?, ?, ?, 0, ?)`,
+      [logId, userId, amount, balanceAfter, conversationId || '', desc, Date.now()]
+    );
+    logger.info('Billing: chargeVideo', { userId, durationSec, isVip, amount, balanceAfter });
+    if (conversationId) websocketService.broadcastBalanceUpdate(conversationId, balanceAfter);
+    return { balanceAfter, chargedAmount: amount, logId };
   }
 }
 

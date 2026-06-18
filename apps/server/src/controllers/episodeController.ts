@@ -118,11 +118,14 @@ export const episodeController = {
   async generateComic(req: Request, res: Response, next: NextFunction) {
     try {
       const { episodeId } = req.params;
-      logger.info('Starting comic generation', { episodeId });
-      const task = await comicService.generateComic(episodeId);
+      // v2.5.27: 用户可选择是否使用角色库 (默认 true)
+      // false 时: 纯剧本+风格生成, 不注入角色视觉 DNA
+      const useCharacterLibrary = req.body?.useCharacterLibrary !== false;
+      logger.info('Starting comic generation', { episodeId, useCharacterLibrary });
+      const task = await comicService.generateComic(episodeId, useCharacterLibrary);
       res.json({
         success: true,
-        data: { taskId: task.id, status: task.status },
+        data: { taskId: task.id, status: task.status, useCharacterLibrary },
         meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {

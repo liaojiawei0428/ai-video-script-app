@@ -1,0 +1,83 @@
+{
+  "templateId": "advanced",
+  "name": "进阶版模板",
+  "description": "进阶模板，包含完整的四层架构，支持详细的环境、光影、材质控制",
+  "level": "advanced",
+  "layers": {
+    "L1_core": {
+      "enabled": true,
+      "template": "{character_name}, {role_type}, {gender}, {age}, {core_visual_traits}, {detailed_appearance}, {clothing_details}, {accessories}, {personality_summary}, {distinctive_features}",
+      "requiredFields": [
+        "character_name", "role_type", "gender", "age",
+        "core_visual_traits", "detailed_appearance", "clothing_details"
+      ],
+      "optionalFields": ["accessories", "personality_summary", "distinctive_features", "props", "emotional_range"]
+    },
+    "L2_style": {
+      "enabled": true,
+      "template": "{style_keywords}, {color_palette}, {mood}, {era}, {composition}",
+      "requiredFields": ["style_keywords"],
+      "optionalFields": ["color_palette", "mood", "era", "composition"],
+      "styleTemplates": {
+        "hyperrealistic-cinematic": "hyperrealistic, cinematic, photorealistic, film grain, cinematic color grading",
+        "chinese-ink-wash": "ink wash, guofeng, xieyi, gongbi, liubai, rice paper texture",
+        "cyberpunk": "cyberpunk, neon noir, tech noir, neon lights, volumetric lighting, rain",
+        "guoman-anime": "anime, cel shading, clean linework, vibrant colors, chinese anime",
+        "cg-3d": "octane render, arnold, renderman, unreal engine 5, subsurface scattering"
+      }
+    },
+    "L3_technical": {
+      "enabled": true,
+      "template": "{camera} | {lighting} | {rendering} | {materials} | {postProcessing}",
+      "subTemplates": {
+        "camera": "{lens}, {focal_length}, {aperture}, {camera_angle}, {camera_movement}",
+        "lighting": "{lighting_type}, {light_direction}, {light_quality}, {color_temperature}, {key_light}, {fill_light}, {rim_light}",
+        "rendering": "{engine}, {resolution}, {samples}, {denoiser}, {gi}, {caustics}, {sss}",
+        "materials": "{skin}, {hair}, {cloth}, {metal}, {glass}, {fabric}, {fur}",
+        "postProcessing": "{color_grading}, {film_grain}, {bloom}, {vignette}, {chromatic_aberration}"
+      },
+      "defaults": {
+        "camera": "85mm lens, f/1.4, 85mm portrait lens, shallow depth of field",
+        "lighting": "cinematic lighting, volumetric lighting, rim light, volumetric fog, god rays",
+        "rendering": "octane render, arnold, renderman, 8k, 16k, subsurface scattering, ray tracing",
+        "materials": "subsurface scattering, skin texture, visible pores, peach fuzz, cloth simulation",
+        "postProcessing": "cinematic color grading, film grain, subtle bloom, subtle vignette"
+      }
+    },
+    "L4_platform": {
+      "enabled": true,
+      "template": "{platform_params}",
+      "platformPresets": {
+        "midjourney": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref {ref_url}",
+        "stableDiffusion": "--steps 30 --cfg 7 --sampler dpmpp_2m --resolution 1024x1536 --cfg 7",
+        "flux": "--guidance 3.5 --steps 28 --width 1024 --height 1536",
+        "flux-dev": "--guidance 3.5 --steps 50 --width 1024 --height 1536",
+        "dalle3": "--quality hd --size 1024x1792"
+      },
+      "parameterMappings": {
+        "aspectRatio": { "portrait": "--ar 3:4", "landscape": "--ar 16:9", "square": "--ar 1:1", "cinematic": "--ar 21:9" },
+        "quality": { "draft": "--q 0.5", "standard": "--q 1", "high": "--q 2" },
+        "stylize": { "low": "--s 50", "balanced": "--s 250", "high": "--s 750", "max": "--s 1000" }
+      }
+    }
+  },
+  "promptTemplate": "{L1_core} || {L2_style} || {L3_technical} || {L4_platform}",
+  "separator": " || ",
+  "example": {
+    "input": {
+      "character_name": "独孤琰",
+      "role_type": "protagonist",
+      "gender": "男",
+      "age": "18岁",
+      "core_visual_traits": "身形颀长、宽肩窄腰、墨黑长发、猩红眼眸、朱砂痣",
+      "detailed_appearance": "身形颀长，宽肩窄腰，四肢修长，瓜子脸，猩红眼眸，朱砂痣",
+      "clothing_details": "玄色龙袍，玉冠束发，腰系龙纹玉佩，羊角匕随身",
+      "accessories": "玉冠束发，龙纹腰带，羊角匕",
+      "personality_summary": "冷峻阴鸷，嗜血疯狂，对万公公信赖，后宫嫔妃皆惧他",
+      "distinctive_features": "猩红眼眸、朱砂痣、墨黑长发、羊角匕",
+      "style": "hyperrealistic-cinematic",
+      "platform": "midjourney"
+    },
+    "output": "独孤琰，主角，男性，18岁，身形颀长、宽肩窄腰、墨黑长发、猩红眼眸、朱砂痣，着玄色龙袍、玉冠束发、羊角匕 | hyperrealistic, cinematic, photorealistic, 8k, 16k, skin texture, subsurface scattering | 85mm lens, f/1.4, cinematic lighting, volumetric lighting, rim light, octane render, 8k, 16k, subsurface scattering | --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref {ref_url}"
+  }
+}

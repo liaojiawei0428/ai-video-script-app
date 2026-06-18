@@ -11,8 +11,6 @@ import { lookupIp } from '../services/ipService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
 const JWT_EXPIRES = '365d';
-const PRICING_STD = 0.012 / 1000;
-const PRICING_VIP = 0.01 / 1000;
 
 function sanitizeUser(user: any) {
   const { passwordHash, ...rest } = user;
@@ -293,27 +291,31 @@ export const userController = {
 
   async getPricing(req: Request, res: Response, next: NextFunction) {
     try {
+      // v2.5.36: 从 billingService.getPricing() 取, 避免重复定义导致不一致
       const pricing = billingService.getPricing();
       const userId = (req as any).userId;
       const user = await userModel.findById(userId);
       const now = Date.now();
       const isVip = (user?.vipLevel || 0) >= 1 && (!user?.vipExpiresAt || now < user.vipExpiresAt);
-      const p = isVip ? PRICING_VIP : PRICING_STD;
+      const p = isVip ? pricing.vip : pricing.standard;
 
-      const calcFee = (wc: number) => Math.max(0.01, Math.round(wc * p * 100) / 100);
+      const calcFee = (wc: number) => Math.max(pricing.minCharge, Math.round(wc * p.analyze * 100) / 100);
 
       res.json({
         success: true,
         data: {
-          standardPrice: PRICING_STD * 1000,
-          vipPrice: PRICING_VIP * 1000,
+          standardPrice: pricing.standard.analyze * 1000,
+          vipPrice: pricing.vip.analyze * 1000,
           unitLabel: '千字',
-          shotStandard: 0.05,
-          shotVip: 0.04,
+          shotStandard: pricing.standard.shot,
+          shotVip: pricing.vip.shot,
+          // v2.5.36: 漫画按页计费 (v2.5.19+)
+          comicStandard: pricing.standard.comic,
+          comicVip: pricing.vip.comic,
           examples: {
-            '10万字（~10集）': { analyze: calcFee(100000), shot: Math.round(10 * (isVip ? 0.04 : 0.05) * 100) / 100 },
-            '50万字（~50集）': { analyze: calcFee(500000), shot: Math.round(50 * (isVip ? 0.04 : 0.05) * 100) / 100 },
-            '100万字（~100集）': { analyze: calcFee(1000000), shot: Math.round(100 * (isVip ? 0.04 : 0.05) * 100) / 100 },
+            '10万字（~10集）': { analyze: calcFee(100000), shot: Math.round(10 * p.shot * 100) / 100 },
+            '50万字（~50集）': { analyze: calcFee(500000), shot: Math.round(50 * p.shot * 100) / 100 },
+            '100万字（~100集）': { analyze: calcFee(1000000), shot: Math.round(100 * p.shot * 100) / 100 },
           },
           isVip,
           balance: user?.balance || 0,
@@ -377,7 +379,9 @@ export const userController = {
       await userModel.updateVip(userId, 1, expiresAt);
       await userModel.updateBalance(userId, -vipPrice);
 
-      const balanceAfter = Math.round((user.balance - vipPrice) * 100) / 100;
+      // v2.5.36: balanceAfter 必须在 update 后从 DB 重读, 避免并发时记错账
+      const userAfter = await userModel.findById(userId);
+      const balanceAfter = userAfter?.balance || 0;
       await execute(
         `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, description, created_at) VALUES (?, ?, 'consumption', ?, ?, 'VIP会员购买（1年有效）', ?)`,
         [generateUUID(), userId, vipPrice, balanceAfter, Date.now()]

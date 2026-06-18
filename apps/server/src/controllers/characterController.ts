@@ -177,4 +177,58 @@ export const characterController = {
       next(err);
     }
   },
+
+  /**
+   * v2.5.35: POST /api/characters/fix-double-json
+   * 一次性修复所有角色的双层 JSON 历史数据 (LLM 误返回的旧 11 字段 JSON 字符串)
+   * 仅管理员可调用
+   */
+  async fixDoubleJsonDescriptions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { queryAll, execute } = await import('../models/db');
+      const { normalizeOldDescriptionFormat } = await import('../services/characterService');
+
+      // 找出可能含双层 JSON 或 旧英文 key 的角色
+      const rows = await queryAll<any>(
+        "SELECT id, name, description, extra_description FROM characters WHERE " +
+        "description LIKE '%\\\\\\\"%name\\\\\\\":%' " +  // 双层 JSON
+        "OR description LIKE '{%\\\\\\\"%' " +          // 普通 JSON 字符串
+        "OR description LIKE '\"{%\\\\\\\"%' " +        // 转义的 JSON
+        "OR description LIKE '%# 基本%' " +           // 新格式 (旧 normalize 输出, 字段名英文)
+        "OR description LIKE '%# 五官%' " +
+        "OR description LIKE '% age:%' " +
+        "OR description LIKE '% gender:%' " +
+        "OR description LIKE '% hair_color:%'"
+      );
+
+      let fixed = 0;
+      let skipped = 0;
+      const samples: Array<{ name: string; before: number; after: number }> = [];
+
+      for (const r of rows) {
+        const oldDesc = r.description;
+        const oldExtra = r.extra_description;
+        const newDesc = normalizeOldDescriptionFormat(oldDesc);
+        const newExtra = oldExtra ? normalizeOldDescriptionFormat(oldExtra) : oldExtra;
+
+        if (newDesc !== oldDesc || newExtra !== oldExtra) {
+          await execute(
+            'UPDATE characters SET description = ?, extra_description = ? WHERE id = ?',
+            [newDesc, newExtra, r.id]
+          );
+          fixed++;
+          if (samples.length < 3) {
+            samples.push({ name: r.name, before: oldDesc.length, after: newDesc.length });
+          }
+        } else {
+          skipped++;
+        }
+      }
+
+      logger.info('fixDoubleJsonDescriptions: 完成', { found: rows.length, fixed, skipped, samples });
+      return success(res, { found: rows.length, fixed, skipped, samples });
+    } catch (err) {
+      next(err);
+    }
+  },
 };

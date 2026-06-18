@@ -11,7 +11,7 @@ import { useAuthStore } from '../store/auth';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
-  ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash, BookOpen,
+  ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash, BookOpen, Users,
 } from 'lucide-react';
 
 interface Episode {
@@ -77,6 +77,8 @@ export function EpisodeDetailPage() {
   const [comicLayout, setComicLayout] = useState<string>('');
   const [comicTotalPages, setComicTotalPages] = useState<number>(0);
   const [comicGeneratedAt, setComicGeneratedAt] = useState<number | null>(null);
+  // v2.5.27: 用户可选是否使用角色库 (默认开启, 注入三视图视觉 DNA 提升角色一致性)
+  const [useCharacterLibrary, setUseCharacterLibrary] = useState<boolean>(true);
   const wsRef = useRef<WebSocket | null>(null);
   const streamBufferRef = useRef<string>('');
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -375,7 +377,7 @@ export function EpisodeDetailPage() {
     }
     useTaskProgressStore.getState().resetComicPanel(episode.novelId, id);
     try {
-      const r = await generateComicApi(id);
+      const r = await generateComicApi(id, useCharacterLibrary);
       const tid = r.data?.data?.taskId;
       if (!tid) {
         useTaskProgressStore.getState().setComicGenState(episode.novelId, id, 'failed');
@@ -500,13 +502,27 @@ export function EpisodeDetailPage() {
               <button onClick={handleGenerateShots} disabled={isGenerating} className="btn-primary flex items-center gap-1 text-sm">
                 {isGenerating ? <><Loader size={16} className="animate-spin" /> 生成中...</> : <><Sparkles size={16} /> {validShots.length > 0 ? '重新生成分镜' : '生成分镜'}</>}
               </button>
-              {/* v2.5.19: 漫画生成按钮 (仅在有分镜时显示) */}
+              {/* v2.5.19: 漫画生成按钮 + v2.5.27 角色库开关 (仅在有分镜时显示) */}
               {validShots.length > 0 && (
-                <button onClick={handleGenerateComic} disabled={comicGenState === 'running' || comicGenState === 'queued'} className="btn-primary flex items-center gap-1 text-sm">
-                  {comicGenState === 'running' || comicGenState === 'queued'
-                    ? <><Loader size={16} className="animate-spin" /> 漫画生成中...</>
-                    : <><BookOpen size={16} /> {comicImages.length > 0 ? '重新生成漫画' : '生成漫画'}</>}
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* 角色库视觉 DNA 开关 */}
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-text-secondary hover:text-text-primary select-none" title="开启时: 注入角色库三视图视觉 DNA, 跨分镜角色外观一致; 关闭时: 纯剧本+风格生成">
+                    <input
+                      type="checkbox"
+                      checked={useCharacterLibrary}
+                      onChange={(e) => setUseCharacterLibrary(e.target.checked)}
+                      disabled={comicGenState === 'running' || comicGenState === 'queued'}
+                      className="w-3.5 h-3.5 accent-pink-500 cursor-pointer disabled:opacity-50"
+                    />
+                    <Users size={13} className="text-pink-400" />
+                    <span>角色库</span>
+                  </label>
+                  <button onClick={handleGenerateComic} disabled={comicGenState === 'running' || comicGenState === 'queued'} className="btn-primary flex items-center gap-1 text-sm">
+                    {comicGenState === 'running' || comicGenState === 'queued'
+                      ? <><Loader size={16} className="animate-spin" /> 漫画生成中...</>
+                      : <><BookOpen size={16} /> {comicImages.length > 0 ? '重新生成漫画' : '生成漫画'}</>}
+                  </button>
+                </div>
               )}
             </>
           )}
@@ -656,7 +672,12 @@ export function EpisodeDetailPage() {
                 )}
               </span>
             </div>
-            <div className="text-xs text-text-tertiary">
+            <div className="text-xs text-text-tertiary flex items-center gap-2">
+              {useCharacterLibrary && (
+                <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded flex items-center gap-1" title="本次生成已注入角色库三视图视觉 DNA">
+                  <Users size={11} /> 角色库已注入
+                </span>
+              )}
               {comicTotalPages > 1 ? `共 ${comicTotalPages} 页` : '1 页漫画'}
             </div>
           </div>

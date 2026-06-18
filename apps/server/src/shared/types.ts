@@ -31,6 +31,8 @@ export interface Novel {
   status: 'pending' | 'analyzing' | 'analyzed' | 'generating' | 'completed' | 'error';
   /** 全文摘要（分块合并后生成，用于剧本生成和重试） */
   fullSummary?: string;
+  /** v3.0.0.30: 小说原文片段 (含角色描写) — 角色描述生成的核心信息源 */
+  novelExcerpts?: string;
   /** AI分析报告（JSON或文本） */
   analysisReport?: string;
   // ── v2.0.0 ──
@@ -255,9 +257,14 @@ export interface StylePreset {
   isDefault?: boolean;
 }
 
-// ── 15 维度角色描述 ──
+// ── 角色描述 ──
 
-/** 11 维度基础结构化描述（生成时存, 必填） */
+/**
+ * 角色描述 (v2.5.34 重构失败回退 - 恢复 v2.5.33 之前的 11 维结构化字段)
+ * v2.5.34 曾尝试简化为自由文本 (description + extraDescription), 但 characterService.ts
+ * 实际还在用 11 维字段 (makeFallbackDescription), types 简化导致编译失败
+ * v3.0.0: 恢复 11 维字段保持向后兼容
+ */
 export interface CharacterDescription {
   name: string;
   age: string;
@@ -272,7 +279,10 @@ export interface CharacterDescription {
   aliases: string[];
 }
 
-/** 4 维度补充描述（生成时存, 可空） */
+/**
+ * 角色补充描述 (4 维, v2.5.33+)
+ * characterService.ts:17 import 此类型, 必须保留
+ */
 export interface CharacterExtraDescription {
   relationshipsText: string;
   emotionRange: string;
@@ -295,7 +305,7 @@ export type ImageGenStatus = 'none' | 'generating' | 'partial' | 'completed' | '
 
 export interface CharacterV2Fields {
   description?: CharacterDescription;
-  extraDescription?: CharacterExtraDescription;
+  extraDescription?: CharacterExtraDescription;  // 4 维补充描述 (relationshipsText / emotionRange / actionHabits / signatureLines)
   styleId?: StylePresetId;
   confirmed?: boolean;
   imageVariants?: ImageVariant[];
@@ -422,3 +432,73 @@ export interface ShotV2Fields {
   imagePrompt?: string;
   imageGeneratedAt?: number;
 }
+
+// ════════════════════════════════════════════════════════════
+//  v3.0.0 新增类型：Agent 矩阵 (3 个 Agent 板块 + 消息 parts 数组)
+//  借鉴 Vercel AI SDK UIMessage.parts + LobeChat Agent Builder
+//  详细设计: docs/V3_AGENT_MATRIX.md §0.5
+// ════════════════════════════════════════════════════════════
+
+/** 方案数据 (生图 plan_ready / 视频 plan_ready 时用) */
+export interface PlanData {
+  prompt: string;                  // 英文 prompt, 用于调 agnes
+  aspectRatio?: string;            // 生图用 (如 "1024x1024")
+  style?: string;                  // 生图用 (写实/动漫/3D/油画)
+  refImageUrls?: string[];         // 参考图 URL 列表
+  durationSec?: number;            // 视频用 (5/10/15)
+  width?: number;                  // 视频用 (如 1152)
+  height?: number;                 // 视频用 (如 768)
+  fps?: number;                    // 视频用 (默认 24)
+  estimatedCost?: number;          // 估算费用 (元)
+}
+
+/** 询问数据 (LLM 引导用户时用) */
+export interface QuestionData {
+  question: string;
+  options?: Array<{ label: string; value: string }>;
+  defaultValue?: string;
+}
+
+/** 消息 part 类型 (借鉴 Vercel AI SDK UIMessage.parts) */
+export type AgentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; url: string; role: 'reference' | 'result' }
+  | { type: 'plan'; data: PlanData }
+  | { type: 'question'; data: QuestionData }
+  | { type: 'progress'; value: number; label?: string }   // 视频进度 0-100
+  | { type: 'video'; url: string; duration: number }
+  | { type: 'error'; message: string };
+
+/** Agent 消息 (V3.0.0 新格式) - 单气泡可混合多 part */
+export interface AgentMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  parts: AgentPart[];
+  metadata?: { taskId?: string; stage?: string };
+  createdAt: number;
+}
+
+/** Agent 会话状态机 (V3.0.0.2 12 态) - 借鉴 Vercel tool state machine */
+export type AgentConversationStatus =
+  | 'idle'                      // 初始
+  | 'ai_clarifying'             // AI 在问澄清问题 (LLM 思考中)
+  | 'awaiting_clarification'    // 等用户回答
+  | 'ai_planning'               // AI 在生成方案 (LLM 思考中)
+  | 'plan_cn_ready'             // v3.0.0.2: 中文方案就绪 (10 字段), 等用户确认/改字段
+  | 'plan_translating'          // v3.0.0.2: LLM 翻译中文→英文 prompt 中
+  | 'plan_ready'                // 英文 prompt 就绪, 等用户最终确认
+  | 'awaiting_confirmation'     // 等用户点"确认生成"
+  | 'tool_queued'               // 已调 Agnes, 拿 taskId, 等待执行
+  | 'tool_executing'            // 任务执行中 (WS 推送 progress)
+  | 'tool_completed'            // 完成
+  | 'tool_throttled'            // 限流暂停 (v3.0.0 加: 429 持续失败 5 次后, 留 manual retry 余地)
+  | 'tool_failed';              // 失败 (可重试, 最多 3 次)
+
+/** WebSocket 任务消息 (V3.0.0 typed 协议 - 借鉴 ComfyUI + Vercel) */
+export type WSTaskMessage =
+  | { type: 'task_update'; task: { id: string; status: 'queued' | 'in_progress'; progress: number; message?: string } }
+  | { type: 'task_completed'; task: { id: string; resultUrl: string; metadata?: Record<string, unknown> } }
+  | { type: 'task_failed'; task: { id: string; error: string; retryable: boolean } };
+
+/** Agent 业务类型 (前端路由判别用) */
+export type AgentBusinessType = 'text' | 'image' | 'video';

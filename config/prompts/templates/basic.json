@@ -1,0 +1,49 @@
+{
+  "templateId": "basic",
+  "name": "基础版模板",
+  "description": "最简模板，仅包含核心要素，适合快速生成、新手使用",
+  "level": "basic",
+  "layers": {
+    "L1_core": {
+      "enabled": true,
+      "template": "{character_name}, {role_type}, {gender}, {age}, {core_visual_traits}",
+      "requiredFields": ["character_name", "role_type", "gender", "age", "core_visual_traits"]
+    },
+    "L2_style": {
+      "enabled": true,
+      "template": "{style_keywords}, {color_palette}, {mood}",
+      "requiredFields": ["style_keywords"]
+    },
+    "L3_technical": {
+      "enabled": true,
+      "template": "8k, high quality, detailed, {render_engine}, {lighting}",
+      "defaults": {
+        "quality": "8k, high quality, detailed, masterpiece",
+        "render_engine": "octane render",
+        "lighting": "cinematic lighting"
+      }
+    },
+    "L4_platform": {
+      "enabled": true,
+      "template": "{platform_params}",
+      "defaults": {
+        "midjourney": "--ar 3:4 --v 6.0 --s 250 --style raw",
+        "stableDiffusion": "--steps 30 --cfg 7 --sampler dpmpp_2m",
+        "flux": "--guidance 3.5 --steps 28"
+      }
+    }
+  },
+  "promptTemplate": "{L1_core} | {L2_style} | {L3_technical} | {L4_platform}",
+  "example": {
+    "input": {
+      "character_name": "独孤琰",
+      "role_type": "protagonist",
+      "gender": "男",
+      "age": "18岁",
+      "core_visual_traits": "身形颀长、宽肩窄腰、墨黑长发、猩红眼眸、朱砂痣",
+      "style": "hyperrealistic-cinematic",
+      "platform": "midjourney"
+    },
+    "output": "独孤琰，主角，男性，18岁，身形颀长、宽肩窄腰、墨黑长发、猩红眼眸、朱砂痣 | hyperrealistic, cinematic, 8k, 16k, skin texture, subsurface scattering | 85mm lens, f/1.4, cinematic lighting, volumetric lighting, octane render, 8k, 16k, subsurface scattering, skin texture | --ar 3:4 --v 6.0 --s 250 --style raw"
+  }
+}

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getMeApi } from '../lib/api';
 
-interface User { id: string; email: string; nickname?: string; balance?: number; role?: string; }
+interface User { id: string; email: string; username?: string; nickname?: string; avatarUrl?: string; balance?: number; role?: string; vipLevel?: number; vipExpiresAt?: number; }
 interface AuthState {
   user: User | null;
   token: string | null;

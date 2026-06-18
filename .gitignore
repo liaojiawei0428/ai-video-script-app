@@ -1,4 +1,4 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
 .pnp
 .pnp.js
@@ -66,3 +66,19 @@ AiScriptMobile
 
 codegraph/
 .codegraph/
+
+# === Temp artifacts (root only, added 2026-06-18 to fix push size) ===
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.mp4
+/*.webm
+/*.mov
+/*.gz
+/*.tar
+/*.zip
+/*.rar
+/WEB_DEPLOY_STEPS.md
+/yavg.txt
+/login-body.json

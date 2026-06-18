@@ -78,6 +78,28 @@ export class WebSocketService {
     }
   }
 
+  /**
+   * v2.5.36: 广播给所有连接 (用于系统通知)
+   * 客户端按 data.userId 字段自行过滤
+   * 之前 notify.ts 误用 broadcastProgress('__notification__', ...) 走 novelId 过滤,
+   *   导致通知实际没推到任何客户端
+   */
+  broadcastToAll(data: unknown): void {
+    const message = JSON.stringify(data);
+    let sentCount = 0;
+
+    for (const [clientId, client] of this.clients) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(message);
+        sentCount++;
+      }
+    }
+
+    if (sentCount > 0) {
+      logger.debug('WebSocket broadcast to all', { clientCount: sentCount });
+    }
+  }
+
   broadcastProgress(novelId: string, progress: number, status: string, extra?: Record<string, unknown>): void {
     this.broadcastToNovel(novelId, {
       type: 'progress',
@@ -214,7 +236,8 @@ export class WebSocketService {
           taskStatus = novel.status;
         }
         // 查询已生成的剧集数和总集数
-        let currentEpisode = 0;
+        // v2.5.36: 修复 BUG — 之前重复声明 let currentEpisode = 0, shadow 了外层同名变量
+        //   导致 if (task) 分支里的 currentEpisode 永远是初始值 0 (用 let 重新声明 = 重新创建变量)
         try {
           const eps = await episodeModel.findByNovelId(novelId);
           if (eps.length > 0) {

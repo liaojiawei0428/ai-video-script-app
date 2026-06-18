@@ -1,0 +1,21 @@
+{
+  "presetId": "cyber-warrior__hyperrealistic-cinematic__advanced",
+  "fixture": "cyber-warrior",
+  "character": "Zero",
+  "role": "protagonist",
+  "style": "hyperrealistic-cinematic",
+  "template": "advanced",
+  "platform": "midjourney",
+  "prompt": "Zero (protagonist), # 基本信息 | - 年龄: 二十七岁 | - 身份: 赛博朋克黑客，义体改造者 | # 外貌与服装 | - 短发，霓虹色挑染 (粉/青) | - 左侧机械义眼，右脸颊有义体纹路 | - 黑色机车夹克，胸口霓虹灯带 | - 右手义体为可变形光剑 | # 性格 | - 沉默寡言，行动派 | - 对AI觉醒议题有深度思考 || hyperrealistic, photorealistic, 8k, 16k, shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, Kodak Portra 400, Kodak Vision3 500T, teal and orange, cinematic color grading || shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, 8k, ultra-detailed, masterpiece || --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "negativePrompt": "cartoon, illustration, painting, drawing, anime, 3d render, cgi, blurry, low quality, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, distorted face, extra digits, fewer digits, cropped, worst quality, normal quality, jpeg artifacts, username, artist name, trademark, title",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "metadata": {
+    "styleId": "hyperrealistic-cinematic",
+    "templateId": "advanced",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 623
+  },
+  "generatedAt": "2026-06-09T01:09:26.685Z"
+}

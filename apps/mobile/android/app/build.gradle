@@ -75,8 +75,8 @@ android {
         applicationId "com.aiscriptmobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+versionCode 31
+versionName "3.0.24"
     }
     signingConfigs {
         debug {
@@ -85,15 +85,22 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // v3.0.13 (S58 P10 BUG-023): 永久 release.keystore, 25年有效
+        // 密码见 ~/.mavis/keystore/release.keystore 备份
+        release {
+            storeFile file('release.keystore')
+            storePassword 'deepscript2026'
+            keyAlias 'release'
+            keyPassword 'deepscript2026'
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // v3.0.13: 用永久 release keystore, 不用 debug (BUG-023)
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
@@ -112,11 +119,11 @@ dependencies {
     }
 }
 
-// Force older androidx.core to stay compatible with AGP 8.1.x
+// Force older androidx.core to stay compatible with AGP 8.1.x and compileSdk 33
 configurations.all {
     resolutionStrategy {
-        force 'androidx.core:core:1.12.0'
-        force 'androidx.core:core-ktx:1.12.0'
+        force 'androidx.core:core:1.10.1'
+        force 'androidx.core:core-ktx:1.10.1'
     }
 }
 

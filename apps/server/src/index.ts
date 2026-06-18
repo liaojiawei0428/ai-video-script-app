@@ -40,8 +40,8 @@ app.use(requestIdMiddleware);
 app.use(limiter);
 
 // v2.0.0 静态服务: 导出文件 + 角色图片 (只读)
-import { config as appConfig } from './config';
-app.use('/uploads', express.static(appConfig.uploadDir, {
+// v3.0.0.32 (S54): 删重复 import { config as appConfig } — L7 已 import { config }, 直接用
+app.use('/uploads', express.static(config.uploadDir, {
   setHeaders: (res, fp) => {
     res.setHeader('Cache-Control', 'public, max-age=86400');
   },
@@ -65,14 +65,14 @@ app.get('/health', (req, res) => {
 
 // APP版本检查（公开接口）
 app.get('/api/version', (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '1.0.0';
+  const currentVersion = process.env.APP_VERSION || '3.0.0-alpha';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
   res.json({
     success: true,
     data: {
       version: currentVersion,
-      downloadUrl: 'https://maque.uno/app/DeepScript_v' + currentVersion + '.apk',
+      downloadUrl: 'https://ab.maque.uno/app/DeepScript_v' + currentVersion + '.apk',
       changelog: '优化性能，修复已知问题',
       forceUpdate: needUpdate,
       needUpdate,
@@ -102,18 +102,31 @@ import feedbackRoutes from './routes/feedback';
 import notificationRoutes from './routes/notification';
 import characterRoutes from './routes/characters';
 import { outlineRoutes } from './routes/outlines';
+import imageAgentRoutes from './routes/imageAgent';   // v3.0.0 Agent 矩阵
+import videoAgentRoutes from './routes/videoAgent';   // v3.0.0 Agent 矩阵
+import downloadRoutes from './routes/download';          // v3.0.0 视频下载 proxy
+import agentUploadRoutes from './routes/agentUpload';   // v3.0.0 Agent 参考图上传
+import avatarRoutes from './routes/avatar';             // v3.0.2 (S57) 个人中心 - 头像上传
+import pricingRoutes from './routes/pricing';           // v3.0.1 (S56) 个人中心 - 收费标准端点
 
 app.use('/api/novels', novelRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/episodes', episodeRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/users/avatar', avatarRoutes);   // v3.0.2 (S57) 头像上传 (/api/users/avatar/upload, /api/users/avatar/file/...) - 必须放在 /api/users 之前
 app.use('/api/users', userRoutes);
 app.use('/api/recharge', rechargeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', characterRoutes);
+app.use('/api/pricing', pricingRoutes);     // v3.0.1 (S56) 公开计费矩阵端点 (必须放在 outlineRoutes 之前, 否则被 outline 全局 authMiddleware 拦截)
 app.use('/api', outlineRoutes);
+// v3.0.0 Agent 矩阵路由
+app.use('/api/image-agent', imageAgentRoutes);
+app.use('/api/video-agent', videoAgentRoutes);
+app.use('/api/agent', agentUploadRoutes);   // v3.0.0 Agent 参考图上传 (/api/agent/upload, /api/agent/uploads/...)
+app.use('/api/download', downloadRoutes);   // v3.0.0 视频下载 proxy
 
 // Error handling
 app.use(errorHandler);

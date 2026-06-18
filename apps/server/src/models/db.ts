@@ -355,6 +355,94 @@ async function initTables(): Promise<void> {
   } catch (err) {
     logger.warn('style_presets seed failed (可能已存在)', { error: err });
   }
+
+  // ════════════════════════════════════════════════════════════
+  //  v3.0.0 Agent 矩阵: 4 张新表 (image_conversations / image_generations / video_conversations / video_generations)
+  //  详细设计: docs/V3_AGENT_MATRIX.md §8
+  // ════════════════════════════════════════════════════════════
+
+  // ── 生图 Agent: 会话 (多轮状态机持久化) ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS image_conversations (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      status VARCHAR(30) DEFAULT 'idle',                          -- 11 态: idle/ai_clarifying/awaiting_clarification/ai_planning/plan_cn_ready/plan_translating/plan_ready/awaiting_confirmation/tool_queued/tool_executing/tool_completed/tool_failed
+      mode VARCHAR(20) DEFAULT 'text2img',                        -- text2img / img2img / multi_ref
+      messages JSON,                                              -- AgentMessage[] with parts
+      plan JSON,                                                  -- {prompt, aspectRatio, style, refImageUrls, estimatedCost}
+      plan_fields JSON,                                           -- v3.0.0.2: 10 字段标准模板 {subject, action, appearance, expression, environment, lighting, composition, style, quality, negative}
+      result_image_url TEXT,
+      last_result_url VARCHAR(500),                               -- v3.0.0.4: 持续对话用, 上次生成的图 URL, modification 时作 i2i ref image
+      aspect_ratio VARCHAR(20),
+      style_id VARCHAR(36),
+      charged_amount DECIMAL(10,2) DEFAULT 0,
+      error_msg TEXT,
+      retry_count INT DEFAULT 0,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      INDEX idx_img_conv_user (user_id, updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── 生图 Agent: 单次生成记录 (审计) ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS image_generations (
+      id VARCHAR(36) PRIMARY KEY,
+      conversation_id VARCHAR(36) NOT NULL,
+      prompt TEXT,
+      ref_image_urls JSON,
+      result_url TEXT,
+      status VARCHAR(20) NOT NULL,                                -- queued / running / completed / failed
+      charged_amount DECIMAL(10,2) DEFAULT 0,
+      error_msg TEXT,
+      created_at BIGINT NOT NULL,
+      INDEX idx_img_gen_conv (conversation_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── 视频 Agent: 会话 (异步任务持久化) ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS video_conversations (
+      id VARCHAR(36) PRIMARY KEY,
+      user_id VARCHAR(36) NOT NULL,
+      status VARCHAR(30) DEFAULT 'idle',                          -- 9 态
+      mode VARCHAR(20) DEFAULT 'text2vid',                        -- text2vid / img2vid / multi_ref
+      messages JSON,
+      plan JSON,                                                  -- {prompt, refImageUrls, durationSec, width, height, fps, mode: 'keyframes'?}
+      result_video_url TEXT,
+      duration_sec INT DEFAULT 5,
+      resolution VARCHAR(20) DEFAULT '1152x768',
+      fps INT DEFAULT 24,
+      task_id VARCHAR(100),                                       -- agnes taskId
+      video_id VARCHAR(255),                                      -- agnes videoId (base64 路由路径, ~250 字符, 之前 100 不够)
+      retry_count INT DEFAULT 0,
+      charged_amount DECIMAL(10,2) DEFAULT 0,
+      error_msg TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      INDEX idx_vid_conv_user (user_id, updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // ── 视频 Agent: 单次生成记录 (审计) ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS video_generations (
+      id VARCHAR(36) PRIMARY KEY,
+      conversation_id VARCHAR(36) NOT NULL,
+      prompt TEXT,
+      ref_image_urls JSON,
+      result_url TEXT,
+      status VARCHAR(20) NOT NULL,                                -- queued / running / completed / failed
+      duration_sec INT,
+      resolution VARCHAR(20),
+      charged_amount DECIMAL(10,2) DEFAULT 0,
+      error_msg TEXT,
+      created_at BIGINT NOT NULL,
+      INDEX idx_vid_gen_conv (conversation_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  logger.info('v3.0.0 Agent tables initialized (image_conversations, image_generations, video_conversations, video_generations)');
 }
 
 // 辅助函数：执行 SQL 并返回单行

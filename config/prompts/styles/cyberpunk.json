@@ -1,0 +1,21 @@
+{
+  "styleId": "cyberpunk",
+  "name": "赛博朋克",
+  "description": "高科技低生活，霓虹灯、赛博改造、雨夜城市",
+  "category": "cyberpunk",
+  "priority": 2.0,
+  "keywords": {
+    "style": ["cyberpunk", "cyberpunk 2077", "neon noir", "tech noir", "synthwave"],
+    "environment": ["neon city", "megacity", "sprawling metropolis", "arcology", "hive city"],
+    "lighting": ["neon lights", "volumetric lighting", "god rays", "volumetric fog", "rain", "wet surfaces"],
+    "colors": ["neon pink", "cyan", "magenta", "hot pink", "electric blue", "neon purple"],
+    "bodyMods": ["cybernetic implants", "chrome implants", "ocular implants", "neural interface"],
+    "clothing": ["techwear", "tactical gear", "AR visor", "holographic interface"],
+    "environment": ["rain", "wet surfaces", "puddles", "reflections", "steam", "steam vents"],
+    "colors": ["neon pink", "cyan", "magenta", "hot pink", "electric blue", "neon purple"],
+    "negative": ["bright daylight", "pastel colors", "peaceful", "utopian", "clean", "photorealistic"]
+  },
+  "priority": 2.0,
+  "compatibleWith": ["midjourney", "stable-diffusion", "flux", "dalle"],
+  "negativePrompt": "bright daylight, pastel colors, peaceful, utopian, clean, photorealistic, bright lighting, daytime, sunny, peaceful, calm"
+}

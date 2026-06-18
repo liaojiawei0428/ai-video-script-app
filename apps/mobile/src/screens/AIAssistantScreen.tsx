@@ -18,7 +18,7 @@ type RouteParams = {
   contextTitle?: string;
 };
 
-interface Message { role: 'user' | 'assistant'; content: string; }
+interface Message { role: 'user' | 'assistant' | 'system'; content: string; }
 
 const SUGGESTIONS = [
   '帮我润色当前剧本',
@@ -52,10 +52,16 @@ export function AIAssistantScreen(): React.JSX.Element {
     setLoading(true);
     try {
       const token = getAuthToken();
-      const res = await apiClient.post('/chat/assistant', {
-        message: content,
-        novelId: params.novelId,
-        episodeId: params.episodeId,
+      // v3.0.0: 改用 OpenAI 标准 messages 数组, 端点 /chat (不是 /chat/assistant)
+      // mobile 暂时只发当前一条 user 消息 (Phase B 再扩成完整 history)
+      const res = await apiClient.post('/chat', {
+        messages: [
+          ...messages.map(m => ({ role: m.role, content: m.content })),
+          { role: 'user', content },
+        ],
+        temperature: 0.7,
+        max_tokens: 2048,
+        enable_thinking: true,
       }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       const reply = res.data?.data?.reply || res.data?.data?.message || '...';
       setMessages(m => [...m, { role: 'assistant', content: reply }]);

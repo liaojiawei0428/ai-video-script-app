@@ -237,44 +237,17 @@ export function CharacterDetailScreen() {
       {character.description && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>角色描述</Text>
-          {(['name', 'age', 'height', 'build', 'face', 'features', 'hair', 'signature', 'clothes', 'personality'] as const).map(key => (
-            <View key={key} style={styles.descRow}>
-              <Text style={styles.descLabel}>
-                {key === 'name' ? '姓名' :
-                 key === 'age' ? '年龄' :
-                 key === 'height' ? '身高' :
-                 key === 'build' ? '体型' :
-                 key === 'face' ? '脸型' :
-                 key === 'features' ? '五官' :
-                 key === 'hair' ? '发型' :
-                 key === 'signature' ? '标志' :
-                 key === 'clothes' ? '服装' : '性格'}
-              </Text>
-              <Text style={styles.descValue}>{(character.description as any)[key] || '—'}</Text>
-            </View>
-          ))}
-          {character.description.aliases?.length > 0 && (
-            <View style={styles.descRow}>
-              <Text style={styles.descLabel}>别名</Text>
-              <Text style={styles.descValue}>{character.description.aliases.join('、')}</Text>
-            </View>
-          )}
+          {/* v3.0.6 (S58 P7 BUG-013): server 返 description 是字符串 (自由文本), 不是 10 字段对象
+              之前 S58 P1 臆造 10 字段结构, 实际 server v2.5.34 后是纯文本 */}
+          <Text style={styles.descValue}>{character.description}</Text>
         </View>
       )}
 
       {character.extraDescription && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>补充描述</Text>
-          {(['relationshipsText', 'emotionRange', 'actionHabits', 'signatureLines'] as const).map(key => (
-            <View key={key} style={styles.descRow}>
-              <Text style={styles.descLabel}>
-                {key === 'relationshipsText' ? '关系' :
-                 key === 'emotionRange' ? '情绪' :
-                 key === 'actionHabits' ? '动作' : '台词'}
-              </Text>
-              <Text style={styles.descValue}>{(character.extraDescription as any)[key] || '—'}</Text>
-            </View>
-          ))}
+          {/* 同 BUG-013: extraDescription 也是字符串 */}
+          <Text style={styles.descValue}>{character.extraDescription}</Text>
         </View>
       )}
 

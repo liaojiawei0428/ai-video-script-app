@@ -1,0 +1,21 @@
+{
+  "styleId": "guoman-anime",
+  "name": "国漫动漫风",
+  "description": "国漫动漫风格，赛璐珐上色、清晰线条、扁平上色、鲜艳色彩",
+  "category": "anime",
+  "priority": 2.0,
+  "keywords": {
+    "style": ["anime", "anime style", "donghua", "guoman", "chinese anime"],
+    "linework": ["clean linework", "cel shading", "flat shading", "bold outlines", "ink lines"],
+    "coloring": ["cel shading", "flat colors", "vibrant colors", "anime colors", "saturated colors"],
+    "character": ["anime girl", "anime boy", "anime character", "anime face", "anime eyes", "large expressive eyes"],
+    "colors": ["vibrant colors", "cel shaded", "flat colors", "anime colors", "saturated colors"],
+    "shading": ["cel shading", "hard shadows", "sharp shadows", "anime shading", "toon shading"],
+    "effects": ["speed lines", "motion lines", "action lines", "speed lines", "magic effects", "sparkles"],
+    "composition": ["dynamic pose", "dynamic angle", "dramatic angle", "low angle", "dramatic composition"],
+    "negative": ["photorealistic", "3d render", "cgi", "western art style", "western cartoon", "live action"]
+  },
+  "priority": 2.0,
+  "compatibleWith": ["midjourney", "stable-diffusion", "flux", "niji"],
+  "negativePrompt": "photorealistic, photorealistic, realistic, 3d render, cgi, western art style, western cartoon, live action, photographic, photo, photorealistic, hyperrealistic, 3d, cgi, render, blender, maya, cinema 4d, zbrush, substance painter"
+}

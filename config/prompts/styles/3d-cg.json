@@ -1,0 +1,20 @@
+{
+  "styleId": "3d-cg",
+  "name": "3D CG动画风",
+  "description": "3D CG动画风格，Pixar/Disney风格，Octane/Redshift渲染，次表面散射",
+  "category": "3d",
+  "priority": 2.0,
+  "keywords": {
+    "engine": ["octane render", "redshift", "arnold", "renderman", "vray", "unreal engine 5", "ue5"],
+    "materials": ["subsurface scattering", "clear coat", "car paint", "pearl", "iridescence", "thin film"],
+    "lighting": ["global illumination", "path tracing", "ray tracing", "caustics", "dispersion"],
+    "materials": ["cloth simulation", "fur", "hair", "subsurface scattering", "clear coat"],
+    "lighting": ["global illumination", "path tracing", "ray tracing", "caustics", "dispersion"],
+    "rendering": ["4k", "8k", "16k", "octane render", "arnold render", "renderman", "unreal engine 5"],
+    "character": ["rigging", "skin weighting", "blendshapes", "facial rig", "fur", "hair groom"],
+    "negative": ["low poly", "blocky", "pixelated", "4x4", "minecraft", "roblox", "low quality", "ugly"]
+  },
+  "priority": 2.0,
+  "compatibleWith": ["midjourney", "stable-diffusion", "flux", "dalle"],
+  "negativePrompt": "low poly, pixelated, 4x4, minecraft, roblox, low quality, ugly, deformed"
+}

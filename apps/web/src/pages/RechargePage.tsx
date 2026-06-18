@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { createRechargeApi } from '../lib/api';
-import { Wallet, CheckCircle, AlertCircle } from 'lucide-react';
+import { Wallet, CheckCircle, AlertCircle, Crown } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 
 const PRESETS = [10, 30, 50, 100, 200, 500];
@@ -42,6 +43,35 @@ export function RechargePage() {
       <div className="glass p-6 mb-6">
         <div className="text-text-tertiary text-sm">当前余额</div>
         <div className="text-4xl font-bold gradient-text mt-1">¥{balance.toFixed(2)}</div>
+      </div>
+
+      {/* v3.0.0.32 (S52): VIP 会员入口 (跟 Mobile HomeScreen.tsx:360-380 1:1 一致) */}
+      <div className="glass p-6 mb-6">
+        {user && (user as any).vipLevel >= 1 ? (
+          <div className="flex items-center gap-4">
+            <Crown size={32} className="text-warning flex-shrink-0" />
+            <div className="flex-1">
+              <div className="font-semibold text-warning">VIP 会员</div>
+              <div className="text-xs text-text-tertiary mt-1">
+                ¥0.01/千字 · ¥0.04/集分镜
+                {(user as any).vipExpiresAt && (
+                  <span> · 到期: {new Date((user as any).vipExpiresAt).toLocaleDateString('zh-CN')}</span>
+                )}
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-md bg-success/15 text-success text-xs font-semibold">已激活</span>
+            <Link to="/vip" className="text-xs text-text-tertiary hover:text-text-primary underline">详情</Link>
+          </div>
+        ) : (
+          <Link to="/vip" className="flex items-center gap-4 hover:bg-bg-tertiary/30 transition-colors -m-2 p-2 rounded-lg">
+            <Crown size={32} className="text-warning flex-shrink-0" />
+            <div className="flex-1">
+              <div className="font-semibold">开通 VIP 会员</div>
+              <div className="text-xs text-text-tertiary mt-1">¥10/年 · 享 8 折优惠费率</div>
+            </div>
+            <span className="px-3 py-1 rounded-md bg-warning/15 text-warning text-sm font-semibold">开通 ›</span>
+          </Link>
+        )}
       </div>
 
       <div className="glass p-6">

@@ -1,0 +1,21 @@
+{
+  "presetId": "cyber-warrior__chinese-ink-wash__basic",
+  "fixture": "cyber-warrior",
+  "character": "Zero",
+  "role": "protagonist",
+  "style": "chinese-ink-wash",
+  "template": "basic",
+  "platform": "midjourney",
+  "prompt": "Zero, protagonist, # 基本信息 |  | , 8k, high quality, detailed | --ar 3:4 --v 6.0 --s 250 --style raw",
+  "negativePrompt": "photorealistic, realistic, 3d render, cgi, hyperrealistic, octane render, unreal engine, unity, blender, cinema 4d, western art, oil painting, acrylic, watercolor (western), anime, cartoon, modern, modern clothing, modern architecture, car, motorcycle, electricity, wires, poles, modern building, skyscraper, neon, cyberpunk, sci-fi, futuristic, mechanical, robot, machine, technology, digital, computer, screen, monitor, phone, text, watermark, signature, logo, title",
+  "platformParams": "--ar 3:4 --v 6.0 --s 250 --style raw",
+  "metadata": {
+    "styleId": "chinese-ink-wash",
+    "templateId": "basic",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 98
+  },
+  "generatedAt": "2026-06-09T01:09:26.688Z"
+}

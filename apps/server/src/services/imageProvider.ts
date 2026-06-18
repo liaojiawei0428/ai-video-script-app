@@ -15,6 +15,10 @@ export interface ImageGenOptions {
   width?: number;
   height?: number;
   seed?: number;
+  // v2.5.28: 多模态参考图 (agres-image-2.1-flash 支持)
+  // 用于: 漫画生成时传入三视图作为角色一致性参考; 镜头生图时传入角色 sheet 图
+  // agnes 接受字符串 image_url (单张) 或字符串数组 (多张)
+  referenceImages?: string[];
 }
 
 export interface ImageGenResult {
@@ -168,12 +172,14 @@ export class PlaceholderImageProvider implements ImageProvider {
 let defaultProvider: ImageProvider = new PlaceholderImageProvider();
 
 function autoInitProvider(): ImageProvider {
-  const agnesKey = process.env.AGNES_IMAGE_API_KEY;
+  // v3.0.0: 优先读统一名 AGNES_API_KEY, 兼容旧名 AGNES_IMAGE_API_KEY (v2.5.x 历史)
+  // agnes 一个 key 通用 3 个模型 (文本/图片/视频)
+  const agnesKey = process.env.AGNES_API_KEY || process.env.AGNES_IMAGE_API_KEY;
   if (agnesKey) {
     const { AgnesImageProvider } = require('./agnesImageProvider');
     const provider = new AgnesImageProvider(agnesKey);
     defaultProvider = provider;
-    console.log(`[ImageProvider] 已注册: ${provider.name}`);
+    console.log(`[ImageProvider] 已注册: ${provider.name} (key source: ${process.env.AGNES_API_KEY ? 'AGNES_API_KEY' : 'AGNES_IMAGE_API_KEY (legacy)'})`);
     return provider;
   }
   const zhipuKey = process.env.ZHIPU_IMAGE_API_KEY;
@@ -184,7 +190,7 @@ function autoInitProvider(): ImageProvider {
     console.log(`[ImageProvider] 已注册: ${provider.name}`);
     return provider;
   }
-  console.log(`[ImageProvider] 使用占位 SVG (未配置 AGNES_IMAGE_API_KEY 或 ZHIPU_IMAGE_API_KEY)`);
+  console.log(`[ImageProvider] 使用占位 SVG (未配置 AGNES_API_KEY / AGNES_IMAGE_API_KEY / ZHIPU_IMAGE_API_KEY)`);
   return defaultProvider;
 }
 

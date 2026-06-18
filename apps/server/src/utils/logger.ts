@@ -1,4 +1,5 @@
 import winston from 'winston';
+import path from 'path';
 import { config } from '../config';
 
 const { combine, timestamp, json, errors, printf, colorize } = winston.format;
@@ -10,6 +11,9 @@ const devFormat = printf(({ level, message, timestamp, ...metadata }) => {
   }
   return msg;
 });
+
+// v2.5.36: 日志目录用绝对路径, 避免生产 cwd 变化时写错位置
+const logDir = path.resolve(config.logDir);
 
 export const logger = winston.createLogger({
   level: config.nodeEnv === 'production' ? 'info' : 'debug',
@@ -27,14 +31,14 @@ export const logger = winston.createLogger({
 if (config.nodeEnv === 'production') {
   logger.add(
     new winston.transports.File({
-      filename: 'logs/error.log',
+      filename: path.join(logDir, 'error.log'),
       level: 'error',
       format: combine(timestamp(), json(), errors({ stack: true })),
     })
   );
   logger.add(
     new winston.transports.File({
-      filename: 'logs/combined.log',
+      filename: path.join(logDir, 'combined.log'),
       format: combine(timestamp(), json()),
     })
   );

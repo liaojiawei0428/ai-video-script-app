@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert, TextInput, Platform } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement, adminUsersDetail, adminSendUserMsg } from '../api/client';
+import { adminDashboard, adminOrders, adminApprove, adminReject, sendAnnouncement, adminUsers, adminUsersDetail, adminSendUserMsg, adminFeedbacks, adminReadFeedback, adminReplyFeedback } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { deleteToken } from '../db/tokenStorage';
 import { clearAllLocalData } from '../db/sqlite';
@@ -303,7 +303,7 @@ function StatCard({ icon, label, value }: any) {
 
 function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
-  useEffect(() => { import('../api/client').then(m => m.adminUsers().then(r => setUsers(r.data?.data?.users || []))); }, []);
+  useEffect(() => { adminUsers().then(r => setUsers(r.data?.data?.users || [])); }, []);
   return (
     <FlatList
       data={users}
@@ -328,8 +328,7 @@ function AdminFeedbacks() {
   const load = async (status?: string) => {
     setLoading(true);
     try {
-      const m = await import('../api/client');
-      const r = await m.adminFeedbacks(status);
+      const r = await adminFeedbacks(status);
       setFeedbacks(r.data?.data?.feedbacks || []);
     } catch {} finally { setLoading(false); }
   };
@@ -338,8 +337,7 @@ function AdminFeedbacks() {
 
   const handleMarkRead = async (id: string) => {
     try {
-      const m = await import('../api/client');
-      await m.adminReadFeedback(id);
+      await adminReadFeedback(id);
       load();
     } catch {}
   };
@@ -347,8 +345,7 @@ function AdminFeedbacks() {
   const handleReply = async (id: string) => {
     if (!replyText.trim()) return;
     try {
-      const m = await import('../api/client');
-      await m.adminReplyFeedback(id, replyText.trim());
+      await adminReplyFeedback(id, replyText.trim());
       setReplyId(null);
       setReplyText('');
       load();

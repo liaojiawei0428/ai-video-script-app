@@ -5,13 +5,20 @@ import {
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { apiClient, getAuthToken, estimateFee } from '../api/client';
+import { apiClient, getAuthToken } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveNovel } from '../db/sqlite';
 import { API_BASE_URL } from '../config';
 import { GradientButton, GlassCard, ToastProvider, useToast } from '../components';
 import { colors, spacing, radii, typography, shadows, layout } from '../theme';
-import { STYLE_PRESETS } from '@ai-script/shared-types';
+// v3.0.0 (S58 P3): @ai-script/shared-types 没导出 STYLE_PRESETS, 改本地 inline (跟 server stylePresets.ts 字段保持一致)
+const STYLE_PRESETS = [
+  { id: 'realistic', name: '写实电影风', emoji: '🎬' },
+  { id: 'ancient',   name: '古风水墨',   emoji: '🖌️' },
+  { id: 'cyber',     name: '赛博朋克',   emoji: '🌃' },
+  { id: 'anime',     name: '动漫风',     emoji: '🎨' },
+  { id: '3d',        name: '3D 渲染',    emoji: '🧊' },
+];
 
 export function UploadScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
@@ -29,7 +36,8 @@ export function UploadScreen(): React.JSX.Element {
     if (fileInfo && isLoggedIn) {
       // 中文UTF-8每字符约3字节，估算字数
       const estimatedChars = Math.round(fileInfo.size / 3);
-      estimateFee(estimatedChars)
+      // v3.0.0 (S58 P3): 改用 apiClient 直接调用, 失败不闪退 (estimateFee 函数在 client.ts 没 export)
+      apiClient.get('/novels/estimate-fee', { params: { chars: estimatedChars }, headers: getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {} })
         .then(r => {
           const d = r.data?.data;
           if (d) {

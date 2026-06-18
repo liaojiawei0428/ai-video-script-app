@@ -51,6 +51,10 @@ export const config = {
 
   // 支付宝收款码
   qrCodeUrl: process.env.QR_CODE_URL || 'https://maque.uno/QRerweima/5c32eec856f39a0b87a7f9310bc6cf7e.jpg',
+  // v2.5.36: 二维码本地路径从 env 读, 避免硬编码
+  qrLocalPath: process.env.QR_LOCAL_PATH || '/www/wwwroot/sparrow-logic/QRerweima/QR.png',
+  // v2.5.36: 日志目录从 env 读, 避免 cwd 变化时写错位置
+  logDir: process.env.LOG_DIR || './logs',
 };
 
 if (config.deepseekApiKeys.length === 0) {

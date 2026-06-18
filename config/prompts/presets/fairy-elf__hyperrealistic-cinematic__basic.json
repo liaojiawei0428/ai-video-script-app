@@ -1,0 +1,21 @@
+{
+  "presetId": "fairy-elf__hyperrealistic-cinematic__basic",
+  "fixture": "fairy-elf",
+  "character": "阿璃",
+  "role": "protagonist",
+  "style": "hyperrealistic-cinematic",
+  "template": "basic",
+  "platform": "midjourney",
+  "prompt": "阿璃, protagonist, # 基本信息 | hyperrealistic, photorealistic, 8k, 16k, shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, Kodak Portra 400, Kodak Vision3 500T, teal and orange, cinematic color grading | hyperrealistic, photorealistic, 8k, 8k, high quality, detailed | --ar 3:4 --v 6.0 --s 250 --style raw",
+  "negativePrompt": "cartoon, illustration, painting, drawing, anime, 3d render, cgi, blurry, low quality, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, distorted face, extra digits, fewer digits, cropped, worst quality, normal quality, jpeg artifacts, username, artist name, trademark, title",
+  "platformParams": "--ar 3:4 --v 6.0 --s 250 --style raw",
+  "metadata": {
+    "styleId": "hyperrealistic-cinematic",
+    "templateId": "basic",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 348
+  },
+  "generatedAt": "2026-06-09T01:09:26.709Z"
+}

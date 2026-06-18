@@ -1,0 +1,364 @@
+# Deep剧本 Mobile — 代码规范 + BUG 记录强制流程
+
+> **本文件管两类事**:
+> 1. **代码规范** — 写代码前/中/后, 必遵守的硬性规则 (避免犯历史 BUG)
+> 2. **BUG 记录强制流程** — 修完 BUG (或用户明确指出修完) **必追加 BUGS.md 条目**, 不可遗漏
+>
+> 跟 [`BUGS.md`](./BUGS.md) 配套: BUGS.md 记**历史案例 + 根因**, 本文件记**当下要遵守的规则**。
+
+---
+
+# 第一部分: 代码规范 (硬性规则)
+
+> 这些是从 S58 期间 8 个 BUG 提炼出来的硬性规则。**新 AI / 旧 AI 改 mobile 代码前, 必读 + 必遵守**。
+
+## 1. ES6 import vs require
+
+- ✅ Tab / Dynamic component 引用, **永远用 ES6 `import { X } from '...'`**
+- ❌ **禁止** `require('./path').default` — 90% 情况是 named export, `.default` 返 `undefined`, React 渲染空白不报错 (BUG-004)
+- ✅ 写之前 `grep -n "export function X" <file>` 确认导出形式 (named / default)
+
+## 2. monorepo shared 包 import
+
+- ✅ 从 `@ai-script/shared-types` / `@ai-script/shared-utils` **只 import type** (TS type only, runtime 删除 — 安全)
+- ❌ **禁止** import value (常量/函数) — 该包当前**只放 type, 无数值导出** (BUG-005 真凶)
+- ✅ 真源都在 `apps/server/src/shared/` 下, 移动端要 value 必:
+  - 要么 inline local const (小数据)
+  - 要么 `apiClient.get('/xxx')` 调 server 接口 (大数据, 跟 web 端一致)
+- ✅ 写之前 `grep -n "export " packages/shared-types/src/index.ts` 确认**真有 export**
+
+## 3. 字段定义 (不要臆造)
+
+- ✅ 用 `obj.X` 字段前, **必查真源数据结构** (`apps/server/src/shared/`)
+- ❌ 禁止臆造字段 (BUG-005: `STYLE_PRESETS` 用了 `p.emoji`, server 根本没这字段)
+- ✅ 拿不准时, 用 `(obj as any).X` + 兜底 `|| defaultValue`
+
+## 4. 外部函数引用 (必查 export) ⚠️ S58 期间已犯 3 次
+
+- ✅ `import { X } from '../api/client'` 之前, 必 `grep -n "export.*X" client.ts` 确认
+- ❌ 禁止"看名字觉得有就 import"
+- ✅ 拿不准的函数, 写 inline 或调 server 接口 (`apiClient.get('/path')`)
+- ⚠️ **历史命中 (同根因)**:
+  - BUG-005: `estimateFee` 调了 TypeError 闪退
+  - BUG-005: `STYLE_PRESETS` 从 monorepo 拿了 undefined 闪退
+  - BUG-009: `listCharactersByNovel` 未导出 → undefined 报错 → 列表空白
+- ✅ **预防**: 写 screen 之前, 必 `cat src/api/client.ts | grep "export"` 列所有可用函数, 跟 screen import 对一遍
+- ✅ **预防 (升级版)**: 写完 screen 必跑 `npx tsc --noEmit` (或 IDE auto-import 提示) 验类型, TS 会报 "Module has no exported member 'X'"
+
+## 5. Android namespace / MainApplication
+
+- ✅ 改 `applicationId` / `namespace` 前, 必查 `AndroidManifest.xml` 引的 `.XxxXxx` 类是否在对应 `java/com/<namespace>/` 路径下
+- ✅ 改完打 release APK, 必跑 `aapt2 dump badging app-release.apk | grep launchable-activity` — 必须返 `name='com.<namespace>.MainActivity'`, 不是空
+- ✅ 看 build log `:app:compileReleaseKotlin` 是不是 `NO-SOURCE` — 是的话说明没 Kotlin 源, 必有 MainApplication 缺失问题 (BUG-001)
+
+## 6. Hermes 引擎
+
+- ✅ 永远保持 `hermesEnabled=true` (RN 0.71+ 默认, 别瞎改 false)
+- ❌ 禁止碰 `android.disableCheckAarMetadata=true` (绕过 AAR 元数据检查会导致 runtime 崩)
+- ✅ 改完打 APK, 必解压看 `assets/index.android.bundle` 前 16 字节:
+  - `C6 1F BC 03 C1 03 19 1F ...` = Hermes bytecode ✓
+  - 任何其他 = 走 JSC, 必挂 (BUG-002)
+
+## 7. Android 依赖版本
+
+- ✅ `androidx.core` 跟 `compileSdk` 配套 (当前: `compileSdk 33` + `androidx.core 1.10.1`, 不要混)
+- ✅ 升 compileSdk 时, 同步检查 `androidx.core` 是否兼容, 不兼容就降 androidx.core
+
+## 8. APK 部署 (shipin-APP)
+
+- ✅ shipin-APP `public/` 上保留**所有历史 APK** 做回滚 (命名 `DeepScript_v<ver>_<label>.apk.bak`)
+- ✅ nginx `location ^~ /app/ { alias /www/wwwroot/shipin-APP/public/; }` 自动同步公网
+- ✅ 部署新版本:
+  1. 上传到 `shipin-APP/public/DeepScript_v<newVer>.apk`
+  2. **同时**覆盖 `DeepScript_v<oldVer>.apk` (公网 + 任何 web download 路径都拿到新版)
+- ✅ 上传完必 `sha256sum` 验本地 == 远端
+
+## 9. Server 升级 (PM2)
+
+- ✅ 升级 server env 永远走 `pm2 delete 0` + `pm2 start ecosystem.config.js`, 不用 `pm2 restart` (BUG-008)
+- ✅ `pm2 start` 必在 `cd /www/wwwroot/shipin-APP` 之后跑, 否则相对路径 `./dist/index.js` 找不到
+- ✅ 改完必 `pm2 env 0 | grep <KEY>` 验证 env 真生效
+
+## 10. SSH / 部署基础
+
+- ✅ **永远从 `~/.ssh/known_hosts` 拿真实 IP**, 不信 handoff 转写的数字 (BUG-003)
+- ✅ 部署前先 `Test-NetConnection <ip> -Port 22` 验连通
+- ✅ 别用 `cd <dir> && cmd` PS 模式, 用 `workdir` 参数
+
+## 11. version 同步 (改 3 处)
+
+- ✅ bump 版本必改 3 处:
+  1. `mobile/src/config/version.ts` 的 `APP_VERSION`
+  2. `mobile/android/app/build.gradle` 的 `versionCode` (++) + `versionName`
+  3. `shipin-APP/ecosystem.config.js` 的 `env.APP_VERSION` + `env_production.APP_VERSION` (2 处) + PM2 reload
+- ✅ 改完必验:
+  - `pm2 env 0 | grep APP_VERSION` 返新值
+  - 公网 `curl /api/version?version=<老版本>` 返 `needUpdate: true, forceUpdate: true`
+  - APK `aapt2 dump badging` 返新 `versionCode` + `versionName`
+
+## 12. 升级流程 (RNFS vs 浏览器)
+
+- ✅ APP 内下载大文件, **优先 `Linking.openURL(url)` 走系统下载管理器** (Android Chrome 自带进度条 + 失败可重试)
+- ❌ 不要光 `await RNFS.downloadFile().promise` 同步等 (BUG-007: 没 progress callback, 用户看不到进度, 体感"没反应")
+- ✅ 用 `RNFS.downloadFile` 时, **必订阅 `progress` 事件** 给到 UI
+- ✅ 升级弹窗 `cancelable: true`, 留"取消 / 换浏览器"路径
+
+## 13. monorepo shared types 字段必查
+
+- ✅ 任何 `import { X } from '@ai-script/shared-types'` 必先 `grep -n "export.*X" packages/shared-types/src/index.ts` 确认
+- ✅ 字段对不上 server 真源时, 改用 `import type { X }` (type only) 或自己定义 local type
+
+## 14. Native module 引用
+
+- ✅ 用 `NativeModules.X` 前, 必 `grep "getName" X.java/X.kt` 确认 module 名字匹配
+- ✅ MainApplication.kt 手动 register 老包名模块时 (autolink 不到的), 必 `packages.add(com.xxx.YyyPackage())`
+- ✅ 装 APK 后用 logcat 看 `ReactNativeJS` 报 "Native module X is null" 来 debug
+
+## 15. build.gradle / gradle.properties 修改
+
+- ✅ 改 `gradle.properties` 关键值 (hermesEnabled, reactNativeArchitectures, newArchEnabled), **必在 BUGS.md 记录一行**
+- ✅ 改 `build.gradle` 的 `versionCode` / `versionName` / 依赖版本, 必带 v.s 注释
+- ✅ `compileSdk` 跟 `targetSdk` 跟 `minSdk` 改时, 必在 PR/commit message 列出影响
+
+## 16. screen 跟 client.ts import/export 双向核对 (源自 BUG-009)
+
+- ✅ 写完 `src/screens/XxxScreen.tsx` 必做:
+  1. `cat src/api/client.ts | grep "export"` 列所有导出函数
+  2. 跟 screen 里 `import { X } from '../api/client'` 双向核对
+  3. 任何"screen 引了但 client.ts 没 export" 的函数 = 必修
+- ✅ 不能"看 web 端 (`apps/web/src/hooks/`) 有这函数就 import" — mobile client.ts 是独立维护的
+- ❌ 禁止 TypeScript 编译报 "Module has no exported member" 还 commit
+- ✅ 写完跑 `npx tsc --noEmit` 验类型 (RN 项目配了 `tsconfig.json`, 0 配置即可跑)
+- ⚠️ **S58 期间已犯 3 次** (BUG-005 estimateFee, BUG-005 STYLE_PRESETS, BUG-009 listCharactersByNovel) — 必须跑 TS check
+
+## 17. server 返嵌套对象, mobile 必拿 `.字段` (源自 BUG-011)
+
+- ✅ 写 screen 取 server 返数据, **必看 server controller 实际返的字段**:
+  - `cat apps/server/src/controllers/XxxController.ts | grep "return success"` 找真源
+  - 或 `curl -s -H "Authorization: Bearer X" http://server/api/path` 实测
+- ❌ 禁止"按 web 端解构方式猜"或"想当然拿 data.data 当数组"
+- ✅ server 返嵌套 (e.g. `{ characters, total }`) 必拿 `data.data?.characters`
+- ⚠️ **S58 期间已犯 3 次** (BUG-005 / BUG-009 / BUG-011) — 写 screen 前**必看 server 真实结构**
+
+## 18. APP 内下载大文件, 必用自定义 Modal 显进度 (源自 BUG-010)
+
+- ✅ 大文件下载 (> 1MB) 用自定义 `<XxxProgressModal />` 组件 + RN `Modal` 始终可见
+- ❌ 禁止只用 `Alert.alert` 弹窗 (弹窗一关, 进度 0 反馈)
+- ✅ `RNFS.downloadFile` 的 `progress` callback **必接到 React state**, 不能只 console.log
+- ✅ 大文件优先 `Linking.openURL(url)` 走系统下载管理器, 自带进度条 + 失败重试
+- ⚠️ 弹窗内只能放文本 + 按钮, 不能嵌入自定义 UI (Alert 是 native dialog, 非 React 树)
+
+## 19. React component 文件必用 .tsx 后缀 (源自 BUG-012)
+
+- ✅ **任何包含 JSX 的文件, 必用 `.tsx` 后缀** (Babel 通过后缀判定 JSX 解析模式)
+- ❌ 禁止在 `.ts` 文件里写 JSX — Babel 报 `<Xxx expected ","` (误导为类型错误, 实际是 JSX 解析失败)
+- ✅ `import` 路径可不带后缀, RN 自动解析
+- ⚠️ **排查时容易误导**: 错误信息 "expected ','" 不一定是语法错, **先检查文件后缀**
+- ✅ 写新 screen / component 前, 先确认后缀是 `.tsx` (`src/screens/*.tsx`)
+
+## 20. APP 内下载大文件, 必用系统级 DownloadManager (源自 BUG-021/022)
+
+- ✅ **Android 下载大文件 (APK/视频/音频), 必用 `react-native-blob-util` 走系统 `DownloadManager`**
+- ❌ 禁止用 `RNFS.downloadFile` 下载 APK 升级包 — RN 0.73 + RNFS 2.20 progress 回调不可靠, 应用被杀下载中断
+- ✅ 标准写法:
+  ```ts
+  RNFetchBlob.config({
+    addAndroidDownloads: {
+      useDownloadManager: true,         // 关键: 系统 DownloadManager
+      title: 'Deep剧本 v' + version,
+      description: '下载完成后自动安装',
+      mime: 'application/vnd.android.package-archive',
+      mediaScannable: true,
+      notification: true,               // 通知栏固定显示
+      path: destPath,
+    },
+  }).fetch('GET', url);
+  ```
+- ✅ 装完调 `RNFetchBlob.android.actionViewIntent(path, mime)`, **不调** `Linking.openURL('file://...')` (走文件管理器)
+- ✅ Android 13+ 升级按钮 click 时静默申请 `POST_NOTIFICATIONS` 权限, 不阻塞下载
+- ✅ 升级链路测试**必卸老装新** — 老 APK 弹窗代码可能没 Modal
+- ✅ **弹窗按钮数 = 弹窗代码版本指纹** (1 按钮=S58 P4 老, 3 按钮=S58 P6+ 新)
+- ✅ 进度 UI **必用通知栏** (锁屏也能看到), 不能只靠应用内 Modal
+
+## 21. release APK 必用永久 release.keystore, 禁止用 debug 签名 (源自 BUG-023)
+
+- ✅ **release 打包必用 `signingConfigs.release`**, 永远不用 `signingConfig signingConfigs.debug`
+- ✅ **release.keystore 永久保留**, 不允许重新生成 (重新生成 = 之前所有 APK 装不上)
+- ✅ 当前 release.keystore 位置 (3 份备份):
+  - `C:\Users\Administrator\.mavis\keystore\release.keystore` (跨项目永久备份)
+  - `apps/mobile/android/app/release.keystore` (项目内, build.gradle 直接引用)
+  - git 仓库 `.gitignore` 之外, **不进 git** (跟 Sentry / 微信开发者证书一样保护)
+- ✅ 证书信息:
+  - 别名 `release`, 密码 `deepscript2026`
+  - DN `CN=DeepScript Release, O=shipin-APP, L=Shenzhen, ST=Guangdong, C=CN`
+  - SHA1 `12:9B:10:88:97:A7:C2:E7:1C:6D:3B:8B:32:58:5C:F3:76:2B:CA:80`
+  - SHA256 `E0:41:6C:83:79:A8:F4:60:8B:69:FC:41:24:A2:47:BC:9C:FA:49:4E:2D:FD:78:AC:95:E7:28:BF:B1:50:0F:8D`
+  - 有效期 2026-06-16 → 2051-06-10 (25年)
+- ✅ 验证 release APK 签名 (每版本必跑):
+  ```bash
+  apksigner verify -v app-release.apk
+  apksigner verify --print-certs app-release.apk | grep "DN:"
+  # 必须是 CN=DeepScript Release, O=shipin-APP, 不是 CN=Android Debug
+  ```
+- ❌ **禁止 `release { signingConfig signingConfigs.debug }`** (RN 0.73 默认模板的坑, 13 个版本用这个, 全部解析失败)
+- ❌ **禁止用 `keytool -genkey` 重新生成 keystore** (新 keystore 跟老 APK 签名不匹配, 装不上)
+- ✅ 升级测试**必卸老装新** (老 APK 签名 ≠ 新 APK 签名 = 装不上)
+
+## 22. 试纸 / 新版本 APK 必重打包, 禁止 cp 旧包 (源自 BUG-024)
+
+- ✅ **试纸 / 新版本 APK 必改 2 处 + 重打**:
+  - `apps/mobile/src/config/version.ts` `APP_VERSION` 字串
+  - `apps/mobile/android/app/build.gradle` `versionCode` + `versionName`
+  - `cd apps/mobile/android && gradlew assembleRelease` (3-5 min 增量编译)
+- ❌ **禁止用 `cp DeepScript_v3.0.12.apk DeepScript_v3.0.13.apk` 当试纸** — 试纸 APK 内部 versionName 仍是 3.0.12, 跟 server 3.0.13 不匹配 → 死循环弹窗
+- ✅ 试纸 5 步流程 (5 min):
+  1. 改 `version.ts` APP_VERSION (字串跟目标版本一致)
+  2. 改 `build.gradle` versionCode (单调递增) + versionName (跟 APP_VERSION 一致)
+  3. `gradlew assembleRelease` 重打 (3-5 min)
+  4. `aapt2 dump badging app-release.apk` 看 versionName 跟 `version.ts` 一致
+  5. scp 上传 + bump server APP_VERSION
+- ✅ 死循环弹窗诊断 = `aapt2 dump badging apk versionName` ≠ server APP_VERSION → 100% 是 cp 旧包漏洞
+
+## 23. actionViewIntent 装 APK 必用 _state.destPath, 不用 res.path() (源自 BUG-025)
+
+- ✅ **`useDownloadManager: true` 时, `res.path()` 返回 blob-util 内部临时路径, 不是 DownloadManager 实际落地的真文件**
+- ✅ **装 APK 必用 `_state.destPath` 拼 `file://` 协议**:
+  ```ts
+  const installPath = _state.destPath.startsWith('file://')
+    ? _state.destPath
+    : 'file://" + _state.destPath;
+  RNFetchBlob.android.actionViewIntent(
+    installPath,  // ← _state.destPath, 不是 res.path()
+    'application/vnd.android.package-archive'
+  );
+  ```
+- ❌ **禁止用 `RNFetchBlob.android.actionViewIntent(res.path(), mime)`** — `res.path()` 指错老文件
+- ✅ `_state.destPath` = `${RNFS.DownloadDirectoryPath}/DeepScript_v${version}.apk` (跟 DownloadManager 实际落地一致)
+- ✅ **统一**: 装 APK 函数 (download 完成回调 + Modal 立即安装按钮) 都用 `_state.destPath`
+- ✅ 诊断: **自动装失败 + 手动通知栏点装成功 = 100% 是 `res.path()` 指错文件** (改 `destPath` 即修)
+
+## 24. 永远只让 1 套升级 UI 代码存活 (源自 BUG-026)
+
+- ✅ **永远只让 1 套升级 UI 代码存活** (弹窗 + Modal, 不要并存全屏页)
+- ✅ **升级 UI 入口统一在 `updater.tsx`**: `showUpdateDialog` 弹 3 按钮 + `<UpdateProgressModal />` 渲染下载 Modal
+- ❌ **禁止在 `App.tsx` 写"全屏升级页"** (黑底 + 立即更新按钮那种) — 抢先 return 吞了 `showUpdateDialog` 弹窗
+- ❌ **禁止在 `App.tsx` import `Linking` 用作升级** (`Linking.openURL(updateUrl)` 走浏览器, 不能 APP 内下载) — 统一走 `Updater.start()` 调起 DownloadManager
+- ✅ **App.tsx 升级相关 state** (`needUpdate / updateVersion / updateUrl`) 全部删, 只调 `showUpdateDialog(updateInfo)`
+- ✅ 升级 UI 代码 review 时必查 `App.tsx` 跟 `updater.tsx` 两处, 看是否重复
+- ✅ 诊断: 升级行为**真机跟 AVD 不一致** = 100% 是 `App.tsx` 有全屏升级页抢 return, 删 `App.tsx` 强制更新页 if 块
+
+---
+
+# 第二部分: BUG 记录强制流程 (硬性流程)
+
+> **本节是你 (用户) 明确要求**: 每修复完成一个 BUG, 或是明确指出修复完成的 BUG, 都要严格执行记录。
+
+## 触发条件 (满足任一, 必记录)
+
+1. **AI 修完一个 BUG** (自己发现 + 自己修)
+2. **用户明确指出"修好了"** 一个 BUG (用户测过, 确认 OK)
+3. **AI 发现问题但留作"已知问题"** 暂时不修 — 也要记录 (在 BUGS.md 加一条 "未修, 原因: ...")
+4. **AI 改了某个功能, 引入新 BUG** — 必记录 (这是为了警示"这地方改过, 别再瞎动")
+
+## 记录位置
+
+**全部 BUG 进 [`BUGS.md`](./BUGS.md)**, 用 `BUG-NNN` 编号 (NNN = 3 位数字, 递增)。
+
+## 必填字段 (不可缺)
+
+每个 BUG 条目必写:
+
+```markdown
+### BUG-NNN (Sxx Py): <一句话标题>
+
+- **现象**: <用户视角看到什么>
+- **真凶**: <代码层根因, 必给文件 + 行号>
+- **修复**: <改了哪个文件, 改了什么>
+- **怎么验证修好**: <具体步骤, 跑什么命令 / 装 APK 怎么测>
+- **怎么避免再犯**: <硬性规则, 写进本文件第一部分对应编号>
+```
+
+## 记录时机 (不可延后)
+
+- ✅ **修完代码, 验完能跑, 立刻追加 BUGS.md** — 不等用户说
+- ✅ **不能"先记 TODO, 后面补"** — 必同 PR / 同 commit 一起提交
+- ✅ **用户说"修好了" 也要追加** — 哪怕 AI 自己没意识到这是 BUG, 用户指出来了就必记
+
+## 编号规范
+
+- `BUG-001` `BUG-002` ... 顺序递增, 不重用, 不跳过
+- commit message: `docs(mobile): BUGS.md 新增 BUG-NNN <一句话标题>`
+- 写到 `BUGS.md` 的 "vX.Y.Z 修复历史" 段落下, 按时间倒序 (最新在最上)
+
+## 自查清单 (AI 每次改完代码必跑)
+
+- [ ] 我改的代码, 有没有触发已知的 15 条规范? (看第一部分)
+- [ ] 改完跑 `gradlew assembleRelease` + `aapt2 dump badging` 验过 APK 吗?
+- [ ] 如果修了一个 BUG, 必追加 BUGS.md 条目了吗?
+- [ ] 如果**新引入**一个问题, 必追加 BUGS.md 条目了吗? (警示未来 AI)
+- [ ] commit message 带 BUGS.md 变更了吗?
+
+---
+
+# 第三部分: 文档索引 (跟 BUGS.md 的边界)
+
+| 文件 | 管什么 |
+|---|---|
+| **`BUGS.md`** | 历史 BUG 案例库 (8 条 + 防坑 8 类), 长期积累 |
+| **`CODING_STANDARDS.md`** (本文件) | 当下硬性规范 + BUG 记录强制流程 |
+| **`AGENTS.md`** | AI Agent 入口, 项目速览 |
+| **`CLAUDE.md`** | Claude Code 入口, 跟 AGENTS.md 同内容 |
+| `README.md` | 项目 README (在 mobile 仓根, 业务向, 跟代码规范无关) |
+
+**关系**:
+- AI 改代码前: **先读 AGENTS.md / CLAUDE.md** → 知道要读本文件
+- AI 改代码中: **遵守本文件第一部分** (15 条规范)
+- AI 改完代码: **触发本文件第二部分** (BUG 记录强制流程) → 追加 BUGS.md
+
+---
+
+# 第四部分: 文档维护规则
+
+1. **本文件不可删, 不可改结构** — 改结构会让 AI 读不到
+2. **第一部分规范条目只增不减** — 删条目 = 删防坑, 必留下 BUGS.md 历史
+3. **新增规范条目流程**:
+   - BUG 修完 → 提炼规则 → 加到第一部分对应类别
+   - 用户口头提规范 → AI 立刻加, 不需要等 BUG
+4. **本文件跟 BUGS.md 同步原则**:
+   - BUGS.md 新增 BUG-NNN → 本文件**视情况**提炼新规范
+   - 本文件新增规范 → BUGS.md **不需要** 新增 BUG, 但要在规范旁注 "源自 BUG-NNN"
+5. **commit 节奏**:
+   - 文档改动单独一个 commit: `docs(mobile): CODING_STANDARDS.md 新增第 N 条规范`
+   - 跟代码改动一起时: `fix(mobile): 修 BUG-NNN (顺手更新规范)`
+
+---
+
+# 当前生效规则 (2026-06-16 v3.0.2)
+
+| 类别 | 规范数 | 触发 BUG |
+|---|---|---|
+| ES6 import | 1 条 | BUG-004 |
+| monorepo import | 2 条 | BUG-005 |
+| 字段定义 | 1 条 | BUG-005 |
+| 外部函数引用 | 1 条 (强化) | BUG-005, BUG-009 |
+| Android namespace | 1 条 | BUG-001 |
+| Hermes 引擎 | 1 条 | BUG-002 |
+| Android 依赖版本 | 1 条 | BUG-002 |
+| APK 部署 | 1 条 | (历史) |
+| Server 升级 (PM2) | 1 条 | BUG-008 |
+| SSH / 部署基础 | 1 条 | BUG-003 |
+| version 同步 | 1 条 | (历史) |
+| 升级流程 | 1 条 | BUG-007 |
+| monorepo shared types 字段 | 1 条 | BUG-005 |
+| Native module 引用 | 1 条 | (历史) |
+| build.gradle / gradle.properties | 1 条 | (历史) |
+| screen 跟 client.ts 双向核对 | 1 条 | BUG-009 |
+| server 返嵌套对象必拿 .字段 | 1 条 (新) | BUG-005, BUG-009, BUG-011 |
+| APP 内下载必用自定义 Modal 进度 | 1 条 (新) | BUG-010 |
+| React component 必用 .tsx 后缀 | 1 条 (新) | BUG-012 |
+| **合计** | **19 条** | **12 个 BUG** |
+
+下次新 BUG 修完, 必:
+1. 追加 BUGS.md BUG-NNN 条目
+2. **提炼新规范**加到本文件第一部分, 编号递增
+3. commit message: `docs(mobile): CODING_STANDARDS.md 新增第 N 条 (源自 BUG-NNN)`

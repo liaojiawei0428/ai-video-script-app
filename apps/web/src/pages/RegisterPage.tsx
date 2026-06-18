@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { registerApi } from '../lib/api';
 import { useAuthStore } from '../store/auth';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Smartphone, Download, ChevronRight } from 'lucide-react';
 
 export function RegisterPage() {
   const nav = useNavigate();
@@ -31,7 +31,7 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-bg-primary via-bg-secondary to-bg-primary">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 py-8 bg-gradient-to-br from-bg-primary via-bg-secondary to-bg-primary">
       <div className="w-full max-w-md p-8 glass">
         <div className="flex items-center justify-center mb-6">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
@@ -63,6 +63,26 @@ export function RegisterPage() {
           已有账号? <Link to="/login" className="text-primary hover:text-accent">立即登录</Link>
         </div>
       </div>
+
+      {/* v3.0.0 (S58 P1): 下载 APP 入口 - 注册页同样入口, 注册前后都能下载 */}
+      <a
+        href="/download"
+        className="w-full max-w-md glass rounded-2xl border border-primary/30 hover:border-primary/60 hover:bg-primary/5 p-4 flex items-center gap-3 transition-all group block"
+      >
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center flex-shrink-0">
+          <Smartphone size={20} className="text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
+            <Download size={13} className="text-primary" />
+            下载 Deep剧本 APP
+          </div>
+          <div className="text-xs text-text-tertiary mt-0.5">
+            v3.0.0 · 29.8 MB · Android 5.0+ · 扫码或浏览器直接下载
+          </div>
+        </div>
+        <ChevronRight size={18} className="text-text-tertiary group-hover:text-primary group-hover:translate-x-1 transition-all" />
+      </a>
     </div>
   );
 }

@@ -1,0 +1,21 @@
+{
+  "presetId": "modern-girl__cyberpunk__advanced",
+  "fixture": "modern-girl",
+  "character": "林婉清",
+  "role": "protagonist",
+  "style": "cyberpunk",
+  "template": "advanced",
+  "platform": "midjourney",
+  "prompt": "林婉清 (protagonist), # 基本信息 | - 年龄: 二十四岁 | - 身份: 都市白领，独立女性 | # 外貌与服装 | - 鹅蛋脸，皮肤白皙 | - 黑色长发披肩，明眸善睐 | - 白色衬衫，灰色西装外套，黑色高腰西裤 | # 性格 | - 温柔坚定，外柔内刚 | - 善良但不软弱 || neon lights, volumetric lighting, god rays || neon lights, volumetric lighting, god rays, 8k, ultra-detailed, masterpiece || --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "negativePrompt": "bright daylight, pastel colors, peaceful, utopian, clean, photorealistic, bright lighting, daytime, sunny, calm",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "metadata": {
+    "styleId": "cyberpunk",
+    "templateId": "advanced",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 363
+  },
+  "generatedAt": "2026-06-09T01:09:26.669Z"
+}

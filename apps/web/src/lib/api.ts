@@ -3,7 +3,8 @@ import { useAuthStore } from '../store/auth';
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-export const apiClient = axios.create({ baseURL, timeout: 30000 });
+// v3.0.0: 5 分钟超时 (LLM 多轮 + agnes image/video 真生成可能 1-3 分钟, 原来 30s 必超时)
+export const apiClient = axios.create({ baseURL, timeout: 300000 });
 
 apiClient.interceptors.request.use((config) => {
   // v2.5.17: 如果请求已自带 Authorization (如 admin token), 不覆盖
@@ -32,7 +33,23 @@ export const registerApi = (username: string, password: string) => apiClient.pos
 
 // === User ===
 export const getMeApi = () => apiClient.get('/users/profile');
+// v3.0.1 (S56): 个人中心 - 更新用户资料 (昵称/头像)
+export const updateProfileApi = (data: { nickname?: string; avatarUrl?: string }) =>
+  apiClient.put('/users/profile', data);
+// v3.0.2 (S57): 头像上传 (multipart/form-data) → 拿到 url 再 PATCH /users/profile
+export const uploadAvatarApi = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return apiClient.post('/users/avatar/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
+// v2.5.34: 修改密码 (后端: PUT /users/password, auth middleware)
+export const changePasswordApi = (oldPassword: string, newPassword: string) =>
+  apiClient.put('/users/password', { oldPassword, newPassword });
 // 后端无独立 /users/balance → 用 /users/profile 返回中的 balance 字段
+
+// === Pricing (v3.0.1 S56) ===
+// 公开端点, 不需 auth, 返回计费矩阵 (视频/图片)
+export const getPricingApi = () => apiClient.get('/pricing');
 
 // === Novels ===
 export const getNovelsApi = (q?: string, status?: string) =>
@@ -51,6 +68,13 @@ export const uploadNovelApi = (file: File, title?: string, styleId?: string) => 
   if (title) fd.append('title', title);
   if (styleId) fd.append('styleId', styleId);
   return apiClient.post('/novels/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
+
+// v3.0.0: Agent 参考图上传 (image-agent / video-agent 通用)
+export const uploadAgentReferenceApi = (file: File) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  return apiClient.post('/agent/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
 export const analyzeNovelApi = (id: string) => apiClient.post(`/novels/${id}/analyze`);
 export const getEpisodesApi = (id: string) => apiClient.get(`/novels/${id}/episodes`);
@@ -86,13 +110,18 @@ export const exportEpisodeApi = (id: string, format: 'pdf' | 'docx' = 'pdf') =>
 // v2.5.12: 编辑镜头 (含完整越权校验)
 export const updateShotApi = (shotId: string, data: any) => apiClient.put(`/shots/${shotId}`, data);
 // v2.5.19: 漫画生成
-export const generateComicApi = (id: string) => apiClient.post(`/episodes/${id}/comic/generate`);
+// v2.5.27: 新增 useCharacterLibrary 参数 (默认 true), 角色库三视图 DNA 注入
+export const generateComicApi = (id: string, useCharacterLibrary = true) =>
+  apiClient.post(`/episodes/${id}/comic/generate`, { useCharacterLibrary });
 export const getComicApi = (id: string) => apiClient.get(`/episodes/${id}/comic`);
 
 // === Recharge (后端 /recharge/submit, /recharge/my) ===
 export const createRechargeApi = (amount: number, method: string = 'wxpay') =>
   apiClient.post('/recharge/submit', { amount, method });
 export const getRechargeHistoryApi = () => apiClient.get('/recharge/my');
+
+// === VIP (S52: 跟 Mobile 1:1 一致, 后端 POST /users/vip/buy ¥10/年) ===
+export const buyVipApi = () => apiClient.post('/users/vip/buy');
 
 // === Tasks ===
 export const getTaskProgressApi = (taskId: string) => apiClient.get(`/tasks/${taskId}/progress`);
@@ -103,6 +132,45 @@ export const deleteNovelApi = (id: string) => apiClient.delete(`/novels/${id}`);
 // === AI Assistant (聊天) ===
 export const chatApi = (messages: Array<{ role: string; content: string }>) =>
   apiClient.post('/chat/', { messages });
+
+// === v3.0.0.2 Image Agent (生图) ===
+// 端点: POST /api/image-agent/conversations, /chat, /confirm, /translate-plan
+//       PUT  /api/image-agent/plan-fields
+//       GET  /api/image-agent/conversations, /conversations/:id
+export const imageAgentCreateConversationApi = () =>
+  apiClient.post('/image-agent/conversations');
+export const imageAgentChatApi = (conversationId: string, parts: unknown[], aspectRatio?: string) =>
+  apiClient.post('/image-agent/chat', { conversationId, parts, aspectRatio });
+export const imageAgentConfirmApi = (conversationId: string) =>
+  apiClient.post('/image-agent/confirm', { conversationId });
+// v3.0.0.2: 中文方案 → 英文 prompt 翻译
+export const imageAgentTranslatePlanApi = (conversationId: string) =>
+  apiClient.post('/image-agent/translate-plan', { conversationId });
+// v3.0.0.2: 用户改 10 字段
+export const imageAgentUpdatePlanFieldsApi = (conversationId: string, fields: Record<string, string>) =>
+  apiClient.put('/image-agent/plan-fields', { conversationId, fields });
+export const imageAgentHistoryApi = (limit = 50) =>
+  apiClient.get('/image-agent/conversations', { params: { limit } });
+export const imageAgentGetApi = (id: string) =>
+  apiClient.get(`/image-agent/conversations/${id}`);
+// v3.0.0.17: 永久删除单条会话 (含 image_generations 审计)
+export const imageAgentDeleteApi = (id: string) =>
+  apiClient.delete(`/image-agent/conversations/${id}`);
+
+// === v3.0.0 Video Agent (视频) ===
+export const videoAgentCreateConversationApi = () =>
+  apiClient.post('/video-agent/conversations');
+export const videoAgentChatApi = (conversationId: string, parts: unknown[], aspectRatio?: string, durationSec?: number) =>
+  apiClient.post('/video-agent/chat', { conversationId, parts, aspectRatio, durationSec });
+export const videoAgentConfirmApi = (conversationId: string) =>
+  apiClient.post('/video-agent/confirm', { conversationId });
+export const videoAgentHistoryApi = (limit = 50) =>
+  apiClient.get('/video-agent/conversations', { params: { limit } });
+export const videoAgentGetApi = (id: string) =>
+  apiClient.get(`/video-agent/conversations/${id}`);
+// v3.0.0.17: 永久删除单条会话
+export const videoAgentDeleteApi = (id: string) =>
+  apiClient.delete(`/video-agent/conversations/${id}`);
 
 // === Notifications ===
 export const getNotificationsApi = () => apiClient.get('/notifications/');

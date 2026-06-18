@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import {
-  StatusBar, View, Text, StyleSheet, TouchableOpacity, Linking,
+  StatusBar, View, Text, StyleSheet, TouchableOpacity,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -23,6 +23,17 @@ import { PricingScreen } from './src/screens/PricingScreen';
 import { BillingScreen } from './src/screens/BillingScreen';
 import { RechargeScreen } from './src/screens/RechargeScreen';
 import { AdminDashboard } from './src/screens/AdminDashboard';
+// v3.0.0 (S58): 8 个新 screen - 跟 web 1:1 镜像
+import { ProfileScreen } from './src/screens/ProfileScreen';
+import { ImageAgentScreen } from './src/screens/ImageAgentScreen';
+import { VideoAgentScreen } from './src/screens/VideoAgentScreen';
+import { LoginScreen } from './src/screens/LoginScreen';
+import { RegisterScreen } from './src/screens/RegisterScreen';
+import { AccountScreen } from './src/screens/AccountScreen';
+import { AdminLoginScreen } from './src/screens/AdminLoginScreen';
+import { OutlineScreen } from './src/screens/OutlineScreen';
+import { TasksScreen } from './src/screens/TasksScreen';
+import { VipCenterScreen } from './src/screens/VipCenterScreen';
 import { NotificationScreen } from './src/screens/NotificationScreen';
 import { CharacterDescriptionReviewScreen } from './src/screens/CharacterDescriptionReviewScreen';
 import { CharacterDetailScreen } from './src/screens/CharacterDetailScreen';
@@ -33,17 +44,21 @@ import { AssetLibraryScreen } from './src/screens/AssetLibraryScreen';
 import { AIAssistantScreen } from './src/screens/AIAssistantScreen';
 import { PointsOrderScreen } from './src/screens/PointsOrderScreen';
 import { ToastProvider } from './src/components';
+import { DialogHost } from './src/hooks/useDialog';
+import { ToastHost } from './src/components/Toast';
 import { useNovelStore } from './src/store/useNovelStore';
 import { setAuthToken, getProfile } from './src/api/client';
 import { getToken, deleteToken } from './src/db/tokenStorage';
-import { colors, spacing, radii, typography } from './src/theme';
-import { checkForUpdate, showUpdateDialog } from './src/utils/updater';
+import { colors, spacing } from './src/theme';
+import { checkForUpdate, showUpdateDialog, UpdateProgressModal } from './src/utils/updater';
 import type { TabParamList, RootStackParamList } from './src/types/navigation';
 
-// v2.0 向量图标映射
+// v2.0 向量图标映射 (v3.0.0: 加生图 + 视频)
 const TAB_ICONS: Record<string, { outline: string; filled: string }> = {
   '书架': { outline: 'book-outline', filled: 'book' },
   '进度': { outline: 'time-outline', filled: 'time' },
+  '生图': { outline: 'image-outline', filled: 'image' },
+  '视频': { outline: 'videocam-outline', filled: 'videocam' },
   '上传': { outline: 'add-circle-outline', filled: 'add-circle' },
   '我的': { outline: 'person-outline', filled: 'person' },
 };
@@ -98,6 +113,16 @@ function HomeTabs() {
         options={{ tabBarLabel: '进度', tabBarIcon: ({ focused }) => <TabIcon label="进度" focused={focused} /> }}
       />
       <Tab.Screen
+        name="ImageAgent"
+        component={ImageAgentScreen}
+        options={{ tabBarLabel: '生图', tabBarIcon: ({ focused }) => <TabIcon label="生图" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="VideoAgent"
+        component={VideoAgentScreen}
+        options={{ tabBarLabel: '视频', tabBarIcon: ({ focused }) => <TabIcon label="视频" focused={focused} /> }}
+      />
+      <Tab.Screen
         name="Upload"
         component={UploadScreen}
         options={{ tabBarLabel: '上传', tabBarIcon: ({ focused }) => <TabIcon label="上传" focused={focused} /> }}
@@ -112,15 +137,18 @@ function HomeTabs() {
 }
 
 function App(): React.JSX.Element {
+  const isLoggedIn = useNovelStore(s => s.isLoggedIn);
   const isAdmin = useNovelStore(s => s.isAdmin);
-  const [needUpdate, setNeedUpdate] = useState(false);
-  const [updateVersion, setUpdateVersion] = useState('');
-  const [updateUrl, setUpdateUrl] = useState('');
 
   useEffect(() => {
     (async () => {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        // v3.0.0 (S58): 没 token 直接确认未登录
+        useNovelStore.getState().setLoggedIn(false);
+        useNovelStore.getState().setAdmin(false);
+        return;
+      }
       setAuthToken(token);
       useNovelStore.getState().setLoggedIn(true);
       try {
@@ -143,15 +171,15 @@ function App(): React.JSX.Element {
     })();
   }, []);
 
-  // 启动时强制检查APP更新
+  // 启动时检查APP更新 (v3.0.17 S58 P10 BUG-026: 删 S58 P7 全屏升级页, 改用 showUpdateDialog 弹窗 + UpdateProgressModal)
+  // 删 setNeedUpdate/setUpdateVersion/setUpdateUrl 3 个 state + 强制更新页 (App.tsx:140-142, 191-209)
+  // 删 updateStyles 样式 (App.tsx:305)
+  // 修 BUG-014 (S58 P7): 删全屏"立即更新"页, 让 React 渲染继续走, showUpdateDialog 弹窗能正常显示
   useEffect(() => {
     const checkUpdate = async () => {
       try {
         const updateInfo = await checkForUpdate();
         if (updateInfo) {
-          setNeedUpdate(true);
-          setUpdateVersion(updateInfo.version);
-          setUpdateUrl(updateInfo.downloadUrl);
           showUpdateDialog(updateInfo);
         }
       } catch {}
@@ -159,33 +187,24 @@ function App(): React.JSX.Element {
     checkUpdate();
   }, []);
 
-  // 强制更新页面
-  if (needUpdate) {
-    return (
-      <SafeAreaProvider>
-        <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
-        <View style={updateStyles.container}>
-          <Text style={updateStyles.icon}>🔄</Text>
-          <Text style={updateStyles.title}>发现新版本 v{updateVersion}</Text>
-          <Text style={updateStyles.desc}>请更新到最新版本后继续使用</Text>
-          <TouchableOpacity
-            style={updateStyles.btn}
-            onPress={() => Linking.openURL(updateUrl)}
-          >
-            <Text style={updateStyles.btnText}>立即更新</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaProvider>
-    );
-  }
-
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
       <ToastProvider>
         <NavigationContainer>
-          {isAdmin ? <AdminStack /> : <UserStack />}
+          {isAdmin ? (
+            <AdminStack />
+          ) : isLoggedIn ? (
+            <UserStack />
+          ) : (
+            <AuthStack />
+          )}
         </NavigationContainer>
+        {/* v3.0.5 (S58 P6 BUG-010): 在线升级进度条 Modal — 替换 S58 P4 的 Alert 弹窗 */}
+        <UpdateProgressModal />
+        {/* v3.0.24 (S60 P1): 全局 Dialog + Toast 组件 - 替代 React Native Modal + Alert.alert */}
+        <DialogHost />
+        <ToastHost />
       </ToastProvider>
     </SafeAreaProvider>
   );
@@ -195,6 +214,19 @@ function AdminStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg.primary } }}>
       <Stack.Screen name="AdminDashboard" component={AdminDashboard} options={{ title: '管理后台' }} />
+    </Stack.Navigator>
+  );
+}
+
+// v3.0.0 (S58): Auth gate - 未登录走 AuthStack, 登录后走 UserStack
+function AuthStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg.primary } }}
+    >
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} options={detailOptions('注册')} />
+      <Stack.Screen name="AdminLogin" component={AdminLoginScreen} options={detailOptions('管理员登录')} />
     </Stack.Navigator>
   );
 }
@@ -225,6 +257,13 @@ function UserStack() {
       <Stack.Screen name="AssetLibrary" component={AssetLibraryScreen} options={detailOptions('资产库')} />
       <Stack.Screen name="AIAssistant" component={AIAssistantScreen} options={{ headerShown: true, title: 'AI 助手' }} />
       <Stack.Screen name="PointsOrder" component={PointsOrderScreen} options={detailOptions('积分订单')} />
+      {/* v3.0.0 (S58): 8 个新 screen - 跟 web 1:1 镜像 */}
+      <Stack.Screen name="Profile" component={ProfileScreen} options={detailOptions('个人中心')} />
+      <Stack.Screen name="Account" component={AccountScreen} options={detailOptions('账号设置')} />
+      <Stack.Screen name="Outline" component={OutlineScreen} options={detailOptions('分集大纲')} />
+      <Stack.Screen name="Tasks" component={TasksScreen} options={detailOptions('任务进度')} />
+      <Stack.Screen name="VipCenter" component={VipCenterScreen} options={detailOptions('VIP 中心')} />
+      {/* Login/Register/AdminLogin 在 AuthStack 中 */}
     </Stack.Navigator>
   );
 }
@@ -243,26 +282,4 @@ function detailOptions(title: string) {
 export default App;
 
 const styles = StyleSheet.create({
-});
-
-const updateStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  icon: { fontSize: 64, marginBottom: 24 },
-  title: { ...typography.h1, color: colors.text.primary, marginBottom: 12, textAlign: 'center' },
-  desc: { ...typography.body, color: colors.text.secondary, marginBottom: 32, textAlign: 'center' },
-  btn: {
-    backgroundColor: colors.accent,
-    borderRadius: radii.lg,
-    paddingHorizontal: 48,
-    paddingVertical: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  btnText: { ...typography.h2, color: '#fff' },
 });

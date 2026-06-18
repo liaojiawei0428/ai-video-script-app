@@ -1,0 +1,59 @@
+# apps/server/config.toml
+# v3.0.0 首次实现 - 集中配置文件 (借鉴 MoneyPrinterTurbo)
+# 创建时间: 2026-06-09
+# 加载方式: config.ts 用 node-toml 或简单正则解析 (实施时确定)
+# 优先级: 环境变量 > config.toml > 代码默认值
+# 注意: 密钥/URL 等敏感信息放 .env, 不在本文件
+
+[chat]
+model = "agnes-2.0-flash"
+max_tokens = 2048                      # 文档建议值, Thinking 模式需要 ≥ 2048
+temperature = 0.7
+stream = true                          # 默认流式输出 (SSE)
+enable_thinking = true                 # 启用 Thinking 模式 (提升意图识别)
+max_retries = 3
+timeout_ms = 60000                     # 流式 60s 够 (单次 5min 太长)
+connect_timeout_ms = 10000             # 连接 10s
+retry_backoff_ms = [5000, 10000, 20000]  # 指数退避
+
+[image_agent]
+default_aspect_ratio = "1024x1024"
+max_clarify_rounds = 3                 # LLM 自适应引导上限 (借鉴 LobeChat)
+default_charging_t2i = 0.01            # 文生图 (占位, 上游免费)
+default_charging_i2i = 0.02            # 图生图
+default_charging_multi_ref = 0.02      # 多图参考
+max_reference_images = 1               # agnes-image-2.1-flash 单次只接受 1 张
+polling_timeout_ms = 300000            # 5 分钟 (同步调用, 不用轮询)
+retry_backoff_ms = [5000, 10000, 20000]
+soft_anchor_prefix = "[A character reference image is attached for visual identity matching only. The image provides face shape, hairstyle, hair color, and outfit color of the LEAD CHARACTER. It is NOT a template for composition. Follow the PANEL DESCRIPTIONS in the prompt below as the primary content source. The reference image's pose, background, and composition should be IGNORED.]"
+
+[video_agent]
+default_duration_sec = 5
+default_width = 1152
+default_height = 768
+default_fps = 24
+max_duration_sec = 15
+min_duration_sec = 5
+num_frames_options = { "5s" = 121, "10s" = 241, "15s" = 441 }   # 满足 8n+1
+polling_interval_ms = 5000             # 5s 轮询一次
+max_polling_attempts = 120             # 最多 10 分钟
+max_retry = 3
+charging_t2v_5s = 0.25
+charging_t2v_10s = 0.50
+charging_t2v_15s = 0.75
+charging_i2v_5s = 0.40
+charging_i2v_10s = 0.80
+charging_multi_ref_5s = 0.50
+charging_multi_ref_10s = 1.00
+
+[websocket]
+heartbeat_interval_ms = 30000          # 30s ping/pong
+client_reconnect_delay_ms = 1000
+max_reconnect_attempts = 10
+
+[api]
+agnes_base_url = "https://apihub.agnes-ai.com/v1"
+agnes_text_endpoint = "chat/completions"
+agnes_image_endpoint = "images/generations"
+agnes_video_create_endpoint = "videos"
+agnes_video_query_endpoint = "agnesapi"   # GET ?video_id=xxx (推荐) 或 fallback GET /v1/videos/{id}

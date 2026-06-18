@@ -195,6 +195,37 @@ export const updateProfile = (data: { nickname?: string; avatarUrl?: string }) =
 export const changePassword = (oldPassword: string, newPassword: string) =>
   apiClient.put('/users/password', { oldPassword, newPassword });
 
+// v3.0.0 (S58): 头像上传 (multipart/form-data) - 走 S57b 加的 POST /users/avatar/upload
+export const uploadAvatar = (
+  fileUri: string,
+  fileName: string,
+  mimeType: string = 'image/jpeg'
+): Promise<{ url: string; filename: string; size: number; mimetype: string }> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', API_BASE_URL + '/users/avatar/upload');
+    xhr.timeout = 30000;
+    const formData = new FormData();
+    formData.append('avatar', { uri: fileUri, name: fileName, type: mimeType } as any);
+    xhr.onload = () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const data = parsed?.data || parsed;
+          resolve({ url: data.url, filename: data.filename, size: data.size, mimetype: data.mimetype });
+        } else {
+          reject(new Error(parsed?.error?.message || `上传失败 (${xhr.status})`));
+        }
+      } catch {
+        reject(new Error(`响应解析失败 (HTTP ${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('网络请求失败'));
+    xhr.ontimeout = () => reject(new Error('上传超时（30秒）'));
+    xhr.send(formData);
+  });
+};
+
 // ---- Recharge ----
 
 export const getQrCode = () =>
@@ -316,3 +347,44 @@ export const generateShotImage = (shotId: string) =>
 
 export const getStylePresets = () =>
   apiClient.get('/style-presets');
+
+// v3.0.3 (S58 P5 BUG-009): CharacterListScreen 调, 之前未导出 → undefined 报错 → 列表空白
+// server 路由: GET /api/novels/:novelId/characters (routes/characters.ts:23, mount /api/characterRoutes)
+export const listCharactersByNovel = (novelId: string) =>
+  apiClient.get(`/novels/${novelId}/characters`);
+
+// ---- v3.0.0 Image Agent (生图) - 跟 web src/lib/api.ts imageAgent* 1:1 对齐 ----
+// v3.0.24 (S60 P2 BUG-041): 补全 image/video-agent 12 个 API
+//   之前 mobile ImageAgentScreen 调 /video-agent/confirm 错的 (复制粘贴没改)
+//   VideoAgentScreen 只显示 URL 60 字符 (没 Image/WebView)
+//   现在: 6 + 6 = 12 helper, screen 直接调这些
+export const imageAgentCreateConversationApi = () =>
+  apiClient.post('/image-agent/conversations');
+export const imageAgentChatApi = (conversationId: string, parts: any[], aspectRatio?: string) =>
+  apiClient.post('/image-agent/chat', { conversationId, parts, aspectRatio });
+export const imageAgentConfirmApi = (conversationId: string) =>
+  apiClient.post('/image-agent/confirm', { conversationId });
+export const imageAgentTranslatePlanApi = (conversationId: string) =>
+  apiClient.post('/image-agent/translate-plan', { conversationId });
+export const imageAgentUpdatePlanFieldsApi = (conversationId: string, fields: Record<string, string>) =>
+  apiClient.put('/image-agent/plan-fields', { conversationId, fields });
+export const imageAgentHistoryApi = (limit = 50) =>
+  apiClient.get('/image-agent/conversations', { params: { limit } });
+export const imageAgentGetApi = (id: string) =>
+  apiClient.get(`/image-agent/conversations/${id}`);
+export const imageAgentDeleteApi = (id: string) =>
+  apiClient.delete(`/image-agent/conversations/${id}`);
+
+// ---- v3.0.0 Video Agent (视频) - 跟 web src/lib/api.ts videoAgent* 1:1 对齐 ----
+export const videoAgentCreateConversationApi = () =>
+  apiClient.post('/video-agent/conversations');
+export const videoAgentChatApi = (conversationId: string, parts: any[], aspectRatio?: string, durationSec?: number) =>
+  apiClient.post('/video-agent/chat', { conversationId, parts, aspectRatio, durationSec });
+export const videoAgentConfirmApi = (conversationId: string) =>
+  apiClient.post('/video-agent/confirm', { conversationId });
+export const videoAgentHistoryApi = (limit = 50) =>
+  apiClient.get('/video-agent/conversations', { params: { limit } });
+export const videoAgentGetApi = (id: string) =>
+  apiClient.get(`/video-agent/conversations/${id}`);
+export const videoAgentDeleteApi = (id: string) =>
+  apiClient.delete(`/video-agent/conversations/${id}`);

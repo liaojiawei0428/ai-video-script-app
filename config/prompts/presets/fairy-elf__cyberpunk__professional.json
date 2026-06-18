@@ -1,0 +1,21 @@
+{
+  "presetId": "fairy-elf__cyberpunk__professional",
+  "fixture": "fairy-elf",
+  "character": "阿璃",
+  "role": "protagonist",
+  "style": "cyberpunk",
+  "template": "professional",
+  "platform": "midjourney",
+  "prompt": "[SUBJECT] 阿璃 (protagonist), # 基本信息 | - 年龄: 不老不死，外表十六岁 | - 身份: 仙界精灵，林中仙子 | # 外貌与服装 | - 银白长发及腰，尖耳 | - 冰蓝色眼眸，肌肤胜雪 | - 翠绿藤蔓缠绕的素白长裙 | - 身侧伴光蝶飞舞 | # 性格 | - 纯真好奇，对人间充满向往 | - 偶尔流露千年岁月的沧桑 || [STYLE] neon lights, volumetric lighting, god rays || [TECHNICAL] neon lights, volumetric lighting, god rays, 8k, ultra-detailed, masterpiece || [PLATFORM] --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "negativePrompt": "bright daylight, pastel colors, peaceful, utopian, clean, photorealistic, bright lighting, daytime, sunny, calm, low quality, blurry, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, extra digits, cropped, worst quality, jpeg artifacts, watermark, signature",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "metadata": {
+    "styleId": "cyberpunk",
+    "templateId": "professional",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 428
+  },
+  "generatedAt": "2026-06-09T01:09:26.724Z"
+}

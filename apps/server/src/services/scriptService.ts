@@ -903,30 +903,114 @@ ${episodeText}`;
       await billingService.guardBalance(episode.novelId, taskId, 'shot');
       await billingService.chargeStep(episode.novelId, 'shot');
 
-      // 使用流式 API 逐 token 推送分镜头内容
+      // v2.5.33: 强约束 120 秒 (108-132) - 失败 retry 1 次
+      // 每次 retry 都基于上一轮的总秒数/镜头数给 LLM 提示
       let shotContent = '';
-      try {
-        await deepseekPool.chatCompletionStreamWithRetry(
-          shotGenerationSystemPrompt(styleBibleBlock, voiceAndTone),
-          shotGenerationUserPrompt(episode.scriptContent, JSON.stringify(characters), JSON.stringify({ location: episode.sceneLocation }), styleBibleBlock, voiceAndTone),
-          (chunk) => {
-            if (NovelService.isCancelled(episode.novelId)) {
-              throw new Error('CANCELLED_BY_USER');
+      let retryHint = '';
+      const TARGET_DURATION = 120;
+      const DURATION_MIN = 108;
+      const DURATION_MAX = 132;
+      const SHOT_COUNT_MIN = 8;
+      const SHOT_COUNT_MAX = 15;
+      const MAX_ATTEMPTS = 2;  // 第一次 + 1 次 retry
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        shotContent = '';
+        const isRetry = attempt > 1;
+
+        // 广播尝试进度
+        websocketService.broadcastLlmUpdate(episode.novelId, {
+          phase: 'shot_gen', step: isRetry ? 'retry_reasoning' : 'reasoning',
+          content: isRetry
+            ? `🔄 重试第 ${attempt - 1} 次: AI 上一轮镜头数/总秒数不满足 120 秒约束, 重新生成...`
+            : '🎬 AI 正在生成镜头分析...（实时输出中）',
+          stream: false,
+        });
+
+        const systemPrompt = shotGenerationSystemPrompt(styleBibleBlock, voiceAndTone);
+        const userPrompt = shotGenerationUserPrompt(
+          episode.scriptContent,
+          JSON.stringify(characters),
+          JSON.stringify({ location: episode.sceneLocation }),
+          styleBibleBlock,
+          voiceAndTone,
+        ) + (retryHint ? `\n\n## ⚠️ 上一轮不满足约束, 重新生成:\n${retryHint}` : '');
+
+        try {
+          await deepseekPool.chatCompletionStreamWithRetry(
+            systemPrompt,
+            userPrompt,
+            (chunk) => {
+              if (NovelService.isCancelled(episode.novelId)) {
+                throw new Error('CANCELLED_BY_USER');
+              }
+              shotContent += chunk;
+              websocketService.broadcastLlmUpdate(episode.novelId, {
+                phase: 'shot_gen', step: 'output',
+                content: chunk,
+                tokens: shotContent.length,
+                stream: true,
+              });
+            },
+            0.7
+          );
+
+          // 解析 + 校验
+          const { parseShotList } = await import('./shotParser');
+          const parsed = parseShotList(shotContent);
+          const totalDuration = parsed.reduce((s, p) => s + (p.durationSec || 5), 0);
+          const shotCount = parsed.length;
+
+          logger.info('Shot attempt parsed', {
+            episodeId, taskId, attempt, shotCount, totalDuration,
+          });
+
+          // 校验: 镜头数 + 总秒数
+          const countOk = shotCount >= SHOT_COUNT_MIN && shotCount <= SHOT_COUNT_MAX;
+          const durationOk = totalDuration >= DURATION_MIN && totalDuration <= DURATION_MAX;
+
+          if (countOk && durationOk) {
+            // 满足约束, 跳出循环
+            break;
+          }
+
+          if (attempt < MAX_ATTEMPTS) {
+            // 准备 retry hint
+            const issues: string[] = [];
+            if (shotCount < SHOT_COUNT_MIN) {
+              issues.push(`镜头数太少 (${shotCount} 个, 需要 ${SHOT_COUNT_MIN}-${SHOT_COUNT_MAX} 个)`);
+              issues.push(`建议: 增加 ${SHOT_COUNT_MIN - shotCount} 个镜头`);
+            } else if (shotCount > SHOT_COUNT_MAX) {
+              issues.push(`镜头数太多 (${shotCount} 个, 需要 ${SHOT_COUNT_MIN}-${SHOT_COUNT_MAX} 个)`);
+              issues.push(`建议: 合并/删除 ${shotCount - SHOT_COUNT_MAX} 个镜头, 保留 ${SHOT_COUNT_MAX} 个`);
             }
-            shotContent += chunk;
-            websocketService.broadcastLlmUpdate(episode.novelId, {
-              phase: 'shot_gen', step: 'output',
-              content: chunk,
-              tokens: shotContent.length,
-              stream: true,
-            });
-          },
-          0.7
-        );
-      } catch (streamErr) {
-        logger.error('Shot generation stream failed', { episodeId, taskId, error: streamErr });
-        // 如果流式失败但已经有部分内容，尝试解析
-        if (!shotContent) throw streamErr;
+            if (totalDuration < DURATION_MIN) {
+              issues.push(`总秒数太短 (${totalDuration} 秒, 需要 ${DURATION_MIN}-${DURATION_MAX} 秒)`);
+              const ratio = TARGET_DURATION / totalDuration;
+              issues.push(`建议: 每个镜头的秒数 ×${ratio.toFixed(2)} (例: 5秒→${Math.round(5*ratio)}秒)`);
+            } else if (totalDuration > DURATION_MAX) {
+              issues.push(`总秒数太长 (${totalDuration} 秒, 需要 ${DURATION_MIN}-${DURATION_MAX} 秒)`);
+              const ratio = TARGET_DURATION / totalDuration;
+              issues.push(`建议: 每个镜头的秒数 ×${ratio.toFixed(2)} (例: 12秒→${Math.round(12*ratio)}秒)`);
+            }
+
+            retryHint = `- 当前总秒数: ${totalDuration} 秒\n- 当前镜头数: ${shotCount} 个\n` +
+              `- 目标: 总秒数 ${TARGET_DURATION} ±10% (${DURATION_MIN}-${DURATION_MAX} 秒), 镜头数 ${SHOT_COUNT_MIN}-${SHOT_COUNT_MAX} 个\n` +
+              `- 问题: ${issues.join('; ')}\n` +
+              `- 重新生成时请严格按上面规则分配每个镜头的秒数, 使总和 ≈ ${TARGET_DURATION} 秒`;
+
+            logger.warn('Shot generation needs retry', { episodeId, attempt, shotCount, totalDuration, issues });
+            continue;
+          }
+
+          // 最后一轮还是不满足, 跳出循环, 后面用 auto-scale 兜底
+          break;
+        } catch (streamErr) {
+          logger.error('Shot generation stream failed', { episodeId, taskId, attempt, error: streamErr });
+          if (!shotContent) throw streamErr;
+          // 有部分内容, 继续解析
+          break;
+        }
       }
 
       // 调试：记录 AI 返回的前 500 字符
@@ -948,23 +1032,49 @@ ${episodeText}`;
         firstParsed: parsed[0] ? { n: parsed[0].shotNumber, type: parsed[0].sceneType, hasDialogue: !!parsed[0].dialogue, hasImagePrompt: !!parsed[0].imagePrompt } : null,
       });
 
+      // v2.5.33: 兜底 - 解析后总秒数仍不满足约束时, auto-scale 每个 shot 的 durationSec
+      const rawTotalDuration = parsed.reduce((s, p) => s + (p.durationSec || 5), 0);
+      let scaledCount = 0;
+      if (parsed.length > 0 && (rawTotalDuration < DURATION_MIN || rawTotalDuration > DURATION_MAX)) {
+        const scaleFactor = TARGET_DURATION / rawTotalDuration;
+        logger.warn('Auto-scaling shot durations to fit 120s', {
+          episodeId, beforeTotal: rawTotalDuration, scaleFactor: scaleFactor.toFixed(3),
+        });
+        for (const p of parsed) {
+          const newDur = Math.max(5, Math.min(20, Math.round((p.durationSec || 5) * scaleFactor)));
+          if (newDur !== p.durationSec) {
+            p.durationSec = newDur;
+            scaledCount++;
+            // 同步更新 rawText 中的秒数 (用于展示)
+            p.rawText = p.rawText.replace(
+              /【?镜头(\d+)\s*[|｜]\s*(\d+(?:\.\d+)?)\s*秒】?/,
+              (m, n) => `【镜头${n} | ${newDur}秒】`,
+            );
+          }
+        }
+      }
+
       // 转换为 Shot 模型
+      // v2.5.33: 截断防御 (DB 字段是 TEXT, 但保留合理长度, 避免无意义长字符串)
+      const TRUNCATE_SHORT = 500;   // 短字段 (camera_angle/move/lighting)
+      const TRUNCATE_TEXT = 5000;   // 文本字段
+      const truncate = (s: string, max: number) => (s && s.length > max ? s.slice(0, max) : s || '');
       const shots: Shot[] = parsed.length > 0 ? parsed.map((p) => {
         return {
           id: generateUUID(), episodeId, shotNumber: p.shotNumber,
           sceneType: p.sceneType || (p.rawText.includes('EXT') ? 'EXT' : 'INT'),
           location: episode.sceneLocation || '',
           timeOfDay: p.rawText.includes('夜') ? '夜' : '日',
-          description: p.rawText.slice(0, 30000),
-          cameraAngle: p.composition || '',
-          cameraMove: p.cameraMove || '',
-          lighting: p.lighting || '',
+          description: truncate(p.rawText, 30000),
+          cameraAngle: truncate(p.composition || '', TRUNCATE_SHORT),
+          cameraMove: truncate(p.cameraMove || '', TRUNCATE_SHORT),
+          lighting: truncate(p.lighting || '', TRUNCATE_SHORT),
           durationSec: p.durationSec,
-          audioNote: p.audioNote || '',
-          dialogue: p.dialogue || '',
-          action: p.action || '',
+          audioNote: truncate(p.audioNote || '', TRUNCATE_TEXT),
+          dialogue: truncate(p.dialogue || '', TRUNCATE_TEXT),
+          action: truncate(p.action || '', TRUNCATE_TEXT),
           status: 'completed' as const,
-          imagePrompt: p.imagePrompt || '',
+          imagePrompt: truncate(p.imagePrompt || '', TRUNCATE_TEXT),
         } as any;
       }) : [{
         id: generateUUID(), episodeId, shotNumber: 1,
@@ -1045,6 +1155,16 @@ ${episodeText}`;
             .join('');
           const finalPrompt = imagePrompt + charDescSnippet;
 
+          // v2.5.28: 收集涉及角色的三视图 URL 作为参考 (主角优先)
+          const referenceImages: string[] = (involvedChars as any[])
+            .map(c => {
+              const variants = (c.imageVariants || []) as any[];
+              const sheet = variants.find(v => v.angle === 'sheet' && (v.url || v.imageData));
+              return sheet ? (sheet.url || sheet.imageData) : '';
+            })
+            .filter(Boolean)
+            .slice(0, 1); // 镜头图用 1 张参考, 避免主题干扰
+
           const result = await imageProvider.generate({
             prompt: finalPrompt || 'cinematic shot',
             styleId: (styleId as any),
@@ -1052,6 +1172,7 @@ ${episodeText}`;
             height: 320,
             angle: 'full_body' as any,
             seed: Date.now() + shot.shotNumber,
+            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
           });
 
           await shotModel.update(shot.id, {

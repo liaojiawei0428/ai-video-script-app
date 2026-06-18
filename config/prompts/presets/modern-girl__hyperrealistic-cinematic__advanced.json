@@ -1,0 +1,21 @@
+{
+  "presetId": "modern-girl__hyperrealistic-cinematic__advanced",
+  "fixture": "modern-girl",
+  "character": "林婉清",
+  "role": "protagonist",
+  "style": "hyperrealistic-cinematic",
+  "template": "advanced",
+  "platform": "midjourney",
+  "prompt": "林婉清 (protagonist), # 基本信息 | - 年龄: 二十四岁 | - 身份: 都市白领，独立女性 | # 外貌与服装 | - 鹅蛋脸，皮肤白皙 | - 黑色长发披肩，明眸善睐 | - 白色衬衫，灰色西装外套，黑色高腰西裤 | # 性格 | - 温柔坚定，外柔内刚 | - 善良但不软弱 || hyperrealistic, photorealistic, 8k, 16k, shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, Kodak Portra 400, Kodak Vision3 500T, teal and orange, cinematic color grading || shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, 8k, ultra-detailed, masterpiece || --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "negativePrompt": "cartoon, illustration, painting, drawing, anime, 3d render, cgi, blurry, low quality, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, distorted face, extra digits, fewer digits, cropped, worst quality, normal quality, jpeg artifacts, username, artist name, trademark, title",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png",
+  "metadata": {
+    "styleId": "hyperrealistic-cinematic",
+    "templateId": "advanced",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 594
+  },
+  "generatedAt": "2026-06-09T01:09:26.660Z"
+}

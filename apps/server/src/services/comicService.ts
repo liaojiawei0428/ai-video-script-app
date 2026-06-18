@@ -22,6 +22,8 @@ import {
   comicGenerationUserPrompt,
   calculateComicLayout,
   inferComicStyle,
+  extractShortIdentity,
+  selectMainReferenceCharacter,
   ComicLayout,
   ComicStyle,
   ComicShotInput,
@@ -55,7 +57,8 @@ function sizeForLayout(layout: ComicLayout): { width: number; height: number; si
 export class ComicService {
 
   /** 入口: 队列任务并立即返回 task */
-  async generateComic(episodeId: string): Promise<TaskJob> {
+  // v2.5.27: 新增 useCharacterLibrary 参数 (默认 true), 用户可关闭以跳过角色库注入
+  async generateComic(episodeId: string, useCharacterLibrary = true): Promise<TaskJob> {
     const episode = await episodeModel.findById(episodeId);
     if (!episode) throw new AppError('EPISODE_NOT_FOUND', 'Episode not found', 404);
 
@@ -81,6 +84,8 @@ export class ComicService {
       progress: 0,
       totalSteps: 4,
       currentStep: 0,
+      // v2.5.27: 持久化 useCharacterLibrary 标志, 后台执行时读取
+      resultData: { useCharacterLibrary, episodeId },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -105,14 +110,20 @@ export class ComicService {
 
       if (!shots || shots.length === 0) throw new Error('没有可用的分镜数据');
 
+      // v2.5.27: 读取 useCharacterLibrary 标志 (默认 true, 角色库注入)
+      const taskRow = await taskJobModel.findById(taskId);
+      const useCharacterLibrary = (taskRow?.resultData as any)?.useCharacterLibrary !== false;
+
       // 1. 准备阶段
       await taskJobModel.updateProgress(taskId, 10, 1);
       websocketService.broadcastLlmUpdate(episode.novelId, {
         phase: 'comic_gen', step: 'preparing',
-        content: '🎨 正在准备漫画生成数据...',
+        content: useCharacterLibrary && characters.length > 0
+          ? `🎨 正在准备漫画生成数据 (含 ${characters.length} 个角色视觉 DNA)...`
+          : '🎨 正在准备漫画生成数据...',
         stream: false,
       });
-      logger.info('Comic generation start', { episodeId, taskId, shotCount: shots.length });
+      logger.info('Comic generation start', { episodeId, taskId, shotCount: shots.length, useCharacterLibrary, characterCount: characters.length });
 
       // 2. 计算布局 & 扣费守门
       const layoutInfo = calculateComicLayout(shots.length);
@@ -131,11 +142,38 @@ export class ComicService {
         imagePrompt: (s as any).imagePrompt || '',
       }));
 
-      // 4. 角色输入 (从 characters 表读取描述)
-      const comicCharacters: ComicCharacterInput[] = characters.map(c => ({
-        name: c.name,
-        description: (c as any).description || '',
-      }));
+      // 4. 角色输入 (v2.5.29: 简化, 收集 referenceSheetUrl + appearanceCount)
+      //    - description: 11 维结构化 JSON (降级用)
+      //    - visualDna: 从 image_variants[0].prompt 提取的简短身份描述
+      //    - hasSheet: 角色是否有三视图
+      //    - roleType: 用于 selectMainReferenceCharacter 选主参考图 (主角 > 配角)
+      //    - referenceSheetUrl: 角色三视图图 URL, 用于 agnes-image-2.1-flash 多模态生成
+      //    - appearanceCount: 角色在本集 shot 描述中出现的次数 (用于主参考图选择)
+      //    当 useCharacterLibrary=false 时, 注入空数组 (纯剧本+风格生成)
+      //    统计每个角色在 shots 描述中出现的次数
+      const allText = comicShots.map(s => `${s.visual} ${s.dialogue}`).join(' ');
+      const comicCharacters: ComicCharacterInput[] = useCharacterLibrary
+        ? characters.map(c => {
+            const variants = (c.imageVariants || []) as any[];
+            const sheetVariant = variants.find(v => v.angle === 'sheet' && (v.url || v.imageData));
+            const sheetUrl = sheetVariant ? (sheetVariant.url || sheetVariant.imageData) : '';
+            // 简单计数: 角色名在所有 shot 文本中出现次数
+            const appearanceCount = (allText.match(new RegExp(c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+            // v2.5.29: 简短身份描述 (200 字符内)
+            const shortId = sheetVariant
+              ? extractShortIdentity(sheetVariant.prompt || '')
+              : '';
+            return {
+              name: c.name,
+              description: (c as any).description || '',
+              visualDna: shortId,
+              hasSheet: !!sheetVariant,
+              roleType: c.roleType as any,
+              referenceSheetUrl: sheetUrl,
+              appearanceCount,
+            };
+          })
+        : [];
 
       // 5. 风格 (v2.5.20: 从 novel styleBible 自动推断)
       const styleBible = (novel as any)?.styleBible;
@@ -193,6 +231,20 @@ export class ComicService {
           logger.info('Comic page using aspect ratio', {
             episodeId, taskId, page, layout, ...sizeInfo,
           });
+
+          // v2.5.29: 选主参考图角色 (出现频次最高的 + 主角)
+          // agnes-image-2.1-flash 单次只接受 1 张 image_url, 我们只传"主参考"
+          const mainRef = selectMainReferenceCharacter(comicCharacters);
+          const referenceImage = mainRef?.referenceSheetUrl;
+          logger.info('Comic reference image selection', {
+            episodeId, taskId, page,
+            mainChar: mainRef?.name,
+            mainCharRole: mainRef?.roleType,
+            mainCharAppearances: mainRef?.appearanceCount,
+            useReference: !!referenceImage,
+            refUrl: referenceImage?.slice(0, 60),
+          });
+
           const result = await imageProvider.generate({
             prompt: systemPrompt + '\n\n' + userPrompt,
             styleId: (novel as any)?.styleId,
@@ -200,6 +252,7 @@ export class ComicService {
             width: sizeInfo.width,
             height: sizeInfo.height,
             seed: Date.now() + page,
+            referenceImages: referenceImage ? [referenceImage] : undefined,
           });
           const durationMs = Date.now() - startMs;
 

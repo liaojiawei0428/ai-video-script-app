@@ -123,6 +123,7 @@ export class NovelModel {
       scenes: typeof row.scenes === 'string' ? JSON.parse(row.scenes || '[]') : (row.scenes || []),
       plotPoints: typeof row.plot_points === 'string' ? JSON.parse(row.plot_points || '[]') : (row.plot_points || []),
       fullSummary: row.full_summary || '',
+      novelExcerpts: row.novel_excerpts || '',
       analysisReport: row.analysis_report || '',
       status: row.status,
       createdAt: row.created_at,

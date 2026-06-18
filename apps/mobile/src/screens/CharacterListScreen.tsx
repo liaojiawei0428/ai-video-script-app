@@ -27,8 +27,11 @@ export function CharacterListScreen(): React.JSX.Element {
         listCharactersByNovel(novelId),
         getStylePresets().catch(() => ({ data: { data: [] } })),
       ]);
-      setCharacters(charRes.data?.data || []);
-      setStyles(styleRes.data?.data || []);
+      // v3.0.5 (S58 P6 BUG-011): server 返 { characters: [...], total: N }, 之前直接拿 data 当数组 → 渲染空
+      // server: characterController.listByNovel line 85 return success(res, { characters, total })
+      setCharacters(charRes.data?.data?.characters || []);
+      // 同样 BUG: listStylePresets 返 { presets: rows }, 不是平铺数组
+      setStyles(styleRes.data?.data?.presets || []);
     } catch (e) {
       console.warn('Load characters failed', e);
     } finally {
@@ -83,7 +86,8 @@ export function CharacterListScreen(): React.JSX.Element {
             <View style={styles.cardBody}>
               <Text style={styles.charName} numberOfLines={1}>{item.name}</Text>
               <Text style={styles.charMeta} numberOfLines={1}>
-                {item.gender || '?'} · {item.role || '?'} · 画风: {styleNameOf(item.styleId)}
+                {/* v3.0.6 (S58 P7 BUG-013): server 字段是 roleType, 没有 gender/role 字段 */}
+                {item.roleType || '?'} · 画风: {styleNameOf(item.styleId)}
               </Text>
               <View style={[styles.badge, { backgroundColor: badge.color + '20' }]}>
                 <Ionicons name={badge.icon as any} size={12} color={badge.color} />

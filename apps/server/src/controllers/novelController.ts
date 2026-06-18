@@ -422,7 +422,7 @@ ${ep.scriptContent || ''}`;
     try {
       const { characterId } = req.params;
       const userId = (req as any).userId;
-      const { name, appearance, personality, roleType, description, extraDescription } = req.body;
+      const { name, aliases, appearance, personality, roleType, description, extraDescription } = req.body;
 
       // 越权校验: 通过 character → novel 链路确认所有权
       const char = await characterModel.findById(characterId);
@@ -442,8 +442,9 @@ ${ep.scriptContent || ''}`;
         }
       }
 
-      await characterModel.updateFull(characterId, { name, appearance, personality, roleType, description, extraDescription });
-      logger.info('Character full update', { characterId, userId, hasDesc: !!description, fields: description ? Object.keys(description).length : 0 });
+      // v2.5.34: aliases 数组, description/extraDescription 字符串
+      await characterModel.updateFull(characterId, { name, aliases, appearance, personality, roleType, description, extraDescription });
+      logger.info('Character full update', { characterId, userId, hasDesc: !!description, descLen: typeof description === 'string' ? description.length : 0 });
       res.json({
         success: true,
         data: { updated: true },

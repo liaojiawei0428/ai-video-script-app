@@ -7,6 +7,7 @@ import { useNovelStore } from '../store/useNovelStore';
 import { saveEpisodes } from '../db/sqlite';
 import type { NavigationProp, EpisodeListRouteProp } from '../types/navigation';
 import { Episode, Scene, PlotPoint } from '@ai-script/shared-types';
+import { colors } from '../theme';
 
 export function EpisodeListScreen(): React.JSX.Element {
   const route = useRoute<EpisodeListRouteProp>();

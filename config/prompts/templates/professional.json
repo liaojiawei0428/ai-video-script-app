@@ -1,0 +1,208 @@
+{
+  "templateId": "professional",
+  "name": "专业版模板",
+  "description": "专业模板，完整四层架构 + 上下文感知 + 平台自适应，支持精细控制",
+  "level": "professional",
+  "layers": {
+    "L1_core": {
+      "enabled": true,
+      "template": "{character_name} ({archetype}), {role_type}, {gender}, {age} | PHYSICAL: {physical_traits} | APPEARANCE: {appearance} | PERSONALITY: {personality} | BACKGROUND: {background} | SIGNATURE: {signature}",
+      "requiredFields": [
+        "character_name", "role_type", "gender", "age", "archetype",
+        "physical_traits", "appearance"
+      ],
+      "optionalFields": [
+        "personality", "background", "signature",
+        "emotional_range", "body_language", "speech_style"
+      ],
+      "subTemplates": {
+        "physical_traits": "{face_shape} face, {eyes}, {eyebrows}, {nose}, {lips}, {hair_color} {hair_style} {hair_length} hair, {body_type}, {skin}",
+        "appearance": "wearing {clothing_top} with {clothing_outer} and {clothing_bottom}, {footwear}, {neck_accessories}, {hand_accessories}, carrying {props}",
+        "personality": "{personality_traits}, default expression: {default_expression}, emotional range: {emotional_range}",
+        "background": "{social_class}, {backstory}, {relationships}",
+        "signature": "{distinctive_features}, {signature_action}, {iconic_item}"
+      },
+      "contextAwareness": {
+        "enableDynamicPriority": true,
+        "protagonistBoost": 1.5,
+        "supportingBoost": 1.2,
+        "backgroundBoost": 0.8,
+        "rule": "主角/配角/路人字段丰度自动调节，主角获得 +50% 详细度加成"
+      }
+    },
+    "L2_style": {
+      "enabled": true,
+      "template": "{style_keywords}, {color_palette}, {mood}, {era}, {composition}, artistic influences: {artistic_influences}",
+      "requiredFields": ["style_keywords"],
+      "optionalFields": [
+        "color_palette", "mood", "era", "composition", "artistic_influences"
+      ],
+      "styleTemplates": {
+        "hyperrealistic-cinematic": "hyperrealistic, cinematic, photorealistic, 85mm portrait lens, Kodak Portra 400, subsurface scattering, film grain, cinematic color grading, anamorphic bokeh",
+        "chinese-ink-wash": "Chinese ink wash painting, gongbi fine brushwork, xieyi freehand style, rice paper texture, five tones of ink, mineral pigments, liubai negative space, classical Chinese composition",
+        "cyberpunk": "cyberpunk 2077 aesthetic, neon noir, tech-noir, rain-soaked streets, holographic UI, chromatic aberration, neon pink/cyan, blade runner vibes, dystopian future",
+        "guoman-anime": "Chinese animation style, donghua aesthetics, cel shading, clean linework, vibrant flat colors, large expressive eyes, modern guoman style, like Fog Hill of Five Gods / White Cat Legend",
+        "3d-cg": "Pixar-quality 3D animation, octane render, subsurface scattering on skin, stylized realism, like Disney/Pixar/DreamWorks productions, path tracing, physically based rendering"
+      },
+      "moodLibrary": {
+        "ancient_romance": "melancholic, longing, ethereal",
+        "wuxia": "epic, heroic, atmospheric",
+        "xianxia": "ethereal, mystical, celestial",
+        "cyberpunk": "gritty, neon-lit, dystopian",
+        "modern_drama": "contemplative, intimate, realistic",
+        "comedy": "whimsical, lighthearted, playful",
+        "thriller": "menacing, tense, shadowy"
+      },
+      "eraLibrary": {
+        "ancient_china": "Han/Tang/Song/Ming dynasty China, traditional architecture, hanfu clothing, court aesthetics",
+        "modern_china": "contemporary urban China, 2020s",
+        "future_cyberpunk": "2077 dystopian future, megacities, rain",
+        "fantasy": "mythological realm, xianxia cultivation world"
+      }
+    },
+    "L3_technical": {
+      "enabled": true,
+      "template": "[CAMERA] {camera} | [LIGHTING] {lighting} | [RENDER] {rendering} | [MATERIALS] {materials} | [POST] {postProcessing}",
+      "subTemplates": {
+        "camera": "{lens} lens at {focal_length}mm, f/{aperture}, {sensor_size} sensor, {camera_angle} angle, {camera_movement} movement",
+        "lighting": "{lighting_type} lighting from {light_direction} ({light_quality}), {color_temperature}K, key:{key_light}, fill:{fill_light}, rim:{rim_light}, contrast {contrast_ratio}",
+        "rendering": "{engine} at {resolution}, {samples} samples, denoiser:{denoiser}, GI:{gi}, caustics:{caustics}, SSS enabled",
+        "materials": "skin:{skin}, hair:{hair}, cloth:{cloth}, metal:{metal}, glass:{glass}, fabric:{fabric}",
+        "postProcessing": "{color_grading}, grain:{film_grain}, bloom:{bloom}, vignette:{vignette}, CA:{chromatic_aberration}"
+      },
+      "defaults": {
+        "camera": {
+          "lens": "Zeiss Supreme Prime",
+          "focal_length": "85",
+          "aperture": "1.4",
+          "sensor_size": "full frame",
+          "camera_angle": "eye level",
+          "camera_movement": "static"
+        },
+        "lighting": {
+          "lighting_type": "cinematic three-point",
+          "light_direction": "45-degree",
+          "light_quality": "soft key",
+          "color_temperature": "5600",
+          "key_light": "softbox key 1m",
+          "fill_light": "reflector fill -1EV",
+          "rim_light": "hair light 1.5m",
+          "contrast_ratio": "4:1"
+        },
+        "rendering": {
+          "engine": "octane render",
+          "resolution": "8K",
+          "samples": "4096",
+          "denoiser": "OIDN",
+          "gi": "true",
+          "caustics": "false",
+          "sss": "true"
+        },
+        "materials": {
+          "skin": "subsurface scattering 0.8, visible pores, peach fuzz",
+          "hair": "anisotropic specular, strand variation",
+          "cloth": "physically based, micro-wrinkles",
+          "metal": "Fresnel reflection, IOR 2.5",
+          "glass": "IOR 1.5, caustics",
+          "fabric": "PBR, weave detail"
+        },
+        "postProcessing": {
+          "color_grading": "cinematic teal-orange",
+          "film_grain": "subtle 35mm grain",
+          "bloom": "subtle",
+          "vignette": "10%",
+          "chromatic_aberration": "subtle 0.5px"
+        }
+      },
+      "styleOverrides": {
+        "chinese-ink-wash": {
+          "rendering.engine": "traditional media simulation",
+          "rendering.resolution": "high DPI print",
+          "postProcessing.color_grading": "ink wash monochrome + accent colors",
+          "postProcessing.film_grain": "rice paper texture"
+        },
+        "3d-cg": {
+          "rendering.engine": "octane render / unreal engine 5",
+          "rendering.samples": "8192"
+        }
+      }
+    },
+    "L4_platform": {
+      "enabled": true,
+      "template": "{platform_params}",
+      "platformPresets": {
+        "midjourney": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref {ref_url} --q 2",
+        "midjourney-v7": "--ar 3:4 --v 7.0 --s 300 --style raw --cref {ref_url} --cw 100",
+        "stableDiffusion": "--steps 35 --cfg 7.5 --sampler dpmpp_2m_karras --resolution 1024x1536 --hires-fix --denoising 0.4",
+        "flux-dev": "--guidance 3.5 --steps 50 --width 1024 --height 1536",
+        "flux-pro": "--guidance 4.0 --steps 28 --width 1024 --height 1536 --raw",
+        "dalle3": "--quality hd --size 1024x1792 --style vivid",
+        "agnes": "(no platform params, text-only prompt, image_url: {ref_url})"
+      },
+      "parameterMappings": {
+        "aspectRatio": {
+          "portrait": "--ar 3:4",
+          "landscape": "--ar 16:9",
+          "square": "--ar 1:1",
+          "cinematic": "--ar 21:9",
+          "tall_portrait": "--ar 9:16"
+        },
+        "quality": {
+          "draft": "--q 0.5",
+          "standard": "--q 1",
+          "high": "--q 2"
+        },
+        "stylize": {
+          "low": "--s 50",
+          "balanced": "--s 250",
+          "high": "--s 750",
+          "max": "--s 1000"
+        }
+      },
+      "platformAdapter": {
+        "autoDetect": true,
+        "fallbackOrder": ["midjourney", "stableDiffusion", "flux", "dalle"],
+        "rules": {
+          "midjourney": "convert numeric values to --flag form, dedupe",
+          "stableDiffusion": "output key=value pairs",
+          "flux": "output --flag value form",
+          "dalle": "natural language + size param"
+        }
+      }
+    }
+  },
+  "promptTemplate": "[SUBJECT] {L1_core} || [STYLE] {L2_style} || [TECHNICAL] {L3_technical} || [PLATFORM] {L4_platform}",
+  "separator": " || ",
+  "negativePrompt": {
+    "enabled": true,
+    "template": "--no {negative_keywords}",
+    "autoInclude": [
+      "low quality", "blurry", "distorted", "deformed", "ugly",
+      "bad anatomy", "extra limbs", "missing fingers", "extra digits",
+      "cropped", "worst quality", "jpeg artifacts", "watermark", "signature"
+    ]
+  },
+  "qualityGates": {
+    "minPromptLength": 50,
+    "maxPromptLength": 2000,
+    "requiredLayers": ["L1_core", "L2_style"],
+    "validation": "warn if any required field is missing, refuse if < minPromptLength"
+  },
+  "example": {
+    "input": {
+      "character_name": "独孤琰",
+      "archetype": "tyrant emperor",
+      "role_type": "protagonist",
+      "gender": "male",
+      "age": "18",
+      "physical_traits": "tall slender build, broad shoulders, narrow waist, oval face, blood-red eyes, cinnabar mole between eyebrows, ink-black long hair",
+      "appearance": "wearing black dragon robe with gold embroidery, jade crown, dragon-pattern jade belt, carrying horn dagger",
+      "personality": "cold and ruthless, bloodthirsty madness, trusts eunuch Wan",
+      "background": "emperor of Great Zhou dynasty, feared by all concubines",
+      "signature": "blood-red eyes, cinnabar mole, horn dagger",
+      "style": "hyperrealistic-cinematic",
+      "platform": "midjourney"
+    },
+    "output": "[SUBJECT] Dugu Yan (tyrant emperor), protagonist, male, 18 | PHYSICAL: oval face, blood-red eyes, cinnabar mole between eyebrows, ink-black long straight hair, tall slender build, porcelain pale skin | APPEARANCE: wearing black dragon robe with gold embroidery, jade crown, dragon-pattern jade belt, carrying horn dagger | PERSONALITY: cold ruthless, bloodthirsty, default expression: cold stare | BACKGROUND: emperor, feared by concubines | SIGNATURE: blood-red eyes, cinnabar mole, horn dagger || [STYLE] hyperrealistic, cinematic, photorealistic, 85mm portrait lens, Kodak Portra 400, subsurface scattering, film grain, cinematic color grading, teal and orange, melancholic menacing mood, ancient china tang dynasty era, rule of thirds composition || [TECHNICAL] [CAMERA] Zeiss Supreme Prime lens at 85mm, f/1.4, full frame sensor, eye level angle, static movement | [LIGHTING] cinematic three-point lighting from 45-degree (soft key), 5600K, key:softbox key 1m, fill:reflector fill -1EV, rim:hair light 1.5m, contrast 4:1 | [RENDER] octane render at 8K, 4096 samples, denoiser:OIDN, GI:true, caustics:false, SSS enabled | [MATERIALS] skin:subsurface scattering 0.8, visible pores | [POST] cinematic teal-orange, grain:subtle 35mm, bloom:subtle, vignette:10% || [PLATFORM] --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --q 2"
+  }
+}

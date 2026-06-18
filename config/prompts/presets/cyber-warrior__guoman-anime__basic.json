@@ -1,0 +1,21 @@
+{
+  "presetId": "cyber-warrior__guoman-anime__basic",
+  "fixture": "cyber-warrior",
+  "character": "Zero",
+  "role": "protagonist",
+  "style": "guoman-anime",
+  "template": "basic",
+  "platform": "midjourney",
+  "prompt": "Zero, protagonist, # 基本信息 |  | , 8k, high quality, detailed | --ar 3:4 --v 6.0 --s 250 --style raw",
+  "negativePrompt": "photorealistic, realistic, 3d render, cgi, western art style, western cartoon, live action, photographic, photo, hyperrealistic, 3d, render, blender, maya, cinema 4d, zbrush, substance painter",
+  "platformParams": "--ar 3:4 --v 6.0 --s 250 --style raw",
+  "metadata": {
+    "styleId": "guoman-anime",
+    "templateId": "basic",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 98
+  },
+  "generatedAt": "2026-06-09T01:09:26.698Z"
+}

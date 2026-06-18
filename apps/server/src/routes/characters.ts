@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { characterController } from '../controllers/characterController';
 import { episodeController } from '../controllers/episodeController';
 import { authMiddleware } from '../middleware/auth';
+import { adminAuth } from '../middleware/adminAuth';
 
 const router = Router();
 
@@ -20,6 +21,8 @@ router.put('/shots/:shotId', authMiddleware, episodeController.updateShot);
 // 小说级角色
 router.post('/novels/:novelId/characters/extract', authMiddleware, characterController.extract);
 router.get('/novels/:novelId/characters', authMiddleware, characterController.listByNovel);
+// v2.5.35: 一键修复双层 JSON 历史数据 (admin only, 仅供迁移用)
+router.post('/fix-double-json', adminAuth, characterController.fixDoubleJsonDescriptions);
 
 // 画风预设
 router.get('/style-presets', authMiddleware, characterController.listStylePresets);

@@ -1,0 +1,21 @@
+{
+  "presetId": "ancient-emperor__3d-cg__professional",
+  "fixture": "ancient-emperor",
+  "character": "独孤琰",
+  "role": "protagonist",
+  "style": "3d-cg",
+  "template": "professional",
+  "platform": "midjourney",
+  "prompt": "[SUBJECT] 独孤琰 (protagonist), # 基本信息 | - 年龄: 十八岁 | - 身份: 大周天子，暴君 | # 外貌与服装 | - 身形颀长，宽肩窄腰，四肢修长 | - 瓜子脸，眉如远山，猩红眼眸，妖冶阴鸷 | - 朱砂痣位于眉心，肤色苍白如纸 | - 墨黑长发，玉冠束发 | - 玄色龙袍绣金丝龙纹，黑色皂靴 | # 性格与气质 | - 冷峻阴鸷，嗜血疯狂 | - 对万公公极度信赖 | - 后宫嫔妃皆惧怕他 # 标志物 | - 羊角匕 (随身暗器) | - 龙纹玉佩 | # 关键剧情 | - 暴虐开局, 后期被触动 | - 权力斗争中失去龙位 || [STYLE] global illumination, path tracing, ray tracing || [TECHNICAL] global illumination, path tracing, ray tracing, 8k, ultra-detailed, masterpiece || [PLATFORM] --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "negativePrompt": "low poly, pixelated, 4x4, minecraft, roblox, low quality, ugly, deformed, blurry, distorted, bad anatomy, extra limbs, missing fingers, extra digits, cropped, worst quality, jpeg artifacts, watermark, signature",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "metadata": {
+    "styleId": "3d-cg",
+    "templateId": "professional",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 544
+  },
+  "generatedAt": "2026-06-09T01:09:26.631Z"
+}

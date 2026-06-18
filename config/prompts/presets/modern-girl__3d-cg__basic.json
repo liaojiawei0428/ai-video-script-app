@@ -1,0 +1,21 @@
+{
+  "presetId": "modern-girl__3d-cg__basic",
+  "fixture": "modern-girl",
+  "character": "林婉清",
+  "role": "protagonist",
+  "style": "3d-cg",
+  "template": "basic",
+  "platform": "midjourney",
+  "prompt": "林婉清, protagonist, # 基本信息 | global illumination, path tracing, ray tracing | , 8k, high quality, detailed | --ar 3:4 --v 6.0 --s 250 --style raw",
+  "negativePrompt": "low poly, pixelated, 4x4, minecraft, roblox, low quality, ugly, deformed",
+  "platformParams": "--ar 3:4 --v 6.0 --s 250 --style raw",
+  "metadata": {
+    "styleId": "3d-cg",
+    "templateId": "basic",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 143
+  },
+  "generatedAt": "2026-06-09T01:09:26.678Z"
+}

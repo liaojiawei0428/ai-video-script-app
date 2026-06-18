@@ -1,8 +1,17 @@
+// apps/server/src/services/agnesImageProvider.ts
+// v2.5.0: 接入 agnes-image-2.0-flash
+// v2.5.23: 优先使用 width/height, fallback SIZE_OPTIONS
+// v2.5.28: 升级到 agnes-image-2.1-flash 多模态, 支持 referenceImages
+// v3.0.0: 修复字段路径 - 文档要求 image/response_format 必须在 extra_body 内 (顶层会 400)
+// v3.0.0: 统一环境变量名 AGNES_API_KEY (兼容旧名 AGNES_IMAGE_API_KEY, 一个 key 通用 3 个模型)
+
 import { ImageProvider, ImageGenOptions, ImageGenResult } from './imageProvider';
 import { logger } from '../utils/logger';
 
 const AGNES_API_URL = 'https://apihub.agnes-ai.com/v1/images/generations';
-const AGNES_MODEL = 'agnes-image-2.0-flash';
+// v2.5.28: 升级到 Image 2.1 Flash (支持 multimodal: text + image_url)
+// vs 文本模型 agnes-2.0-flash (chat/completions, 用于理解/对话)
+const AGNES_MODEL = 'agnes-image-2.1-flash';
 
 const SIZE_OPTIONS: Record<string, string> = {
   front_bust: '768x1024',
@@ -13,21 +22,61 @@ const SIZE_OPTIONS: Record<string, string> = {
 };
 
 export class AgnesImageProvider implements ImageProvider {
-  readonly name = 'agnes-image-2.0-flash';
+  readonly name = 'agnes-image-2.1-flash';
   readonly supportsNegativePrompt = false;
 
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.AGNES_IMAGE_API_KEY || '';
+    // v3.0.0: 优先用统一名 AGNES_API_KEY, 兼容旧名 AGNES_IMAGE_API_KEY (v2.5.x 历史)
+    this.apiKey = apiKey || process.env.AGNES_API_KEY || process.env.AGNES_IMAGE_API_KEY || '';
     if (!this.apiKey) {
-      logger.warn('AGNES_IMAGE_API_KEY not set');
+      logger.warn('AGNES_API_KEY (或 AGNES_IMAGE_API_KEY) not set');
+    }
+  }
+
+  /** v3.0.0.1: 把 /api/agent/uploads/ 本地 URL 读取并转 base64 data URL, agnes 拉不到鉴权 URL 必须内联 */
+  private async inlineIfLocal(url: string): Promise<string> {
+    if (!url) return url;
+    // v3.0.0.18: 把 shipin-APP 同源 URL 规范化成相对路径, agens 拉会 401 (没 JWT)
+    let normalized = url;
+    if (/^https?:\/\/[^\/]+/.test(url)) {
+      try {
+        const u = new URL(url);
+        if (u.pathname.startsWith('/api/agent/uploads/')) {
+          normalized = u.pathname;
+          logger.info('AgnesImageProvider: normalized shipin-APP URL to relative', { original: url, normalized });
+        } else {
+          return url;  // 真正的公网 URL, 不处理
+        }
+      } catch {}
+    }
+    if (normalized.startsWith('data:')) return url;
+    const match = normalized.match(/\/api\/agent\/uploads\/([^/]+)\/([^/]+)$/);
+    if (!match) return url;
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const filePath = path.join(process.env.UPLOAD_DIR || '/www/wwwroot/shipin-APP/uploads', 'agent-references', match[1], match[2]);
+      if (!fs.existsSync(filePath)) {
+        logger.warn('AgnesImageProvider: ref file not found on disk', { filePath });
+        return url;
+      }
+      const buf = fs.readFileSync(filePath);
+      const ext = match[2].toLowerCase();
+      const mime = ext.endsWith('.png') ? 'image/png' : ext.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+      const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+      logger.info('AgnesImageProvider: inlined ref image to base64', { filename: match[2], bytes: buf.length });
+      return dataUrl;
+    } catch (e: any) {
+      logger.warn('AgnesImageProvider: inlineIfLocal failed, fallback to URL', { error: e.message });
+      return url;
     }
   }
 
   async generate(options: ImageGenOptions): Promise<ImageGenResult> {
     if (!this.apiKey) {
-      throw new Error('Agnes API Key 未配置 (AGNES_IMAGE_API_KEY)');
+      throw new Error('Agnes API Key 未配置 (AGNES_API_KEY 或 AGNES_IMAGE_API_KEY)');
     }
 
     const start = Date.now();
@@ -36,16 +85,39 @@ export class AgnesImageProvider implements ImageProvider {
       ? `${options.width}x${options.height}`
       : (SIZE_OPTIONS[options.angle] || '1024x1024');
 
-    const body = {
+    // v3.0.0: 按 Agnes 官方文档要求, image/response_format 必须在 extra_body 内 (顶层会 400)
+    // 文档原话: "顶层 response_format 会 400, response_format 必须在 extra_body"
+    const body: any = {
       model: AGNES_MODEL,
       prompt: options.prompt.slice(0, 4000),
       size,
+      extra_body: {
+        response_format: 'url',                  // ← v3.0.0: 必须在 extra_body
+      },
     };
+
+    if (options.referenceImages && options.referenceImages.length > 0) {
+      // v3.0.0: 字段名 + 路径都改 - image_url (顶层 string) → extra_body.image (字符串或数组)
+      // agnes-image-2.1-flash 单次只接受 1 张图, 取主角参考图
+      let refImg = options.referenceImages[0];
+
+      // v3.0.0.1: /api/agent/uploads/ URL 带鉴权, agnes 拉不到 (它没 JWT) → 读盘转 base64 data URL
+      refImg = await this.inlineIfLocal(refImg);
+
+      body.extra_body.image = refImg;
+      // v2.5.29: 弱化参考图权重, 让 prompt 主导
+      // 旧版 "Strictly follow" 强指令导致 agnes 把图当成主体, 输出"角色图"而非剧情
+      // 改用 "soft anchor": 只用于身份匹配, 不影响场景构图
+      // 参考 IPAdapter 经验: 降低 weight, 让 text prompt 主导 (70/30)
+      body.prompt = `[A character reference image is attached for visual identity matching only. The image provides face shape, hairstyle, hair color, and outfit color of the LEAD CHARACTER. It is NOT a template for composition. Follow the PANEL DESCRIPTIONS in the prompt below as the primary content source. The reference image's pose, background, and composition should be IGNORED.]\n\n${body.prompt}`;
+    }
 
     logger.info('AgnesImageProvider: generating', {
       angle: options.angle,
       promptLen: body.prompt.length,
       size,
+      hasReference: !!body.extra_body?.image,
+      referenceCount: options.referenceImages?.length || 0,
     });
 
     let lastError: Error | null = null;
@@ -101,6 +173,7 @@ export class AgnesImageProvider implements ImageProvider {
           durationMs,
           urlPrefix: url.slice(0, 80),
           angle: options.angle,
+          hasReference: !!body.extra_body?.image,
         });
 
         return {

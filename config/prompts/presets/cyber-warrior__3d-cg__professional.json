@@ -1,0 +1,21 @@
+{
+  "presetId": "cyber-warrior__3d-cg__professional",
+  "fixture": "cyber-warrior",
+  "character": "Zero",
+  "role": "protagonist",
+  "style": "3d-cg",
+  "template": "professional",
+  "platform": "midjourney",
+  "prompt": "[SUBJECT] Zero (protagonist), # 基本信息 | - 年龄: 二十七岁 | - 身份: 赛博朋克黑客，义体改造者 | # 外貌与服装 | - 短发，霓虹色挑染 (粉/青) | - 左侧机械义眼，右脸颊有义体纹路 | - 黑色机车夹克，胸口霓虹灯带 | - 右手义体为可变形光剑 | # 性格 | - 沉默寡言，行动派 | - 对AI觉醒议题有深度思考 || [STYLE] global illumination, path tracing, ray tracing || [TECHNICAL] global illumination, path tracing, ray tracing, 8k, ultra-detailed, masterpiece || [PLATFORM] --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "negativePrompt": "low poly, pixelated, 4x4, minecraft, roblox, low quality, ugly, deformed, blurry, distorted, bad anatomy, extra limbs, missing fingers, extra digits, cropped, worst quality, jpeg artifacts, watermark, signature",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "metadata": {
+    "styleId": "3d-cg",
+    "templateId": "professional",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 447
+  },
+  "generatedAt": "2026-06-09T01:09:26.707Z"
+}

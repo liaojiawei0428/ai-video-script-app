@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: { primary: '#0A0E1A', secondary: '#141B2D', tertiary: '#1F2940' },
+        bg: { primary: '#0F172A', secondary: '#1E293B', tertiary: '#334155' },
         text: { primary: '#F1F5F9', secondary: '#94A3B8', tertiary: '#64748B' },
         accent: { DEFAULT: '#3B82F6', hover: '#2563EB' },
         primary: '#6366F1',

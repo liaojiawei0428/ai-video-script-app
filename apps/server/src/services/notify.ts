@@ -36,9 +36,14 @@ export async function createNotification(
     const notification = await notificationModel.create(userId, type, title, content, relatedId);
     const priority = getPriority(type, title);
 
-    // 通过 WebSocket 推送实时通知 (广播到所有连接, 客户端按 userId 过滤)
-    websocketService.broadcastProgress('__notification__', 0, 'notification', {
-      id: notification.id, title, content, type, priority, createdAt: notification.createdAt, userId,
+    // v2.5.36: 修复 BUG — 之前用 broadcastProgress('__notification__', ...) 走 novelId 过滤,
+    //   但没有客户端订阅 '__notification__', 所以通知实际没推到任何客户端
+    //   改用 broadcastToAll 广播所有连接, 客户端按 userId 字段自行过滤
+    // 注: ws 消息的 type 字段 (事件类型) 跟外层 NotifyType 参数 (业务类型) 冲突,
+    //   把外层参数 rename 为 notifyType, ws 消息保留 type='notification'
+    websocketService.broadcastToAll({
+      type: 'notification',
+      id: notification.id, title, content, notifyType: type, priority, createdAt: notification.createdAt, userId,
     });
 
     logger.info('Notification created', { userId, type, title: title.slice(0, 50), priority });

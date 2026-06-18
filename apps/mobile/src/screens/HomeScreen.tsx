@@ -295,6 +295,15 @@ export function HomeScreen(): React.JSX.Element {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* v3.0.0 (S58): 管理员登录入口 (跟 web AdminLoginPage 1:1 镜像) */}
+        <TouchableOpacity
+          style={styles.adminLoginLink}
+          onPress={() => navigation.navigate('AdminLogin')}
+        >
+          <Ionicons name="shield-checkmark-outline" size={14} color={colors.text.tertiary} />
+          <Text style={styles.adminLoginText}>管理员登录</Text>
+        </TouchableOpacity>
       </ScrollView>
     );
   }
@@ -345,6 +354,10 @@ export function HomeScreen(): React.JSX.Element {
         </TouchableOpacity>
         <TouchableOpacity style={styles.editButton} onPress={() => { setEditNickname(info.nickname); setSelectedAvatar(info.avatarUrl || ''); setEditing(true); }}>
           <Text style={styles.editButtonText}>编辑</Text>
+        </TouchableOpacity>
+        {/* v3.0.0 (S58): 跳独立 ProfileScreen (跟 web ProfilePage 1:1 镜像 - 头像上传 + 完整菜单) */}
+        <TouchableOpacity style={styles.profileDetailBtn} onPress={() => navigation.navigate('Profile')}>
+          <Ionicons name="chevron-forward" size={20} color={colors.text.tertiary} />
         </TouchableOpacity>
       </View>
 
@@ -409,6 +422,25 @@ export function HomeScreen(): React.JSX.Element {
         <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Settings')}>
           <Ionicons name="settings-sharp" size={20} color={colors.primary} style={styles.menuIcon} />
           <Text style={styles.menuText}>设置</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
+        </TouchableOpacity>
+        {/* v3.0.0 (S58): 新增菜单项 - 跟 web 1:1 镜像 */}
+        <View style={styles.menuDivider} />
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Tasks')}>
+          <Ionicons name="sync" size={20} color={colors.primary} style={styles.menuIcon} />
+          <Text style={styles.menuText}>任务进度</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
+        </TouchableOpacity>
+        <View style={styles.menuDivider} />
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('VipCenter')}>
+          <Ionicons name="diamond" size={20} color={colors.primary} style={styles.menuIcon} />
+          <Text style={styles.menuText}>VIP 中心</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
+        </TouchableOpacity>
+        <View style={styles.menuDivider} />
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Account')}>
+          <Ionicons name="lock-closed" size={20} color={colors.primary} style={styles.menuIcon} />
+          <Text style={styles.menuText}>修改密码</Text>
           <Ionicons name="chevron-forward" size={18} color={colors.text.tertiary} />
         </TouchableOpacity>
         <View style={styles.menuDivider} />
@@ -547,6 +579,17 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 4 },
   buttonDisabled: { backgroundColor: colors.primaryLight },
   switchText: { fontSize: 14, color: colors.primary, textAlign: 'center', marginTop: 16 },
+  adminLoginLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+    gap: 6,
+  },
+  adminLoginText: {
+    fontSize: 13,
+    color: colors.text.tertiary,
+  },
 
   profileContent: { padding: 16, paddingBottom: 40 },
   profileHeader: {
@@ -563,6 +606,7 @@ const styles = StyleSheet.create({
   editButtonText: { fontSize: 14, fontWeight: '600', color: colors.primary },
   notifButton: { position: 'relative', padding: 8, marginRight: 8 },
   notifIcon: { fontSize: 24 },
+  profileDetailBtn: { padding: 8 },
   notifBadge: {
     position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, borderRadius: 9,
     backgroundColor: colors.error, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,

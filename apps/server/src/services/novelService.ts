@@ -526,7 +526,42 @@ export class NovelService {
 
     logger.info('Novel analysis completed', { novelId, taskId });
 
-    // 分析完成后自动进入剧集生成
+    // v2.5.36 GAP-1 修复: 自动生成 outline + plotGraph, 失败不阻塞剧集生成
+    // 后续可在 OutlinePage / PlotGraphPage 查看/编辑/确认
+    // 注: 当前不强制 outline_confirmed 检查 (切集算法两套并存, 留 v2.0.1 统一)
+    try {
+      const { outlineService } = await import('./outlineService');
+
+      websocketService.broadcastLlmUpdate(novelId, {
+        phase: 'outline_generating', step: 'reasoning',
+        content: '📋 正在生成分集大纲...', stream: false,
+      });
+      const outline = await outlineService.generateOutline(novelId);
+      logger.info('Auto-generated outline', { novelId, itemCount: outline.items.length });
+      websocketService.broadcastLlmUpdate(novelId, {
+        phase: 'outline_generating', step: 'output',
+        content: `✅ 分集大纲已生成 (${outline.items.length} 集), 可在 OutlinePage 查看/编辑/确认`,
+        stream: false,
+      });
+
+      websocketService.broadcastLlmUpdate(novelId, {
+        phase: 'plot_graph_generating', step: 'reasoning',
+        content: '📊 正在生成章节事件图谱...', stream: false,
+      });
+      const plotGraph = await outlineService.generatePlotGraph(novelId);
+      logger.info('Auto-generated plotGraph', { novelId, chapterCount: plotGraph.chapters.length });
+      websocketService.broadcastLlmUpdate(novelId, {
+        phase: 'plot_graph_generating', step: 'output',
+        content: `✅ 章节事件图谱已生成 (${plotGraph.chapters.length} 章), 可在 PlotGraphPage 查看`,
+        stream: false,
+      });
+    } catch (err) {
+      logger.warn('Auto-generate outline/plotGraph failed (not blocking)', {
+        novelId, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // 分析完成后自动进入剧集生成 (沿用原切集算法, 后续 v2.0.1 统一集数计算)
     try {
       const scriptService = (await import('./scriptService')).scriptService;
       await scriptService.generateEpisodes(novelId);

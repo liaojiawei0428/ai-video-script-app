@@ -1,0 +1,391 @@
+version: 1
+plan:
+  name: 'shipin-APP audit 22 条全量修复 (server 后端)'
+  max_concurrency: 5
+  max_consecutive_failures: 2
+  max_cycles: 6
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: fix-imageagent-deadcode
+    title: '清理 imageAgentService 死代码 (v3.0.0.13 残留)'
+    prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读前置: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md (尤其 §1 §2 §4 §6)
+
+      目标文件: apps/server/src/services/imageAgentService.ts
+      兼看: apps/server/src/controllers/imageAgentController.ts (确认 controller 端是否还在调死方法)
+
+      **死代码清理清单** (audit 报告 #1-#4 + #15-#16):
+      1. L6-7 `// import { agnesTextProvider }` 注释块 → 整行删
+      2. L15-16 `// import { SYSTEM_PROMPT, LLMDecisionV2, ... }` 注释块 → 整行删
+      3. L17 紧跟 `import { parseAspectRatioFromText, parseAspectToDims }` 是真用的 → 保留
+      4. **L31-86** `extractFirstBalancedJson / tryParseBalanced / findMatchingClose` 三个函数 + 整段调用 — 全部删除, 包括 "防御性 JSON 提取" 注释头
+      5. **L306-358** `translatePlan` 整个方法 — 检查 controller 是否真在调
+         - 如果 controller 调了 → 保留方法但标 `// DEPRECATED: v3.0.0.16 极简模式后不再使用, 计划 v3.1.0 删除`
+         - 如果没人调 → 整段删
+      6. **L362-383** `updatePlanFields` 方法 — 同上
+      7. L24 `const MAX_CLARIFY_ROUNDS = 3;` — 全文件无引用 → 删
+      8. **L179-181** `estimateCharging` 函数 (永远返 0) — 保留函数 (给 confirm 调), 但加注释说明 S51 改免费 + 日限额后这函数就是占位
+      9. L17 `// v3.0.0.13 不再用 10 字段 system prompt / LLM decision` 注释 import 块 — 已删的话检查是否还有遗留
+
+      **额外修复 (audit #11)**:
+      - L266-274 AI 消息包含 plan + text 两个 part, text 写"方案已就绪 ✨..." → 这是 v3.0.0 极简模式的 UI 兜底, **保留**, 但加注释引用 docs/V3_AGENT_MATRIX.md
+
+      **严禁**:
+      - 引入新依赖 (zod, lodash, axios 等)
+      - 改 processTurn / confirm / runImageGenerationBackground 的主逻辑 (那是别的 task 改)
+      - 改 `baseText` 文案
+      - 改 aspect ratio 解析 (那是 fix-aspect task)
+      - 改字符编码 (AGENTS.md 要求中文注释, 但文件里英文注释 OK, 不要全翻译)
+
+      **完成后必做**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` → 必须 0 错
+      2. 写 deliverable.md 列: 删了哪几个函数/常量/注释块, 保留了什么, controller 是否还在调
+      3. 报告 commit hash (如果你 commit 了) 或修改文件清单
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md
+
+      **独立验证 (不要只 re-read diff)**:
+      1. 跑 `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 必须 0 错
+      2. 跑 `cd apps/server && grep -nE "extractFirstBalancedJson|tryParseBalanced|findMatchingClose|translatePlan|updatePlanFields|MAX_CLARIFY_ROUNDS" src/services/imageAgentService.ts` — 这些都不应再出现 (除非标 DEPRECATED)
+      3. 跑 `cd apps/server && grep -rn "translatePlan\|updatePlanFields" src/` — 检查 controller / route 是不是真没在调
+         - 如果 controller 还在调 + coder 把方法删了 → **FAIL**: 编译会爆, 或运行时 controller 调空方法
+         - 如果 controller 还在调 + coder 标了 DEPRECATED → PASS 但 note
+      4. 检查 `processTurn / confirm / runImageGenerationBackground` 主逻辑没被改 (用 git diff 看)
+      5. 检查 `import { imageProvider }` 跟 `import { parseAspectRatioFromText, parseAspectToDims }` 这俩真用的 import 还在
+
+      **FAIL 条件**:
+      - tsc 编译错
+      - 死代码没删干净 (残留 1 处)
+      - 主逻辑被改动
+      - 引入新依赖 (package.json diff 有新包)
+    timeout_ms: 1800000
+
+  - id: fix-videocontrol-async-lock
+    title: 'video + image agent confirm 异步任务加锁, 清理重复 import / stale comment'
+    prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md (尤其 §7 异步任务无锁)
+
+      目标文件:
+      - apps/server/src/services/videoAgentService.ts (主修)
+      - apps/server/src/services/imageAgentService.ts (副修, 不与 fix-imageagent-deadcode 冲突)
+
+      **核心修复 (audit #6 P0)**: 异步任务加锁
+      视频和图片的 `confirm()` 用了 `setImmediate(() => runXxxBackground(...).catch(...))`,
+      没有 in-memory lock。**重复点 confirm 会触发多条 background 链**。
+
+      实现方案:
+      ```typescript
+      // 类级别 (file-scope, 在 class 外)
+      const backgroundLocks = new Map<string, Promise<void>>();
+
+      // confirm() 调用 background 前:
+      const existing = backgroundLocks.get(conversationId);
+      if (existing) {
+        throw new Error('上一个任务还在进行中, 请稍候');
+        // 或: return { taskId: existingTaskId, status: 'queued' }; (复用)
+      }
+      const bgPromise = this.runXxxBackground(...).finally(() => {
+        backgroundLocks.delete(conversationId);
+      });
+      backgroundLocks.set(conversationId, bgPromise);
+      setImmediate(() => bgPromise.catch(err => logger.error(...)));
+      ```
+
+      两个 service 都要加。**image 的 background 签名是 `runImageGenerationBackground(conversationId, taskId, plan, lastResultUrl, amount)`, video 的是 `runCreateTaskInBackground(...)` (10 参) — 仔细对应**。
+
+      **顺手修 (audit #7-#9)**:
+      - **#7 重复 import**: apps/server/src/index.ts L43 `import { config as appConfig } from './config';` — 删 (L7 已 import 过)
+      - **#8 videoAgentService L182**: `|| (conv.plan as any)?.aspectRatio` — 改走 `parsePlan(conv.plan)?.aspectRatio` (import parsePlan, 用 L63-69 已定义的)
+      - **#9 videoAgentService L20-22 注释 / 代码不一致**: "保留 import 兼容其它文件可能的引用" + 实际 import 已注释 — 删整段 `// v3.0.0.28 (S48)...` 注释块 (L18-20)
+
+      **严禁**:
+      - 改 processTurn 主逻辑
+      - 改 AGENTS.md / docs/notes/ (那是部署约束, 不属于这次修复)
+      - 加新依赖
+      - 改 confirm 里的 plan 构造 / 计费守门 / 错误回滚路径 — 保持原样
+
+      **完成后**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 0 错
+      2. 写 deliverable.md: 加锁策略 (新抛错 vs 复用) / 删除的重复 import / 修的 stale comment
+      3. 报告修改清单
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md §7
+
+      **独立验证**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 0 错
+      2. 检查 `backgroundLocks` 实际插入位置: `grep -n "backgroundLocks.set\|backgroundLocks.get" src/services/videoAgentService.ts src/services/imageAgentService.ts` — 两个 service 都要有
+      3. 检查 lock 删除: `grep -n "backgroundLocks.delete" src/services/*.ts` — finally 块清理
+      4. 检查 index.ts 重复 import 已删: `grep -n "from './config'" src/index.ts` — 应只 1 行 (L7)
+      5. 检查 videoAgentService L182 已走 parsePlan: 看 line 182 附近是否用 `parsePlan(conv.plan)?.aspectRatio`
+      6. **并发行为测试** (写临时 .mavis/plans/concurrent_test.ts):
+         ```typescript
+         // 模拟 2 次连续 confirm 同一 conversation
+         // 预期第二次抛 "上一个任务还在进行中" 或复用第一个 taskId
+         // 不能 2 条 background 同时跑
+         ```
+         跑 `npx ts-node .mavis/plans/concurrent_test.ts` 验证
+         (或 grep + 静态读 lock 代码确认逻辑闭合)
+      7. 删掉测试文件 (用 mavis-trash)
+
+      **FAIL 条件**:
+      - tsc 错
+      - 锁逻辑死锁 (set 后忘 delete, 没 finally)
+      - 锁 key 拼错 (用了 taskId 不用 conversationId — 同一 conversation 多次 confirm 锁不上)
+      - 重复 import 没删
+    timeout_ms: 1800000
+
+  - id: fix-types-and-character
+    title: '修 CharacterExtraDescription 类型不一致 + 11 维结构对齐'
+    prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md §5
+
+      目标文件:
+      - apps/server/src/shared/types.ts (L308 类型不一致)
+      - apps/server/src/services/characterService.ts (定位实际用法)
+
+      **Bug 描述 (audit #5)**:
+      `shared/types.ts` L306-315 `CharacterV2Fields`:
+      ```typescript
+      export interface CharacterV2Fields {
+        description?: CharacterDescription;
+        extraDescription?: CharacterDescription;  // v2.5.34: 简化, 跟 description 同样类型
+        ...
+      }
+      ```
+      注释说"v2.5.34 简化, 跟 description 同样类型" — **错的**。L286-291 `CharacterExtraDescription` 是 4 维 (relationshipsText / emotionRange / actionHabits / signatureLines), 跟 `CharacterDescription` 11 维完全不一样。
+
+      **修复流程**:
+      1. `grep -rn "extraDescription" apps/server/src/` 看所有引用
+      2. 读 `services/characterService.ts` 看 `extraDescription` 实际当成什么类型用
+         - 关键搜索: `extraDescription\?: \?` / `extraDescription: {` / `Object.keys.*extraDescription` / `(character as any).extraDescription`
+      3. 根据实际用法决定:
+         - **情况 A**: characterService 把 extraDescription 当 4 维用 (relationshipsText 等) → types.ts L308 改成 `extraDescription?: CharacterExtraDescription` (用对的类型), 删错注释
+         - **情况 B**: characterService 也当 11 维用 → types.ts L286-291 `CharacterExtraDescription` 删, 注释改成真话
+         - **情况 C**: 两边都不严格, 用 `any` 兜底 → 把 types.ts L308 改 `extraDescription?: CharacterDescription | CharacterExtraDescription`, 注释说明
+      4. 同步 `EpisodeV2Fields.characterDescriptions` (L424) 看是否要改 (大概率 OK, 是数组, 跟 extraDescription 是不同字段)
+
+      **额外检查**:
+      - L262-267 那段 v2.5.34 失败回退注释 — 留着, 是历史
+      - 看 `models/character.ts` (如果有) DB schema 有没有 mismatch
+
+      **严禁**:
+      - 改 characterService 业务逻辑 (这次只对 types)
+      - 加新依赖
+      - 改 L262-267 历史注释 (那是考古记录)
+      - 删 CharacterExtraDescription 整个定义 (除非情况 B 确认了, 而且要 grep 全 src 看无引用)
+
+      **完成后**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 0 错
+      2. 写 deliverable.md: 选了 A/B/C 哪条路径, 改了哪几行, 跑了哪些 grep 验证
+      3. 如果选了 B 删了 CharacterExtraDescription, 列所有引用点确认无残留
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+
+      **独立验证**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 0 错
+      2. `grep -nE "extraDescription" src/shared/types.ts` — 看 L308 现在的类型 (应该是 CharacterExtraDescription 或 union)
+      3. `grep -rn "extraDescription" src/services/characterService.ts` — 跟 types 对齐 (都用对类型)
+      4. **关键**: 写一个临时测试, 实例化 characterService 用一个真 extraDescription 字段 (relationshipsText 等), 看运行时能不能正确读 — 至少静态读 5-10 行确认
+      5. 检查 `CharacterExtraDescription` 定义还在 (除非 coder 确认情况 B 全删)
+      6. `git diff src/shared/types.ts` — L308 的注释应该改了, 或者类型对了
+
+      **FAIL 条件**:
+      - tsc 错
+      - 改完 types 后 characterService 编译不过 (CharacterExtraDescription vs CharacterDescription 不一致)
+      - 错注释还在 ("v2.5.34 简化, 跟 description 同样类型" 这条不更新)
+      - 改了 L262-267 历史注释
+    timeout_ms: 1800000
+
+  - id: fix-aspect-and-ffmpeg
+    title: '修 aspect ratio 兜底 + angle 硬编码 + ffmpeg perf + text part 注释'
+    prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md §8
+
+      目标文件:
+      - apps/server/src/services/imageAgentService.ts (副修, 不与别的 task 冲突)
+      - apps/server/src/services/videoAgentService.ts (副修)
+      - apps/server/src/utils/ffmpegHelper.ts (副修)
+
+      **修复清单 (audit #10 #12 #13 #14)**:
+
+      **#10 imageAgentService.ts L517 angle 硬编码**:
+      `angle: 'comic'` 是写死。改方案:
+      ```typescript
+      angle: (plan as any).style || 'comic'  // v3.1.0: plan 加 style 字段从 UI 传过来
+      ```
+      + 加注释: `// v3.0.0 硬编码, 等 v3.1.0 跟前端确认 plan.style 取值范围`
+
+      **#12 imageAgentService.ts L261 aspectRatio 兜底**:
+      ```typescript
+      const finalAspectRatio = aspectRatioFromClient || aspectRatioParsed || (conv.plan as any)?.aspectRatio || '1024x1024';
+      ```
+      改成 (跟 video 保持一致):
+      ```typescript
+      let finalAspectRatio = aspectRatioFromClient || aspectRatioParsed || (conv.plan as any)?.aspectRatio || '1024x1024';
+      // 文字比例 (9:16/16:9 等) 兜底成 WxH, 跟 video 一致
+      const dimsFromText = parseAspectToDims(finalAspectRatio);
+      if (dimsFromText) finalAspectRatio = `${dimsFromText[0]}x${dimsFromText[1]}`;
+      ```
+      看 L500 已经有 `parseAspectToDims(plan.aspectRatio) || DEFAULT_IMG_DIM` 兜底 — 那行其实可以删 (新兜底已经统一了), **保留** (兜底 DEFAULT 是另一回事, 删了会丢 case)。只加 L261 的文字比例转换。
+
+      **#13 ffmpegHelper.ts L75-94 probe 优化**:
+      现在抽帧后**额外起 ffmpeg 进程** 拿 dimensions。改用 PNG IHDR 头读取:
+      ```typescript
+      // PNG 头: 8 bytes signature + IHDR chunk (4 bytes length + 4 bytes "IHDR" + 4 bytes width + 4 bytes height)
+      const pngBuf = fs.readFileSync(tmpPng);
+      // 跳过 8 bytes PNG signature, 然后 4 bytes length, 4 bytes "IHDR", 接下来 4+4 bytes W+H (big-endian)
+      const w = pngBuf.readUInt32BE(16);
+      const h = pngBuf.readUInt32BE(20);
+      const dimensions = `${w}x${h}`;
+      ```
+      删 spawnSync 那一整段 (L75-94) + 删除 import { spawnSync } from 'child_process' (L13, 如果不再用) — 确认 spawnSync 全文无引用再删。
+
+      **#14 videoAgentService.ts L184-193 日志 message 分 case**:
+      现状: 用 "heavy aspectRatio downgraded" 描述所有降级, 包括文字比例 (9:16 → 768x1152)。改成:
+      ```typescript
+      if (finalAspect !== aspectRatio) {
+        const isHeavy = VIDEO_HEAVY_RATIOS.has(aspectRatio);
+        logger.info('VideoAgent: aspectRatio adjusted', {
+          requested: aspectRatio,
+          used: finalAspect,
+          reason: isHeavy ? 'heavy-ratio-downgrade' : 'text-ratio-resolved',
+          conversationId,
+        });
+      }
+      ```
+
+      **严禁**:
+      - 改 processTurn / confirm 主逻辑
+      - 改 add 跟 Lock 相关 (那是 fix-videocontrol-async-lock 的范围)
+      - 改 ffmpegHelper 的 `vf` 表达式 (有 BUG 历史注释保护, 改了踩坑)
+      - 加新依赖
+
+      **完成后**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 0 错
+      2. 写 deliverable.md 列 4 个修改点 + 测试建议 (人工浏览器看 imageAgent 选 9:16 比例, 应该走 768x1152)
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+
+      **独立验证**:
+      1. `cd apps/server && npx tsc --noEmit 2>&1 | head -50` — 0 错
+      2. **#10 angle**: `grep -n "angle:" src/services/imageAgentService.ts` — 应该是 `angle: (plan as any).style || 'comic'`, 不是写死 'comic'
+      3. **#12 文字比例兜底**: 看 L261 附近有没有 `parseAspectToDims(finalAspectRatio)` 调用
+      4. **#13 ffmpeg PNG IHDR 解析**:
+         - `grep -n "spawnSync" src/utils/ffmpegHelper.ts` — 应该 0 引用 (或者只是 L75-94 那块被删了)
+         - 看 L80 附近有 `readUInt32BE` 调用 (PNG IHDR 解析)
+         - **手测**: 写一个 1x1 PNG buffer, 验证 readUInt32BE(16) 返 1, readUInt32BE(20) 返 1
+      5. **#14 日志**: grep `'aspectRatio adjusted'` 出现 1 次
+      6. 没动 ffmpegHelper 的 `vf` 表达式 (历史 BUG 注释完整)
+
+      **FAIL 条件**:
+      - tsc 错
+      - angle 仍写死
+      - ffmpegHelper spawnSync 残留
+      - vf 表达式被改
+    timeout_ms: 1800000
+
+  - id: verify-compile-and-runtime
+    title: '全量编译 + 主路径集成验证'
+    role: verify-as-task
+    prompt: |
+      项目根: F:\文档\其它\banmu\APP\ai-video-script-app
+      必读: docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md §2 §6 §7
+
+      你是 verifier (verify-as-task, 直接出 PASS/FAIL 报告)。
+
+      **集成验证清单** (前 4 个 fix task 都 PASS 后跑):
+
+      1. **编译全过**:
+         ```
+         cd apps/server
+         npx tsc --noEmit 2>&1 | tee /tmp/tsc.log
+         ```
+         必须 0 错。
+
+      2. **dist rebuild 不引入 warning**:
+         ```
+         cd apps/server
+         rm -rf dist
+         npx tsc 2>&1 | tee /tmp/tsc-build.log
+         ```
+         0 错 + dist/ 正常生成。
+
+      3. **死代码 grep 全面扫**:
+         ```
+         cd apps/server
+         grep -rn "extractFirstBalancedJson\|tryParseBalanced\|findMatchingClose\|MAX_CLARIFY_ROUNDS" src/
+         ```
+         0 匹配 (除非有 LEGACY/DEPRECATED 注释)。
+
+         ```
+         grep -rn "translatePlan\|updatePlanFields" src/
+         ```
+         0 匹配 — 如果保留, 应有 DEPRECATED 注释。
+
+         ```
+         grep -rn "// import" src/services/
+         ```
+         0 匹配 (注释掉的 import 应全清掉)。
+
+      4. **lock 实际工作** (静态读):
+         ```
+         grep -n "backgroundLocks" src/services/videoAgentService.ts src/services/imageAgentService.ts
+         ```
+         两个文件都要 set / get / finally delete。
+
+      5. **types 改动无副作用**:
+         ```
+         npx tsc --noEmit --noErrorTruncation 2>&1 | grep -i "extraDescription\|CharacterExtraDescription\|CharacterDescription" | head -20
+         ```
+         0 错。
+
+      6. **aspect ratio 兜底**:
+         ```
+         grep -n "parseAspectToDims(finalAspectRatio)\|parseAspectToDims(plan.aspectRatio)" src/services/imageAgentService.ts
+         ```
+         应有 1-2 处。
+
+      7. **ffmpegHelper 优化**:
+         ```
+         grep -n "spawnSync\|readUInt32BE" src/utils/ffmpegHelper.ts
+         ```
+         spawnSync 0 匹配, readUInt32BE 2 匹配 (W + H)。
+
+      8. **package.json 没新依赖**:
+         ```
+         git diff package.json
+         ```
+         应为空或只有版本号微调 (不准新加包名)。
+
+      9. **主路径 smoke** (静态读):
+         - videoAgentService.ts `confirm()` 完整流程能跑通 (read 一次)
+         - imageAgentService.ts `processTurn()` → `confirm()` → `runImageGenerationBackground` 完整流程能跑通 (read 一次)
+         - 重点看 lock 没死锁 + 错误路径有 finally 清理
+
+      **输出报告**: PASS/FAIL + 上述 9 步每步结论 + 发现的任何新问题 (audit 没列的)
+
+      **FAIL 阈值**:
+      - tsc 任何错
+      - 死代码 ≥ 1 处残留
+      - 锁逻辑漏 finally
+      - 新增依赖
+      - 主路径 smoke 发现 audit 没列的 P0 bug
+    assigned_to: verifier
+    depends_on: [fix-imageagent-deadcode, fix-videocontrol-async-lock, fix-types-and-character, fix-aspect-and-ffmpeg]
+    timeout_ms: 1500000

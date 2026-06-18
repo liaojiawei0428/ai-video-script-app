@@ -1,0 +1,704 @@
+﻿// apps/mobile/src/screens/ImageAgentScreen.tsx
+// v3.0.24 (S60 P2 BUG-041/042): 移动端生图助手 - 跟 web AgentChatPanel PartView 1:1 对齐
+//   修: image agent 调错 /video-agent/confirm → /image-agent/confirm
+//   修: image part 只显示 URL 60 字符 → RN <Image> + ?token= 鉴权 + 下载按钮
+//   加: 历史列表 / 新建会话 / 删除 / 切换
+//   加: streaming 卡片 / plan 卡片美化
+//   加: translate-plan + update plan fields (image 端, 跟 web 一致)
+// v3.0.24.4 (S60 P3 BUG-050 重设计): toolbar 改版 + StatusBadge + 空状态大引导按钮 + race condition fix + 历史侧栏新建大按钮 + 单条删除
+
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView,
+  KeyboardAvoidingView, Platform, StyleSheet, Image, Modal, FlatList, RefreshControl,
+} from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { colors, spacing, radii, typography } from '../theme';
+import { getAuthToken } from '../api/client';
+import {
+  imageAgentCreateConversationApi, imageAgentChatApi, imageAgentConfirmApi,
+  imageAgentHistoryApi, imageAgentGetApi, imageAgentDeleteApi,
+  imageAgentTranslatePlanApi, imageAgentUpdatePlanFieldsApi,
+} from '../api/client';
+import { useDialog, alert } from '../hooks/useDialog';
+import { buildImageUrl, buildDownloadUrl, downloadImage } from '../utils/agentDownload';
+import type { AgentMessage, AgentPart, PlanData } from '../types/agent';
+
+const SUGGESTIONS = [
+  '做一个精美女战士, 短发, 持剑',
+  '古风山水插画, 飘逸',
+  '赛博朋克夜城, 霓虹',
+];
+
+const ASPECT_RATIOS = [
+  { value: '',        label: '自动', icon: 'help-circle-outline' },
+  { value: '1:1',     label: '1:1',  icon: 'square-outline' },
+  { value: '16:9',    label: '16:9', icon: 'tablet-landscape-outline' },
+  { value: '9:16',    label: '9:16', icon: 'phone-portrait-outline' },
+  { value: '4:3',     label: '4:3',  icon: 'crop-landscape' },
+  { value: '3:4',     label: '3:4',  icon: 'crop-portrait' },
+];
+
+interface ConvListItem {
+  id: string;
+  title?: string;
+  status: string;
+  createdAt: number;
+  resultImageUrl?: string;
+}
+
+// v3.0.24.4 (S60 P3 BUG-050 重设计): 状态徽章 — 跟 web 端 1:1 (10 种状态)
+const STATUS_MAP: Record<string, { label: string; bg: string; fg: string }> = {
+  idle: { label: '未开始', bg: '#f3f4f6', fg: '#4b5563' },
+  ai_clarifying: { label: 'AI 问询中', bg: '#dbeafe', fg: '#1d4ed8' },
+  awaiting_clarification: { label: '等待补充', bg: '#fef3c7', fg: '#b45309' },
+  ai_planning: { label: 'AI 整理方案', bg: '#dbeafe', fg: '#1d4ed8' },
+  plan_cn_ready: { label: '中文方案', bg: '#d1fae5', fg: '#047857' },
+  plan_translating: { label: '准备中', bg: '#ede9fe', fg: '#6d28d9' },
+  plan_ready: { label: '英文方案', bg: '#dcfce7', fg: '#15803d' },
+  awaiting_confirmation: { label: '等待确认', bg: '#cffafe', fg: '#0e7490' },
+  tool_queued: { label: '排队中', bg: '#f3e8ff', fg: '#7e22ce' },
+  tool_executing: { label: '生成中', bg: '#e0e7ff', fg: '#4338ca' },
+  tool_completed: { label: '已完成', bg: '#d1fae5', fg: '#047857' },
+  tool_throttled: { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },
+  tool_failed: { label: '失败', bg: '#fee2e2', fg: '#b91c1c' },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
+  return (
+    <View style={{ backgroundColor: m.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 2 }}>
+      <Text style={{ color: m.fg, fontSize: 10, fontWeight: '700' }}>{m.label}</Text>
+    </View>
+  );
+}
+
+export function ImageAgentScreen(): React.JSX.Element {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selectedRatio, setSelectedRatio] = useState<string>('');
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [pollingConvId, setPollingConvId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<ConvListItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [convStatus, setConvStatus] = useState<string>(''); // v3.0.24.4 BUG-050: 顶部 status badge
+  const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050: race condition
+  const scrollRef = useRef<ScrollView>(null);
+  const { showAlert, showConfirm } = useDialog();
+
+  // v3.0.24: 进入屏先拉历史, 如果有最近 result 图就显示; 否则 createConversation
+  useEffect(() => { loadHistory(); }, []);
+
+  const loadHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const res = await imageAgentHistoryApi(50);
+      // v3.0.24 (S60 P2 BUG-042 修): server 返 {data:{conversations:[...], meta}}, 不是 {data:[...]}
+      // v3.0.24 (S60 P2 BUG-045 修): server 字段是 snake_case (result_image_url), 不是 camelCase
+      const list = (res.data?.data?.conversations || res.data?.data || []).map((c: any) => ({
+        id: c.id,
+        title: c.title || c.messages?.[0]?.parts?.find((p: any) => p.type === 'text')?.text?.slice(0, 30) || '新会话',
+        status: c.status,
+        createdAt: c.createdAt || c.updated_at,
+        resultImageUrl: c.resultImageUrl || c.result_image_url,
+      }));
+      setHistory(list);
+      // v3.0.24.4 (S60 P3 BUG-050 修): race condition — 用户主动新建/删除后, 不要 auto-load 旧 conv
+      if (userInitiated) {
+        setUserInitiated(false);
+        return;
+      }
+      // 自动加载最近一条有 result 的会话
+      const lastResult = list.find((c: ConvListItem) => c.resultImageUrl);
+      if (lastResult) await loadConversation(lastResult.id);
+      else createConversation();
+    } catch (e) {
+      console.warn('loadHistory failed', e);
+      createConversation();
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const loadConversation = async (id: string) => {
+    try {
+      const res = await imageAgentGetApi(id);
+      // v3.0.24 (S60 P2 BUG-041 修): server 返 {data:{conversation: {...}}}, 不是 {data:{...}}
+      const conv = res.data?.data?.conversation || res.data?.data;
+      if (!conv) return;
+      setConversationId(conv.id);
+      setMessages(conv.messages || []);
+      setConvStatus(conv.status || ''); // v3.0.24.4 BUG-050
+      setShowHistory(false);
+    } catch (e: any) {
+      showAlert({ title: '加载失败', message: e?.response?.data?.error?.message || e?.message });
+    }
+  };
+
+  const createConversation = async (fromUser = false) => {
+    try {
+      if (fromUser) setUserInitiated(true); // v3.0.24.4 BUG-050
+      const res = await imageAgentCreateConversationApi();
+      const convId = res.data?.data?.conversationId;
+      const welcome = res.data?.data?.welcome;
+      if (convId) {
+        setConversationId(convId);
+        setConvStatus('awaiting_clarification'); // v3.0.24.4 BUG-050
+        if (welcome) setMessages([welcome]);
+        else setMessages([]);
+      }
+    } catch (e: any) {
+      showAlert({ title: '错误', message: e?.response?.data?.error?.message || e?.message || '创建会话失败' });
+    }
+  };
+
+  // v3.0.24: 轮询, 跟 web 一致
+  useEffect(() => {
+    if (!pollingConvId) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await imageAgentGetApi(pollingConvId);
+        // v3.0.24 (S60 P2 BUG-041 修): server 返 {data:{conversation: {...}}}
+        const conv = res.data?.data?.conversation || res.data?.data;
+        if (!conv) return;
+        const status = conv.status;
+        setConvStatus(status); // v3.0.24.4 BUG-050: 顶部 status badge 实时更新
+        // v3.0.24 (S60 P2 BUG-045 修): server 字段是 snake_case (result_image_url), 不是 camelCase
+        const convResultUrl = conv.resultImageUrl || conv.result_image_url;
+        // 替换最后一条 assistant 消息中 streaming part 为 image part
+        setMessages(prev => {
+          const next = [...prev];
+          // 找包含 plan part 的最后一条 assistant 消息
+          let targetIdx = -1;
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].role === 'assistant' && next[i].parts.some(p => p.type === 'streaming' || p.type === 'plan')) {
+              targetIdx = i;
+              break;
+            }
+          }
+          if (targetIdx < 0) return prev;
+          const target = next[targetIdx];
+          const newParts = target.parts.map(p => {
+            if (p.type !== 'streaming') return p;
+            if (status === 'tool_completed' && convResultUrl) {
+              return { type: 'image', url: convResultUrl, role: 'result' as const, width: 1024, height: 1024 };
+            }
+            if (status === 'tool_failed') {
+              return { type: 'error' as const, message: conv.error_msg || '生成失败' };
+            }
+            return p;
+          });
+          next[targetIdx] = { ...target, parts: newParts as AgentPart[] };
+          return next;
+        });
+        if (status === 'tool_completed' || status === 'tool_failed') {
+          setPollingConvId(null);
+          if (status === 'tool_completed') {
+            showAlert({ title: '✅ 图片生成完成', message: '已生成图片, 请查看对话' });
+            // 刷新历史, 把新生成的加进去
+            loadHistory();
+          } else {
+            showAlert({ title: '❌ 生成失败', message: conv.error_msg || '请重试' });
+          }
+        }
+      } catch (e) {
+        console.warn('polling failed', e);
+      }
+    }, 3000);  // v3.0.24: 3s 轮询 (web 实际是 polling, 我们用 3s 更密)
+    return () => clearInterval(timer);
+  }, [pollingConvId]);
+
+  const send = async (text: string) => {
+    const content = (text || input).trim();
+    if (!content || !conversationId || loading) return;
+    setInput('');
+    const userPart: AgentPart = { type: 'text', text: content };
+    setMessages(m => [...m, { id: `tmp_${Date.now()}`, role: 'user', parts: [userPart], createdAt: Date.now() }]);
+    setLoading(true);
+    try {
+      const res = await imageAgentChatApi(conversationId, [userPart], selectedRatio || undefined);
+      const aiMessage = res.data?.data?.aiMessage;
+      if (aiMessage) setMessages(m => [...m, aiMessage]);
+    } catch (e: any) {
+      const err = e?.response?.data?.error?.message || e?.message || '请求失败';
+      setMessages(m => [...m, { id: `err_${Date.now()}`, role: 'assistant', parts: [{ type: 'error', message: err }], createdAt: Date.now() }]);
+    } finally {
+      setLoading(false);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  };
+
+  // v3.0.24 (BUG-041 修): 调 /image-agent/confirm (不是 /video-agent/confirm)
+  const confirmGenerate = async (convId: string) => {
+    if (!convId || confirmingId) return;
+    setConfirmingId(convId);
+    try {
+      // v3.0.24: 先翻译 plan (image 端, 跟 web 一致)
+      try {
+        setTranslating(true);
+        await imageAgentTranslatePlanApi(convId);
+      } catch (e) {
+        console.warn('translatePlan failed, continue confirm', e);
+      } finally {
+        setTranslating(false);
+      }
+      const res = await imageAgentConfirmApi(convId);
+      const { taskId, status, error: rErr } = res.data?.data || {};
+      if (status !== 'queued') {
+        showAlert({ title: '确认失败', message: rErr || '后端返回非 queued 状态' });
+        return;
+      }
+      showAlert({ title: '已加入队列', message: `图片生成中, 等待 5-30 秒\n\ntaskId: ${taskId}` });
+      // 把 plan part 替换成 streaming 卡片
+      setMessages(prev => {
+        const next = [...prev];
+        const lastIdx = next.length - 1;
+        const last = next[lastIdx];
+        if (!last || last.role !== 'assistant') return prev;
+        const newParts = last.parts.map(p =>
+          p.type === 'plan'
+            ? ({ type: 'streaming', stage: 'generating' } as any)
+            : p
+        );
+        next[lastIdx] = { ...last, parts: newParts };
+        return next;
+      });
+      setPollingConvId(convId);
+    } catch (e: any) {
+      showAlert({ title: '确认失败', message: e?.response?.data?.error?.message || e?.message || '请求失败' });
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
+  // v3.0.24: 删除当前会话
+  const deleteCurrent = () => {
+    if (!conversationId) return;
+    showConfirm({
+      title: '删除会话?',
+      message: '删除后无法恢复, 包含所有聊天记录和生成的图片',
+      confirmText: '删除',
+      variant: 'error',
+      onConfirm: async () => {
+        try {
+          setUserInitiated(true); // v3.0.24.4 BUG-050 修 race condition
+          await imageAgentDeleteApi(conversationId);
+          setConversationId(null);
+          setMessages([]);
+          setPollingConvId(null);
+          setConvStatus('');
+          createConversation(true); // 立刻建个新的
+          loadHistory();
+        } catch (e: any) {
+          showAlert({ title: '删除失败', message: e?.response?.data?.error?.message || e?.message });
+        }
+      },
+    });
+  };
+
+  const renderPart = (part: AgentPart, idx: number, msgId: string) => {
+    if (part.type === 'text') {
+      return <Text key={idx} style={styles.partText}>{part.text}</Text>;
+    }
+    if (part.type === 'question') {
+      return (
+        <View key={idx} style={styles.questionBox}>
+          <Ionicons name="help-circle" size={16} color={colors.accent} />
+          <Text style={styles.questionText}>{part.data.question}</Text>
+        </View>
+      );
+    }
+    if (part.type === 'plan') {
+      return (
+        <View key={idx} style={styles.planBox}>
+          <View style={styles.planHeader}>
+            <Ionicons name="document-text" size={14} color={colors.accent} />
+            <Text style={styles.planLabel}>提示词方案</Text>
+          </View>
+          <Text style={styles.planPrompt}>{part.data.prompt}</Text>
+          <Text style={styles.planMeta}>
+            {part.data.aspectRatio ? `比例: ${part.data.aspectRatio}  ` : ''}
+            {part.data.style ? `风格: ${part.data.style}` : ''}
+          </Text>
+          <Text style={styles.planHint}>确认后按上面的内容发送给生图大模型</Text>
+          {conversationId && (
+            <TouchableOpacity
+              style={[styles.confirmBtn, (confirmingId === conversationId || translating) && styles.confirmBtnDisabled]}
+              onPress={() => confirmGenerate(conversationId)}
+              disabled={!!confirmingId || translating}
+            >
+              {confirmingId === conversationId || translating ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                  <Text style={styles.confirmBtnText}>确认生成</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    }
+    if (part.type === 'streaming') {
+      return (
+        <View style={styles.streamingBox}>
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text style={styles.streamingText}>
+            {part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在绘制中...'}
+          </Text>
+        </View>
+      );
+    }
+    if (part.type === 'image') {
+      const token = getAuthToken();
+      const imgUrl = buildImageUrl(part.url, token);
+      const isAuthPath = part.url.startsWith('/api/') || /^[a-z]+:\/\/[^\/]*ab\.maque\.uno\//i.test(part.url);
+      const downloadHref = isAuthPath
+        ? buildDownloadUrl(part.url, `deep剧本-图片-${Date.now()}.${part.url.includes('.png') ? 'png' : 'jpg'}`, token)
+        : part.url;
+      return (
+        <View key={idx} style={styles.imageBox}>
+          {part.role === 'reference' ? (
+            <View style={styles.refImageRow}>
+              <Image source={{ uri: imgUrl }} style={styles.refImage} resizeMode="cover" />
+              <View style={styles.refImageMeta}>
+                <Ionicons name="document" size={12} color={colors.text.tertiary} />
+                <Text style={styles.refImageLabel}>参考图</Text>
+              </View>
+            </View>
+          ) : (
+            <View>
+              <Image source={{ uri: imgUrl }} style={styles.resultImage} resizeMode="contain" />
+              <View style={styles.imageActions}>
+                <TouchableOpacity
+                  style={styles.downloadBtn}
+                  onPress={() => downloadImage(part.url, token).catch(() => {})}
+                >
+                  <Ionicons name="download" size={14} color={colors.accent} />
+                  <Text style={styles.downloadBtnText}>下载图片</Text>
+                </TouchableOpacity>
+                <Text style={styles.imageHint}>长按图片也可保存</Text>
+              </View>
+            </View>
+          )}
+        </View>
+      );
+    }
+    if (part.type === 'error') {
+      return (
+        <View key={idx} style={styles.errorBox}>
+          <Ionicons name="alert-circle" size={16} color="#f44" />
+          <Text style={styles.errorMsg}>{part.message}</Text>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* 顶部工具栏: 历史/新建/标题/删除 */}
+      <View style={styles.toolbar}>
+        <TouchableOpacity style={styles.toolbarIconBtn} onPress={() => setShowHistory(true)}>
+          <Ionicons name="menu" size={26} color={colors.text.primary} />
+        </TouchableOpacity>
+        <View style={styles.toolbarCenter}>
+          <View style={styles.toolbarTitleRow}>
+            <Ionicons name="sparkles" size={16} color={colors.accent} />
+            <Text style={styles.toolbarTitleText} numberOfLines={1}>
+              {conversationId ? '生图会话' : '生图助手'}
+            </Text>
+          </View>
+          {convStatus ? <StatusBadge status={convStatus} /> : null}
+        </View>
+        <TouchableOpacity style={styles.toolbarPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.toolbarPrimaryBtnText}>新建</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.toolbarIconBtn} onPress={deleteCurrent} disabled={!conversationId}>
+          <Ionicons name="trash-outline" size={22} color={conversationId ? '#f44' : colors.text.tertiary} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+      >
+        {/* v3.0.24.4 (S60 P3 BUG-050 重设计): 空状态 — 引导用户新建会话 */}
+        {messages.length === 0 && !loading && (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="sparkles" size={56} color={colors.accent} />
+            </View>
+            <Text style={styles.emptyTitle}>开始你的第一张图</Text>
+            <Text style={styles.emptyHint}>描述画面内容、风格、比例, AI 会整理方案后生成高清图片</Text>
+            <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
+              <Ionicons name="add" size={20} color="#fff" />
+              <Text style={styles.emptyPrimaryBtnText}>新建生图会话</Text>
+            </TouchableOpacity>
+            <View style={styles.emptySuggestionRow}>
+              {['古风少女写实人像', '赛博朋克夜景', '水墨山水画'].map((s, i) => (
+                <TouchableOpacity key={i} style={styles.emptySuggestionChip} onPress={() => { if (!conversationId) createConversation(true); setInput(s); }}>
+                  <Text style={styles.emptySuggestionText} numberOfLines={1}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+        {messages.map((m, i) => (
+          <View key={i} style={[styles.bubbleRow, m.role === 'user' ? styles.bubbleRowUser : styles.bubbleRowAI]}>
+            <View style={[styles.bubble, m.role === 'user' ? styles.bubbleUser : styles.bubbleAI]}>
+              {m.role === 'assistant' && (
+                <View style={styles.aiHeader}>
+                  <Ionicons name="sparkles" size={14} color={colors.accent} />
+                  <Text style={styles.aiLabel}>生图助手</Text>
+                </View>
+              )}
+              {m.parts.map((p, idx) => renderPart(p, idx, m.id))}
+            </View>
+          </View>
+        ))}
+        {loading && (
+          <View style={[styles.bubbleRow, styles.bubbleRowAI]}>
+            <View style={[styles.bubble, styles.bubbleAI]}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={styles.thinkingText}>生图助手 思考中...</Text>
+            </View>
+          </View>
+        )}
+        {messages.length === 1 && !loading && (
+          <View style={styles.suggestionRow}>
+            {SUGGESTIONS.map((s, i) => (
+              <TouchableOpacity key={i} style={styles.suggestionChip} onPress={() => send(s)}>
+                <Text style={styles.suggestionText}>{s}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* 比例选择器 */}
+      <View style={styles.ratioBar}>
+        <Text style={styles.ratioLabel}>比例:</Text>
+        {ASPECT_RATIOS.map(r => (
+          <TouchableOpacity
+            key={r.value || 'auto'}
+            style={[styles.ratioChip, selectedRatio === r.value && styles.ratioChipActive]}
+            onPress={() => setSelectedRatio(r.value)}
+            disabled={loading}
+          >
+            <Ionicons name={r.icon as any} size={12} color={selectedRatio === r.value ? '#fff' : colors.accent} />
+            <Text style={[styles.ratioChipText, selectedRatio === r.value && styles.ratioChipTextActive]}>
+              {r.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <Text style={styles.freeTag}>🎨 免费 30/天</Text>
+      </View>
+
+      <View style={styles.inputBar}>
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={setInput}
+          placeholder="描述你想生成的图..."
+          placeholderTextColor={colors.text.tertiary}
+          multiline
+          maxLength={500}
+        />
+        <TouchableOpacity style={styles.sendBtn} onPress={() => send(input)} disabled={loading || !input.trim()}>
+          <Ionicons name="send" size={20} color={loading || !input.trim() ? colors.text.tertiary : '#fff'} />
+        </TouchableOpacity>
+      </View>
+
+      {/* 历史侧栏 */}
+      <Modal visible={showHistory} animationType="slide" transparent onRequestClose={() => setShowHistory(false)}>
+        <TouchableOpacity style={styles.historyBackdrop} activeOpacity={1} onPress={() => setShowHistory(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.historyPanel}>
+            <View style={styles.historyHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="folder-open-outline" size={20} color={colors.accent} />
+                <Text style={styles.historyTitle}>历史会话 ({history.length})</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowHistory(false)}>
+                <Ionicons name="close" size={24} color={colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+            {/* v3.0.24.4 (S60 P3 BUG-050 重设计): 历史顶部 "新建" 大按钮 */}
+            <View style={{ padding: 12 }}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 12 }}
+                onPress={() => { createConversation(true); setShowHistory(false); loadHistory(); }}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>新建生图会话</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={history}
+              keyExtractor={item => item.id}
+              refreshControl={<RefreshControl refreshing={historyLoading} onRefresh={loadHistory} />}
+              ListEmptyComponent={
+                <View style={styles.historyEmpty}>
+                  <Ionicons name="folder-open-outline" size={48} color={colors.text.tertiary} />
+                  <Text style={styles.historyEmptyText}>暂无历史会话</Text>
+                </View>
+              }
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.historyItem} onPress={() => loadConversation(item.id)}>
+                  {item.resultImageUrl ? (
+                    <Image source={{ uri: buildImageUrl(item.resultImageUrl, getAuthToken()) }} style={styles.historyThumb} />
+                  ) : (
+                    <View style={[styles.historyThumb, styles.historyThumbPlaceholder]}>
+                      <Ionicons name="image-outline" size={20} color={colors.text.tertiary} />
+                    </View>
+                  )}
+                  <View style={styles.historyItemBody}>
+                    <Text style={styles.historyItemTitle} numberOfLines={1}>{item.title}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                      <StatusBadge status={item.status || 'idle'} />
+                    </View>
+                  </View>
+                  {/* v3.0.24.4 (S60 P3 BUG-050 重设计): 单条删除按钮 (跟 web 端一致) */}
+                  <TouchableOpacity
+                    style={styles.historyItemDeleteBtn}
+                    onPress={() => {
+                      showConfirm({
+                        title: '删除这条会话?',
+                        message: '删除后无法恢复',
+                        confirmText: '删除',
+                        variant: 'error',
+                        onConfirm: async () => {
+                          try {
+                            setUserInitiated(true);
+                            await imageAgentDeleteApi(item.id);
+                            if (item.id === conversationId) {
+                              setConversationId(null);
+                              setMessages([]);
+                              setConvStatus('');
+                            }
+                            await loadHistory();
+                          } catch (e: any) {
+                            showAlert({ title: '删除失败', message: e?.response?.data?.error?.message || e?.message });
+                          }
+                        },
+                      });
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#f44" />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              )}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg.primary },
+  toolbar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: colors.bg.primary,
+  },
+  toolbarIconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  toolbarCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  toolbarTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  toolbarTitleText: { ...typography.body, color: colors.text.primary, fontWeight: '700', fontSize: 15 },
+  toolbarPrimaryBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: colors.accent, marginRight: 6 },
+  toolbarPrimaryBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  scroll: { flex: 1 },
+  scrollContent: { padding: spacing.md, paddingBottom: 20 },
+  bubbleRow: { marginBottom: spacing.sm, flexDirection: 'row' },
+  bubbleRowAI: { justifyContent: 'flex-start' },
+  bubbleRowUser: { justifyContent: 'flex-end' },
+  bubble: { maxWidth: '85%', borderRadius: radii.lg, padding: spacing.md },
+  bubbleAI: { backgroundColor: colors.bg.secondary, borderTopLeftRadius: 4 },
+  bubbleUser: { backgroundColor: colors.accent, borderTopRightRadius: 4 },
+  aiHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  aiLabel: { ...typography.caption, color: colors.accent, fontWeight: '700', marginLeft: 4, fontSize: 12 },
+  partText: { ...typography.body, lineHeight: 20, color: colors.text.primary },
+  thinkingText: { ...typography.caption, color: colors.text.tertiary, marginTop: 4 },
+  questionBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 },
+  questionText: { ...typography.body, color: colors.accent, flex: 1 },
+  planBox: { backgroundColor: colors.bg.primary, borderRadius: radii.md, padding: spacing.md, marginTop: 4 },
+  planHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  planLabel: { ...typography.caption, fontWeight: '700', color: colors.accent, fontSize: 13 },
+  planPrompt: { ...typography.body, color: colors.text.primary, lineHeight: 20, marginBottom: 6 },
+  planMeta: { ...typography.caption, color: colors.text.tertiary, fontSize: 11, marginBottom: 4 },
+  planHint: { ...typography.caption, color: colors.text.tertiary, fontSize: 10, marginBottom: 8, fontStyle: 'italic' },
+  confirmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.accent, paddingVertical: 10, paddingHorizontal: 16,
+    borderRadius: radii.md, gap: 6, marginTop: 6,
+  },
+  confirmBtnDisabled: { opacity: 0.5 },
+  confirmBtnText: { ...typography.body, color: '#fff', fontWeight: '600' },
+  streamingBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, padding: 10,
+    backgroundColor: colors.bg.primary, borderRadius: radii.md, borderWidth: 1, borderColor: colors.accent + '40',
+  },
+  streamingText: { ...typography.caption, color: colors.accent, fontSize: 12 },
+  imageBox: { marginTop: 4, alignItems: 'center' },
+  refImageRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  refImage: { width: 80, height: 80, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
+  refImageMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  refImageLabel: { ...typography.caption, color: colors.text.tertiary, fontSize: 11 },
+  resultImage: { width: 320, height: 320, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg.primary },
+  imageActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, justifyContent: 'center' },
+  downloadBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.md,
+    backgroundColor: colors.accent + '20', borderWidth: 1, borderColor: colors.accent + '60',
+  },
+  downloadBtnText: { ...typography.caption, color: colors.accent, fontSize: 12, fontWeight: '600' },
+  imageHint: { ...typography.caption, color: colors.text.tertiary, fontSize: 10 },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, backgroundColor: '#fee', borderRadius: radii.md },
+  errorMsg: { ...typography.body, color: '#f44', fontSize: 13, flex: 1 },
+  suggestionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
+  suggestionChip: { paddingHorizontal: spacing.md, paddingVertical: 6, backgroundColor: colors.bg.secondary, borderRadius: radii.full, borderWidth: 1, borderColor: colors.accent },
+  suggestionText: { ...typography.caption, color: colors.accent, fontSize: 12 },
+  ratioBar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: spacing.md, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg.primary },
+  ratioLabel: { ...typography.caption, color: colors.text.tertiary, fontSize: 11 },
+  ratioChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.bg.secondary, borderRadius: radii.full, borderWidth: 1, borderColor: colors.accent },
+  ratioChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  ratioChipText: { ...typography.caption, color: colors.accent, fontSize: 11, fontWeight: '600' },
+  ratioChipTextActive: { color: '#fff' },
+  freeTag: { marginLeft: 'auto', ...typography.caption, color: '#4ade80', fontSize: 11, fontWeight: '600' },
+  inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg.primary },
+  input: { flex: 1, ...typography.body, color: colors.text.primary, backgroundColor: colors.bg.secondary, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: 10, maxHeight: 100 },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  historyBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row', justifyContent: 'flex-end' },
+  historyPanel: { width: '85%', backgroundColor: colors.bg.primary, height: '100%' },
+  historyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  historyTitle: { ...typography.body, color: colors.text.primary, fontWeight: '700' },
+  historyEmpty: { alignItems: 'center', paddingVertical: 60 },
+  historyEmptyText: { ...typography.body, color: colors.text.tertiary, marginTop: 8 },
+  historyItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  historyThumb: { width: 48, height: 48, borderRadius: radii.md },
+  historyThumbPlaceholder: { backgroundColor: colors.bg.secondary, alignItems: 'center', justifyContent: 'center' },
+  historyItemBody: { flex: 1 },
+  historyItemTitle: { ...typography.body, color: colors.text.primary, fontSize: 14, fontWeight: '600' },
+  historyItemMeta: { ...typography.caption, color: colors.text.tertiary, fontSize: 11, marginTop: 2 },
+  historyItemDeleteBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#fee', alignItems: 'center', justifyContent: 'center' },
+  // v3.0.24.4 (S60 P3 BUG-050 重设计): 空状态
+  emptyState: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
+  emptyIcon: { width: 120, height: 120, borderRadius: 60, backgroundColor: colors.accent + '15', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  emptyTitle: { ...typography.h2, color: colors.text.primary, fontWeight: '700', marginBottom: 8 },
+  emptyHint: { ...typography.body, color: colors.text.secondary, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  emptyPrimaryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 28, backgroundColor: colors.accent, marginBottom: 24 },
+  emptyPrimaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  emptySuggestionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
+  emptySuggestionChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.bg.secondary, borderRadius: 16, borderWidth: 1, borderColor: colors.accent + '60', maxWidth: 200 },
+  emptySuggestionText: { color: colors.accent, fontSize: 12 },
+});

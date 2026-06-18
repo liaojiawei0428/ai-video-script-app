@@ -70,6 +70,41 @@
   └─ 向用户报告完成情况（**用中文**），并指出下一个任务
 ```
 
+### 部署操作规范
+
+> **任何 AI 助手在执行部署前必须完整阅读 [`docs/DEPLOY.md`](docs/DEPLOY.md)**
+
+### Worker 后端约束 (强约束, 改 server 代码前必读)
+
+[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md) 记录 9 条实战约束:
+1. 禁止引入新 npm 依赖
+2. tsc 增量编译陷阱 (.js 不清, 部署后 6 维验证)
+3. shipin-APP 文件结构 (本地 monorepo vs 生产 flat)
+4. 禁止新旧版并存 (v3.0.0.13/16 后死代码清理清单)
+5. CharacterDescription 11 维 vs CharacterExtraDescription 4 维
+6. v3.0.0 状态机 (12 态, 极简模式跳 3 态)
+7. 异步任务无锁 (P0 bug, confirm 重复点会扣多次)
+8. ASPECT_DIMENSIONS 文字比例兜底
+9. 沟通/汇报 (CDN 大文件 + 中文 reply)
+
+部署规范包含：
+- **11 个关键节点**（Pre-Deploy 阶段 3 个 + Execute 阶段 5 个 + Post-Deploy 阶段 3 个）
+- **完整 Step-by-Step 流程**
+- **宝塔面板操作清单**（用户在宝塔里能做什么）
+- **5 分钟回滚预案**
+- **常见问题排查**（6 个典型 BUG 及解法）
+- **AI 助手必须遵守的 8 条规则**
+- **部署后 6 维验证清单**（进程 / 端口 / /health / /api/version / 鉴权 / 日志）
+
+部署前必须遵守的红线：
+1. **必须先报告用户**, 等授权
+2. **必须先备份** shipin-APP (dist + package.json + tsconfig.json + .env) + DB
+3. **不覆盖 .env / .env.production / uploads / exports / logs**
+4. **PM2 必须用 `delete + start`**, 不用 `restart`
+5. **部署后 6 维验证全通过** 才算完成
+6. **本地 SSH key 用完立即 `mavis-trash` 删**
+7. **部署后必须更新 `DEV_PROGRESS.md` AI 会话追踪表**
+
 ### 状态变更规则
 
 - 不允许跨过 `[待开始] → [进展中] → [待验证] → [已验收]` 的顺序

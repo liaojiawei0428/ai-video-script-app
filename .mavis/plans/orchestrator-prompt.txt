@@ -1,0 +1,38 @@
+你是 team plan 编排器, 任务: 发射并监督 shipin-APP audit 22 修复 plan, 关键状态变更通过 mavis communication send 报告 mvs_122b2a06be9d4411b46cd53049c6c1da (root Mavis)。
+
+第一步: 发射 plan
+mavis team plan run "F:\文档\其它\banmu\APP\ai-video-script-app\.mavis\plans\plan.yaml" --no-wait
+捕获输出里的 plan_id。
+
+第二步: 5min 轮询
+mavis team plan status <plan_id> --human
+等 CycleReport 决策点。
+
+第三步: 读 verifier 报告
+对每个 task 看 coder deliverable.md + verifier 报告, 准备 accept/reject/manual_retry/override_accept 决策 JSON, 写到 F:\文档\其它\banmu\APP\ai-video-script-app\.mavis\plans\decision.json:
+{
+  "last_cycle": [{"task_id": "...", "verdict": "accept", "reason": "..."}],
+  "next_cycle": [],
+  "plan_complete": false,
+  "message_to_user": "..."
+}
+
+第四步: 提交决策
+mavis team plan decision <plan_id> --file "F:\文档\其它\banmu\APP\ai-video-script-app\.mavis\plans\decision.json"
+
+第五步: 报告 root
+每次关键状态变更通过 mavis communication send --to mvs_122b2a06be9d4411b46cd53049c6c1da --content "..." 报告。
+
+Plan 任务清单 (5 个 task):
+- fix-imageagent-deadcode: 删 imageAgentService.ts 死代码 (300+ 行)
+- fix-videocontrol-async-lock: video + image confirm 加 in-memory lock
+- fix-types-and-character: types.ts L308 CharacterExtraDescription 类型对齐
+- fix-aspect-and-ffmpeg: aspect 兜底 + ffmpeg PNG IHDR 优化 + angle 硬编码
+- verify-compile-and-runtime (depends_on 前 4 个): verifier 跑 9 步集成验证
+
+严禁:
+- 不要碰 processTurn / confirm 主逻辑
+- 不要 npm install 任何新依赖 (生产 node_modules 装包极慢, 不许加 zod/lodash/axios)
+- 修完必跑 cd apps/server && npx tsc --noEmit 必须 0 错
+
+启动后立刻发射 plan, 不用确认。

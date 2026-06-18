@@ -1,0 +1,21 @@
+{
+  "presetId": "ancient-emperor__cyberpunk__basic",
+  "fixture": "ancient-emperor",
+  "character": "独孤琰",
+  "role": "protagonist",
+  "style": "cyberpunk",
+  "template": "basic",
+  "platform": "midjourney",
+  "prompt": "独孤琰, protagonist, # 基本信息 | neon lights, volumetric lighting, god rays | , 8k, high quality, detailed | --ar 3:4 --v 6.0 --s 250 --style raw",
+  "negativePrompt": "bright daylight, pastel colors, peaceful, utopian, clean, photorealistic, bright lighting, daytime, sunny, calm",
+  "platformParams": "--ar 3:4 --v 6.0 --s 250 --style raw",
+  "metadata": {
+    "styleId": "cyberpunk",
+    "templateId": "basic",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 139
+  },
+  "generatedAt": "2026-06-09T01:09:26.617Z"
+}

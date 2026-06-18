@@ -1,0 +1,161 @@
+{
+  "version": "1.0",
+  "description": "四层提示词架构定义",
+  "layers": [
+    {
+      "id": "L1",
+      "name": "核心主体层",
+      "priority": 1,
+      "description": "角色核心身份信息，最高优先级，不可被覆盖",
+      "fields": [
+        {
+          "key": "identity",
+          "required": true,
+          "subFields": ["character_name", "archetype", "role", "gender", "age"]
+        },
+        {
+          "key": "physical_traits",
+          "required": true,
+          "subFields": ["face_shape", "eyes", "hair", "body_type", "skin", "distinctive_features"]
+        },
+        {
+          "key": "appearance",
+          "required": false,
+          "subFields": ["clothing", "accessories", "props", "makeup"]
+        },
+        {
+          "key": "personality",
+          "required": false,
+          "subFields": ["personality_traits", "emotional_range", "speech_style", "body_language"]
+        },
+        {
+          "key": "background",
+          "required": false,
+          "subFields": ["backstory", "relationships", "motivation", "fears", "goals"]
+        },
+        {
+          "key": "signature",
+          "required": false,
+          "subFields": ["catchphrase", "signature_action", "iconic_item", "verbal_tic"]
+        }
+      ],
+      "mergeStrategy": "override_protected",
+      "description": "角色核心身份，最高优先级，生成时不可被后续层覆盖"
+    },
+    {
+      "id": "L2",
+      "name": "风格氛围层",
+      "priority": 2,
+      "description": "画风、色彩基调、氛围情绪、时代背景、艺术流派",
+      "fields": [
+        {
+          "key": "style",
+          "required": true,
+          "description": "艺术风格分类",
+          "options": ["hyperrealistic-cinematic", "chinese-ink-wash", "cyberpunk", "guoman-anime", "cg-3d"]
+        },
+        {
+          "key": "colorPalette",
+          "required": false,
+          "description": "色彩基调方案",
+          "examples": ["teal and orange", "monochrome ink", "neon pink/cyan", "vibrant anime", "pixar palette"]
+        },
+        {
+          "key": "mood",
+          "required": false,
+          "description": "情绪氛围",
+          "examples": ["melancholic", "epic", "ethereal", "gritty", "whimsical", "menacing"]
+        },
+        {
+          "key": "era",
+          "required": false,
+          "description": "时代背景设定",
+          "examples": ["ancient china", "cyberpunk 2077", "tang dynasty", "post-apocalyptic", "future 3000"]
+        },
+        {
+          "key": "composition",
+          "required": false,
+          "description": "构图语法",
+          "examples": ["rule of thirds", "golden ratio", "centered", "dynamic angle", "rule of odds"]
+        }
+      ],
+      "mergeStrategy": "overlay",
+      "description": "定义视觉风格、色彩、氛围，作为绘制指导"
+    },
+    {
+      "id": "L3",
+      "name": "技术参数层",
+      "priority": 3,
+      "description": "镜头、光影、渲染、材质、后期等技术参数",
+      "fields": [
+        {
+          "key": "camera",
+          "subFields": ["lens", "focal_length", "aperture", "sensor_size", "angle", "movement"]
+        },
+        {
+          "key": "lighting",
+          "subFields": ["type", "direction", "quality", "color_temperature", "contrast_ratio", "key_light", "fill_light", "rim_light"]
+        },
+        {
+          "key": "rendering",
+          "subFields": ["engine", "resolution", "samples", "denoiser", "gi", "caustics", "sss"]
+        },
+        {
+          "key": "materials",
+          "subFields": ["skin", "hair", "cloth", "metal", "glass", "fabric", "fur"]
+        },
+        {
+          "key": "postProcessing",
+          "subFields": ["color_grading", "film_grain", "bloom", "vignette", "chromatic_aberration", "lens_flare"]
+        }
+      ],
+      "mergeStrategy": "append",
+      "description": "技术实现参数，决定渲染质量和技术风格"
+    },
+    {
+      "id": "L4",
+      "name": "平台参数层",
+      "priority": 4,
+      "description": "各平台专用参数：Midjourney/SD/Flux/DALL-E等",
+      "fields": {
+        "midjourney": {
+          "version": "--v 6.0 / --v 6.1",
+          "stylize": "--s 0-1000",
+          "chaos": "--c 0-100",
+          "aspect": "--ar 16:9 / 3:4 / 9:16 / 21:9",
+          "style": "--style raw / --s 250",
+          "chaos": "--c 0-100",
+          "characterRef": "--cref [url] --cw 0-100",
+          "styleRef": "--sref [url]",
+          "seed": "--seed [number]",
+          "quality": "--q 1 / --q 2",
+          "no": "--no [negative keywords]"
+        },
+        "stableDiffusion": {
+          "sampler": "DPM++ 2M Karras / Euler a",
+          "steps": "20-50",
+          "cfgScale": "5-9",
+          "sampler": "Euler a / DPM++ 2M Karras",
+          "resolution": "512x768 / 896x1152 / 1024x1024",
+          "denoisingStrength": "0.3-0.7",
+          "controlNet": "openpose / canny / depth / ip-adapter",
+          "lora": "<lora:name:weight>",
+          "vae": "vae-ft-mse-840000"
+        },
+        "flux": {
+          "guidance": "1.0-5.0",
+          "steps": "20-50",
+          "width": "1024/1344/1536",
+          "height": "1024/1536/1792"
+        },
+        "dalle": {
+          "quality": "hd / standard",
+          "size": "1024x1024 / 1024x1792 / 1792x1024",
+          "style": "vivid / natural"
+        }
+      },
+      "mergeStrategy": "platform_specific",
+      "description": "各平台专用参数，运行时根据目标平台注入"
+    }
+  ]
+}

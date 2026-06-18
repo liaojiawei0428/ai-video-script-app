@@ -1,0 +1,21 @@
+{
+  "presetId": "fairy-elf__hyperrealistic-cinematic__professional",
+  "fixture": "fairy-elf",
+  "character": "阿璃",
+  "role": "protagonist",
+  "style": "hyperrealistic-cinematic",
+  "template": "professional",
+  "platform": "midjourney",
+  "prompt": "[SUBJECT] 阿璃 (protagonist), # 基本信息 | - 年龄: 不老不死，外表十六岁 | - 身份: 仙界精灵，林中仙子 | # 外貌与服装 | - 银白长发及腰，尖耳 | - 冰蓝色眼眸，肌肤胜雪 | - 翠绿藤蔓缠绕的素白长裙 | - 身侧伴光蝶飞舞 | # 性格 | - 纯真好奇，对人间充满向往 | - 偶尔流露千年岁月的沧桑 || [STYLE] hyperrealistic, photorealistic, 8k, 16k, shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, Kodak Portra 400, Kodak Vision3 500T, teal and orange, cinematic color grading || [TECHNICAL] shot on ARRI Alexa 65, Sony A7R IV, 35mm f/1.4, cinematic lighting, Rembrandt lighting, rim light, 8k, ultra-detailed, masterpiece || [PLATFORM] --ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "negativePrompt": "cartoon, illustration, painting, drawing, anime, 3d render, cgi, blurry, low quality, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, distorted face, extra digits, fewer digits, cropped, worst quality, normal quality, jpeg artifacts, username, artist name, trademark, title",
+  "platformParams": "--ar 3:4 --v 6.1 --s 250 --style raw --cw 100 --cref https://cdn.example.com/ref.png --q 2",
+  "metadata": {
+    "styleId": "hyperrealistic-cinematic",
+    "templateId": "professional",
+    "platform": "midjourney",
+    "detectedRole": "protagonist",
+    "roleBoost": 1.5,
+    "promptLength": 659
+  },
+  "generatedAt": "2026-06-09T01:09:26.712Z"
+}

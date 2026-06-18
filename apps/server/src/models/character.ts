@@ -3,6 +3,19 @@ import { Character } from '../shared/types';
 
 export class CharacterModel {
   async create(character: Character): Promise<void> {
+    // v2.5.36: 修复双层 JSON BUG — caller 可能已 stringify, 也可能传 object
+    //   - 如果是 string: 已经是合法 JSON, 直接存
+    //   - 如果是 object: 调 JSON.stringify 一次
+    // 之前的代码无脑 stringify, 如果 caller 传 string 会变成双层 JSON (触发 fix-double-json 端点)
+    const desc = (character as any).description;
+    const extraDesc = (character as any).extraDescription;
+    const descStr = desc === undefined || desc === null
+      ? null
+      : typeof desc === 'string' ? desc : JSON.stringify(desc);
+    const extraDescStr = extraDesc === undefined || extraDesc === null
+      ? null
+      : typeof extraDesc === 'string' ? extraDesc : JSON.stringify(extraDesc);
+
     await execute(
       `INSERT INTO characters (id, novel_id, name, aliases, appearance, personality,
        role_type, relationships, reference_image, description, extra_description, created_at)
@@ -10,9 +23,7 @@ export class CharacterModel {
       [character.id, character.novelId, character.name, JSON.stringify(character.aliases),
        character.appearance || '', character.personality || '', character.roleType,
        JSON.stringify(character.relationships), character.referenceImage || '',
-       (character as any).description ? JSON.stringify((character as any).description) : null,
-       (character as any).extraDescription ? JSON.stringify((character as any).extraDescription) : null,
-       character.createdAt]
+       descStr, extraDescStr, character.createdAt]
     );
   }
 
@@ -52,25 +63,28 @@ export class CharacterModel {
    */
   async updateFull(id: string, data: {
     name?: string;
+    aliases?: string[];          // v2.5.34: 接受数组, 自动 JSON.stringify
     appearance?: string;
     personality?: string;
     roleType?: string;
-    description?: Record<string, any>;
-    extraDescription?: Record<string, any>;
+    description?: string;        // v2.5.34: 自由文本
+    extraDescription?: string;   // v2.5.34: 自由文本
   }): Promise<void> {
     const sets: string[] = [];
     const params: any[] = [];
     if (data.name !== undefined) { sets.push('name = ?'); params.push(data.name); }
+    if (data.aliases !== undefined) { sets.push('aliases = ?'); params.push(JSON.stringify(data.aliases)); }
     if (data.appearance !== undefined) { sets.push('appearance = ?'); params.push(data.appearance); }
     if (data.personality !== undefined) { sets.push('personality = ?'); params.push(data.personality); }
     if (data.roleType !== undefined) { sets.push('role_type = ?'); params.push(data.roleType); }
+    // v2.5.34: description / extraDescription 改为字符串直接存, 不再 JSON.stringify
     if (data.description !== undefined) {
       sets.push('description = ?');
-      params.push(JSON.stringify(data.description));
+      params.push(typeof data.description === 'string' ? data.description : String(data.description || ''));
     }
     if (data.extraDescription !== undefined) {
       sets.push('extra_description = ?');
-      params.push(JSON.stringify(data.extraDescription));
+      params.push(typeof data.extraDescription === 'string' ? data.extraDescription : String(data.extraDescription || ''));
     }
     if (sets.length === 0) return;
     params.push(id);
@@ -88,6 +102,16 @@ export class CharacterModel {
       roleType: row.role_type,
       relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships || '[]') : (row.relationships || []),
       referenceImage: row.reference_image,
+      // v2.5.27: 暴露 description/image_variants 给漫画 DNA 注入用
+      description: typeof row.description === 'string' ? row.description : (row.description ? JSON.stringify(row.description) : undefined),
+      extraDescription: typeof row.extra_description === 'string' ? row.extra_description : (row.extra_description ? JSON.stringify(row.extra_description) : undefined),
+      imageVariants: typeof row.image_variants === 'string'
+        ? (row.image_variants ? JSON.parse(row.image_variants) : [])
+        : (row.image_variants || []),
+      imageGenStatus: row.image_gen_status,
+      imageGeneratedAt: row.image_generated_at,
+      styleId: row.style_id,
+      confirmed: row.confirmed === 1 || row.confirmed === true,
       createdAt: row.created_at,
     };
   }
