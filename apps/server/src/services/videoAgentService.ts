@@ -9,6 +9,7 @@
 //   - 保留: 异步任务 + 5s 轮询 + 失败重试 + i2v (modification 走 last_result_url)
 
 import { agnesVideoProvider } from './agnesVideoProvider';
+import { agnesTextProvider } from './agnesTextProvider';
 import { videoConversationModel, videoGenerationModel } from '../models/videoConversation';
 import { billingService, isVipActive, chargingForVideo } from './billingService';
 import { userModel } from '../models/user';
@@ -16,6 +17,15 @@ import { logger } from '../utils/logger';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
 import { parseAspectToDims } from '../prompts/imageAspectRatio';
+import { buildVideoPromptOptimizerMessages } from '../prompts/videoAgentSystem';
+
+// ── v3.0.24 (S61): LLM prompt 优化层配置 ──
+// 计费: ¥0.01/次 (跟 billing_logs DECIMAL(10,2) 最小单位一致; 实测 0.005 会被 MySQL round 到 0.01)
+// 超时: 30s, 超时 fallback 原文 passthrough
+// 失败兜底: LLM 报错 / 返空 / 返 < 5 chars → 用 userText 原 trim 走
+const VIDEO_PROMPT_LLM_TIMEOUT_MS = 30_000;
+const VIDEO_PROMPT_LLM_COST = 0.01;
+const VIDEO_PROMPT_LLM_MIN_OUTPUT = 5;  // LLM 返 < 5 chars 视为无效
 
 // ── 异步任务锁 (P0 fix: 重复 confirm 触发多条 background 链) ──
 // Map<conversationId, Promise<void>> — 跟踪进行中的 background 任务
@@ -227,9 +237,69 @@ export class VideoAgentService {
         });
       }
     }
-    // 5. v3.0.0.28 (S48): 100% 原文 passthrough, 不加 quality tags + 不加 i2v prefix
-    //   user 原话 = plan.prompt = 发给 agens 的 prompt
-    const finalPrompt = (userText || '').trim();
+    // 5. v3.0.24 (S61): LLM prompt 优化层
+    //   - 中文/英文/混合输入 → LLM 改写成 agens-video-v2.0 友好的英文 prompt + quality tags
+    //   - 失败/超时/返空 → fallback 到 userText.trim() (旧 100% passthrough)
+    //   - 计费: ¥0.01/次 (复用 billingService.chargeImage, description='video prompt LLM 优化')
+    //   - enableThinking=false: 翻译+结构化是简单任务, 关 thinking 省 token + 延迟
+    let finalPrompt = (userText || '').trim();
+    let promptOptimized = false;
+    let promptOptimizeUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | null = null;
+    if (finalPrompt && finalPrompt.length >= 3 && !isModification) {
+      // i2v 模式 (modification) 跳过 LLM: 修改指令短 + 用户期望"按指令改", 不要 LLM 加工
+      const t0 = Date.now();
+      try {
+        const llmPromise = agnesTextProvider.chatCompletion({
+          messages: buildVideoPromptOptimizerMessages(finalPrompt),
+          temperature: 0.7,
+          maxTokens: 800,
+          enableThinking: false,
+        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('video-prompt-llm-timeout')), VIDEO_PROMPT_LLM_TIMEOUT_MS)
+        );
+        const llmResult = await Promise.race([llmPromise, timeoutPromise]);
+        const llmOutput = (llmResult?.content || '').trim();
+        if (llmOutput.length >= VIDEO_PROMPT_LLM_MIN_OUTPUT) {
+          finalPrompt = llmOutput;
+          promptOptimized = true;
+          promptOptimizeUsage = llmResult.usage;
+          // 计费 (复用 chargeImage, 失败不阻塞视频生成)
+          try {
+            await billingService.chargeImage(
+              conv.user_id,
+              VIDEO_PROMPT_LLM_COST,
+              'video prompt LLM 优化',
+              conversationId,
+            );
+          } catch (chargeErr) {
+            logger.warn('VideoAgent: prompt optimize charge failed (non-blocking)', {
+              conversationId,
+              error: (chargeErr as Error).message,
+            });
+          }
+          logger.info('VideoAgent: prompt optimized by LLM', {
+            conversationId,
+            originalLen: userText.length,
+            optimizedLen: llmOutput.length,
+            elapsedMs: Date.now() - t0,
+            usage: llmResult.usage,
+          });
+        } else {
+          logger.warn('VideoAgent: LLM output too short, fallback to original', {
+            conversationId,
+            outputLen: llmOutput.length,
+            elapsedMs: Date.now() - t0,
+          });
+        }
+      } catch (llmErr) {
+        logger.warn('VideoAgent: LLM prompt optimization failed, fallback to original passthrough', {
+          conversationId,
+          error: (llmErr as Error).message,
+          elapsedMs: Date.now() - t0,
+        });
+      }
+    }
     let useRefForI2V: string | undefined = undefined;
     if (isModification && lastResultUrl) {
       useRefForI2V = lastResultUrl;
@@ -273,10 +343,14 @@ export class VideoAgentService {
       status: 'plan_ready' as AgentConversationStatus,
     } as any);
 
-    logger.info('VideoAgent: processTurn (passthrough)', {
+    logger.info('VideoAgent: processTurn', {
       conversationId,
       userTextLen: userText.length,
+      finalPromptLen: finalPrompt.length,
+      promptOptimized,
+      promptOptimizeUsage,
       aspectRatio,
+      isModification,
     });
 
     return { conversationId, aiMessage, status: 'plan_ready' };
