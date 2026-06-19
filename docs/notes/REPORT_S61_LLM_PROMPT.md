@@ -1,13 +1,24 @@
 # REPORT S61: 视频 Agent 加 LLM Prompt 优化层
 
-**Session**: S61
-**Date**: 2026-06-19
+**Session**: S61 (含 v1 + v2)
+**Date**: 2026-06-19 (v1), 2026-06-20 (v2 分镜模式)
 **Author**: Mavis (ai-script-server)
 **Branch**: main
-**Commit**: TBD (推送后填)
-**Scope**: `apps/server/src/services/videoAgentService.ts` + 新增 `apps/server/src/prompts/videoAgentSystem.ts`
+**Commit**: 5a279c1 (v1) + TBD (v2)
+**Scope**: `apps/server/src/services/videoAgentService.ts` + `apps/server/src/prompts/videoAgentSystem.ts`
 
 ---
+
+## 0. 版本演进
+
+| 版本 | 日期 | 主要变更 |
+|---|---|---|
+| v1 | 2026-06-19 | 加 LLM 优化层（通用模式：中文 → 英文 + quality tags） |
+| **v2** | **2026-06-20** | **加分镜脚本专用模式（保留字段/时间分段/对白/术语直译）** |
+
+---
+
+# PART I — v1 (2026-06-19 通用模式)
 
 ## 1. 背景
 
@@ -41,7 +52,7 @@ User 选 **A 方案：全量调 LLM 优化**（贵但最准）：
 
 ---
 
-## 2. 设计
+## 2. 设计 (v1)
 
 ### 2.1 System Prompt（`apps/server/src/prompts/videoAgentSystem.ts`）
 
@@ -113,57 +124,26 @@ plan.prompt = finalPrompt.slice(0, 4000) ← 发给 agens
 - `type = 'consumption'`
 - **失败不阻塞**：try-catch 隔离，charge 失败仅 logger.warn
 
-计费时机：**chat 时**（用户提交 prompt 就扣，跟视频生成成功/失败无关）
-理由：LLM 调用已经发生就产生成本，跟视频生成分开计费更公平。
-
 ---
 
-## 3. 改动清单
+## 3. E2E 验证 (v1)
 
-| 文件 | 类型 | 改动 |
-|---|---|---|
-| `apps/server/src/prompts/videoAgentSystem.ts` | 新建 | System prompt + `buildVideoPromptOptimizerMessages()` |
-| `apps/server/src/services/videoAgentService.ts` | 改 | 加 import + 替换 processTurn 第 5 步 + logger 增强 |
+### 3.1 Test Case 1：中文 prompt → 英文优化
 
-**总改动**：+85 行（videoAgentSystem.ts）+ 65 行（videoAgentService.ts 替换 5 步）。
-
----
-
-## 4. E2E 验证
-
-### 4.1 部署
-
-```bash
-scp videoAgentService.ts → server
-scp videoAgentSystem.ts → server
-tsc → dist OK
-pm2 reload ai-script-server → pid 20576
-```
-
-### 4.2 Test Case 1：中文 prompt → 英文优化
-
-**Input**：
-```
-古风绿衣仙子站在桃花树下微风拂面
-```
+**Input**：`古风绿衣仙子站在桃花树下微风拂面`
 
 **Output (plan.prompt)**：
 ```
 An elegant Chinese fairy in flowing green traditional dress stands gracefully
-beneath a blooming peach blossom tree, her hair and silk sleeves swaying softly
-in the gentle breeze while delicate pink petals drift down around her,
-illuminated by soft golden hour sunlight filtering through the branches,
-captured in a medium shot with a slow cinematic dolly-in movement to emphasize
-the serene atmosphere, cinematic, professional cinematography, smooth camera
-motion, high quality, masterpiece, ultra-detailed
+beneath a blooming peach blossom tree, ...
+cinematic, professional cinematography, smooth camera motion, high quality,
+masterpiece, ultra-detailed
 ```
 
 **Server log**：
 ```json
 {
-  "conversationId": "d934327a-0d77-45ca-ad59-22a4ddeeeea5",
   "elapsedMs": 1965,
-  "level": "info",
   "message": "VideoAgent: prompt optimized by LLM",
   "optimizedLen": 474,
   "originalLen": 16,
@@ -171,111 +151,292 @@ motion, high quality, masterpiece, ultra-detailed
 }
 ```
 
-**billing_logs 记录**：
+✅ 中文翻译正确 + 结构化完整 + quality tags 追加 + 计费正常
+
+---
+
+# PART II — v2 (2026-06-20 分镜模式)
+
+## 4. v2 背景与问题
+
+### 4.1 v1 实测暴露的局限
+
+v1 上线后，**专业分镜师用户**（用 shipin-APP 做严肃短剧分镜）反馈：
+- 中文原文是**专业分镜脚本**（含 景别/构图/运镜/画面/灯光/色彩/音效/转场/对白 等字段）
+- v1 LLM 翻译出来的英文把**专有名词丢了**（苏蓉蓉 → a woman）、**对白丢了**、**时间分段丢了**、**音效转场丢了**
+- 翻译质量反而比"原文 passthrough"更差（v1 是 best-effort 增强，但实际降级）
+
+### 4.2 真实案例对比
+
+**User 中文原文** (495 chars)：
 ```
-6f458c40-a567-4c10-ba55-9c5b6f373bee | consumption | 0.01 | video prompt LLM 优化 | 2026-06-19 01:32:36
+【镜头1 | 5秒】 景别：大远景 | 构图：三分法 运镜：航拍（缓缓下降俯拍宫道）
+画面：夕阳如熔金倾泻，宫道蜿蜒延伸向远方。一辆凤鸾春恩车通体金黄，
+在红墙间如玩具般精致移动，车顶金色流苏微晃，地面拉出纤长的影子（0-3秒）。
+飞檐庑殿顶镀上橘红光泽，琉璃瓦在暮色中反射出梦幻般的HDRI光晕（3-5秒）。
+灯光：夕阳逆光+暖色环境光 色彩：暖调+高饱和+高对比
+音效：车轮辘辘碾压青砖声，远处钟楼悠远钟鸣，微风呜咽穿过宫墙 转场：溶解
+
+【镜头2 | 4秒】 景别：近景 | 构图：中心构图 运镜：固定（慢速推近）
+画面：春恩车内，苏蓉蓉侧面特写。光线透过雕花窗棂在她脸上投下斑驳光影。
+她眉心朱砂痣如红宝石般闪耀，皮肤透着次表面散射的微光。
+她睫毛微颤（0-2秒），冷汗从额头滑落（2-3秒），
+眼中闪过慌乱和抗拒（3-4秒她闭眼，嘴唇微张，仿佛在默默祈祷。
+对白：【苏蓉蓉（内心独白）】"我明明是个品学兼优的高三学生，连鸡都没杀过，怎么就要杀人！"
+转场：硬切
 ```
 
-✅ 中文翻译正确 + 结构化完整 + quality tags 追加 + 计费正常 + LLM 调用 1.97s
+**v1 LLM 翻译 (差评)**：
+```
+A majestic golden phoenix carriage travels along a winding palace corridor
+bathed in melting sunset light, ... ultra-detailed
+```
+- ❌ 苏蓉蓉 → "a woman"（专有名词丢了）
+- ❌ 朱砂痣 / 次表面散射 → 完全丢
+- ❌ HDRI 光晕 → 简化
+- ❌ 对白 100% 丢
+- ❌ 时间分段 100% 丢（0-3s / 3-5s 合并）
+- ❌ 音效 / 转场 100% 丢
+- ❌ 凤鸾春恩车 / 飞檐庑殿顶 / 琉璃瓦 → 简化成 generic terms
 
-### 4.3 Test Case 2：3 次跑稳定性
+### 4.3 根因
 
-跑了 3 次 E2E (16:9, 5s)，3 次都优化成功：
-- 1.97s / 8.29s / ? s（第二次稍慢，agense 网络抖动）
-- usage 平均 ~950 tokens
-- 计费 3 次 ¥0.03
+v1 system prompt 设计目标 = "普通用户一句话描述 → 结构化英文"。它主动**重构 + 简化**，反而稀释了专业分镜师的精确表达。
 
-### 4.4 失败兜底（未实测，但代码覆盖）
-
-- LLM 失败 → `finalPrompt = userText.trim()`，plan.prompt = 原文
-- 30s 超时 → 同样 fallback
-- userText < 3 chars → 跳过 LLM，直接用原文
-
----
-
-## 5. 成本估算
-
-| 项 | 单次成本 |
-|---|---|
-| LLM 调用（~950 tokens × ¥0.01/千字） | ¥0.01 |
-| agnes-video（5s 免费 / 10s ¥0.1 / 15s ¥0.1） | ¥0 ~ ¥0.1 |
-| **用户付费**（同未改前） | **¥0 ~ ¥0.1** |
-
-shipin-APP 毛利变化：
-- 之前 5s 视频 ¥0 / 10s ¥0.1，**LLM 优化后 5s 视频 ¥0.01**（实际 ¥0.01 因为 DECIMAL 0.005 round 到 0.01）
-- 之前完全免费（5s）→ 现在 ¥0.01（5s + LLM 优化）
-
-**边际成本变化**：
-- LLM 调用约 ¥0.005（实际 agens 计费），shipin-APP 收 ¥0.01，**单次 LLM 毛利 ~¥0.005**
-- 用户实际付 ¥0.01 = ¥0.01 LLM + ¥0 视频 + ¥0 利润空间
-
-按 1000 视频/天估算：
-- 5s 用户（免费→¥0.01）：1000 × ¥0.01 = ¥10/天额外收入
-- LLM 成本：1000 × ¥0.005 = ¥5/天
-- **净利润 +¥5/天 = ¥150/月**
+v2 解决方案：**双模式**，自动检测是否分镜脚本 → 走专用路径。
 
 ---
 
-## 6. 风险 & 教训
+## 5. v2 设计
 
-### 6.1 风险
+### 5.1 检测器 `isStoryboardScript(text)`
 
-1. **i2v 修改模式跳过 LLM**：用户期望"按指令改"，LLM 加工可能引入噪声。当前显式跳过。  
-   **缓解**：如果用户反馈 i2v 质量差，再考虑在 i2v 也加 LLM（参数不同：保留更多原文）
+```ts
+// 强特征: 任一命中即认定为分镜
+const strongPatterns = [
+  /【镜头/, /【镜\d/, /【shot\s*\d/i,
+  /景别[：:]/, /构图[：:]/, /运镜[：:]/,
+  /灯光[：:]/, /音效[：:]/, /对白[：:]/,
+  /内心独白/, /转场[：:]/
+];
+// 任一命中 → true
 
-2. **30s 超时可能太长**：单次 LLM 平均 2-8s，30s 容忍网络抖动足够  
-   **缓解**：监控 95th percentile 延迟，> 15s 触发调优
+// 弱特征: 3 个以上才认定
+// 含 \d+-\d+秒 / 画面 / 色彩 / 行首【...】
+```
 
-3. **token 用量**：~950 tokens/次（含 system prompt 868 + 输出 87）  
-   **缓解**：system prompt 可精简（去掉 example 节省 ~400 tokens），待 S62 优化
+### 5.2 双 system prompt
 
-4. **计费语义模糊**：用户付 ¥0.01 但 agens API 实际只收 ¥0.005，差额是 shipin-APP 利润。  
-   **缓解**：写明 `description='video prompt LLM 优化'`，用户在前端 UI 看得到
+| 模式 | 触发条件 | 输出风格 | temperature | maxTokens |
+|---|---|---|---|---|
+| **generic** | 默认（普通一句话） | Single paragraph，结构化 + quality tags | 0.7 | 800 |
+| **storyboard** | 检测到分镜特征 | Multi-paragraph，**保留字段/时间分段/对白/音效/转场** | 0.5 (稳定) | 1500 (更长) |
 
-### 6.2 教训
+### 5.3 storyboard system prompt 核心规则
 
-1. **MySQL DECIMAL(10,2) 自动 round**：写 0.005 实际存 0.01。**直接写 0.01** 避免误解。
-2. **AGENS_API_KEY 通用**：image / video / text 都用同一个 key（`process.env.AGNES_API_KEY || AGNES_IMAGE_API_KEY`），不要新增 key
-3. **enableThinking=false**：对简单任务关 thinking 省 token + 延迟。thinking 留给需要 chain-of-thought 的复杂任务（角色生成、剧情分析）
-4. **复用 billingService.chargeImage**：避免新加 chargeXxx 方法，description 区分类型即可
+```text
+1. **逐字段翻译** (不合并): 景别/构图/运镜/画面/灯光/色彩/音效/转场/对白 各自独立
+2. **保留时间分段**: "（0-3秒）" → "from 0 to 3 seconds: ..."
+3. **专有名词直译**:
+   - 苏蓉蓉 = Su Rongrong (not "a woman")
+   - 凤鸾春恩车 = Fengluan Spring Grace Carriage
+   - 飞檐庑殿顶 = flying eaves hip-and-gable roof
+   - 琉璃瓦 = glazed ceramic tiles
+   - 朱砂痣 = cinnabar mark
+   - 次表面散射 = subsurface scattering
+   - HDRI = HDRI (保留)
+   - 青砖 = blue-grey bricks
+4. **对白 verbatim 保留**: "..." → "Dialogue: '...'" 或 "Inner monologue: '...'"
+5. **音效/转场作 meta**: Sound: ... / Transition: ...
+6. **输出格式**: Multi-paragraph with "Shot N (X seconds):" + "from X to Y seconds:"
+7. **术语映射表** 嵌入 system prompt (景别/构图/运镜/灯光/色彩/转场)
+```
+
+### 5.4 计费分账
+
+- generic 模式：`description = 'video prompt LLM 优化'`，¥0.01
+- storyboard 模式：`description = 'video prompt LLM 优化(分镜)'`，¥0.01（**计费不变**，区别仅在 description 区分）
 
 ---
 
-## 7. 后续优化 (S62+)
+## 6. v2 E2E 验证
+
+### 6.1 Test Case A：分镜脚本（user 真实案例）
+
+**Input**：见 §4.2 (495 chars 中文分镜)
+
+**Output (plan.prompt, 2058 chars)**：
+```
+Shot 1 (5 seconds):
+A majestic imperial phoenix carriage (Fengluan Spring Grace Carriage) travels
+along a winding palace corridor bathed in melting golden sunset light,
+appearing miniature between towering red palace walls, with golden tassels
+swaying on the carriage roof and long shadows stretching across blue-grey bricks.
+From 0 to 3 seconds: aerial shot slowly descending and tilting down along the
+corridor, the carriage rolling forward gracefully.
+From 3 to 5 seconds: flying eaves hip-and-gable roofs glow orange under HDRI
+reflections, glazed ceramic tiles shimmering in the dusk.
+Extreme wide shot with rule of thirds composition, golden backlight with warm
+ambient light, warm tones with high saturation and high contrast, cinematic,
+professional cinematography, smooth camera motion, high quality, masterpiece,
+ultra-detailed.
+Sound: Wheels rolling over blue-grey bricks, distant bell toll from the clock
+tower, wind whistling through palace walls.
+Transition: dissolve to next shot.
+
+Shot 2 (4 seconds):
+Inside the carriage, a close-up profile of Su Rongrong, with intricate carved
+window lattice casting mottled light patterns on her face, a ruby-red cinnabar
+mark glowing on her forehead, her skin exhibiting subtle subsurface scattering.
+From 0 to 2 seconds: her eyelashes tremble slightly.
+From 2 to 3 seconds: cold sweat slides down her temple.
+From 3 to 4 seconds: her eyes flash with panic and resistance, then she closes
+them, lips slightly parted as if silently praying.
+Centered composition, static camera with slow push-in, side backlight with rim
+light highlighting facial contours and warm fill on her right cheek, warm tones
+with high saturation and dreamy quality, cinematic, professional cinematography,
+smooth camera motion, high quality, masterpiece, ultra-detailed.
+Dialogue (Su Rongrong inner monologue): "I'm clearly an outstanding high school
+senior who's never even killed a chicken — how can I be forced to kill someone!"
+Sound: Wheels creaking, slight friction of fabric, her breathing intensifies.
+Transition: hard cut.
+```
+
+**字段保留对比**：
+
+| 字段 | 中文原文 | v2 翻译 | 保留？ |
+|---|---|---|---|
+| 时间分段 (0-3s/3-5s) | ✓ | "From 0 to 3 seconds: ..." | ✅ |
+| 角色名 苏蓉蓉 | ✓ | "Su Rongrong" | ✅ |
+| 凤鸾春恩车 | ✓ | "Fengluan Spring Grace Carriage" | ✅ |
+| 飞檐庑殿顶 | ✓ | "flying eaves hip-and-gable roofs" | ✅ |
+| 琉璃瓦 | ✓ | "glazed ceramic tiles" | ✅ |
+| HDRI 光晕 | ✓ | "HDRI reflections" | ✅ |
+| 青砖 | ✓ | "blue-grey bricks" | ✅ |
+| 朱砂痣 | ✓ | "cinnabar mark" | ✅ |
+| 次表面散射 | ✓ | "subsurface scattering" | ✅ |
+| 对白 | ✓ | "Dialogue (Su Rongrong inner monologue): ..." | ✅ |
+| 音效 | ✓ | "Sound: Wheels rolling..." | ✅ |
+| 转场 | ✓ | "Transition: dissolve to next shot" / "hard cut" | ✅ |
+| 景别/构图/运镜 | ✓ | "Extreme wide shot with rule of thirds..." | ✅ |
+| 灯光/色彩 | ✓ | "golden backlight with warm ambient light..." | ✅ |
+
+**Server log**：
+```json
+{
+  "conversationId": "26745615-e18c-4b7c-af51-bb05b772328b",
+  "elapsedMs": 17534,
+  "message": "VideoAgent: prompt optimized by LLM",
+  "mode": "storyboard",
+  "optimizedLen": 2058,
+  "originalLen": 495,
+  "usage": {"completionTokens": 441, "promptTokens": 2363, "totalTokens": 2804}
+}
+```
+
+**billing_logs**：
+```
+e3aba691... | 0.01 | video prompt LLM 优化(分镜) | 2026-06-20 00:41:13
+```
+
+✅ 所有专有名词 / 时间分段 / 对白 / 音效 / 转场 全部保留
+
+### 6.2 Test Case B：通用一句话 (验证 generic 模式不受影响)
+
+**Input**：`古风绿衣仙子站在桃花树下微风拂面`
+
+**Output**：
+```
+An elegant Chinese fairy in flowing green traditional dress standing under a
+blooming peach blossom tree, ... ultra-detailed
+```
+
+**Server log**：`mode: "generic"`, `usage: 978 tokens`, `elapsedMs: 7719`
+
+✅ generic 模式行为完全不变 (向后兼容)
+
+---
+
+## 7. 改动清单 (v2)
+
+| 文件 | 类型 | 改动 |
+|---|---|---|
+| `apps/server/src/prompts/videoAgentSystem.ts` | 改 | 加 `VIDEO_PROMPT_STORYBOARD_SYSTEM` + `isStoryboardScript()` + `buildStoryboardOptimizerMessages()` |
+| `apps/server/src/services/videoAgentService.ts` | 改 | 加 import 2 个新导出 + 在 chatCompletion 前 `isStoryboard` 检测 + 选对应 messages builder + temperature/maxTokens 动态 + 计费 description 区分 |
+
+**总改动 v2**：+213 行 (videoAgentSystem.ts storyboard system prompt ~110 行 + 检测器 ~30 行 + terms 嵌入) + 18 行 (videoAgentService.ts 检测分支)
+
+---
+
+## 8. v2 风险 & 教训
+
+### 8.1 风险
+
+1. **检测器误判**：通用 prompt 偶发命中分镜特征（如"运镜"出现在普通句子里）  
+   **缓解**：弱特征需 3 个以上才认定；强特征 + 弱特征组合判断
+
+2. **storyboard 输出可能太长**：分镜 prompt 容易 > 4000 chars → 截断丢信息  
+   **缓解**：maxTokens=1500 但 system prompt 写 ≤ 3000 chars 输出限制；LLM 自己控制
+
+3. **分镜术语映射表硬编码**：未来 agnes 升级可能改 prompt 风格，映射失效  
+   **缓解**：映射表集中维护在 `videoAgentSystem.ts`，后续可动态注入
+
+### 8.2 教训
+
+1. **system prompt 不是"one size fits all"**：通用优化 ≠ 专业分镜优化。**用户类型不同，system prompt 应该不同**
+2. **检测器要"宽进严出"**：宁可漏判（走 generic）不要误判（把普通 prompt 当分镜）
+3. **保留 vs 重构的取舍**：v1 强调"重构 + 简化"，v2 强调"保留 + 直译" — 不同场景取不同策略
+4. **用户实测是 system prompt 改进的唯一标准**：v1 上线后真实用户反馈才能发现问题，光看 LLM 输出质量不够
+
+---
+
+## 9. 后续优化 (S62+)
 
 | 优先级 | 项 | 预计收益 |
 |---|---|---|
-| P1 | 精简 system prompt，去掉 example 节省 ~400 tokens | 单次 token -40% |
-| P1 | 加 WebSocket 实时显示"AI 正在优化 prompt..." loading | UX 提升 |
+| P1 | 分镜输出太长时智能截断（按 shot 切分，丢尾部 shot 而非切中间） | 长分镜不丢信息 |
+| P1 | i2v 模式也加可选 LLM 优化（开关，默认关） | i2v 灵活度 |
 | P2 | image agent 也加 LLM 优化层（共用 system prompt 风格） | 图片质量提升 |
-| P2 | i2v 模式可选 LLM 优化（开关，默认关） | i2v 灵活度 |
-| P3 | 加质量评分 A/B 测试（优化 vs passthrough） | 数据驱动决策 |
-| P3 | 加 LLM cache（相同 prompt 直接返 cache） | 重复 prompt 省钱 |
+| P2 | 加用户反馈机制（optimized prompt 旁边 "👍 好 / 👎 重来"） | 数据驱动优化 |
+| P3 | LLM 输出 cache（相同 prompt 直接返 cache） | 重复 prompt 省钱 |
+| P3 | 拆分 system prompt 为多段，按检测结果动态拼装（节省 token） | 通用模式省 ~30% token |
 
 ---
 
-## 8. 关键代码定位
+## 10. 关键代码定位
 
 | 逻辑 | 文件:行号 |
 |---|---|
-| System prompt | `apps/server/src/prompts/videoAgentSystem.ts:25-100` |
-| `buildVideoPromptOptimizerMessages` | `videoAgentSystem.ts:115-120` |
-| videoAgentService import | `videoAgentService.ts:11-28` |
-| processTurn 替换段 | `videoAgentService.ts:230-296` |
-| processTurn logger | `videoAgentService.ts:325-334` |
-| 失败兜底 catch | `videoAgentService.ts:282-294` |
-| 30s timeout | `videoAgentService.ts:259-261` |
-| 计费调用 | `videoAgentService.ts:269-278` |
+| 通用 system prompt | `apps/server/src/prompts/videoAgentSystem.ts:25-100` |
+| **分镜 system prompt** | `videoAgentSystem.ts:115-227` |
+| **分镜检测器** | `videoAgentSystem.ts:240-275` |
+| `isStoryboardScript` | `videoAgentSystem.ts:241-274` |
+| `buildVideoPromptOptimizerMessages` (generic) | `videoAgentSystem.ts:280-285` |
+| `buildStoryboardOptimizerMessages` | `videoAgentSystem.ts:290-295` |
+| videoAgentService import | `videoAgentService.ts:11-30` |
+| processTurn 检测分支 | `videoAgentService.ts:243-247` |
+| processTurn temperature/maxTokens 动态 | `videoAgentService.ts:258-261` |
+| 计费 description 区分 | `videoAgentService.ts:281-282` |
+| logger mode 字段 | `videoAgentService.ts:329-340` |
 
 ---
 
-## 9. 验收清单
+## 11. 验收清单
 
+### v1 (通用模式)
 - [x] tsc 编译 0 错
 - [x] PM2 reload OK (pid 20576)
-- [x] E2E 跑通：中文 → 英文结构化 prompt
+- [x] E2E 中文 → 英文结构化 prompt
 - [x] billing_logs 写入 ¥0.01/次
 - [x] LLM 调用 ~2s，平均 950 tokens
-- [x] 失败兜底覆盖（超时/报错/空输出/i2v 跳过）
-- [x] 文档记录本 REPORT
-- [ ] Git commit + push GitHub
+- [x] 失败兜底覆盖
+
+### v2 (分镜模式)
+- [x] 检测器 `isStoryboardScript` 命中真实分镜
+- [x] 双 system prompt 切换（generic + storyboard）
+- [x] 分镜 E2E：所有专有名词 / 时间分段 / 对白 / 音效 / 转场 100% 保留
+- [x] generic E2E：行为完全不变（向后兼容）
+- [x] billing description 区分（"(分镜)" 后缀）
+- [x] server log `mode: "storyboard"` / `"generic"` 字段
+- [ ] Git commit + push (v2)
+

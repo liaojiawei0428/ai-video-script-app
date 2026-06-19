@@ -17,7 +17,7 @@ import { logger } from '../utils/logger';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
 import { parseAspectToDims } from '../prompts/imageAspectRatio';
-import { buildVideoPromptOptimizerMessages } from '../prompts/videoAgentSystem';
+import { buildVideoPromptOptimizerMessages, buildStoryboardOptimizerMessages, isStoryboardScript } from '../prompts/videoAgentSystem';
 
 // ── v3.0.24 (S61): LLM prompt 优化层配置 ──
 // 计费: ¥0.01/次 (跟 billing_logs DECIMAL(10,2) 最小单位一致; 实测 0.005 会被 MySQL round 到 0.01)
@@ -237,22 +237,31 @@ export class VideoAgentService {
         });
       }
     }
-    // 5. v3.0.24 (S61): LLM prompt 优化层
-    //   - 中文/英文/混合输入 → LLM 改写成 agens-video-v2.0 友好的英文 prompt + quality tags
+    // 5. v3.0.24 (S61): LLM prompt 优化层 (双模式)
+    //   - 通用模式 (普通一句话): LLM 改写成英文 + quality tags
+    //   - 分镜模式 (含 【镜头/景别/构图/运镜 等字段): 保留字段/时间分段/对白/术语直译
     //   - 失败/超时/返空 → fallback 到 userText.trim() (旧 100% passthrough)
     //   - 计费: ¥0.01/次 (复用 billingService.chargeImage, description='video prompt LLM 优化')
     //   - enableThinking=false: 翻译+结构化是简单任务, 关 thinking 省 token + 延迟
     let finalPrompt = (userText || '').trim();
     let promptOptimized = false;
+    let promptOptimizedMode: 'generic' | 'storyboard' | null = null;
     let promptOptimizeUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | null = null;
     if (finalPrompt && finalPrompt.length >= 3 && !isModification) {
       // i2v 模式 (modification) 跳过 LLM: 修改指令短 + 用户期望"按指令改", 不要 LLM 加工
+      // v3.0.24 S61 v2: 检测是否为分镜脚本 → 选对应 system prompt
+      const isStoryboard = isStoryboardScript(finalPrompt);
+      const messages = isStoryboard
+        ? buildStoryboardOptimizerMessages(finalPrompt)
+        : buildVideoPromptOptimizerMessages(finalPrompt);
+      promptOptimizedMode = isStoryboard ? 'storyboard' : 'generic';
+
       const t0 = Date.now();
       try {
         const llmPromise = agnesTextProvider.chatCompletion({
-          messages: buildVideoPromptOptimizerMessages(finalPrompt),
-          temperature: 0.7,
-          maxTokens: 800,
+          messages,
+          temperature: isStoryboard ? 0.5 : 0.7,  // 分镜需要更稳定, 降低 temperature
+          maxTokens: isStoryboard ? 1500 : 800,    // 分镜允许更长输出
           enableThinking: false,
         });
         const timeoutPromise = new Promise<never>((_, reject) =>
@@ -269,7 +278,7 @@ export class VideoAgentService {
             await billingService.chargeImage(
               conv.user_id,
               VIDEO_PROMPT_LLM_COST,
-              'video prompt LLM 优化',
+              isStoryboard ? 'video prompt LLM 优化(分镜)' : 'video prompt LLM 优化',
               conversationId,
             );
           } catch (chargeErr) {
@@ -280,6 +289,7 @@ export class VideoAgentService {
           }
           logger.info('VideoAgent: prompt optimized by LLM', {
             conversationId,
+            mode: promptOptimizedMode,
             originalLen: userText.length,
             optimizedLen: llmOutput.length,
             elapsedMs: Date.now() - t0,
@@ -288,6 +298,7 @@ export class VideoAgentService {
         } else {
           logger.warn('VideoAgent: LLM output too short, fallback to original', {
             conversationId,
+            mode: promptOptimizedMode,
             outputLen: llmOutput.length,
             elapsedMs: Date.now() - t0,
           });
@@ -295,6 +306,7 @@ export class VideoAgentService {
       } catch (llmErr) {
         logger.warn('VideoAgent: LLM prompt optimization failed, fallback to original passthrough', {
           conversationId,
+          mode: promptOptimizedMode,
           error: (llmErr as Error).message,
           elapsedMs: Date.now() - t0,
         });
@@ -348,6 +360,7 @@ export class VideoAgentService {
       userTextLen: userText.length,
       finalPromptLen: finalPrompt.length,
       promptOptimized,
+      promptOptimizedMode,
       promptOptimizeUsage,
       aspectRatio,
       isModification,
