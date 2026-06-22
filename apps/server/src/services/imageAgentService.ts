@@ -1,10 +1,13 @@
 // apps/server/src/services/imageAgentService.ts
 // v3.0.0.16+: 生图 Agent 服务 — 极简 passthrough (用户原文即英文 prompt, 无 LLM 提取/翻译步骤)
+// v3.0.24 (S61 v3): 加 LLM prompt 优化层 (复用 video system prompt + isStoryboardScript 检测)
 // 详细设计: docs/V3_AGENT_MATRIX.md §5
 // 状态机: idle → awaiting_clarification (欢迎语) → plan_ready (processTurn 直接出) → tool_queued → tool_executing → tool_completed
 
-// v3.0.0.13+: 极简 passthrough 模式, 不再调 LLM 提取/翻译 (不需要 agnesTextProvider / imageAgentSystem prompt)
+// v3.0.0.13+: 极简 passthrough 模式, 不再调 LLM 提取/翻译
+// v3.0.24 (S61 v3): 加 agnesTextProvider LLM 优化 (通用 + 分镜检测), 复用 video 的 system prompt
 import { imageProvider } from './imageProvider';
+import { agnesTextProvider } from './agnesTextProvider';
 import { imageConversationModel, imageGenerationModel } from '../models/imageConversation';
 import { billingService, isVipActive, IMAGE_DAILY_QUOTA_STANDARD, IMAGE_DAILY_QUOTA_VIP } from './billingService';
 import { userModel } from '../models/user';
@@ -14,11 +17,16 @@ import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../s
 import { parseAspectRatioFromText, parseAspectToDims } from '../prompts/imageAspectRatio';
 import { PlanFields } from '../prompts/imagePlanFields';
 import { buildFinalEnglishPrompt } from '../prompts/imagePromptBuilder';
+import { buildVideoPromptOptimizerMessages, buildStoryboardOptimizerMessages, isStoryboardScript } from '../prompts/videoAgentSystem';
 
 // ── 计费 ──
 // v3.0.0.31 (S51): 生图免费 (0 元/张), 改用日限额 (普通 30/天, VIP 无限)
 // 原 CHARGING_T2I=0.01 / I2I=0.02 / MULTI_REF=0.02 全部废弃
+// v3.0.24 (S61 v3): prompt LLM 优化 ¥0.01/次 (复用 video 同款机制)
 const DEFAULT_IMG_DIM: [number, number] = [1024, 1024];
+const IMG_PROMPT_LLM_TIMEOUT_MS = 30_000;
+const IMG_PROMPT_LLM_COST = 0.01;
+const IMG_PROMPT_LLM_MIN_OUTPUT = 5;
 
 // ── 异步任务锁 (P0 fix: 重复 confirm 触发多条 background 链) ──
 // Map<conversationId, Promise<void>> — 跟踪进行中的 background 任务
@@ -198,13 +206,68 @@ export class ImageAgentService {
     );
 
     // 2. v3.0.0.13: 不再调 LLM, 拿用户原文作为 plan_cn_ready 的基础
+    // v3.0.24 (S61 v3): 加 LLM 优化层 (复用 video system prompt + 分镜检测), 失败/超时 fallback passthrough
     const userTextRaw = partsToText(userInputParts);
-    // 移除比例后缀 (兼容老调用) — 如果包含 "比例换成" 之类的关键词, parse 出来
     let enPromptBase = userTextRaw;
+    let promptOptimized = false;
+    let promptOptimizedMode: 'generic' | 'storyboard' | null = null;
+    if (userTextRaw && userTextRaw.length >= 3 && !isModification) {
+      const isStoryboard = isStoryboardScript(userTextRaw);
+      const messages = isStoryboard
+        ? buildStoryboardOptimizerMessages(userTextRaw)
+        : buildVideoPromptOptimizerMessages(userTextRaw);
+      promptOptimizedMode = isStoryboard ? 'storyboard' : 'generic';
+      const t0 = Date.now();
+      try {
+        const llmPromise = agnesTextProvider.chatCompletion({
+          messages,
+          temperature: isStoryboard ? 0.5 : 0.7,
+          maxTokens: isStoryboard ? 1500 : 800,
+          enableThinking: false,
+        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('image-prompt-llm-timeout')), IMG_PROMPT_LLM_TIMEOUT_MS)
+        );
+        const llmResult = await Promise.race([llmPromise, timeoutPromise]);
+        const llmOutput = (llmResult?.content || '').trim();
+        if (llmOutput.length >= IMG_PROMPT_LLM_MIN_OUTPUT) {
+          enPromptBase = llmOutput;
+          promptOptimized = true;
+          try {
+            await billingService.chargeImage(
+              conv.user_id,
+              IMG_PROMPT_LLM_COST,
+              isStoryboard ? 'image prompt LLM 优化(分镜)' : 'image prompt LLM 优化',
+              conversationId,
+            );
+          } catch (chargeErr) {
+            logger.warn('ImageAgent: prompt optimize charge failed (non-blocking)', {
+              conversationId, error: (chargeErr as Error).message,
+            });
+          }
+          logger.info('ImageAgent: prompt optimized by LLM', {
+            conversationId,
+            mode: promptOptimizedMode,
+            originalLen: userTextRaw.length,
+            optimizedLen: llmOutput.length,
+            elapsedMs: Date.now() - t0,
+            usage: llmResult.usage,
+          });
+        } else {
+          logger.warn('ImageAgent: LLM output too short, fallback to original', {
+            conversationId, mode: promptOptimizedMode, outputLen: llmOutput.length,
+          });
+        }
+      } catch (llmErr) {
+        logger.warn('ImageAgent: LLM prompt optimization failed, fallback to passthrough', {
+          conversationId, mode: promptOptimizedMode, error: (llmErr as Error).message,
+        });
+      }
+    }
+    // 移除比例后缀 (兼容老调用) — 如果包含 "比例换成" 之类的关键词, parse 出来
     const aspectRatioParsed = parseAspectRatioFromText(userTextRaw);
     let finalAspectRatio = aspectRatioFromClient || aspectRatioParsed || (conv.plan as any)?.aspectRatio || '1024x1024';
     // v3.0.0.18 (audit #12): 文字比例 (9:16/16:9 等) 兜底成 WxH, 跟 video 保持一致
-    // parseAspectToDims 支持 SUPPORTED_RATIOS 表 + WxH 数字格式, 兜不住就保留原值 (L501 还有 DEFAULT_IMG_DIM 兜底)
     const dimsFromText = parseAspectToDims(finalAspectRatio);
     if (dimsFromText) finalAspectRatio = `${dimsFromText[0]}x${dimsFromText[1]}`;
 
@@ -238,10 +301,13 @@ export class ImageAgentService {
       status: 'plan_ready' as AgentConversationStatus,  // v3.0.0.16: PR-M 极简模式直接 plan_ready (不再需要 translatePlan 翻译步骤)
     } as any);
 
-    logger.info('ImageAgent: processTurn (passthrough)', {
+    logger.info('ImageAgent: processTurn', {
       conversationId,
       isModification,
       userTextLen: enPromptBase.length,
+      finalPromptLen: enPromptBase.length,
+      promptOptimized,
+      promptOptimizedMode,
       aspectRatio: finalAspectRatio,
     });
 
