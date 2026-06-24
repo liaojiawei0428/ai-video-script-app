@@ -1234,3 +1234,115 @@
 
 ---
 
+
+
+---
+
+## BUG-074 (S69 APK 下载审计, v3.0.31): Web /download 展示虚假版本 v3.0.31, 用户点下载 → 404 Not Found
+
+### 现象 (S69 部署后实测)
+
+- 访问 `https://ab.maque.uno/download` 页面
+- 页面显示: "当前最新版: **v3.0.31 · 28.7 MB**" + "v3.0.31 更新内容 (2026-06-24)"
+- 点击 "下载 APP v3.0.31 (28.7 MB)" 按钮
+- href = `https://ab.maque.uno/app/DeepScript_v3.0.31.apk`
+- **用户点下载 → HTTP 404 Not Found** (Content-Type: text/html, 511 bytes)
+- **100% 失败率**, 影响所有 mobile 用户
+
+### 根因 (4 层叠加)
+
+1. **S66 BUG-069 改 ecosystem.config.js APP_VERSION 3.0.26→3.0.30, 没 build APK**: S66 教训 (deploy.sh + ENV_MANAGEMENT) 只覆盖 server 端, mobile 端没 build APK 流程
+2. **S69 改 mobile src/config/version.ts + build.gradle versionCode 37, versionName 3.0.31, 没 build APK**: S69 commit 改了 6 处版本号同步, 但 mobile APK build 步骤没纳入部署 SOP
+3. **shipin-APP/public 实际最新 APK 是 v3.0.29**: 2026-06-24 09:39 build, versionCode 36, versionName 3.0.29, 30MB (30073380 bytes)
+4. **mobile 跟 server + APK 三方不同步**:
+   - server `/api/version` 报 `version=3.0.31` + `forceUpdate=true` (强制更新到 404)
+   - mobile src/config/version.ts: `APP_VERSION = '3.0.31'`
+   - mobile build.gradle: `versionCode 37, versionName 3.0.31`
+   - 实际 shipin-APP/public APK: **v3.0.29** (落后 2 个版本)
+   - **mobile 用户被强制更新到 404 URL** ← 严重 BUG
+
+### 附加 BUG (S69 APK 审计发现)
+
+1. **14 个 APK 文件名跟实际 versionName 不一致** (aapt2 dump badging):
+   - `DeepScript_v1.0.0.apk` 实际 versionName=1.0 (history)
+   - `DeepScript_v1.2.0.apk` 实际 versionName=1.0 (history)
+   - `DeepScript_v3.0.0.apk` 实际 versionName=**3.0.10** ← 错位
+   - `DeepScript_v3.0.1~9.apk` 实际都是 **3.0.10** ← 12 个 v3.0.10 副本 (26034388 bytes 相同)
+   - `DeepScript_v3.0.17.apk` 实际 versionName=3.0.16 (错位)
+   - `DeepScript_v3.0.18~21.apk` 实际分别是 3.0.17-3.0.20 (错位)
+   - `DeepScript_v3.0.23.apk` 实际 versionName=3.0.22 (错位)
+   - `DeepScript_v3.0.24-pre-videofix.apk` 实际 versionName=3.0.23 (副本)
+2. **v3.0.22 / v3.0.26 APK 缺失** (没在文件名列表, 直接跳版本)
+3. **v3.0.0 APK 内容是 3.0.10**: 历史 v3.0.0 是 S60 重新 build 改名, 但 APK 内部 versionName 仍是 3.0.10
+4. **web DownloadPage 28.7MB 信息错误**: 实际 v3.0.29 APK 是 30MB (30073380 bytes), 28.7MB 是 v3.0.28 APK 大小 (30064869 bytes)
+5. **nginx 配置 OK**: `extension/ab.maque.uno/app-download.conf` (S58 P0) `location ^~ /app/ { alias /www/wwwroot/shipin-APP/public/; types { application/vnd.android.package-archive apk; } }` 完美代理, 200 OK, **不是 nginx BUG**
+
+### 验证证据 (S69 部署后实测)
+
+```bash
+# /api/version 报 v3.0.31 + forceUpdate
+$ curl -s http://159.75.16.110:6000/api/version
+{"version":"3.0.31","downloadUrl":"https://ab.maque.uno/app/DeepScript_v3.0.31.apk","forceUpdate":true,"needUpdate":true}
+
+# v3.0.31 APK 404
+$ curl -sI https://ab.maque.uno/app/DeepScript_v3.0.31.apk
+HTTP/1.1 404 Not Found
+Content-Type: text/html
+Content-Length: 511
+
+# v3.0.30 APK 404 (S66 升级后没 build)
+$ curl -sI https://ab.maque.uno/app/DeepScript_v3.0.30.apk
+HTTP/1.1 404 Not Found
+
+# v3.0.29 APK 真实可下载 (28.7MB, 实际是 30MB)
+$ curl -sI https://ab.maque.uno/app/DeepScript_v3.0.29.apk
+HTTP/1.1 200 OK
+Content-Type: application/vnd.android.package-archive
+Content-Length: 30073380
+
+# Playwright /download 页面 (实际 UI)
+当前最新版: v3.0.31 · 28.7 MB
+[下载 APP v3.0.31 (28.7 MB)] ← href 指向 v3.0.31 → 404
+v3.0.31 更新内容 (2026-06-24) ← 实际是 S69 server changelog, 不是 mobile 端 v3.0.31 实际内容
+```
+
+### 修法 (3 选 1, 推荐 方案 C)
+
+**方案 A: 立即修 (5min) — 回退 server 报 v3.0.30 + 改 web DownloadPage 优先用 shipin-APP/public 实际 APK 列表**
+- 改 `apps/server/ecosystem.config.js` env APP_VERSION=3.0.30, env_production APP_VERSION=3.0.30 (2 处)
+- 改 `apps/web/src/pages/DownloadPage.tsx` L48: `serverVer?.downloadUrl || 'https://ab.maque.uno/app/DeepScript_v${APP_VERSION}.apk'` → 加 fallback 列表, 找到 shipin-APP/public 实际存在的 APK
+- 改 `apps/mobile/src/config/version.ts` + `build.gradle` 回退到 3.0.30 / versionCode 36 (跟 APK 匹配)
+- ⚠️ 缺点: server changelog 还是写 v3.0.31, 跟实际版本不匹配
+
+**方案 B: 中期修 (1h) — build v3.0.30 + v3.0.31 APK, cp 到 shipin-APP/public/**
+- 跑 `cd apps/mobile/android && ./gradlew assembleRelease`
+- 跑 `aapt2 dump badging` 验证 versionCode/versionName
+- `cp app-release.apk /www/wwwroot/shipin-APP/public/DeepScript_v3.0.31.apk`
+- 走 `apps/mobile/DEPLOY.md` § 7 APK 部署 SOP (aapt2 + sha256sum 验证)
+- 改 `apps/mobile/DEPLOY.md` 加新铁律: "server + mobile src + APK 三方版本必同步 (deploy 必跑 verify-apk-version.sh)"
+
+**方案 C: 长期修 (P0 重构) — APK 部署流纳入 server 端 deploy.sh**
+- 改 `apps/server/deploy.sh` 加 APK build 步骤 (调本地 gradle + scp APK 到 shipin-APP/public)
+- 写 `scripts/verify-apk-version.sh` (本地跑 aapt2 dump badging 对比 mobile src version, 跟 server /api/version)
+- 改 `docs/VERSION_MANAGEMENT.md` 加 "APK 部署 SOP" 章节
+- 改 CODING_STANDARDS.md 加铁律: "改 mobile src/config/version.ts 必跑 verify-apk-version.sh, 不通过禁止 commit"
+
+### 教训 (5 条)
+
+1. **mobile 跟 server 跟 APK 3 处版本必同步**: 缺 APK 时, **禁止** commit version 升级 (改 src/config/version.ts 之前必跑 verify-apk-version.sh, 确认 shipin-APP/public 有对应 APK)
+2. **改 version 必走 APK build 流**: server 6 处版本号同步 (CODING_STANDARDS 第 38 条) 缺第 7 处: mobile APK build
+3. **APK 历史命名 SOP 失效**: BUG-024 (死循环弹窗) + BUG-017 (覆盖错位) 反复出现, 说明 DEPLOY.md § 7 警告**没人遵守**, 14 个文件名错位 + 12 个副本
+4. **server forceUpdate=true 强制更新到 404 URL = 严重 BUG**: 测 downloadUrl HTTP 200 才能 forceUpdate=true
+5. **web DownloadPage 虚假信息**: 显示 v3.0.31 (28.7MB) 但实际 v3.0.29 (30MB) → 28.7MB 错 (用 v3.0.28 大小), 38MB 错 (v3.0.29 大小) → web UI 写死 28.7MB, 需改成动态从 server /api/version 或 shipin-APP/public ls 拿
+
+### 后续 TODO (P0)
+
+- [ ] **修当前 v3.0.31 404 BUG** (方案 A 5min 立即修, 让 web /download 可下载真实 APK)
+- [ ] **build v3.0.30 + v3.0.31 APK** (本地 gradle build, cp 到 shipin-APP/public, 走 DEPLOY.md § 7)
+- [ ] **写 scripts/verify-apk-version.sh** (本地 aapt2 + ssh 远端 ls + diff, CI 集成)
+- [ ] **改 apps/mobile/DEPLOY.md** 加 "APK 三方版本同步 SOP" 章节
+- [ ] **清理 shipin-APP/public 14 个错位 APK** (跟 server 历史 APK 列表对照, 删错位 + 留真名)
+- [ ] **修 web DownloadPage 显示真实 APK 大小** (动态从 /api/version 或 shipin-APP/public ls 拿, 不写死 28.7MB)
+
+---
+
