@@ -2009,4 +2009,33 @@ const baseText = isModification
 9. apps/mobile/CODING_STANDARDS.md (37 条)
 10. apps/mobile/DEPLOY.md / apps/web/DEPLOY.md / docs/DEPLOY.md / apps/server/deploy.sh
 
-**📦 commit (pending)**: v3.0.30 P3: 后端部署规范 P0+P1 补齐 (BUG-069 + 4 份新规范)
+**📦 commit (done)**: 441f2c1 v3.0.30 P3: 后端部署规范 P0+P1 补齐 (BUG-069 + 4 份新规范) — 已 push origin/main (补登, 之前 S66 漏写 DEV_PROGRESS)
+
+---
+
+| S67 (当前) | 2026-06-24 | **[已验收] server 端 AI 部署入口 + 活跃任务部署专项 (BUG-070 + 4 份配套文档)** — S66 自检发现 3 个 GAP: VERSION_MANAGEMENT.md § 5 缺活跃任务部署专项 / 无 apps/server/AGENTS.md / CODING_STANDARDS.md 缺 server 部署必跑维护模式规范. 维护模式机制 server 后端已实现 (routes/admin.ts:136 active-tasks + routes/admin.ts:144 maintenance + shared/maintenance.ts + controller 检查) 但 AI 行为规范没引用, 等于不存在.
+
+**🟢 新建 1 份 + 修订 3 份 (S67 核心交付)**:
+- 🆕 `apps/server/AGENTS.md` (S67 新建, ~250 行) — server 端 AI 入口, 跟 mobile AGENTS.md 对称, 含部署前必跑 5 项 + 5 类常见任务 SOP + 8 条铁律 + 一键自检命令 + 维护模式详细流程
+- 📝 `docs/VERSION_MANAGEMENT.md` (§ 5.0 + § 5.A + § 9 索引 + § 11 footer) — 加分支判断 SOP (有/无活跃任务) + 活跃任务场景部署专项 9 步流程
+- 📝 `apps/mobile/CODING_STANDARDS.md` (37→38 条) — 加第 38 条: server 部署必先检查活跃任务 + 跑维护模式 (跟 BUG-070 配套)
+- 📝 `apps/mobile/BUGS.md` (20→21 BUG) — 加 BUG-070 (AI 部署流程 GAP, S67 自检发现, 含 5 教训: AGENTS.md 覆盖不全 / VERSION_MANAGEMENT § 5 缺维护模式 / 没自动化检查 / 依赖 AI 自觉 / S67 解决方案)
+
+**🎯 跨 AI 协作**: S67 严格按 STANDARDS_EVOLUTION.md § 3 5 步 SOP 跑 + BUG-066 复盘教训应用 (不漏 6 处版本号自检 — 这次纯规范修订, 无版本号变更):
+1. 列出变更 → 2. 判定哪些规范需改 (新增 / 修改 / 索引更新) → 3. 起草 (1 新建 + 3 修订) → 4. 自检 (cross-ref BUG-070 ↔ 第 38 条 ↔ apps/server/AGENTS.md ↔ § 5.A) → 5. commit + push
+
+**📊 当前生效规范** (按 VERSION_MANAGEMENT.md § 9.1 优先级):
+1. docs/STANDARDS_EVOLUTION.md
+2. docs/VERSION_MANAGEMENT.md (含 § 5.0 分支判断 + § 5.A 活跃任务部署专项, S67 更新)
+3. docs/standards/ADR/ (0000 template + 0001 changelog 决策)
+4. docs/ENV_MANAGEMENT.md (S66 新)
+5. docs/PM2_GUIDE.md (S66 新)
+6. docs/DB_MIGRATION.md (S66 新)
+7. apps/mobile/AGENTS.md / apps/server/AGENTS.md (S67 新, 跨端对称)
+8. apps/mobile/BUGS.md (含 BUG-069 / BUG-070)
+9. apps/mobile/CODING_STANDARDS.md (38 条, S67 加第 38 条)
+10. apps/mobile/DEPLOY.md / apps/web/DEPLOY.md / docs/DEPLOY.md / apps/server/deploy.sh (S67 AGENTS.md 必读)
+
+**📦 commit**: 4ac7ac3 v3.0.30 P4: server 端 AI 部署入口 (BUG-070 + apps/server/AGENTS.md + 活跃任务部署专项) — 已 push origin/main (`441f2c1..4ac7ac3 main -> main`)
+
+**🛠️ 基础工具安装**: 装 MinGit 2.47.1 portable (45MB, 解压 C:\Tools\Git\), 因为本机无 Git, winget 又装不上 (InternetOpenUrl 0x80072efd 网络 source 失败). MinGit 解压即用, 已加 user PATH + PowerShell profile 持久化.
