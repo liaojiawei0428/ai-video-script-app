@@ -1,6 +1,7 @@
 # Deep剧本 Mobile — AI Agent 必读
 
-> 你是 AI agent, 在你**改任何 mobile 代码之前**, 必先读这四份:
+> 你是 AI agent, 在你**改任何 mobile 代码之前**, 必先读这五份:
+> 0. **[`../../docs/STANDARDS_EVOLUTION.md`](../../docs/STANDARDS_EVOLUTION.md)** (S65 新建, 270 行) — **规范自迭代 SOP** (怎么读 + 写规范, 触发条件, ADR 实践)
 > 1. [`BUGS.md`](./BUGS.md) — 历史 BUG 案例库 (含 BUG-066/067/068 S64 新增)
 > 2. [`CODING_STANDARDS.md`](./CODING_STANDARDS.md) — 32 条硬性规范 + BUG 记录强制流程
 > 3. [`DEPLOY.md`](./DEPLOY.md) — **完整升级部署手册** (改完代码 → 打 APK → 部署 → 验证, 5 步可复制)
@@ -52,12 +53,13 @@
   - `apps/server/` (shipin-APP prod)
   - `apps/web/` (web 端, 镜像 mobile UI)
 
-## 改代码前 4 步必做
+## 改代码前 5 步必做
 
-1. `Read BUGS.md` 全部 + `Read CODING_STANDARDS.md` 32 条规范 + `Read DEPLOY.md` 升级流程 + **`Read ../../docs/VERSION_MANAGEMENT.md` 跨端规范**
-2. `Read 目标文件` 完整内容
-3. `Grep 关键 import` 是否引用真源 (不要臆造字段, 不要从 monorepo 拿 value)
-4. **如果触发 VERSION_MANAGEMENT.md § 7 任一条件** (改 version.ts / 加依赖 / 改 /api/version / 改 updater.tsx / 改 DownloadPage 或 AboutPage), 必跑 § 7.2 6 处自检 + § 7.5 commit message 带版本号
+1. `Read ../../docs/STANDARDS_EVOLUTION.md` 规范自迭代 SOP (S65 新建, 优先读)
+2. `Read BUGS.md` 全部 + `Read CODING_STANDARDS.md` 32 条规范 + `Read DEPLOY.md` 升级流程 + `Read ../../docs/VERSION_MANAGEMENT.md` 跨端规范
+3. `Read 目标文件` 完整内容
+4. `Grep 关键 import` 是否引用真源 (不要臆造字段, 不要从 monorepo 拿 value)
+5. **如果触发 VERSION_MANAGEMENT.md § 7 任一条件** (改 version.ts / 加依赖 / 改 /api/version / 改 updater.tsx / 改 DownloadPage 或 AboutPage), 必跑 § 7.2 6 处自检 + § 7.5 commit message 带版本号 + **同步修订对应规范文档** (按 STANDARDS_EVOLUTION.md § 3 5 步 SOP)
 
 ## 改完代码后 5 步必做 (升级部署流程)
 

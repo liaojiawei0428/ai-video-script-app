@@ -2,9 +2,21 @@
 
 > 适用于 DeepScript (ai-video-script-app) 的所有部署场景
 >
-> 版本：v1.0 (2026-06-09 基于 S14 实战部署总结)
+> 版本：v1.1 (2026-06-24 S65 增补: SSH key 区分 + 5/6 维验证分工 + 跨端引用)
 >
 > **所有 AI 助手在执行任何部署操作前必须完整阅读本文档。**
+>
+> ⚠️ **本文档覆盖 server 部署专用 SOP** (11 节点 + 6 维验证 + 8 条铁律 + 回滚)。
+> **跨端发版规范** (mobile + server + web 统一) 看 [`VERSION_MANAGEMENT.md`](./VERSION_MANAGEMENT.md) § 5。
+> **mobile 升级** 看 [`apps/mobile/DEPLOY.md`](../apps/mobile/DEPLOY.md)。
+> **web 部署** 看 [`apps/web/DEPLOY.md`](../apps/web/DEPLOY.md)。
+> **规范随版本迭代 SOP** 看 [`docs/STANDARDS_EVOLUTION.md`](./STANDARDS_EVOLUTION.md)。
+>
+> **5 维 vs 6 维验证分工 (避免文档冲突)**:
+> - **6 维 (server-only)**: 本文档 § 6 — 进程 / 端口 / /health / /api/version / 鉴权 / 日志 — 专门验 **server 进程** + **端口监听** + **内部日志**
+> - **5 维 (跨端通用)**: [`VERSION_MANAGEMENT.md`](./VERSION_MANAGEMENT.md) § 5.8 — 公网 APK 200 / SHA256 / /api/version / /download 页 / 历史 APK — 验 **跨端 APK 全链路**
+>
+> 两个维度**不冲突, 必须都跑**: server 端跑 6 维确认内部进程健康, 跨端跑 5 维确认 APK 全链路通畅。
 
 ---
 
@@ -480,9 +492,12 @@ nvm install 22
 3. **不覆盖 .env / .env.production**: 只用 `>>` 追加缺失 env, 绝不 `> .env` 重写
 4. **不覆盖 uploads / exports / logs**: 用户数据, 永远只追加不删
 5. **PM2 必须用 `delete + start`, 不用 `restart`**: restart 不会重读 .env, 会被持久 env 覆盖
-6. **部署后 6 维验证全通过** 才算完成 (进程 / 端口 / /health / /api/version / 鉴权 / 日志)
+6. **部署后 6 维验证全通过** 才算完成 (进程 / 端口 / /health / /api/version / 鉴权 / 日志) — **server 端特有**, 跨端 5 维验证看 [`VERSION_MANAGEMENT.md`](./VERSION_MANAGEMENT.md) § 5.8
 7. **deploy.sh 失败不破坏 shipin-APP**: build 始终在 `/www/wwwroot/shipin-APP-build/` 临时目录
-8. **本地 key 文件用完立即 `mavis-trash`**: 私钥不能保存到项目目录或 git
+8. **SSH key 处理 (区分两种 key, 避免文档自相矛盾)**:
+   - **永久持久 key** `~/.ssh/id_ed25519` (用户 2026-06-13 明确要求持久化) → **保留**, 不要 mavis-trash
+   - **临时 session key** `/tmp/deploy_key_*.pem` (mavis 部署工具短期用) → 用完立即 `mavis-trash`
+   - 两个作用域不同, 不要混淆
 9. **部署后在 DEV_PROGRESS.md AI 会话追踪表加一行**: 记录版本号 / 改动 / 验证结果
 10. **不写"先跑通再说"的代码**: 部署脚本必须容错 (`set -e` 必须在所有命令后能跑通)
 

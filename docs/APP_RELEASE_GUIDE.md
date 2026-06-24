@@ -1,10 +1,27 @@
-# APP版本发布与官网更新指南
+# APP版本发布与官网更新指南 (已废弃, 仅作历史参考)
 
-> 本文档记录了Deep剧本APP的版本发布流程，包括APK编译、上传服务器、更新官网下载页面的完整步骤。
+> ⚠️⚠️⚠️ **本文件已废弃 (Deprecated)** ⚠️⚠️⚠️
+>
+> **S65 (2026-06-24) 起, APP 发布与官网更新规范已迁移到新文档**:
+> # 👉 [`VERSION_MANAGEMENT.md`](./VERSION_MANAGEMENT.md)
+>
+> 新文档含完整跨端发布流程:
+> - § 5 发版 8 步 SOP + 5 维验证
+> - § 6 失败诊断 (8 类)
+> - § 7 AI Agent 必跑清单
+>
+> **本文件最后更新 2026-05-31 (v1.1.0 时代)**, 内容严重过时:
+> - ❌ 下载 URL 写 `https://maque.uno/app/` (实际是 `ab.maque.uno/app/`)
+> - ❌ 下载页更新写 "ssh sed index.html" (实际是 SPA 模式, 自动从 /api/version 拿数据)
+> - ❌ Nginx 配置写 `extension/maque.uno/app-download.conf` (实际是 `extension/ab.maque.uno/`)
+> - ❌ "删除旧版本 APK" (实际绝不能批量覆盖, BUG-017)
+>
+> **本文件冻结于 v1.1.0, 仅作历史参考**。
+> 新发布流程必读 `VERSION_MANAGEMENT.md`。
 
 ---
 
-## 目录结构
+## 目录结构 (历史快照)
 
 ```
 项目根目录/

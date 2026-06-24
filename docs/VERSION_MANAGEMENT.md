@@ -438,18 +438,56 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 
 ## § 9. 配套文档索引
 
+### 9.1 跨端统一入口 (AI Agent 必读优先级排序)
+
+> **任何 AI 接手 shipin-APP, 必按以下顺序读**:
+
+1. **[`docs/STANDARDS_EVOLUTION.md`](./STANDARDS_EVOLUTION.md)** — 规范自迭代 SOP (S65 新建, 270 行)
+2. **[`docs/VERSION_MANAGEMENT.md`](./VERSION_MANAGEMENT.md)** — 跨端版本管理 (本文件)
+3. **[`docs/standards/ADR/`](./standards/ADR/)** — 架构决策记录 (S65 新建)
+4. **[`apps/mobile/AGENTS.md`](../apps/mobile/AGENTS.md)** — mobile AI 入口
+5. **[`apps/mobile/BUGS.md`](../apps/mobile/BUGS.md)** — mobile BUG 案例库
+6. **[`apps/mobile/CODING_STANDARDS.md`](../apps/mobile/CODING_STANDARDS.md)** — mobile 硬性规范
+7. **[`apps/mobile/DEPLOY.md`](../apps/mobile/DEPLOY.md)** — mobile 部署
+8. **[`apps/web/DEPLOY.md`](../apps/web/DEPLOY.md)** — web 部署 (S65 新建)
+9. **[`docs/DEPLOY.md`](./DEPLOY.md)** — server 部署 (server-only)
+10. **[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](./notes/DEPLOYMENT_AND_BACKEND_RULES.md)** — 后端 worker 实战约束
+
+### 9.2 完整索引
+
 | 文件 | 关注点 |
 |---|---|
+| `docs/STANDARDS_EVOLUTION.md` (S65 新建) | 规范自迭代 SOP, 5 步修订流程, ADR 实践 |
+| `docs/standards/ADR/0000-adr-template.md` (S65 新建) | ADR 模板 |
+| `docs/standards/ADR/0001-server-changelog-source-of-truth.md` (S65 新建) | server changelog 单一来源决策 |
 | `apps/mobile/AGENTS.md` | Mobile AI Agent 入口, 项目速览 |
-| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068 是本规范触发的源头) |
-| `apps/mobile/CODING_STANDARDS.md` | 硬性规范 (第 30/31/32 条是本规范配套) |
+| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068 是 S64 触发的源头) |
+| `apps/mobile/CODING_STANDARDS.md` | 硬性规范 (第 30/31/32 条是 S64 配套, 第 33 条 S65 新增) |
 | `apps/mobile/DEPLOY.md` | Mobile 端完整部署 SOP |
-| `apps/server/deploy.sh` | Server 远端部署脚本 |
-| `apps/web/scripts/deploy.sh` | Web 端部署脚本 |
-| `docs/DEPLOY.md` | 全栈统一部署规范 |
+| `apps/server/deploy.sh` | Server 远端部署脚本 (公告 + 维护 + 重启) |
+| `apps/web/scripts/deploy.sh` | Web 端部署脚本 (本地 build + scp + nginx reload) |
+| `apps/web/DEPLOY.md` (S65 新建) | Web 端配套规范 (5 步 + 5 维验证) |
+| `docs/DEPLOY.md` | Server-only 部署 SOP (11 节点 + 6 维验证) |
+| `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` | 后端 worker 9 条实战约束 |
 | `DEV_PROGRESS.md` | AI 会话追踪表 |
+| `docs/APP_RELEASE_GUIDE.md` (S65 冻结) | v1.1.0 时代发布指南, 已废弃, 指向本文件 |
+
+### 9.3 文档分工 (避免重复)
+
+| 主题 | 哪份负责 |
+|---|---|
+| 跨端发版 SOP | `docs/VERSION_MANAGEMENT.md` § 5 (本文件) |
+| Server-only 部署 | `docs/DEPLOY.md` |
+| Mobile APK 升级 | `apps/mobile/DEPLOY.md` |
+| Web 部署 | `apps/web/DEPLOY.md` (S65 新建) |
+| 规范怎么跟版本迭代 | `docs/STANDARDS_EVOLUTION.md` (S65 新建) |
+| 后端 worker 实战约束 | `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` |
+| 架构决策追溯 | `docs/standards/ADR/` (S65 新建) |
+| 历史 BUG | `apps/mobile/BUGS.md` |
+| 硬性规范 | `apps/mobile/CODING_STANDARDS.md` |
+| 5 维 vs 6 维验证分工 | `VERSION_MANAGEMENT.md` § 5.8 (5 维跨端) + `docs/DEPLOY.md` § 6 (6 维 server-only) |
 
 ---
 
-> **最后更新**: 2026-06-24 (S64 P3)
-> **下次 review**: 每个 3 类发版后必更新本文件
+> **最后更新**: 2026-06-24 (S65 P0)
+> **下次 review**: 每个 3 类发版后必更新本文件 + 触发 [`STANDARDS_EVOLUTION.md` § 3 5 步修订流程](./STANDARDS_EVOLUTION.md)

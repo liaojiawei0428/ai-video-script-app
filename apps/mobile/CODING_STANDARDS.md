@@ -417,6 +417,31 @@
 - ❌ **禁止依赖 PR 描述或聊天记录** — 必须有显式规范文档, 跨 AI 协作统一入口
 - 配套: `apps/mobile/AGENTS.md` 引用本规范, AI 入口必读
 
+## 33. 规范随版本迭代自更新 (源自 S65 STANDARDS_EVOLUTION.md)
+
+- ✅ **任何 AI 触发版本变更 / 架构变更 / 重大 BUG 修复**前必读 [`../../docs/STANDARDS_EVOLUTION.md`](../../docs/STANDARDS_EVOLUTION.md):
+  - § 1 现状盘点 (5 份规范有过时不一致问题)
+  - § 2 触发条件 (7 类, 满足任一必跑 § 3 SOP)
+  - § 3 修订流程 (5 步: 列出变更 → 判定 → 起草 → 自检 → commit)
+  - § 4 规范时效性自检清单 (5 维 grep 检查)
+  - § 5 规范文档责任矩阵
+  - § 6 ADR (Architecture Decision Records) 实践
+  - § 7 跨 AI 协作约定
+- ✅ **关键架构 / 规范决策必写 ADR**, 路径 `docs/standards/ADR/<number>-<title>.md`:
+  - 架构重大变更 (新 monorepo / 新部署平台)
+  - 规范冲突决策 (5/6 维分工 / SSH key 持久化 vs mavis-trash)
+  - 跨 AI 行为约定 (规范自迭代 SOP / 必读列表)
+  - 技术选型 (Vite vs Next.js / monorepo 包)
+  - 撤换核心依赖
+- ✅ **ADR 6 个标准模块**: 状态/日期/决策者 + 背景 + 决策 + 影响(正/负/风险) + 一致性 + 替代方案 + 配套变更
+- ✅ **规范修订后必做**:
+  - 更新 `docs/VERSION_MANAGEMENT.md` § 9 索引表 (如适用)
+  - 更新 `apps/mobile/AGENTS.md` 必读列表 (如适用)
+  - commit message: `vX.Y.Z: <代码改动> (BUG-NNN + 规范修订)`
+  - 加 DEV_PROGRESS.md AI 会话追踪行
+- ❌ **禁止"代码改了规范没改"** — S65 自检发现 5 份规范有不同程度落后 (SSH key 矛盾 / URL 过时 / 跨端重复 / 5/6 维冲突 / 缺失 web DEPLOY.md)
+- 配套文档: `docs/VERSION_MANAGEMENT.md` § 9.1 (跨端统一入口排序)
+
 ---
 
 # 第二部分: BUG 记录强制流程 (硬性流程)
@@ -538,7 +563,8 @@
 | **server package.json version 跟 fallback 同步** | 1 条 (新, S64) | BUG-066 |
 | **跨端版本号必单一来源 (禁硬编码)** | 1 条 (新, S64) | BUG-067 |
 | **跨 AI 协作必读 VERSION_MANAGEMENT.md** | 1 条 (新, S64) | BUG-068 |
-| **合计** | **32 条** | **20 个 BUG** |
+| **规范随版本迭代自更新 (STANDARDS_EVOLUTION.md)** | 1 条 (新, S65) | (S65 GAP 修复) |
+| **合计** | **33 条** | **20 个 BUG** |
 
 下次新 BUG 修完, 必:
 1. 追加 BUGS.md BUG-NNN 条目
