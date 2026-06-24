@@ -460,14 +460,18 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 | `docs/STANDARDS_EVOLUTION.md` (S65 新建) | 规范自迭代 SOP, 5 步修订流程, ADR 实践 |
 | `docs/standards/ADR/0000-adr-template.md` (S65 新建) | ADR 模板 |
 | `docs/standards/ADR/0001-server-changelog-source-of-truth.md` (S65 新建) | server changelog 单一来源决策 |
+| `docs/ENV_MANAGEMENT.md` (S66 新建) | server env 变量管理 (强密钥 + 6 类轮换 + 防泄露 + 8 项 AI checklist) |
+| `docs/PM2_GUIDE.md` (S66 新建) | PM2 + ecosystem.config.js 完整规范 (fork vs cluster + 10 条命令 + BUG-069 自检) |
+| `docs/DB_MIGRATION.md` (S66 新建) | server DB 迁移 SOP (initTables 自动 + 手动 SQL + 不删字段 + 6 个月观察期) |
 | `apps/mobile/AGENTS.md` | Mobile AI Agent 入口, 项目速览 |
-| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068 是 S64 触发的源头) |
-| `apps/mobile/CODING_STANDARDS.md` | 硬性规范 (第 30/31/32 条是 S64 配套, 第 33 条 S65 新增) |
+| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068/069 是 S64-S66 触发的源头) |
+| `apps/mobile/CODING_STANDARDS.md` | 硬性规范 (第 30/31/32 条 S64, 第 33 条 S65, 第 34-37 条 S66) |
 | `apps/mobile/DEPLOY.md` | Mobile 端完整部署 SOP |
 | `apps/server/deploy.sh` | Server 远端部署脚本 (公告 + 维护 + 重启) |
+| `apps/server/.env.example` (S66 补全) | env 变量模板 (4 类必填/可选) |
 | `apps/web/scripts/deploy.sh` | Web 端部署脚本 (本地 build + scp + nginx reload) |
 | `apps/web/DEPLOY.md` (S65 新建) | Web 端配套规范 (5 步 + 5 维验证) |
-| `docs/DEPLOY.md` | Server-only 部署 SOP (11 节点 + 6 维验证) |
+| `docs/DEPLOY.md` | Server-only 部署 SOP (11 节点 + 6 维验证 + § 4.5 日志管理 S66) |
 | `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` | 后端 worker 9 条实战约束 |
 | `DEV_PROGRESS.md` | AI 会话追踪表 |
 | `docs/APP_RELEASE_GUIDE.md` (S65 冻结) | v1.1.0 时代发布指南, 已废弃, 指向本文件 |
@@ -481,13 +485,17 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 | Mobile APK 升级 | `apps/mobile/DEPLOY.md` |
 | Web 部署 | `apps/web/DEPLOY.md` (S65 新建) |
 | 规范怎么跟版本迭代 | `docs/STANDARDS_EVOLUTION.md` (S65 新建) |
+| **后端 env 变量管理** | `docs/ENV_MANAGEMENT.md` (S66 新建, 含强密钥生成 + 6 类轮换 + 防泄露) |
+| **PM2 + ecosystem 完整规范** | `docs/PM2_GUIDE.md` (S66 新建, 含 fork vs cluster + 10 条命令 + BUG-069 自检) |
+| **DB 迁移 SOP** | `docs/DB_MIGRATION.md` (S66 新建, 含 initTables 自动 vs 手动 SQL + 不删字段) |
 | 后端 worker 实战约束 | `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` |
 | 架构决策追溯 | `docs/standards/ADR/` (S65 新建) |
 | 历史 BUG | `apps/mobile/BUGS.md` |
 | 硬性规范 | `apps/mobile/CODING_STANDARDS.md` |
 | 5 维 vs 6 维验证分工 | `VERSION_MANAGEMENT.md` § 5.8 (5 维跨端) + `docs/DEPLOY.md` § 6 (6 维 server-only) |
+| server 后端日志查询 | `docs/DEPLOY.md` § 4.5 (S66 新增) |
 
 ---
 
-> **最后更新**: 2026-06-24 (S65 P0)
+> **最后更新**: 2026-06-24 (S66 P0)
 > **下次 review**: 每个 3 类发版后必更新本文件 + 触发 [`STANDARDS_EVOLUTION.md` § 3 5 步修订流程](./STANDARDS_EVOLUTION.md)

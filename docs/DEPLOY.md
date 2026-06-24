@@ -406,6 +406,70 @@ curl -s http://localhost:6000/health
 
 ---
 
+## 4.5 后端日志管理 (S66 新增)
+
+> 详细规范见 [`./PM2_GUIDE.md`](./PM2_GUIDE.md) § 6 + [`./ENV_MANAGEMENT.md`](./ENV_MANAGEMENT.md) § 7.1。本节只列 shipin-APP 实战要点。
+
+### 4.5.1 日志位置
+
+| 文件 | 路径 | 内容 |
+|---|---|---|
+| combined.log | `/www/wwwroot/shipin-APP/logs/combined.log` | stdout + stderr 合并 (主日志) |
+| out.log | `/www/wwwroot/shipin-APP/logs/out.log` | 仅 stdout (正常输出) |
+| error.log | `/www/wwwroot/shipin-APP/logs/error.log` | 仅 stderr (异常 + 崩溃) |
+
+### 4.5.2 日志查询技巧
+
+```bash
+# 实时 tail 100 行 (默认 follow, Ctrl+C 退出)
+pm2 logs ai-script-server --lines 100
+
+# 看 100 行退出, 不 follow
+pm2 logs ai-script-server --lines 100 --nostream
+
+# 关键事件 grep (启动 / DB 连接 / 任务完成 / 计费 / Agent 状态)
+grep -E "(MySQL connected|initTables|Task|Billing|agent|error|ERROR)" \
+  /www/wwwroot/shipin-APP/logs/combined.log | tail -50
+
+# 看最近 1 小时错误
+grep -E "(ERROR|UnhandledPromiseRejection)" \
+  /www/wwwroot/shipin-APP/logs/combined.log | tail -30
+
+# 解析 JSON 日志 (winston logger 输出 JSON 格式)
+tail -100 /www/wwwroot/shipin-APP/logs/combined.log | \
+  python3 -c "import sys, json; [print(json.loads(l)) for l in sys.stdin if l.strip()]"
+```
+
+### 4.5.3 日志清理 SOP
+
+```bash
+# 1. 定期清理 (每月 1 次, cron 加)
+pm2 flush                                # 清空 logs/*.log (进程不重启)
+
+# 2. 手动清理 (部署前 + 紧急磁盘满时)
+cd /www/wwwroot/shipin-APP
+ls -lh logs/                              # 看大小 (典型: combined.log 1-5GB)
+> logs/combined.log                       # 清空 (保留文件, 进程不重建)
+> logs/error.log
+
+# 3. 长期保留 (重要日志, 每月归档到 /www/backup/logs/)
+mkdir -p /www/backup/logs/$(date +%Y%m)
+cp logs/combined.log /www/backup/logs/$(date +%Y%m)/combined-$(date +%Y%m%d).log
+> logs/combined.log
+```
+
+### 4.5.4 ⚠️ 日志永不入 git
+
+`.gitignore` (项目根) 必含:
+
+```
+logs/
+*.log
+npm-debug.log*
+```
+
+---
+
 ## 5. 常见问题 (Troubleshooting)
 
 ### 5.1 启动失败: `JWT_SECRET is required in production`

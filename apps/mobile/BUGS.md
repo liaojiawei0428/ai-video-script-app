@@ -897,3 +897,25 @@
   5. 跟 BUG-005/009 (monorepo shared 包坑) 同根因: "复制粘贴看起来 OK = 真对" — 跨 AI 必须有显式规范
 
 
+
+### BUG-069 (S66, v3.0.29 → v3.0.30 修): server ecosystem.config.js APP_VERSION 写 3.0.26, 跟实际生产 3.0.29 不一致 (S64 BUG-066 漏修的第 6 处)
+
+- **现象**: S66 全 AI 自检发现 `apps/server/ecosystem.config.js:11` env.APP_VERSION 写 `3.0.26`, env_production.APP_VERSION 也是 `3.0.26`, 但实际生产 server 跑 `3.0.29` (S63 升级到 3.0.29 后没同步)。
+- **根因**: S64 BUG-066 修 6 处版本号时 (mobile version.ts / mobile build.gradle / server package.json / server src/index.ts fallback / web src/config/version.ts / changelog.json), **漏了 ecosystem.config.js** (因为它是 PM2 启动配置, 不在 src/ 下, 容易被遗忘)。
+- **隐患**: PM2 启动时如果读 `env` 块 (非 env_production), server 实际跑的是 3.0.29, 但 `/api/version` 返 3.0.26 → 客户端收到 needUpdate=true → 触发强制升级弹窗 → 用户被强制回退到老版本提示, 死循环。
+- **修法 (v3.0.30, S66)**:
+  - `apps/server/ecosystem.config.js` env.APP_VERSION `3.0.26 → 3.0.29`
+  - `apps/server/ecosystem.config.js` env_production.APP_VERSION `3.0.26 → 3.0.29`
+  - 两处必同时改 (env + env_production, 不是只改一处)
+  - 配套新增 [`docs/ENV_MANAGEMENT.md`](../../docs/ENV_MANAGEMENT.md) § 6 (6 处同步含 ecosystem.config.js)
+  - 配套新增 [`docs/PM2_GUIDE.md`](../../docs/PM2_GUIDE.md) § 4.3 (PM2 env 注入 + S66 BUG-069 自检命令)
+- **验证**:
+  - S66 自检: `pm2 env 0 | grep APP_VERSION` 期望 = `3.0.29`
+  - `curl /api/version` 期望 `.data.version = "3.0.29"`
+  - 5 处 grep (package.json + index.ts + ecosystem × 2 + changelog) 全 = `3.0.29`
+- **教训**:
+  1. **6 处版本号同步必须 ecosystem.config.js 一起** — 不在 src/ 下, 但 PM2 启动时读
+  2. **ecosystem.config.js 有 2 处 APP_VERSION** (env + env_production), 必同时改, 不能漏
+  3. **VERSION_MANAGEMENT.md § 2 6 处自检清单追加 ecosystem.config.js** (S66 修订, 5 处 → 6 处)
+  4. **部署后必跑** `pm2 env 0 | grep APP_VERSION` + `curl /api/version` 双验证 (防 env 不生效)
+  5. 跟 BUG-008 (PM2 env 不刷) 同根因: "env 看起来对 ≠ 真对", 必须源码 + 运行时双验

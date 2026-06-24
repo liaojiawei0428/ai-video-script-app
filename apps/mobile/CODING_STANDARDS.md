@@ -442,6 +442,79 @@
 - ❌ **禁止"代码改了规范没改"** — S65 自检发现 5 份规范有不同程度落后 (SSH key 矛盾 / URL 过时 / 跨端重复 / 5/6 维冲突 / 缺失 web DEPLOY.md)
 - 配套文档: `docs/VERSION_MANAGEMENT.md` § 9.1 (跨端统一入口排序)
 
+## 34. server APP_VERSION 6 处同步 (含 ecosystem.config.js, S66)
+
+- ✅ **改 server 版本号必同步 6 处** (VERSION_MANAGEMENT § 2 + § 3.4):
+  ```
+  □ apps/mobile/src/config/version.ts APP_VERSION
+  □ apps/mobile/android/app/build.gradle versionCode + versionName
+  □ apps/server/package.json version
+  □ apps/server/src/index.ts fallback
+  □ apps/server/ecosystem.config.js env.APP_VERSION + env_production.APP_VERSION  ← S66 新增
+  □ apps/web/src/config/version.ts APP_VERSION
+  □ apps/server/changelog.json 当前版本条目
+  ```
+- ❌ **禁止漏 ecosystem.config.js** — S64 BUG-066 修了 5 处 (漏这第 6 处), 导致 APP_VERSION=3.0.26 跟实际 v3.0.29 不一致 (BUG-069, S66 修)
+- ⚠️ **ecosystem.config.js 有 2 处 APP_VERSION** (env + env_production), 必同时改, 不能漏
+- ✅ **部署后必跑**:
+  ```bash
+  pm2 env 0 | grep APP_VERSION         # 期望 = 当前发版版本
+  curl /api/version | jq .data.version  # 期望 = 当前发版版本
+  grep APP_VERSION apps/server/ecosystem.config.js  # 期望 = 2 处都同步
+  ```
+- 配套: `docs/PM2_GUIDE.md` § 4.3 (PM2 env 注入 + BUG-069 自检命令)
+
+## 35. server env 变量管理 (强密钥 + 轮换, S66)
+
+- ✅ **任何 AI 修改 `apps/server/.env` 前必读** [`../../docs/ENV_MANAGEMENT.md`](../../docs/ENV_MANAGEMENT.md):
+  - § 1 env 4 类分类 (基础 / 鉴权+DB / 第三方 Key / 可选)
+  - § 2 强密钥生成 SOP (JWT_SECRET 256-bit / DEEPSEEK_API_KEYS 多 Key 池)
+  - § 3 密钥轮换 SOP (SSH/JWT/DEEPSEEK/MYSQL/PAY/AGNES 6 类, 频率不同)
+  - § 4 部署 env 4 条操作 (检查 / `>>` 追加 / 不覆盖 uploads / PM2 优先级)
+  - § 5 .env 防泄露 (.gitignore / scp 加密 / git ls-files 检查 / 泄露事故响应)
+  - § 6 APP_VERSION 6 处同步 (含 ecosystem.config.js)
+  - § 7 常见问题 (JWT_SECRET 缺失 / MySQL 连不上 / DeepSeek 401/429 / Agnes 500 / 支付宝回调)
+  - § 8 AI Agent 必跑 8 项 checklist
+- ❌ **禁止 `> .env` 重写** — 只用 `>> .env` 追加, 永远保留其他变量
+- ❌ **禁止 .env / .env.production 入 git** — `.gitignore` 必含
+- ❌ **禁止明文传输 .env** — 必走 SSH 加密 (scp / rsync over ssh)
+- ✅ **JWT_SECRET 必 ≥ 64 字符 (256-bit)** — 用 `openssl rand -hex 32` 生成
+- ✅ **改了 JWT_SECRET 通知所有用户重新登录** — 所有 token 失效
+
+## 36. server DB 迁移 SOP (兼容 + 不删字段, S66)
+
+- ✅ **改 schema / 跑迁移前必读** [`../../docs/DB_MIGRATION.md`](../../docs/DB_MIGRATION.md):
+  - § 1 迁移方式选型 (initTables() 自动 99% / 手动 SQL 1%)
+  - § 2 增量迁移规范 (ADD 字段带 DEFAULT / 加表 / 加索引 / 改类型)
+  - § 3 schema 版本管理 (changelog.json 加 schema 变更段)
+  - § 4 跨版本回滚兼容性 (ADD 兼容 / DROP 不兼容)
+  - § 5 部署时迁移流程 (initTables 自动 / 大表 pt-osc / 手动 SQL 关 server)
+  - § 6 实战案例 (v1.2 → v2.0 / v2.0 → v2.5 / v3.0 schema 演进)
+  - § 7 常见问题 (Duplicate column / Table 不存在 / 老数据 NULL / 跨版本回滚)
+- ❌ **禁止 DROP COLUMN** — 用 `_deprecated_` 前缀 + 6 个月观察期后真删
+- ❌ **禁止 ADD 字段不带 DEFAULT** — 老数据补默认值, 防业务代码 NULL 崩
+- ❌ **禁止手工改生产 DB** — 必通过 initTables() 自动 / 手动 SQL 脚本
+- ✅ **ALTER 必 try/catch** (initTables() 防字段重复添加)
+- ✅ **不删表 / 不改字段名** (老代码引用会崩)
+- ✅ **手动 SQL 迁移期间 server 必停** (shipin-APP 数据量小, 不需要 0 downtime)
+
+## 37. PM2 + ecosystem.config.js 完整规范 (S66)
+
+- ✅ **改 PM2 配置 / 进程操作前必读** [`../../docs/PM2_GUIDE.md`](../../docs/PM2_GUIDE.md):
+  - § 1 ecosystem.config.js 完整字段规范 (7 块: 基础 / 多实例 / env / 日志 / 重启 / 监控 / 高级)
+  - § 2 fork vs cluster 模式选型 (shipin-APP 用 fork + instances: 1)
+  - § 3 PM2 命令速查 10 条 (start / list / env / logs / reload / restart / delete / save)
+  - § 4 env 注入优先级 (env_production > shell env > .env)
+  - § 5 高级配置 (V8 内存 / graceful shutdown / Keymetrics)
+  - § 6 常见问题 (一直重启 / 内存涨 / restart vs delete+start / 宝塔看不到 / status=errored)
+  - § 7 AI Agent 必跑 8 项 checklist
+- ❌ **禁止 `pm2 restart`** — 用 `pm2 delete + pm2 start` (BUG-008, restart 不重读 .env)
+- ❌ **禁止 `pm2 restart --update-env`** — 部署时禁用, 会刷 PM2 持久 env
+- ❌ **禁止 `watch: true`** — shipin-APP 是 dist/, 不是源代码, watch 无意义
+- ✅ **`max_memory_restart: '1G'`** 防内存泄漏
+- ✅ **部署后必 `pm2 env 0 | grep APP_VERSION`** 验证 env 生效
+- ✅ **宝塔面板手动添加 `ai-script-server` 进程** — PM2 进程列表跟宝塔 PM2 管理器是两个独立服务
+
 ---
 
 # 第二部分: BUG 记录强制流程 (硬性流程)
