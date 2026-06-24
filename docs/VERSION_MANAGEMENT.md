@@ -549,20 +549,28 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 
 ## § 9. 配套文档索引
 
-### 9.1 跨端统一入口 (AI Agent 必读优先级排序)
+### 9.1 跨端统一入口 (AI Agent 必读优先级排序, S68 收口后)
 
 > **任何 AI 接手 shipin-APP, 必按以下顺序读**:
+>
+> **S68 收口核心变化**: 根 `AGENTS.md` 升级为跨端统一总入口 (§ 1-8: 中文/Persistence/跨端必读/跨端 6 铁律/工作流/Worker 9 条/代码 4 原则/禁新旧版). 各 app 端 `AGENTS.md` 瘦身只保留各 app 独有 (mobile 90→~70 行, server 236→~150 行). 设计理由: 跨端规范不重复 + 各 app 架构/任务 SOP 不混淆, 跟 GitHub Copilot/Codex/Cursor 标准一致.
 
-1. **[`docs/STANDARDS_EVOLUTION.md`](./STANDARDS_EVOLUTION.md)** — 规范自迭代 SOP (S65 新建, 270 行)
+0. **[`AGENTS.md`](../AGENTS.md)** (S68 升级) — 跨端统一总入口 (中文/Persistence/铁律/工作流), **必先读**
+1. **[`docs/STANDARDS_EVOLUTION.md`](./STANDARDS_EVOLUTION.md)** — 规范自迭代 SOP (S65 新建, 347 行)
 2. **[`docs/VERSION_MANAGEMENT.md`](./VERSION_MANAGEMENT.md)** — 跨端版本管理 (本文件)
 3. **[`docs/standards/ADR/`](./standards/ADR/)** — 架构决策记录 (S65 新建)
-4. **[`apps/mobile/AGENTS.md`](../apps/mobile/AGENTS.md)** — mobile AI 入口
-5. **[`apps/mobile/BUGS.md`](../apps/mobile/BUGS.md)** — mobile BUG 案例库
-6. **[`apps/mobile/CODING_STANDARDS.md`](../apps/mobile/CODING_STANDARDS.md)** — mobile 硬性规范
-7. **[`apps/mobile/DEPLOY.md`](../apps/mobile/DEPLOY.md)** — mobile 部署
-8. **[`apps/web/DEPLOY.md`](../apps/web/DEPLOY.md)** — web 部署 (S65 新建)
-9. **[`docs/DEPLOY.md`](./DEPLOY.md)** — server 部署 (server-only)
-10. **[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](./notes/DEPLOYMENT_AND_BACKEND_RULES.md)** — 后端 worker 实战约束
+4. **[`apps/mobile/AGENTS.md`](../apps/mobile/AGENTS.md)** (S68 瘦身) — mobile 端独有 (RN 栈 + 升级 7 铁律 + 改 mobile 代码前后 5 步)
+5. **[`apps/server/AGENTS.md`](../apps/server/AGENTS.md)** (S67 新建 + S68 瘦身) — server 端独有 (部署 5 项 + 8 铁律 + 5 类任务 SOP + 代码架构)
+6. **[`apps/mobile/BUGS.md`](../apps/mobile/BUGS.md)** — 跨端共用 BUG 案例库 (21 个 BUG, 含 BUG-066~070 S64-S67 + BUG-071 S68)
+7. **[`apps/mobile/CODING_STANDARDS.md`](../apps/mobile/CODING_STANDARDS.md)** — 跨端共用硬性规范 (38 条)
+8. **[`apps/mobile/DEPLOY.md`](../apps/mobile/DEPLOY.md)** — mobile 部署
+9. **[`apps/web/DEPLOY.md`](../apps/web/DEPLOY.md)** — web 部署 (S65 新建)
+10. **[`docs/DEPLOY.md`](./DEPLOY.md)** — server 部署 (server-only)
+11. **[`docs/ENV_MANAGEMENT.md`](./ENV_MANAGEMENT.md)** (S66) — env 变量管理
+12. **[`docs/PM2_GUIDE.md`](./PM2_GUIDE.md)** (S66) — PM2 + ecosystem 规范
+13. **[`docs/DB_MIGRATION.md`](./DB_MIGRATION.md)** (S66) — DB schema 迁移 SOP
+14. **[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](./notes/DEPLOYMENT_AND_BACKEND_RULES.md)** — 后端 worker 9 条实战约束
+15. **`DEV_PROGRESS.md`** — AI 会话追踪表 (开始工作前必读, 根 AGENTS.md § 5)
 
 ### 9.2 完整索引
 
@@ -574,9 +582,10 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 | `docs/ENV_MANAGEMENT.md` (S66 新建) | server env 变量管理 (强密钥 + 6 类轮换 + 防泄露 + 8 项 AI checklist) |
 | `docs/PM2_GUIDE.md` (S66 新建) | PM2 + ecosystem.config.js 完整规范 (fork vs cluster + 10 条命令 + BUG-069 自检) |
 | `docs/DB_MIGRATION.md` (S66 新建) | server DB 迁移 SOP (initTables 自动 vs 手动 SQL + 不删字段 + 跨版本回滚兼容性) |
-| `apps/server/AGENTS.md` (S67 新建) | **server 端 AI 入口** (跟 mobile AGENTS.md 对称, 含活跃任务部署 SOP + 8 条铁律 + S67 自检命令) |
-| `apps/mobile/AGENTS.md` | Mobile AI Agent 入口, 项目速览 |
-| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068/069/070 是 S64-S67 触发的源头) |
+| `apps/server/AGENTS.md` (S67 新建 + S68 瘦身) | **server 端 AI 入口** (跟 mobile AGENTS.md 对称, 含部署 5 项 + 8 条铁律 + 5 类任务 SOP; 跨端规范收口到根 AGENTS.md) |
+| `apps/mobile/AGENTS.md` (S68 瘦身) | Mobile AI Agent 入口 (RN 栈 + 升级 7 铁律 + 改 mobile 代码前后 5 步; 跨端规范收口到根 AGENTS.md) |
+| `AGENTS.md` (S68 升级 v2.0) | **跨端统一总入口** (中文/Persistence/跨端必读 15 项/跨端 6 铁律/工作流/Worker 9 条/代码 4 原则/禁新旧版/子项目 AGENTS.md 入口) |
+| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068/069/070 S64-S67 + BUG-071 S68 收口) |
 | `apps/mobile/CODING_STANDARDS.md` | 硬性规范 (第 30/31/32 条 S64, 第 33 条 S65, 第 34-37 条 S66) |
 | `apps/mobile/DEPLOY.md` | Mobile 端完整部署 SOP |
 | `apps/server/deploy.sh` | Server 远端部署脚本 (公告 + 维护 + 重启) |
@@ -609,5 +618,5 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 
 ---
 
-> **最后更新**: 2026-06-24 (S67 P0)
+> **最后更新**: 2026-06-24 (S68 P0 收口 v2.0)
 > **下次 review**: 每个 3 类发版后必更新本文件 + 触发 [`STANDARDS_EVOLUTION.md` § 3 5 步修订流程](./STANDARDS_EVOLUTION.md)

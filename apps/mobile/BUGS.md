@@ -946,3 +946,32 @@
   3. **后端代码已有机制没在 AI 规范里 = 等于不存在** — `routes/admin.ts:136` 等端点存在, 但 AI 不知道调, 等于零
   4. **跨端 SOP 必须考虑运行时状态** — VERSION_MANAGEMENT § 5 跨端只讲静态 SOP (改版本/build/tar/scp/pm2), 没讲动态状态 (活跃任务)
   5. **AI Agent 入口文档比代码注释更重要** — deploy.sh 头部注释 S58 就写了"AI 必读 docs/DEPLOY.md", 但实际没人读, 因为 AGENTS.md 没强制引用
+
+### BUG-071 (S68, v3.0.30 → v3.0.30 修): 3 个 AGENTS.md 跨端规范重复 + 子项目入口无统一收口设计, AI 读 3 份文档才能拼出完整规范
+
+- **现象**: S68 自检发现 — 根 AGENTS.md (176 行) + apps/mobile/AGENTS.md (90 行) + apps/server/AGENTS.md (236 行) 3 份 AI 入口文档存在严重重复. 跨端通用规范 (中文约束/Persistence/DEV_PROGRESS 工作流/代码 4 原则/禁新旧版/Worker 9 条) 在 3 处都写, 改 1 处必同步 3 处, 维护成本高. 跨端铁律 (中文/AGENTS.md 必读/6 处版本号/PM2 delete+start/5/6 维验证/commit message) 也是各自表述不一致. S64-S67 4 个 session 都在加规范, 但没考虑"跨端 vs app 端"的分层, 导致规范散落 3 处.
+- **根因**:
+  - S64 (跨端版本管理) 写 VERSION_MANAGEMENT.md, 跨端规范第一次成型, 但没意识到"跨端规范应该收口在根 AGENTS.md"
+  - S66 (后端部署规范) 写 apps/server/AGENTS.md, 跟 mobile AGENTS.md 对称, 但跨端规范又重复一遍
+  - S67 (活跃任务部署) 修 BUG-070 时, 在 apps/server/AGENTS.md 顶部加"必读优先级", 但仍然把"中文/Persistence/工作流"等跨端规范继续列在 server AGENTS.md 顶部
+  - 跨端通用规范 vs app 端独有规范的边界没分清, AI 不知道"哪些该放根, 哪些该放子 AGENTS.md"
+  - 没有 GitHub 风格 AGENTS.md 标准 (Copilot Coding Agent / Codex / Cursor 都用"根 + 子项目"两层结构)
+- **修法 (v3.0.30, S68)**:
+  - 根 AGENTS.md 升级 v1.0 → v2.0 (跨端统一总入口, 9 节 § 1-9): § 1 中文约束 + § 2 Persistence + § 3 跨端必读列表 15 项 (新增根 AGENTS.md 排第 0) + § 4 跨端 6 铁律 (去重综合) + § 5 DEV_PROGRESS 工作流 (升级) + § 6 Worker 9 条 (保留) + § 7 代码 4 原则 (保留) + § 8 禁新旧版 (保留) + § 9 子项目 AGENTS.md 入口 (新增收口设计说明)
+  - apps/mobile/AGENTS.md 瘦身 v1.0 → v1.1 (90 → ~70 行, -22%): 删跨端通用规范, 留 mobile 独有 (§ 1 RN 栈速览 + § 2 改前 5 步 + § 3 改后 5 步 + § 4 升级 7 铁律 + § 5 跨端版本 4 铁律 mobile 视角), 必读第 0 份指向根 AGENTS.md
+  - apps/server/AGENTS.md 瘦身 v1.0 → v1.1 (236 → ~150 行, -36%): 删跨端通用规范, 留 server 独有 (§ 1 代码架构 + § 2 部署前 5 项 + § 3 server 端 8 铁律 + § 4 改 server 前后 5 步 + § 5 5 类任务 SOP), 必读第 0 份指向根 AGENTS.md
+  - VERSION_MANAGEMENT.md § 9.1 + § 9.2 + footer 同步更新: § 9.1 必读列表加根 AGENTS.md 第 0 项 + § 9.2 索引表加根 AGENTS.md 行 + footer 更新 v2.0
+  - 不写 ADR-0002: 收口设计不是新架构决策, 是"已有规范的分层优化", 写进 BUG-071 教训段即可
+- **验证**:
+  - 根 AGENTS.md 跨端规范不重复 (中文只在 § 1, Persistence 只在 § 2, 6 铁律只在 § 4, 工作流只在 § 5)
+  - 子 AGENTS.md 必读第 0 份 = 根 AGENTS.md (mobile 跟 server 一致)
+  - 跨端规范在根 1 处, mobile/server 引用而不重复
+  - mobile 独有 5 节, server 独有 5 节, 互补无重叠
+  - VERSION_MANAGEMENT.md § 9.1 必读列表 15 项按优先级排序清晰
+- **教训**:
+  1. **AI 入口文档必分层** (根 + 子项目) — 跨端规范放根, app 独有放子, 跟 GitHub Copilot/Codex/Cursor 标准一致
+  2. **跨端规范 vs app 端独有必分清** — 改 1 处同步 3 处的成本巨大, 必然导致规范漂移 (S64-S67 4 个 session 没分清)
+  3. **新规范必问"该放根还是子 AGENTS.md"** — 加规范时, 先问"这规范跨端通用还是某 app 独有?", 通用放根, 独有放子
+  4. **必读第 0 份 = 根 AGENTS.md** — 任何子 AGENTS.md 必读第 0 份指向根, 形成"总入口 → 子入口"两层结构
+  5. **AGENTS.md 不是文档仓库, 是 AI 行为约束** — 必读列表 / 铁律 / 工作流三类核心, 其他 (历史/架构/任务 SOP) 引用而不展开
+  6. **S68 收口设计跟 BUG-068 互补** — BUG-068 修"跨 AI 协作必读 VERSION_MANAGEMENT.md", BUG-071 修"AGENTS.md 跨端规范重复" — 一起把 AI 必读入口结构理顺

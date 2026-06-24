@@ -1,6 +1,13 @@
-# AGENTS.md — AI 助手项目指令
+# AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
-## Thinking & Response Language Constraint
+> **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
+> **版本**: v2.0 (2026-06-24 S68 收口升级, 跟 mobile + server AGENTS.md 对称)
+> **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
+> **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
+
+---
+
+## § 1. Thinking & Response Language Constraint (跨端统一)
 
 ### 思考过程 (Thought)
 你必须在进行逻辑推理、规划和"思考"过程时使用中文（简体中文）。
@@ -30,7 +37,7 @@
 - 英文对话（如 "Hello" 而不用"你好"）
 - 英文状态报告
 
-## Persistence Guard
+## § 2. Persistence Guard (10 轮后语言漂移防护)
 
 当对话轮次超过 10 轮时，初始指令可能会被上下文窗口压制。
 为防止语言漂移回英文，你必须在每个用户提示后追加以下后缀：
@@ -41,42 +48,126 @@
 
 ---
 
-## Development Progress Tracker
+## § 3. 跨端必读列表 (AI Agent 必读优先级排序)
 
-在开始任何工作之前，你必须按顺序执行以下步骤：
+> **任何 AI 接手 shipin-APP 任意端任务, 必按以下顺序读** (本表为 S68 收口核心):
 
-1. **读取 `DEV_PROGRESS.md` 文件**，了解项目当前进度
-2. 查看"当前进度（AI 会话追踪）"表中**下一个任务**是什么
-3. 如果 `DEV_PROGRESS.md` 不存在或内容异常，立即向用户报告
+| 优先级 | 文件 | 用途 |
+|---|---|---|
+| 0 | **本文件 `AGENTS.md`** | 跨端统一总入口 (中文/Persistence/铁律/工作流) |
+| 1 | **[`docs/STANDARDS_EVOLUTION.md`](docs/STANDARDS_EVOLUTION.md)** (S65 新建) | 规范自迭代 SOP (修订流程 5 步 + ADR 实践 + 责任矩阵) |
+| 2 | **[`docs/VERSION_MANAGEMENT.md`](docs/VERSION_MANAGEMENT.md)** (S64 新建) | 跨端版本管理 (6 处版本号 + § 5 发版 SOP + § 5.0 活跃任务部署) |
+| 3 | **[`apps/mobile/BUGS.md`](apps/mobile/BUGS.md)** (跨端共用) | 历史 BUG 案例库 (BUG-001 ~ BUG-071, 21 个) |
+| 4 | **[`apps/mobile/CODING_STANDARDS.md`](apps/mobile/CODING_STANDARDS.md)** | 38 条硬性规范 + BUG 记录强制流程 |
+| 5 | **[`apps/mobile/AGENTS.md`](apps/mobile/AGENTS.md)** (S68 瘦身) | mobile 端独有 (RN 栈 + 升级 7 铁律 + 改 mobile 代码前后 5 步) |
+| 6 | **[`apps/server/AGENTS.md`](apps/server/AGENTS.md)** (S68 瘦身) | server 端独有 (部署 5 项 + 8 铁律 + 5 类任务 SOP + 代码架构) |
+| 7 | **[`docs/DEPLOY.md`](docs/DEPLOY.md)** | server 部署完整 SOP (11 节点 + 6 维验证) |
+| 8 | **[`apps/mobile/DEPLOY.md`](apps/mobile/DEPLOY.md)** | mobile 端部署 (APK 升级 5 步 + 7 类失败诊断) |
+| 9 | **[`apps/web/DEPLOY.md`](apps/web/DEPLOY.md)** (S65 新建) | web 端部署 (本地 build + scp + nginx) |
+| 10 | **[`docs/ENV_MANAGEMENT.md`](docs/ENV_MANAGEMENT.md)** (S66) | env 变量管理 (server 用) |
+| 11 | **[`docs/PM2_GUIDE.md`](docs/PM2_GUIDE.md)** (S66) | PM2 + ecosystem 规范 (server 用) |
+| 12 | **[`docs/DB_MIGRATION.md`](docs/DB_MIGRATION.md)** (S66) | DB schema 迁移 SOP (server 用) |
+| 13 | **[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md)** | 后端 worker 9 条实战约束 (改 server 代码前必读) |
+| 14 | **[`docs/standards/ADR/`](docs/standards/ADR/)** (S65 新建) | 架构决策追溯 (0001 server changelog 单一来源) |
+| 15 | **`DEV_PROGRESS.md`** | AI 会话追踪表 (开始工作前必读, § 5) |
 
-### 工作流程
+**ADR 触发**: 任何架构级变更 (新模块 / 重构 / 跨端收口) 必写 ADR-NNN, 模板见 `docs/standards/ADR/0000-adr-template.md`.
 
-每个任务的工作周期：
+---
+
+## § 4. 跨端 6 条铁律 (S68 综合 mobile 4 + server 8 + 根 4 去重)
+
+> **任何 AI 必遵守, 跨端通用, 跟各 app 独有铁律互补**:
+
+### 铁律 1: 中文思考 + 中文回复 (§ 1)
+- 必用中文推理 + 中文报告 (见 § 1)
+- 跨 10 轮后追加 Reminder 后缀 (§ 2)
+
+### 铁律 2: 改代码前必读 AGENTS.md + BUGS.md + 跨端规范 (§ 3)
+- 必读本文件 + 优先级 1-3 跨端规范 (§ 3)
+- mobile 任务追加 `apps/mobile/AGENTS.md` (优先级 5) + `apps/mobile/DEPLOY.md` (8) + `apps/mobile/CODING_STANDARDS.md` (4)
+- server 任务追加 `apps/server/AGENTS.md` (优先级 6) + `docs/DEPLOY.md` (7) + `ENV/PM2/DB 3 份规范` (10-12) + `DEPLOYMENT_AND_BACKEND_RULES.md` (13)
+- web 任务追加 `apps/web/DEPLOY.md` (优先级 9)
+- **必读**: 开始工作前必跑 `Read DEV_PROGRESS.md` (§ 5)
+
+### 铁律 3: APP_VERSION 改 1 处必同步 6 处 (跨端强约束, S66 BUG-069 教训)
+- **6 处位置** (S66 修正后):
+  1. `apps/mobile/src/config/version.ts` (mobile 单一来源)
+  2. `apps/mobile/android/app/build.gradle` (versionCode + versionName)
+  3. `apps/server/package.json` (`"version"`)
+  4. `apps/server/src/index.ts` (fallback `process.env.APP_VERSION || 'X.Y.Z'`)
+  5. `apps/server/ecosystem.config.js` (**2 处**: env + env_production)
+  6. `apps/web/src/config/version.ts` (web 单一来源) + `apps/server/changelog.json`
+- 改完必跑 `VERSION_MANAGEMENT.md § 7.2` 6 处 grep 自检
+- 详细 8 步发版 SOP → `VERSION_MANAGEMENT.md § 5`
+
+### 铁律 4: PM2 用 `delete + start` 不用 `restart` (S58 BUG-008 教训)
+- ❌ `pm2 restart` — 不重读 .env, 老 env 残留
+- ❌ `pm2 restart --update-env` — 部署时禁用, 会刷 PM2 持久 env
+- ✅ `pm2 delete ai-script-server && pm2 start ecosystem.config.js --env production`
+- 详细 10 条 PM2 命令 + 8 项 AI checklist → `docs/PM2_GUIDE.md`
+
+### 铁律 5: 部署后必跑 5/6 维验证 (S64 + S67 升级)
+- **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
+- **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
+- **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (6 步: 查→公告→维护→等任务→部署→恢复)
+
+### 铁律 6: commit message 必带版本号 + BUG 编号 (跨端统一规范)
+- 格式: `vX.Y.Z: <改动一句话> (BUG-NNN + 规范修订)`
+- 例: `v3.0.30 P4: server 端 AI 部署入口 (BUG-070 + apps/server/AGENTS.md + 活跃任务部署专项)`
+- docs 类提交: `docs(scope): <文档改动> (BUG-NNN)`
+- 配套: `DEV_PROGRESS.md` AI 会话追踪表必追加一行 (用单独 commit, 规范修订 commit 跟 docs commit 分离, S66/S67 实践)
+
+---
+
+## § 5. Development Progress Tracker (跨端统一工作流)
+
+### 开始工作前 3 步必做
+
+1. **读取 `DEV_PROGRESS.md`**, 了解项目当前进度
+2. 查看"AI 会话追踪"表**下一个任务**是什么
+3. 如果 `DEV_PROGRESS.md` 不存在或内容异常, 立即向用户报告
+
+### 每个任务工作周期
 
 ```
-开始工作前：
-  └─ 读取 AGENTS.md（本文件）
-  └─ 读取 DEV_PROGRESS.md → 找到下一个待办任务
-  └─ 理解该任务所需的所有上下文（读相关源码）
+开始工作前:
+  ├─ 读根 AGENTS.md (本文件) — 跨端统一规范
+  ├─ 读 DEV_PROGRESS.md — 找下一个待办
+  ├─ 读对应子 AGENTS.md (apps/mobile/AGENTS.md 或 apps/server/AGENTS.md)
+  └─ 读相关源码 (理解上下文)
 
-工作中：
-  └─ 将 DEV_PROGRESS.md 中该任务状态改为 [进展中]
-  └─ 实施编码
+工作中:
+  ├─ 将 DEV_PROGRESS.md 该任务状态改为 [进展中]
+  └─ 实施编码 (按子 AGENTS.md 的任务 SOP 跑)
 
-完成后：
-  └─ 验证实施结果（lint / typecheck / 功能测试）
-  └─ 将 DEV_PROGRESS.md 中该任务状态改为 [已验收]
-  └─ 在 DEV_PROGRESS.md 底部的"AI 会话追踪"表中追加一行当前会话记录
-  └─ 向用户报告完成情况（**用中文**），并指出下一个任务
+完成后:
+  ├─ 验证 (lint / typecheck / 5/6 维验证 / 6 处版本号自检)
+  ├─ 将 DEV_PROGRESS.md 该任务状态改为 [已验收]
+  ├─ DEV_PROGRESS.md 底部 "AI 会话追踪" 表追加一行
+  └─ 中文报告用户完成情况 + 指出下一个任务
 ```
 
-### 部署操作规范
+### 状态变更规则
 
-> **任何 AI 助手在执行部署前必须完整阅读 [`docs/DEPLOY.md`](docs/DEPLOY.md)**
+- 不允许跨过 `[待开始] → [进展中] → [待验证] → [已验收]` 的顺序
+- 不允许一次性标记多个步骤为已完成 (必须逐个原子步骤完成)
+- 如果遇到阻塞项, 标注 `[阻塞]` + 原因, 继续尝试下一个不影响的任务
 
-### Worker 后端约束 (强约束, 改 server 代码前必读)
+### 多个 AI 会话的上下文保持
 
-[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md) 记录 9 条实战约束:
+如果当前 AI 无法完成全部任务 (对话轮次超限 / 中断等), 必须:
+1. 将当前正在做的任务状态设为 `[进展中]` (不要设为 `[已验收]`)
+2. 在"AI 会话追踪"表中追加会话记录, 精确写明**已做到哪一步**和**被什么阻塞**
+3. 在退出前明确告知用户下一个 AI 应当从哪个任务继续
+
+---
+
+## § 6. Worker 后端约束 (改 server 代码前必读, 跨端 worker 9 条)
+
+> 任何 AI 助手在执行部署前必须完整阅读 [`docs/DEPLOY.md`](docs/DEPLOY.md) 与 [`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md)。
+
+`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` 记录 **9 条实战约束**:
 1. 禁止引入新 npm 依赖
 2. tsc 增量编译陷阱 (.js 不清, 部署后 6 维验证)
 3. shipin-APP 文件结构 (本地 monorepo vs 生产 flat)
@@ -87,55 +178,41 @@
 8. ASPECT_DIMENSIONS 文字比例兜底
 9. 沟通/汇报 (CDN 大文件 + 中文 reply)
 
-部署规范包含：
-- **11 个关键节点**（Pre-Deploy 阶段 3 个 + Execute 阶段 5 个 + Post-Deploy 阶段 3 个）
+部署规范包含:
+- **11 个关键节点** (Pre-Deploy 3 + Execute 5 + Post-Deploy 3)
 - **完整 Step-by-Step 流程**
-- **宝塔面板操作清单**（用户在宝塔里能做什么）
+- **宝塔面板操作清单** (用户在宝塔里能做什么)
 - **5 分钟回滚预案**
-- **常见问题排查**（6 个典型 BUG 及解法）
+- **常见问题排查** (6 个典型 BUG 及解法)
 - **AI 助手必须遵守的 8 条规则**
-- **部署后 6 维验证清单**（进程 / 端口 / /health / /api/version / 鉴权 / 日志）
+- **部署后 6 维验证清单** (进程 / 端口 / /health / /api/version / 鉴权 / 日志)
 
-部署前必须遵守的红线：
+**部署前必须遵守的红线** (跨端统一, 任何端部署都适用):
 1. **必须先报告用户**, 等授权
-2. **必须先备份** shipin-APP (dist + package.json + tsconfig.json + .env) + DB
-3. **不覆盖 .env / .env.production / uploads / exports / logs**
-4. **PM2 必须用 `delete + start`**, 不用 `restart`
-5. **部署后 6 维验证全通过** 才算完成
-6. **本地 SSH key 用完立即 `mavis-trash` 删**
-7. **部署后必须更新 `DEV_PROGRESS.md` AI 会话追踪表**
-
-### 状态变更规则
-
-- 不允许跨过 `[待开始] → [进展中] → [待验证] → [已验收]` 的顺序
-- 不允许一次性标记多个步骤为已完成（必须逐个原子步骤完成）
-- 如果遇到阻塞项，标注 `[阻塞]` + 原因，继续尝试下一个不影响的任务
-
-### 多个 AI 会话的上下文保持
-
-如果当前 AI 无法完成全部任务（对话轮次超限、中断等），必须：
-1. 将当前正在做的任务状态设为 `[进展中]`（不要设为 `[已验收]`）
-2. 在"AI 会话追踪"表中追加会话记录，精确写明**已做到哪一步**和**被什么阻塞**
-3. 在退出前明确告知用户下一个 AI 应当从哪个任务继续
+2. **必须先备份** (server 部署: dist + package.json + tsconfig.json + .env + DB; mobile/web 部署: 对应资源)
+3. **不覆盖** .env / .env.production / uploads / exports / logs / 历史 APK / 历史 dist
+4. **PM2 必须用 `delete + start`**, 不用 `restart` (铁律 4)
+5. **部署后 5/6 维验证全通过** 才算完成 (铁律 5)
+6. **本地 SSH key 用完立即 `mavis-trash` 删** (除永久 key `~/.ssh/id_ed25519`)
+7. **部署后必须更新 `DEV_PROGRESS.md` AI 会话追踪表** (§ 5)
+8. **活跃任务场景** 必跑 `apps/server/deploy.sh` 维护模式流程 (S67 BUG-070)
 
 ---
 
----
+## § 7. 代码规范与功能安全原则 (跨端统一)
 
-## 代码规范与功能安全原则
+所有代码修改必须遵循以下原则:
 
-所有代码修改必须遵循以下原则：
-
-1. **不破坏现有功能**：除非是经过明确确认的大规模重构任务，否则所有代码变更必须确保不影响其他功能代码模块。
-2. **最小侵入原则**：优先采用对现有代码影响最小的修改方式，避免改动无关代码。
-3. **回归验证**：每次修改后，必须运行相关测试或验证手段，确保已开发完毕的功能不受影响。
-4. **模块隔离**：新增功能应尽量以独立模块形式添加，减少对已有模块的耦合和侵入。
+1. **不破坏现有功能**: 除非是经过明确确认的大规模重构任务, 否则所有代码变更必须确保不影响其他功能代码模块
+2. **最小侵入原则**: 优先采用对现有代码影响最小的修改方式, 避免改动无关代码
+3. **回归验证**: 每次修改后, 必须运行相关测试或验证手段, 确保已开发完毕的功能不受影响
+4. **模块隔离**: 新增功能应尽量以独立模块形式添加, 减少对已有模块的耦合和侵入
 
 违反上述原则的代码变更将被拒绝合并。
 
 ---
 
-## 禁止新旧版并存（强制清理规则）
+## § 8. 禁止新旧版并存 (跨端统一强制清理规则)
 
 **规则**: 任何模块、组件、字段、API 端点、状态变量、数据结构在迭代时, **必须立即清理旧版实现**, 不得新旧版并存于同一文件/同一接口/同一页面。
 
@@ -165,12 +242,34 @@
 
 否则视为违规, 不予通过。
 
-### 历史违规清单 (持续更新)
+### 历史违规清单 (跨端, 持续更新)
 
-- **v2.5.13 修复**: `CharacterDetailPage.tsx` 删除 v2.5.0 之前遗留的 `appearanceDraft/personalityDraft/roleTypeDraft` 状态 + 基础信息编辑块 (旧版 fallback), 角色信息统一走 37 字段 `description` JSON, 见 `apps/web/src/pages/CharacterDetailPage.tsx:1-100` 重构记录。
-- **v2.5.22 修复**: 移除 `v2.5.22 CSS 网格合成` 方案, 因为用户明确要求"1 张图包含所有分镜"。回归到 v2.5.21 风格的单图多格方案 + 通过 portrait aspect 优化网格, 见 v2.5.23/24/25 提交记录。
+- **v2.5.13 修复** (web 端): `CharacterDetailPage.tsx` 删除 v2.5.0 之前遗留的 `appearanceDraft/personalityDraft/roleTypeDraft` 状态 + 基础信息编辑块, 角色信息统一走 37 字段 `description` JSON。
+- **v2.5.22 修复** (web 端): 移除 `v2.5.22 CSS 网格合成` 方案, 因为用户明确要求"1 张图包含所有分镜"。回归到 v2.5.21 风格的单图多格方案 + 通过 portrait aspect 优化网格。
+- **v3.0.0 修** (server 端): 12 态状态机替换 v2.5 的 4 态, 极简模式跳 3 态, 旧 `task_status` enum 迁移到 `task_jobs.status` 字段。
+- **v3.0.30 修** (server 端): `ecosystem.config.js` APP_VERSION 跟实际 6 处同步, S66 BUG-069 (S64 BUG-066 漏修的第 6 处)。
 
 ---
 
-> 本文档为强制执行规范。所有 AI 助手在参与本项目时必须遵守。
+## § 9. 子项目 AGENTS.md 入口 (S68 收口设计)
 
+> **设计原则** (S68 BUG-071 配套): 根 AGENTS.md = 跨端统一规范, 子项目 AGENTS.md = 各 app 独有架构/任务 SOP, 互不重复。
+> 任何 AI 接到任务, 必先读根 AGENTS.md (§ 3 跨端必读), 再跳到对应子 AGENTS.md.
+
+| 子项目 | 文件 | 必读场景 | 独有内容 |
+|---|---|---|---|
+| **mobile** (RN 0.73 + Hermes) | [`apps/mobile/AGENTS.md`](apps/mobile/AGENTS.md) | 改 mobile 代码 / 打 APK / 升级 | RN 栈速览 + 升级链路 7 铁律 + 改 mobile 代码前后 5 步 |
+| **server** (Node + Express + MySQL) | [`apps/server/AGENTS.md`](apps/server/AGENTS.md) | 改 server 代码 / PM2 部署 / 调试 | 部署前 5 项 (含维护模式) + server 端 8 条铁律 + 5 类常见任务 SOP + 代码架构速览 |
+| **web** (React + Vite) | (无独立 AGENTS.md, 跟随 server) | 改 web 代码 / 部署 | web 端无 AI 独立行为, 走 `apps/web/DEPLOY.md` + 跟 server 同步 |
+
+**收口设计理由** (S68):
+1. 跨端通用规范 (中文/Persistence/铁律/工作流) 重复 3 份 → 统一放根, 减少维护成本 (改 1 处 3 处同步)
+2. 各 app 独有架构 (mobile RN / server PM2 / web Vite) 不能混在一份, 否则跨端 AI 读到无关内容会困惑
+3. 子 AGENTS.md 必读第 0 份 = 根 AGENTS.md, 形成"总入口 → 子入口"两层结构 (跟 GitHub Copilot Coding Agent / Codex / Cursor 标准一致)
+4. `BUGS.md` 跟 `CODING_STANDARDS.md` 保留在 `apps/mobile/` (跨端共用, 历史起源 mobile), 跟 `apps/mobile/AGENTS.md` 强引用
+
+---
+
+> **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参与 shipin-APP 项目时必须遵守.
+> **最后更新**: 2026-06-24 (S68 收口升级 v2.0)
+> **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时
