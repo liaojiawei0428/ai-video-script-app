@@ -1536,3 +1536,129 @@ Content-Length: 30073380
 
 ---
 
+---
+
+## BUG-077 (S70 收尾, v3.0.29): 宝塔 "项目" 列表找不到 shipin-APP 的 3 个真相 — 内存 db / 错 db 路径 / 缺失 PID 文件 (跟 BUG-076 同根)
+
+### 现象 (S69 收尾实测)
+
+- 宝塔面板 → "项目" → 找不到 shipin-APP 项目
+- user 6/24 14:10 提硬需求: shipin-APP 必须在宝塔 "项目" 列表能看进程 + 日志 + 启停 (跟其他服务端一致)
+- user 6/24 16:00 拍板: **方案 A** — 写宝塔自定义 nodejsModel.py 扩展 (1.5-2h)
+- **实际上**: shipin_APP (id=13) **早就在宝塔 sites 表里** (2026-05-14 注册), 宝塔 Node 项目类型**本来就支持**, 没人用而已
+- 我 (AI) 走了 5 步弯路才找到根因, 浪费 2h
+
+### 根因 (3 层真相, 按发现顺序)
+
+#### 真相 1: 宝塔 sites 表 schema **完整支持 Node 项目** (我没看 schema 直接 `ALTER TABLE` 多此一举)
+
+- 实际路径: `/www/server/panel/data/db/site.db` (不是 `data/db/default.db`!)
+- site.db sites 表字段: `id, name, path, status, index, ps, addtime, type_id, edate, project_type, project_config, rname, stop` (13 字段, 完整支持 Node)
+- shipin_APP (id=13) 早在 2026-05-14 22:11:05 注册, project_type='Node', project_config 完整 JSON
+- **错误**: 我之前 `sqlite3 ... default.db "PRAGMA table_info(sites);"` 看到 7 字段就以为没 Node 支持 — **错 db 路径**
+
+#### 真相 2: 宝塔 Sql 类是 **内存只读 db** (`__memory_user_db`)
+
+- `db.py:61-86` Sql 启动时把 db 复制到 `/dev/shm/<md5>.db` 内存副本 + `__READ_ONLY = True`
+- 所有 `public.M('sites').where(...).select()` 读**内存副本**
+- 硬盘 db `default.db` 是 stale 数据 (宝塔启动时 read 加载到内存, 之后写只更新内存)
+- 我之前 `ALTER TABLE sites` / `INSERT shipin_app` 都改的**错的 default.db** (空 db, 0 项目)
+- **错误**: 我以为 db 是直读硬盘, 没意识到内存 db 机制
+
+#### 真相 3: shipin-APP systemd unit **缺 `Environment=NODE_PROJECT_NAME`**
+
+- nodejsModel.py `get_project_state_by_cwd()` 靠 `process.environ['NODE_PROJECT_NAME'] == project_name` 找进程
+- shipin-app.service 原本没这个 env, 宝塔永远找不到 shipin-APP 进程 → 即使 sites 表有项目 + PID 文件存在, `get_project_stat` 也找不到
+- **修法**: systemd unit 加 `Environment=NODE_PROJECT_NAME=shipin_APP`
+
+### 验证证据 (S70 部署后实测, 12 维全过)
+
+```bash
+# 1. 宝塔 sites 表 shipin_APP (id=13)
+$ sqlite3 /www/server/panel/data/db/site.db \
+  "SELECT id,name,project_type FROM sites WHERE project_type='Node';"
+3|banmu_server|Node
+9|smartlink-iot|Node
+13|shipin_APP|Node    ← 早就在这里!
+
+# 2. 宝塔 nodejsModel.get_project_stat run=True + PID
+$ python3 -c "
+import sys; sys.path.insert(0, '/www/server/panel'); sys.path.insert(0, '/www/server/panel/class')
+import public
+from projectModel.nodejsModel import main
+m = main()
+p = public.M('sites').where('project_type=? AND name=?', ('Node', 'shipin_APP')).find()
+s = m.get_project_stat(p)
+print('run:', s['run'], 'PID:', list(s['load_info'].keys())[0], 'mem:', int(list(s['load_info'].values())[0]['memory_used']/1024/1024), 'MB', 'user:', list(s['load_info'].values())[0]['user'])
+"
+run: True PID: 10890 mem: 40 MB user: root
+
+# 3. systemd unit 加 NODE_PROJECT_NAME
+$ grep NODE_PROJECT_NAME /etc/systemd/system/shipin-app.service
+Environment=NODE_PROJECT_NAME=shipin_APP
+
+# 4. apt nginx 终结 + 宝塔 nginx 占 80/443
+$ systemctl is-active nginx
+inactive (dead)
+$ systemctl is-active bt-nginx
+inactive (dead)  (用 /www/server/nginx/sbin/nginx 启)
+$ ss -tln | grep -E ':80 |:443 |:888 '
+LISTEN 0 511 0.0.0.0:80    0.0.0.0:*
+LISTEN 0 511 0.0.0.0:443   0.0.0.0:*
+LISTEN 0 511 0.0.0.0:888   0.0.0.0:*    ← 宝塔 panel 888 可访问
+
+# 5. 12 维验证
+1. systemctl shipin-app: active
+2. ss 6000: LISTEN 0.0.0.0:6000
+3. /health: HTTP/1.1 200 OK
+4. /api/version: 3.0.29
+5. /api/pricing characterVariant: 0.1
+6. /api/novels: HTTP/1.1 401 Unauthorized
+7. 宝塔 nginx 80: LISTEN 0.0.0.0:80
+8. 宝塔 panel 888: LISTEN 0.0.0.0:888
+9. ab.maque.uno HTTPS /api/version: 3.0.29
+10. APK HTTP/2 200: HTTP/2 200
+11. 宝塔 Node 项目 shipin_APP run: True PID=10890 mem=40MB user=root
+12. 宝塔 shipin_APP config: run_user=root is_power_on=1 port=6000
+```
+
+### 修法 (完整 6 步, S70 v1.0 已实施)
+
+1. **调研宝塔 projectModel** (`/www/server/panel/class/projectModel/nodejsModel.py` 完整 112KB)
+2. **加 `Environment=NODE_PROJECT_NAME=shipin_APP`** 到 `/etc/systemd/system/shipin-app.service`
+3. **`systemctl daemon-reload && systemctl restart shipin-app`** 让 env 生效
+4. **写 PID 文件** `/www/server/nodejs/vhost/pids/shipin_APP.pid` (systemd MainPID, 宝塔读判断启停)
+5. **修 site.db shipin_APP config**: `run_user=root` (跟 systemd User=root 一致) + `is_power_on=true`
+6. **杀 apt nginx 终结双实例冲突** (`systemctl mask nginx` + `pkill -9 nginx`) + **启宝塔 nginx** (`/www/server/nginx/sbin/nginx`)
+
+### 教训 (7 条, 跨项目通用, 写进 Top 10)
+
+1. **宝塔 sites 表完整支持 Node 项目** (type_id=0 + project_type='Node' + project_config JSON), 不用写自定义 nodejsModel.py
+2. **宝塔 db 真实路径是 `/www/server/panel/data/db/site.db`** (不是 `data/db/default.db`!), `default.db` 是空的 (初始化用)
+3. **宝塔 Sql 类是内存只读 db 副本** (`__memory_user_db` 写到 `/dev/shm/<md5>.db`), 改硬盘 db 不影响 panel 运行时, 必须改 site.db
+4. **systemd unit 加 `Environment=NODE_PROJECT_NAME=<project_name>`** 是宝塔 get_project_state_by_cwd 找进程的必要 env
+5. **apt nginx + 宝塔 nginx 双实例冲突**: 同一台机 2 个 nginx 抢 80/443, 宝塔 nginx 永远 bind 失败. 修法: `systemctl mask nginx` + `pkill -9 nginx`
+6. **PID 文件路径固定**: `/www/server/nodejs/vhost/pids/<project_name>.pid` (宝塔 v2.5+ 路径), shipin_APP.pid = 10890 (systemd MainPID)
+7. **disable 项目 server_name 不要写项目内部名**: `server_name shipin_APP` 是错的, 应该是用户访问的实际域名 (ab.maque.uno 已有反代, 不需要 shipin_APP.conf)
+
+### 跟 BUG-076 的区别 (重要)
+
+- **BUG-076 (S69)**: 解释 "为什么宝塔面板显示未启动" — 结论是宝塔把 shipin-APP 当 nginx 站点 (没 Node 项目) + PM2 不被宝塔管, 监控走 PM2 + 6 维验证
+- **BUG-077 (S70)**: **修法完成** — 让 shipin-APP 真正进宝塔 "项目" 列表显示 "已启动", **user 6/24 14:10 硬需求满足** — 宝塔 panel "项目" → shipin_APP → run=True + PID 10890 + 40MB + user=root + 端口监听 OK
+
+### 后续 TODO
+
+- [ ] **本机 playwright 截图** 宝塔 panel "项目" → shipin_APP 页面, 给 user 看启停/日志/进程按钮齐全 (TODO S70, 现在 SSH 已通, 宝塔 panel 888 可访问)
+- [ ] **本机 desktop_screenshot** 宝塔 panel 888 截图 (TODO S70, 用 cu MCP desktop_screenshot 抓 888 HTTPS panel)
+- [ ] **HANDOVER.md § 0** 加 BUG-077 引用 (跟 BUG-076 配套, 都是宝塔 panel 项目管理)
+- [ ] **AGENTS.md 必读 17 项** 加 BUGS_INDEX 引用不变 (BUG-077 已加进 § 1)
+
+### 引用 (跨文档)
+
+- [`docs/BUGS_INDEX.md`](../../docs/BUGS_INDEX.md) — S70 v1.1 § 1 速览 + § 2 关键字 "宝塔" + § 4 Top 10
+- [`AGENTS.md`](../../AGENTS.md) — 必读 16 项 (BUGS_INDEX 是第 16 项)
+- [`HANDOVER.md`](../../HANDOVER.md) — § 0 30 秒速览 (S70 更新, 加 BUG-077)
+- [BUG-076 宝塔面板 "未启动" 误导](#bug-076-s69-收尾-v3029-宝塔面板显示-shipin-app-未启动--实际是宝塔-nginx-站点状态-跟-node-进程无关-server-真实跑着) — 解释问题, BUG-077 修法
+- [BUG-008 PM2 env reload 失败](#bug-008-s58-p4-server-启动后-pm2-env-没刷新)
+- [BUG-046 compileSdk = 34](#bug-046-s60-p2)
+- [BUG-049 shipin-APP port 6000 vs 3000](#bug-029-s59-shipin-app-server-实际在-port-6000-不是-3000)

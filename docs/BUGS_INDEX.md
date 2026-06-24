@@ -14,6 +14,7 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-077** | S70 | ✓ 已修 | **宝塔 "项目" 找不到 shipin-APP 3 真相**: 内存 db + 错 db 路径 (default.db vs site.db) + 缺 NODE_PROJECT_NAME env | shipin-app.service 加 env + 修 site.db config + 杀 apt nginx + 启宝塔 nginx (12 维全过) |
 | **BUG-076** | S69 | ✓ 解释 | **宝塔 shipin_APP "未启动" 误导**: 宝塔把 shipin-APP 注册为 nginx 站点, 实际 shipin-APP 走 PM2 node, 跟 nginx 无关 | 监控走 PM2 + 6 维验证, 忽略宝塔"未启动"显示 |
 | **BUG-075** | S69 | ✓ 已修 | **BUG 案例库缺 AI 友好索引**: 74 BUG 散在 1146 行, 难快速定位 | `34a5714` (`docs/BUGS_INDEX.md` v1.0) |
 | **BUG-074** | S69 | ⚠️ 临时修 | **APK 缺失 / 假下载**: server 报 v3.0.31 + forceUpdate, 实际 APK v3.0.29, 用户点 v3.0.31 → 404 | `53e61a1` (5 处版本回退 v3.0.29) |
@@ -73,6 +74,10 @@
 
 ### 🔍 "SSH" / "key" / "Mavis 部署"
 - BUG-028 (PS 5.1 quoting) / BUG-070 (维护模式)
+
+### 🔍 "宝塔" / "panel" / "bt.cn" / "项目列表"
+- **BUG-076** 宝塔 shipin_APP "未启动" 误导 (S69 解释, 监控走 PM2)
+- **BUG-077** 宝塔 "项目" 找不到 shipin-APP 3 真相 (S70 已修, 12 维全过)
 
 ---
 
@@ -137,6 +142,14 @@
 9. **扣费三处一致** (业务/API/UI) (BUG-005/072) — `grep -r "updateBalance|consumption"`
 10. **永久 SSH key + ssh-agent 加载** (S69 部署踩坑) — Windows OpenSSH 9.5p2 + MinGit 9.9p1 都 cache fingerprint, 必须 `ssh-agent` 加载才走对
 
+## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
+
+1. **宝塔 db 真实路径是 `/www/server/panel/data/db/site.db`**, 不是 `data/db/default.db`!  (BUG-077)
+2. **宝塔 Sql 类是内存只读 db 副本** (`__memory_user_db` 写到 `/dev/shm/<md5>.db`), 改硬盘 db 不影响 panel 运行时, 必须改 site.db  (BUG-077)
+3. **systemd unit 加 `Environment=NODE_PROJECT_NAME=<project_name>`** 是宝塔 `get_project_state_by_cwd` 找进程的必要 env  (BUG-077)
+4. **apt nginx + 宝塔 nginx 双实例冲突**: 同一台机 2 个 nginx 抢 80/443, 宝塔 nginx 永远 bind 失败. 修法: `systemctl mask nginx` + `pkill -9 nginx`  (BUG-046/049/077)
+5. **disable 项目 server_name 不要写项目内部名**: `server_name shipin_APP` 是错的, 应该是用户访问的实际域名 (ab.maque.uno 已有反代, 不需要 shipin_APP.conf)  (BUG-077)
+
 ---
 
 ## § 5. 完整 BUG 列表 (按编号 → apps/mobile/BUGS.md 锚点)
@@ -182,9 +195,9 @@
 
 ## § 7. 引用文档
 
-- **完整 BUG 库**: `apps/mobile/BUGS.md` (1146 行 / 74 BUG)
+- **完整 BUG 库**: `apps/mobile/BUGS.md` (1146 行 / 74 BUG + BUG-077 = 75 BUG)
 - **跨端总入口**: `AGENTS.md` (必读 15 项 + 第 16 项 = 本 BUGS_INDEX)
-- **跨 session 交接**: `HANDOVER.md` (S68 新建, § 0 速览 + § 5 坑点)
+- **跨 session 交接**: `HANDOVER.md` (S68 新建, § 0 速览 + § 5 坑点, S70 加 BUG-077 引用)
 - **部署 SOP**: `apps/server/deploy.sh` (维护模式 6 步) + `docs/DEPLOY.md` (11 节点)
 - **规范自迭代**: `docs/STANDARDS_EVOLUTION.md` (5 步 SOP)
 - **版本管理**: `docs/VERSION_MANAGEMENT.md` (跨端 6 处版本号同步)
@@ -193,9 +206,10 @@
 - **DB 迁移**: `docs/DB_MIGRATION.md`
 - **后端 worker 9 条**: `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`
 - **API 跨端响应**: `HANDOVER.md` § 4.5 (S65 集成笔记)
+- **宝塔部署**: `apps/mobile/BUGS.md` BUG-077 (S70 v1.1) + § 4.5 宝塔部署踩坑 Top 5
 
 ---
 
-**最后更新**: 2026-06-24 (S69 收尾, v1.0)
-**下次 review**: S70 收尾时, 必查 Top 10 + 速览表是否需更新
+**最后更新**: 2026-06-24 (S70 收尾, v1.1, 加 BUG-077 + § 4.5 宝塔部署踩坑 Top 5)
+**下次 review**: S71 收尾时, 必查 Top 10 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)
