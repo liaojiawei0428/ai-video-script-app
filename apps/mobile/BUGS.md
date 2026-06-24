@@ -1306,7 +1306,7 @@ Content-Length: 30073380
 v3.0.31 更新内容 (2026-06-24) ← 实际是 S69 server changelog, 不是 mobile 端 v3.0.31 实际内容
 ```
 
-### 修法 (3 选 1, 推荐 方案 C)
+### 修法 (3 选 1, 推荐 方案 C) — **S69 已用方案 A 临时修 (commit `614c2fb`)**
 
 **方案 A: 立即修 (5min) — 回退 server 报 v3.0.30 + 改 web DownloadPage 优先用 shipin-APP/public 实际 APK 列表**
 - 改 `apps/server/ecosystem.config.js` env APP_VERSION=3.0.30, env_production APP_VERSION=3.0.30 (2 处)
