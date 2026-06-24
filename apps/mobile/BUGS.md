@@ -1406,3 +1406,133 @@ v3.0.31 更新内容 (2026-06-24) ← 实际是 S69 server changelog, 不是 mob
 
 ---
 
+
+
+---
+
+## BUG-076 (S69 收尾, v3.0.29): 宝塔面板显示 shipin-APP "未启动" — 实际是宝塔 nginx 站点状态 (跟 node 进程无关, server 真实跑着)
+
+### 现象 (S69 部署后实测)
+
+- 宝塔面板 → "项目" → "shipin_APP" → 状态显示 **"未启动"**
+- 路径: `/www/wwwroot/shipin-APP`
+- 节点版本: v22.22.2
+- **实际服务状态** (跟宝塔无关, 独立验证):
+  - `pm2 list` → ai-script-server **online**, pid 61710, 38min uptime, 140.4MB, root user
+  - `ss -tln | grep 6000` → `LISTEN 0 511 0.0.0.0:6000` ✓
+  - `curl /health` → 200 OK ✓
+  - `curl /api/version` → v3.0.29 + BUG-072 changelog ✓
+  - `curl https://ab.maque.uno/app/DeepScript_v3.0.29.apk` → 200 OK, 30MB APK ✓
+- **结论**: 宝塔"未启动"是误导, shipin-APP 实际跑着, 服务正常
+
+### 根因 (3 层)
+
+1. **宝塔把 shipin_APP 注册为 nginx 站点 (Site)**, 不是 Node 项目 (Project):
+   - 实际配置: `/www/server/panel/vhost/nginx/extension/shipin_APP/site_total.conf` (只有 access_log 钩子)
+   - 宝塔"项目"管理期望 nginx 服务跑 shipin_APP
+2. **宝塔 nginx 已死 2 周 6 天** (Wed 2026-06-03 22:54:45):
+   - `service nginx status` → `Active: inactive (dead)`
+   - **两个 nginx master 同时跑** (apt nginx pid 19549 + 宝塔 nginx pid 13019)
+   - 宝塔 nginx 启动失败 bind 80/443 (被 apt nginx 占用), systemd 看到 "dead"
+3. **shipin-APP 实际走 apt nginx + node PM2** (跟宝塔 nginx 无关):
+   - apt nginx 配 ab.maque.uno vhost, `proxy_pass http://127.0.0.1:6000` (走 node 6000)
+   - node 进程由 root PM2 daemon (pid 49676) 管, www user / 独立 PM2 没在用
+   - **宝塔"项目状态"只查宝塔自己的 nginx 状态, 不查 node 进程状态** → 一直"未启动"
+
+### 验证证据 (S69 收尾实测)
+
+```bash
+# 1. 宝塔 nginx 状态
+$ service nginx status
+nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: inactive (dead) since Wed 2026-06-03 22:54:45 CST; 2 weeks 6 days ago
+
+# 2. apt nginx 跑着 (pid 19549, 6/04 启动)
+$ ps -ef | grep "nginx: master"
+root     13019     1  0 Jun20 ?        00:00:00 nginx: master process /www/server/nginx/sbin/nginx -c /www/server/nginx/conf/nginx.conf
+root     19549     1  0 Jun04 ?        00:00:00 nginx: master process nginx
+
+# 3. 宝塔把 shipin_APP 注册为 nginx 站点 (有 vhost extension 目录, 没 Node 项目)
+$ ls /www/server/panel/vhost/nginx/extension/
+ab.maque.uno  banmu_server  fuwuqi  gg.maque.uno  maque.uno  shipin_APP  smartlink-iot
+
+# 4. shipin_APP extension 只有 access_log 钩子
+$ cat /www/server/panel/vhost/nginx/extension/shipin_APP/site_total.conf
+access_log syslog:server=unix:/tmp/site_total.sock,nohostname,tag=13__access site_total;
+
+# 5. shipin-APP node 进程跑着 (跟宝塔无关)
+$ ps -ef | grep "node.*dist/index.js"
+root     61710 49676  1 15:05 ?        00:00:38 node /www/wwwroot/shipin-APP/dist/index.js
+
+# 6. apt nginx 服务 ab.maque.uno 200 OK
+$ curl -sI https://ab.maque.uno/app/DeepScript_v3.0.29.apk
+HTTP/1.1 200 OK
+Content-Type: application/vnd.android.package-archive
+Content-Length: 30073380
+```
+
+### 修法 (3 选 1, 推荐方案 C)
+
+**方案 A: 忽略宝塔"未启动"显示 (0 改动, 推荐立即用)**
+- 实际 shipin-APP 跑着, 6 维验证全过, 宝塔"未启动"是误导
+- 监控走 PM2 (`pm2 list / pm2 logs / pm2 monit`)
+- **缺点**: 宝塔面板显示"未启动"看着别扭, 但不影响服务
+
+**方案 B: 改宝塔 shipin_APP 改 Node 项目 (宝塔无此功能)**
+- 宝塔**没有"Node 项目类型"** (宝塔的"项目"只能管 PHP/Java/Python/Go, 不能管 Node)
+- 不可行
+
+**方案 C: 写 systemd unit for shipin-APP (跟 apt nginx 一样, 1h)**
+- `/etc/systemd/system/shipin-app.service`:
+  ```ini
+  [Unit]
+  Description=shipin-APP Node Server
+  After=network.target
+  
+  [Service]
+  Type=simple
+  User=root
+  WorkingDirectory=/www/wwwroot/shipin-APP
+  ExecStart=/usr/bin/node /www/wwwroot/shipin-APP/dist/index.js
+  Restart=always
+  RestartSec=10
+  
+  [Install]
+  WantedBy=multi-user.target
+  ```
+- `systemctl enable shipin-app && systemctl start shipin-app`
+- 监控: `systemctl status shipin-app`
+- **优点**: 跟 nginx 一样 systemd 管理, 进程死了自动重启
+- **缺点**: 跟 PM2 并存 (双管), **禁止** 同时用 (会双实例端口冲突), 必选其一
+
+**方案 D (推荐 P0)**: **保留 PM2 + 写 `systemd-on-pm2.service`** (让 systemd 监控 PM2, 2h)
+- 写 `/etc/systemd/system/pm2-shipin-app.service` 让 systemd 拉起 PM2 daemon (如果 daemon 死)
+- 监控走 `systemctl status pm2-shipin-app` + `pm2 list`
+- **优点**: 既保留 PM2 进程管理, 又获得 systemd 自动重启
+- **缺点**: 复杂, 跟 BUG-046/049 (PM2 实例冲突) 配套要小心
+
+### 教训 (4 条, 跨项目通用)
+
+1. **宝塔"项目" ≠ Node 进程**: 宝塔 panel 只能管 PHP/Java/Python/Go, **不能管 Node**. 宝塔"项目状态"查的是 nginx/PHP 进程, 不查 node PM2
+2. **apt nginx + 宝塔 nginx 双实例冲突** (跟 BUG-046/049 同根): 同一台机 2 个 nginx 抢 80/443, 宝塔 nginx 永远 bind 失败 → "dead". 修法: 杀一个, 或错开端口
+3. **node 服务不用宝塔管理**: shipin-APP 走 PM2 + node, 跟宝塔无关. 宝塔面板显示"未启动"是必然, 不影响服务
+4. **监控走 PM2 + 6 维验证**: `pm2 list / pm2 logs --lines 100 / pm2 monit` + 跑 `apps/server/deploy.sh` 后 6 维验证. 不要看宝塔 panel 状态
+
+### 后续 P0 TODO
+
+- [ ] 写 `/etc/systemd/system/shipin-app.service` (方案 C, 1h) — 让 shipin-APP 走 systemd 管理
+- [ ] **OR** 写 `/etc/systemd/system/pm2-shipin-app.service` (方案 D, 2h) — systemd 监控 PM2 daemon
+- [ ] 杀 apt nginx + 修宝塔 nginx 配置错开端口 (解决 BUG-046/049 复发)
+- [ ] 把 BUG-076 加进 `docs/BUGS_INDEX.md` § 1 速览 + § 2 关键字 "宝塔" + § 4 Top 10 (跟 BUG-008/046/049 配套)
+
+### 引用 (跨文档)
+
+- [`docs/BUGS_INDEX.md`](../../docs/BUGS_INDEX.md) — S69 v1.0 速览表 + 关键字 + Top 10
+- [`AGENTS.md`](../../AGENTS.md) 必读 16 项
+- [BUG-008 PM2 env reload 失败](#bug-008-s58-p4-server-启动后-pm2-env-没刷新)
+- [BUG-046 compileSdk = 34 (mobile)](#bug-046-s60-p2) 
+- [BUG-049 shipin-APP server 实际 port 6000 vs 3000](#bug-029-s59-shipin-app-server-实际在-port-6000-不是-3000)
+
+---
+

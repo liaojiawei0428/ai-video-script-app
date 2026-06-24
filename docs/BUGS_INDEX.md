@@ -14,6 +14,8 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-076** | S69 | ✓ 解释 | **宝塔 shipin_APP "未启动" 误导**: 宝塔把 shipin-APP 注册为 nginx 站点, 实际 shipin-APP 走 PM2 node, 跟 nginx 无关 | 监控走 PM2 + 6 维验证, 忽略宝塔"未启动"显示 |
+| **BUG-075** | S69 | ✓ 已修 | **BUG 案例库缺 AI 友好索引**: 74 BUG 散在 1146 行, 难快速定位 | `34a5714` (`docs/BUGS_INDEX.md` v1.0) |
 | **BUG-074** | S69 | ⚠️ 临时修 | **APK 缺失 / 假下载**: server 报 v3.0.31 + forceUpdate, 实际 APK v3.0.29, 用户点 v3.0.31 → 404 | `53e61a1` (5 处版本回退 v3.0.29) |
 | **BUG-073** | S69 | ✓ 永久方案 | **S54 1-行 minified src + tsc 5.9.3 + Node 22 静默忽略 ESM**: 部署踩 8h ReferenceError, server.listen 不 fire | S64 backup dist 恢复 (201 行) + 走"单文件 tsc + cp" |
 | **BUG-072** | S69 | ✓ 已修 | **Web 端扣费审计 5 BUG 全不一致**: A(pricing 字段) + B(quota 不生效) + C(inline 扣费) + E(video 白送) | `4c25d2d` (16 文件 +170/-487) |

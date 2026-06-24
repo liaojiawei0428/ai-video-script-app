@@ -1,0 +1,30 @@
+[Unit]
+Description=shipin-APP Node Server (S69 + BUG-076)
+Documentation=https://github.com/liaojiawei0428/ai-video-script-app
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/www/wwwroot/shipin-APP
+EnvironmentFile=-/www/wwwroot/shipin-APP/.env
+Environment=NODE_ENV=production
+Environment=PORT=6000
+Environment=APP_VERSION=3.0.29
+ExecStart=/usr/bin/node /www/wwwroot/shipin-APP/dist/index.js
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+StandardOutput=append:/www/wwwroot/shipin-APP/logs/systemd-stdout.log
+StandardError=append:/www/wwwroot/shipin-APP/logs/systemd-stderr.log
+LimitNOFILE=65535
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/www/wwwroot/shipin-APP/logs /www/wwwroot/shipin-APP/uploads /www/wwwroot/shipin-APP/public
+
+[Install]
+WantedBy=multi-user.target
