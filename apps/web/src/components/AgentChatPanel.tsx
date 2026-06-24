@@ -190,7 +190,12 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   // 之前依赖 messages.length  → 每次 setMessages 都重建 setInterval (浪费 + 偶尔 race)
   // 修法: 用 messagesRef 持有最新 messages, effect 只依赖 conversationId + status
   const messagesRef = useRef<AgentMessage[]>([]);
+  // v3.0.31 (S69 BUG-072 E): billingStatus ref (跟 messagesRef 一样, 闭包内可读最新值)
+  const billingStatusRef = useRef<'settled' | 'unsettled'>('settled');
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // v3.0.31 (S69 BUG-072 E): 同步 conv.billing_status 注入到 video part, 供 case 'video' 渲染 banner
+  const [convBillingStatus, setConvBillingStatus] = useState<'settled' | 'unsettled'>('settled');
+  useEffect(() => { billingStatusRef.current = convBillingStatus; }, [convBillingStatus]);
 
   // v3.0.0.18: 单 useEffect 处理所有 status 变化
   //   - tool_queued / tool_executing: 自动 push 流式卡片 (用户刷新页面也能看到"正在生成")
@@ -228,6 +233,11 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
         if (conv.status && conv.status !== status) {
           setStatus(conv.status);
         }
+        // 2.5) v3.0.31 (S69 BUG-072 E): 同步 conv.billing_status, 注入到 video part
+        const bs = (conv as any).billing_status as 'settled' | 'unsettled' | undefined;
+        if (bs === 'settled' || bs === 'unsettled') {
+          setConvBillingStatus(bs);
+        }
         // 3) 终态: 替换 streaming 为结果
         if (conv.status === 'tool_completed' || conv.status === 'tool_failed') {
           const resultUrl = (conv as any).resultImageUrl || (conv as any).resultVideoUrl;
@@ -245,7 +255,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
                 if (!resultUrl) return { type: 'error', message: '生成完成但 URL 缺失' };
                 return kind === 'image'
                   ? { type: 'image', url: resultUrl, role: 'result' as const }
-                  : { type: 'video', url: resultUrl, duration: 5 };
+                  : { type: 'video', url: resultUrl, duration: 5, billingStatus: billingStatusRef.current };
               }),
             };
             return next;
@@ -634,7 +644,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       const newPart: AgentPart | null = finalResultUrl
         ? (kind === 'image'
           ? { type: 'image', url: finalResultUrl, role: 'result' as const }
-          : { type: 'video', url: finalResultUrl, duration: 0 })
+          : { type: 'video', url: finalResultUrl, duration: 0, billingStatus: billingStatusRef.current })
         : { type: 'error', message: finalError || '生成失败' };
       setMessages(m => {
         const next = [...m];
@@ -1232,6 +1242,16 @@ function PartView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPi
                 }
               }}
             />
+            {/* v3.0.31 (S69 BUG-072 E): 视频已生成但扣费失败 (billing_status='unsettled') → 显示"余额不足, 充值后解锁" banner */}
+            {(part as any).billingStatus === 'unsettled' && (
+              <div className="mt-1.5 p-2.5 rounded-md bg-warning/10 border border-warning/30 flex items-start gap-2">
+                <AlertCircle size={14} className="text-warning flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs">
+                  <div className="font-medium text-warning">余额不足, 充值后解锁视频</div>
+                  <div className="opacity-80 mt-0.5 text-text-tertiary">视频已生成但未结算, 充值 ¥0.1 后系统自动解锁</div>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-3 mt-1.5">
               {(() => {
                 const downloadFilename = `deep剧本-视频-${Date.now()}.mp4`;

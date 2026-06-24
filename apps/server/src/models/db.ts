@@ -417,12 +417,15 @@ async function initTables(): Promise<void> {
       video_id VARCHAR(255),                                      -- agnes videoId (base64 路由路径, ~250 字符, 之前 100 不够)
       retry_count INT DEFAULT 0,
       charged_amount DECIMAL(10,2) DEFAULT 0,
+      billing_status VARCHAR(20) DEFAULT 'settled',               -- v3.0.31 (S69 BUG-072 E): settled / unsettled, 视频生成完成但余额不足时设 unsettled
       error_msg TEXT,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL,
       INDEX idx_vid_conv_user (user_id, updated_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  // v3.0.31 (S69 BUG-072 E) 兼容迁移: 老库 video_conversations 可能没 billing_status
+  try { await db.execute("ALTER TABLE video_conversations ADD COLUMN billing_status VARCHAR(20) DEFAULT 'settled'"); } catch {}
 
   // ── 视频 Agent: 单次生成记录 (审计) ──
   await db.execute(`

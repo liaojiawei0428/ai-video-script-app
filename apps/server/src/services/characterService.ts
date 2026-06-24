@@ -1,6 +1,6 @@
 // 角色一致性服务 v2.0
 // 三阶段流程: 描述生成 (文字) → 用户确认 → 多角度变体图生成
-// 扣费: 描述生成免费 (复用 deepseekPool), 变体图按张扣费
+// 扣费: 描述生成免费 (复用 deepseekPool), 变体图按张扣费 (S69 BUG-072 C: 走 billingService.chargeImage 标准接口)
 
 import { v4 as uuidv4 } from 'uuid';
 import { queryAll, queryOne, execute } from '../models/db';
@@ -11,6 +11,7 @@ import { websocketService } from './websocket';
 import { deepseekPool } from './deepseekPool';
 import { generateThreeVariants } from './imageProvider';
 import { logger } from '../utils/logger';
+import { billingService, CHARACTER_VARIANT_PRICE } from './billingService';
 import {
   Character,
   CharacterDescription,
@@ -19,8 +20,8 @@ import {
   ImageGenStatus,
 } from '../shared/types';
 
-// 变体图扣费单价
-const IMAGE_VARIANT_PRICE = 0.1; // ¥0.1/张 (GLM-Image)
+// v3.0.31 (S69 BUG-072 C): 删硬编码, 改从 billingService 导入
+// 旧: const IMAGE_VARIANT_PRICE = 0.1; // ¥0.1/张 (GLM-Image)
 
 /**
  * v3.0.0.30 (S50 v2): 中文 roleType 标签 → 旧英文 union 映射
@@ -609,10 +610,17 @@ export async function generateImageVariants(
   // 预检余额（单张）
   const user = await userModel.findById(userId);
   if (!user) throw new Error('用户不存在');
-  const totalCost = IMAGE_VARIANT_PRICE;
+  // v3.0.31 (S69 BUG-072 C): 用标准单价常量, 删 IMAGE_VARIANT_PRICE
+  const totalCost = CHARACTER_VARIANT_PRICE;
   if ((user.balance || 0) < totalCost) {
     await execute(`UPDATE characters SET image_gen_status = 'failed' WHERE id = ?`, [characterId]);
     throw new Error(`余额不足, 需要 ¥${totalCost.toFixed(2)}, 余额 ¥${(user.balance || 0).toFixed(2)}`);
+  }
+  // v3.0.31 (S69 BUG-072 B): 检查生图日配额 (普通 30 张, VIP 无限)
+  const quota = await billingService.checkImageQuota(userId);
+  if (!quota.allowed) {
+    await execute(`UPDATE characters SET image_gen_status = 'failed' WHERE id = ?`, [characterId]);
+    throw new Error(`生图日配额已用完 (已生成 ${quota.used}/${quota.quota} 张), 开通 VIP 享无限生图`);
   }
 
   // ========== 单次调用生成三视图角色卡 ==========
@@ -651,17 +659,24 @@ export async function generateImageVariants(
     });
   }
 
-  // 扣费 (按成功张数)
+  // 扣费 (按成功张数, v3.0.31 S69 BUG-072 C: 走 billingService.chargeImage 标准接口)
   if (totalSucceeded > 0) {
-    const chargedAmount = totalSucceeded * IMAGE_VARIANT_PRICE;
-    const balanceAfter = Math.round(((user.balance || 0) - chargedAmount) * 100) / 100;
-    await userModel.updateBalance(userId, -chargedAmount);
-    await execute(
-      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
-       VALUES (?, ?, 'consumption', ?, ?, ?, ?, 0, ?)`,
-      [uuidv4(), userId, chargedAmount, balanceAfter, char.novelId, `角色图片生成(${totalSucceeded}张) - ${char.name}`, Date.now()],
+    const chargedAmount = totalSucceeded * CHARACTER_VARIANT_PRICE;
+    const chargeResult = await billingService.chargeImage(
+      userId,
+      chargedAmount,
+      `角色图片生成(${totalSucceeded}张) - ${char.name}`,
+      char.novelId
     );
-    websocketService.broadcastBalanceUpdate(char.novelId, balanceAfter);
+    if (!chargeResult) {
+      logger.error('characterService.generateImageVariants: chargeImage failed (should not happen, balance was prechecked)', {
+        characterId, userId, totalSucceeded, chargedAmount,
+      });
+    } else {
+      logger.info('characterService.generateImageVariants: S69 charged', {
+        characterId, userId, totalSucceeded, chargedAmount, balanceAfter: chargeResult.balanceAfter,
+      });
+    }
   }
 
   // 合并到已有 variants (累加, 不覆盖)
@@ -699,7 +714,7 @@ export async function generateImageVariants(
     name: char.name,
     succeeded: totalSucceeded,
     failed: totalFailed,
-    charged: totalSucceeded * IMAGE_VARIANT_PRICE,
+    charged: totalSucceeded * CHARACTER_VARIANT_PRICE,
    });
 
 
@@ -709,7 +724,7 @@ export async function generateImageVariants(
     totalRequested: 1,
     totalSucceeded,
     totalFailed,
-    charged: totalSucceeded * IMAGE_VARIANT_PRICE,
+    charged: totalSucceeded * CHARACTER_VARIANT_PRICE,
     variants: merged,
   };
   } finally {
@@ -784,8 +799,13 @@ export async function generateImageForShot(
   // 余额检查
   const user = await userModel.findById(userId);
   if (!user) throw new Error('用户不存在');
-  if ((user.balance || 0) < IMAGE_VARIANT_PRICE) {
-    throw new Error(`余额不足, 需要 ¥${IMAGE_VARIANT_PRICE.toFixed(2)}`);
+  if ((user.balance || 0) < CHARACTER_VARIANT_PRICE) {
+    throw new Error(`余额不足, 需要 ¥${CHARACTER_VARIANT_PRICE.toFixed(2)}`);
+  }
+  // v3.0.31 (S69 BUG-072 B): 检查生图日配额
+  const quota = await billingService.checkImageQuota(userId);
+  if (!quota.allowed) {
+    throw new Error(`生图日配额已用完 (已生成 ${quota.used}/${quota.quota} 张), 开通 VIP 享无限生图`);
   }
 
   // 生成
@@ -796,14 +816,14 @@ export async function generateImageForShot(
     angle: 'full_body',
   });
 
-  // 扣费
-  const balanceAfter = Math.round(((user.balance || 0) - IMAGE_VARIANT_PRICE) * 100) / 100;
-  await userModel.updateBalance(userId, -IMAGE_VARIANT_PRICE);
-  await execute(
-    `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
-     VALUES (?, ?, 'consumption', ?, ?, ?, ?, 0, ?)`,
-    [uuidv4(), userId, IMAGE_VARIANT_PRICE, balanceAfter, novel?.id || '', `镜头图片生成 - ${shotId}`, Date.now()],
+  // 扣费 (v3.0.31 S69 BUG-072 C: 走 billingService.chargeImage 标准接口)
+  const chargeResult = await billingService.chargeImage(
+    userId,
+    CHARACTER_VARIANT_PRICE,
+    `镜头图片生成 - ${shotId}`,
+    novel?.id || ''
   );
+  const balanceAfter = chargeResult?.balanceAfter ?? Math.round(((user.balance || 0) - CHARACTER_VARIANT_PRICE) * 100) / 100;
 
   // 写库
   await execute(
@@ -815,9 +835,9 @@ export async function generateImageForShot(
     websocketService.broadcastBalanceUpdate(novel.id, balanceAfter);
   }
 
-  logger.info('generateImageForShot: 完成', { shotId, charged: IMAGE_VARIANT_PRICE });
+  logger.info('generateImageForShot: 完成', { shotId, charged: CHARACTER_VARIANT_PRICE });
 
-  return { shotId, imageUrl: result.url, charged: IMAGE_VARIANT_PRICE };
+  return { shotId, imageUrl: result.url, charged: CHARACTER_VARIANT_PRICE };
 }
 
 async function getNovelIdByEpisodeId(episodeId: string): Promise<string> {

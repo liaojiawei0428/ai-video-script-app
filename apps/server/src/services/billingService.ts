@@ -33,6 +33,9 @@ export const VIDEO_CHARGING_MATRIX = {
 export const IMAGE_DAILY_QUOTA_STANDARD = 30;
 export const IMAGE_DAILY_QUOTA_VIP = Infinity;
 
+// v3.0.31 (S69 BUG-072 A): 角色三视图 + 镜头图, ¥0.1/张 (GLM-Image 第三方按张收费), 普通/VIP 同价, 无日限额
+export const CHARACTER_VARIANT_PRICE = 0.1;
+
 /**
  * v3.0.0.31 (S51): 视频计费查表
  * @param isVip true=VIP 5s+10s 免费, 15s 仍 0.1; false=普通 5s 免费, 10s+15s 各 0.1
@@ -209,19 +212,45 @@ export class BillingService {
   }
 
   /**
-   * v3.0.0.31 (S51): 用户今日已成功生图数
-   * 查 image_generations JOIN image_conversations (拿 user_id), status='completed' 才算成功
+   * v3.0.31 (S69 BUG-072 B): 用户今日已成功生图数 (UNION 3 表)
+   * 1. image_generations JOIN image_conversations (S51 原有, t2i/i2i/multiRef 生图)
+   * 2. characters JOIN novels (角色三视图, characterService.generateImageVariants, characters 表没 user_id, JOIN novels)
+   * 3. shots JOIN episodes JOIN novels (镜头图, characterService.generateImageForShot)
    * created_at >= 今天 0 点
    */
   async imageDailyCount(userId: string): Promise<number> {
     const start = todayStartMs();
     const row = await queryOne<any>(
-      `SELECT COUNT(*) as cnt FROM image_generations ig
-       JOIN image_conversations ic ON ig.conversation_id = ic.id
-       WHERE ic.user_id = ? AND ig.status = 'completed' AND ig.created_at >= ?`,
-      [userId, start]
+      `SELECT (
+         (SELECT COUNT(*) FROM image_generations ig
+          JOIN image_conversations ic ON ig.conversation_id = ic.id
+          WHERE ic.user_id = ? AND ig.status = 'completed' AND ig.created_at >= ?)
+         +
+         (SELECT COUNT(*) FROM characters c
+          JOIN novels n ON c.novel_id = n.id
+          WHERE n.user_id = ? AND c.image_generated_at IS NOT NULL AND c.image_generated_at >= ?)
+         +
+         (SELECT COUNT(*) FROM shots s
+          JOIN episodes e ON s.episode_id = e.id
+          JOIN novels n ON e.novel_id = n.id
+          WHERE n.user_id = ? AND s.image_generated_at IS NOT NULL AND s.image_generated_at >= ?)
+       ) as cnt`,
+      [userId, start, userId, start, userId, start]
     );
     return row?.cnt || 0;
+  }
+
+  /**
+   * v3.0.31 (S69 BUG-072 B): 检查用户生图配额 (供 characterService 调, 普通用户超 30 抛错)
+   * VIP 无限 (Infinity)
+   */
+  async checkImageQuota(userId: string): Promise<{ allowed: boolean; used: number; quota: number | 'unlimited' }> {
+    const user = await userModel.findById(userId);
+    const vip = isVipActive(user);
+    if (vip) return { allowed: true, used: 0, quota: 'unlimited' };
+    const used = await this.imageDailyCount(userId);
+    const quota = IMAGE_DAILY_QUOTA_STANDARD;
+    return { allowed: used < quota, used, quota };
   }
 
   /**

@@ -131,6 +131,14 @@ export function VipCenterPage() {
             <span><strong>漫画生成 ¥0.08/页</strong>（普通用户 ¥0.10/页）</span>
           </li>
         </ul>
+        {/* v3.0.31 (S69 BUG-072 A): 同步 /api/pricing 公开标准, 角色/镜头图 ¥0.1/张, 普通/VIP 同价 */}
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <h3 className="text-sm font-semibold mb-2 text-text-secondary">其他生成项（普通 / VIP 同价）</h3>
+          <ul className="space-y-2 text-xs text-text-tertiary">
+            <li>• 角色三视图生成 ¥0.10/张（GLM-Image 第三方收费）</li>
+            <li>• 镜头图生成 ¥0.10/张（GLM-Image 第三方收费）</li>
+          </ul>
+        </div>
       </div>
 
       {/* 价格 (跟 Mobile 一致) */}

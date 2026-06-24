@@ -5,6 +5,19 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删",
   "entries": [
     {
+      "version": "3.0.31",
+      "buildDate": "2026-06-24",
+      "type": "patch",
+      "summary": "Web 端扣费审计 5 个不一致全修 (BUG-072 A/B/C/E)",
+      "highlights": [
+        "BUG-072 A 修: 角色三视图 + 镜头图 ¥0.1/张 显式列入 /api/pricing + VipCenter UI 文案 (跟生图免费标准对齐)",
+        "BUG-072 B 修: 普通用户生图日限额 30 张 UNION 3 表生效 (image_conversations + characters + shots)",
+        "BUG-072 C 修: characterService 改走 billingService.chargeImage 标准接口, 删 IMAGE_VARIANT_PRICE 硬编码",
+        "BUG-072 E 修: video_conversations 加 billing_status 字段, 视频生成完成扣费失败时设 unsettled, billing_logs 写 consumption_pending 占位, 前端显示'余额不足, 充值后解锁' banner",
+        "新加 billingService.checkImageQuota() 配额检查方法 (供 characterService 调)"
+      ]
+    },
+    {
       "version": "3.0.29",
       "buildDate": "2026-06-24",
       "type": "minor",

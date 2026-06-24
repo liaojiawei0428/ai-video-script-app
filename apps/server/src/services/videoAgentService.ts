@@ -13,6 +13,8 @@ import { agnesTextProvider } from './agnesTextProvider';
 import { videoConversationModel, videoGenerationModel } from '../models/videoConversation';
 import { billingService, isVipActive, chargingForVideo } from './billingService';
 import { userModel } from '../models/user';
+import { execute } from '../models/db';
+import { websocketService } from './websocket';
 import { logger } from '../utils/logger';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
@@ -595,18 +597,36 @@ export class VideoAgentService {
           if (chargedAmount > 0) {
             const chargeResult = await billingService.chargeVideo(conv.user_id, durationSecVal, isVip, conversationId);
             if (!chargeResult) {
-              logger.error('VideoAgent: chargeVideo failed after completion (should not happen, balance was checked at confirm)', {
+              // v3.0.31 (S69 BUG-072 E): 视频已生成但扣费失败 (余额被其他任务花完)
+              // → 标记 billing_status='unsettled' (前端显示 "余额不足, 充值后解锁视频")
+              // → billing_logs 写 'consumption_pending' 占位 (审计)
+              logger.error('VideoAgent: S69 chargeVideo failed (balance insufficient, video already generated)', {
                 conversationId, userId: conv.user_id, durationSecVal, isVip, chargedAmount,
               });
-              // 仍然标记 completed, 但 audit charged_amount = 0
+              await videoConversationModel.update(conversationId, {
+                billing_status: 'unsettled',
+              } as any);
+              await execute(
+                `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
+                 VALUES (?, ?, 'consumption_pending', ?, ?, ?, ?, 0, ?)`,
+                [generateUUID(), conv.user_id, chargedAmount, user?.balance || 0, conversationId, `视频生成(${durationSecVal}s${isVip ? '/VIP' : '/普通'}) - 待结算`, Date.now()],
+              );
+              websocketService.broadcastBalanceUpdate(conversationId, user?.balance || 0);
             } else {
               logger.info('VideoAgent: S51 charged', {
                 conversationId, userId: conv.user_id, durationSecVal, isVip,
                 chargedAmount: chargeResult.chargedAmount, balanceAfter: chargeResult.balanceAfter,
               });
+              // v3.0.31 (S69 BUG-072 E): 显式写 settled (跟默认 'settled' 一致, 但保险起见)
+              await videoConversationModel.update(conversationId, {
+                billing_status: 'settled',
+              } as any);
             }
           } else {
             logger.info('VideoAgent: S51 free (5s or VIP 10s)', { conversationId, durationSecVal, isVip });
+            await videoConversationModel.update(conversationId, {
+              billing_status: 'settled',
+            } as any);
           }
 
           // v3.0.0.27 (S47): mutate 已有 streaming part → video, 不再 push 新 message

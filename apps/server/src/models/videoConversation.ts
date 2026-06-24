@@ -21,6 +21,7 @@ export interface VideoConversationRow {
   video_id: string | null;
   retry_count: number;
   charged_amount: number;
+  billing_status: string;                                          // v3.0.31 (S69 BUG-072 E): 'settled' / 'unsettled'
   error_msg: string | null;
   created_at: number;
   updated_at: number;

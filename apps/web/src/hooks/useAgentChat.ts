@@ -67,7 +67,7 @@ export type AgentPart =
   | { type: 'plan'; data: PlanData }
   | { type: 'question'; data: QuestionData }
   | { type: 'progress'; value: number; label?: string }
-  | { type: 'video'; url: string; duration: number }
+  | { type: 'video'; url: string; duration: number; billingStatus?: 'settled' | 'unsettled' }  // v3.0.31 (S69 BUG-072 E): unsettled 时显示"余额不足, 充值后解锁" banner
   | { type: 'error'; message: string }
   // v3.0.0.10: 流式生图卡片 (用户点确认后, plan part 原地变成这个, 然后变成图片)
   | { type: 'streaming'; stage: 'translating' | 'generating'; cnDescription?: string };

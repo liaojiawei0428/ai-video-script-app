@@ -1,8 +1,15 @@
 // apps/server/src/routes/pricing.ts
 // v3.0.1 (S56): 公开端点 - 返回当前计费矩阵 (视频 + 图片)
 // 公开不需 auth, 让 web 端 PricingPage 直接展示
+// v3.0.31 (S69 BUG-072 A): 显式列出 characterVariant + shot (角色三视图 + 镜头图, ¥0.1/张, 不限额)
 import { Router } from 'express';
-import { billingService, VIDEO_CHARGING_MATRIX, IMAGE_DAILY_QUOTA_STANDARD, IMAGE_DAILY_QUOTA_VIP } from '../services/billingService';
+import {
+  billingService,
+  VIDEO_CHARGING_MATRIX,
+  IMAGE_DAILY_QUOTA_STANDARD,
+  IMAGE_DAILY_QUOTA_VIP,
+  CHARACTER_VARIANT_PRICE,
+} from '../services/billingService';
 
 const router = Router();
 
@@ -25,11 +32,16 @@ router.get('/', (_req, res) => {
           t2i: { amount: 0, daily: IMAGE_DAILY_QUOTA_STANDARD },
           i2i: { amount: 0, daily: IMAGE_DAILY_QUOTA_STANDARD },
           multiRef: { amount: 0, daily: IMAGE_DAILY_QUOTA_STANDARD },
+          // v3.0.31 (S69 BUG-072 A): 角色三视图 + 镜头图, ¥0.1/张 GLM-Image 收费, 不限额 (普通/VIP 同价)
+          characterVariant: { amount: CHARACTER_VARIANT_PRICE, daily: 'unlimited' },
+          shot: { amount: CHARACTER_VARIANT_PRICE, daily: 'unlimited' },
         },
         vip: {
           t2i: { amount: 0, daily: IMAGE_DAILY_QUOTA_VIP === Infinity ? 'unlimited' : IMAGE_DAILY_QUOTA_VIP },
           i2i: { amount: 0, daily: IMAGE_DAILY_QUOTA_VIP === Infinity ? 'unlimited' : IMAGE_DAILY_QUOTA_VIP },
           multiRef: { amount: 0, daily: IMAGE_DAILY_QUOTA_VIP === Infinity ? 'unlimited' : IMAGE_DAILY_QUOTA_VIP },
+          characterVariant: { amount: CHARACTER_VARIANT_PRICE, daily: 'unlimited' },
+          shot: { amount: CHARACTER_VARIANT_PRICE, daily: 'unlimited' },
         },
       },
       // 其它: 老的 analyze/shot/comic 定价 (兼容性)
