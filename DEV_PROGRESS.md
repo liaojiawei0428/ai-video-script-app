@@ -2068,3 +2068,29 @@ const baseText = isModification
 **📦 commit**: 4553108 v3.0.30 P5: AGENTS.md 跨端收口 (BUG-071 + 根 AGENTS.md v2.0 + mobile/server AGENTS.md 瘦身) — 已 push origin/main (5 文件, 330 行新增 / 255 行删除, 净 +75 行)
 
 **🛠️ 收口设计** (S68 BUG-071 核心): 根 AGENTS.md = 跨端统一规范, 子项目 AGENTS.md = 各 app 独有架构/任务 SOP, 互不重复. 任何 AI 接到任务必先读根 AGENTS.md (§ 3 跨端必读), 再跳到对应子 AGENTS.md. 跟 GitHub Copilot Coding Agent / Codex / Cursor 标准一致. 不写 ADR-0002 (收口不是新架构决策, 是"已有规范的分层优化", 写进 BUG-071 教训段).
+
+---
+
+## 🗜️ 上下文压缩交接 (S68 收尾, user 指令"做好上下文压缩, 然后开始开发项目功能")
+
+> **触发**: user 2026-06-24 12:35 指示"你现在做好上下文压缩, 然后我们再开始开发项目功能".
+>
+> **本段目的**: S64-S68 5 个 session 关键信息持久化到 `HANDOVER.md`, 让下个 session 接手时无需读 15 份文档, 直接读 HANDOVER.md 30 秒速览 (§ 0) + 跳到对应章节.
+
+**🟢 新建 1 份 HANDOVER.md (跨 AI 协作交接, 270 行, 7 节)**:
+- 🆕 `HANDOVER.md` (仓库根, 跟 `AGENTS.md` 互补) — § 0 30 秒速览 + § 1 项目架构 (3 端 + monorepo) + § 2 S64-S68 5 session 交付 + 22 BUG 分布 + 15 份规范清单 + § 3 6 处版本号自检命令 + § 4 5 个关键设计决策 (含 shipin-APP 文件结构 / 维护模式机制 / 2 层 AGENTS.md) + § 5 16 条坑点清单 (5.1 shipin-APP 特有 / 5.2 部署环境 / 5.3 跨 AI 协作) + § 6 交接模板 + § 7 下一步候选 (4 个, 等 user 拍)
+- 跟 `AGENTS.md` 互补: **AGENTS.md = 行为规范** (中文/铁律/必读), **HANDOVER.md = 项目状态** (完成什么/正在做什么/关键文件/坑点)
+- 维护规则: 每次重要 session 收尾 AI 必追加一段到 § 6, 跨端规范变更同步更新 § 1-5
+
+**📦 commit**: HANDOVER.md (待 push) + docs(dev) DEV_PROGRESS 追加上下文压缩段落 (待 push)
+
+**🎯 下个 session 接手流程** (新功能开发):
+1. 读 `HANDOVER.md` § 0 (30 秒速览) → § 1-2 (项目架构 + 5 session 交付) → § 5 (坑点清单)
+2. 读 `AGENTS.md` § 3 (跨端必读 15 项) + § 4 (6 铁律)
+3. 读 `DEV_PROGRESS.md` "AI 会话追踪" 找下一个任务
+4. 读对应子 AGENTS.md (mobile/server) 拿 app 独有规范
+5. 读 `apps/mobile/BUGS.md` 防重蹈覆辙
+6. 实施新功能 (按 `STANDARDS_EVOLUTION.md` § 3 5 步 SOP)
+7. 完成后按 HANDOVER.md § 6 模板追加到 § 6
+
+**🚀 等 user 拍下一步**: 新功能开发 / CI 守门 / web AGENTS.md / 性能优化 (见 HANDOVER.md § 7)
