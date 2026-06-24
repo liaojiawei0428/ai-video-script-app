@@ -2039,3 +2039,32 @@ const baseText = isModification
 **📦 commit**: 4ac7ac3 v3.0.30 P4: server 端 AI 部署入口 (BUG-070 + apps/server/AGENTS.md + 活跃任务部署专项) — 已 push origin/main (`441f2c1..4ac7ac3 main -> main`)
 
 **🛠️ 基础工具安装**: 装 MinGit 2.47.1 portable (45MB, 解压 C:\Tools\Git\), 因为本机无 Git, winget 又装不上 (InternetOpenUrl 0x80072efd 网络 source 失败). MinGit 解压即用, 已加 user PATH + PowerShell profile 持久化.
+
+---
+
+| S68 (当前) | 2026-06-24 | **[已验收] AGENTS.md 跨端收口 (BUG-071 + 根 AGENTS.md v2.0 + mobile/server 瘦身)** — user 选 S68 候选 B: "把 apps/mobile/AGENTS.md + apps/server/AGENTS.md 统一收口到 AGENTS.md". S68 自检发现 3 个 AGENTS.md 跨端规范严重重复, S64-S67 4 个 session 都在加规范, 但没分清"跨端通用 vs app 端独有", 改 1 处必同步 3 处, 维护成本高.
+
+**🟢 1 份升级 + 2 份瘦身 + 2 份配套 (S68 核心交付)**:
+- 🆕 `AGENTS.md` v1.0 → v2.0 (176 → 297 行, +231 diff) — 跨端统一总入口, 9 节 § 1-9: § 1 中文约束 + § 2 Persistence + § 3 跨端必读列表 15 项 (新增根 AGENTS.md 排第 0) + § 4 跨端 6 铁律 (去重综合 mobile 4 + server 8 + 根 4) + § 5 DEV_PROGRESS 工作流 (升级) + § 6 Worker 9 条 (保留) + § 7 代码 4 原则 (保留) + § 8 禁新旧版 (保留, 含 v3.0.0 + v3.0.30 历史违规) + § 9 子项目 AGENTS.md 入口 (新增收口设计说明)
+- 📝 `apps/mobile/AGENTS.md` v1.0 → v1.1 (90 → 76 行, 瘦身 -16%) — 删跨端通用规范, 留 mobile 独有 5 节 (RN 栈速览 + 改前后 5 步 + 升级 7 铁律 + 跨端版本 4 铁律 mobile 视角), 必读第 0 份指向根 AGENTS.md
+- 📝 `apps/server/AGENTS.md` v1.0 → v1.1 (236 → 147 行, 瘦身 -38%) — 删跨端通用规范, 留 server 独有 5 节 (代码架构 + 部署前 5 项 + 8 铁律 + 改 server 前后 5 步 + 5 类任务 SOP), 必读第 0 份指向根 AGENTS.md
+- 📝 `docs/VERSION_MANAGEMENT.md` (§ 9.1 + § 9.2 + footer) — § 9.1 必读列表加根 AGENTS.md 第 0 项 + § 9.2 索引表加根 AGENTS.md 行 + footer 更新 v2.0
+- 📝 `apps/mobile/BUGS.md` (21→22 BUG) — 加 BUG-071 (3 AGENTS.md 跨端规范重复, S68 自检发现, 含 6 教训: AI 入口必分层 / 跨端 vs app 端必分清 / 新规范必问该放根还是子 / 必读第 0 份 = 根 / AGENTS.md 是 AI 行为约束 / 跟 BUG-068 互补)
+
+**🎯 跨 AI 协作**: S68 严格按 STANDARDS_EVOLUTION.md § 3 5 步 SOP 跑:
+1. 列出变更 (3 AGENTS.md 现状 + 跨端规范重复 GAP) → 2. 判定 (1 升级 + 2 瘦身 + 2 配套, 不写 ADR-0002) → 3. 起草 (5 文件) → 4. 自检 (5 维: 跨端规范不重复 / 必读第 0 份一致 / 互补无重叠 / cross-ref / commit 完整) → 5. commit + push
+
+**📊 当前生效规范** (按 VERSION_MANAGEMENT.md § 9.1 优先级, S68 收口后):
+0. **AGENTS.md** (S68 升级 v2.0, 跨端统一总入口)
+1. docs/STANDARDS_EVOLUTION.md
+2. docs/VERSION_MANAGEMENT.md (含 § 5.0/§ 5.A/§ 9 索引, S67+S68 更新)
+3. docs/standards/ADR/ (0000 template + 0001 changelog 决策)
+4. apps/mobile/AGENTS.md (S68 瘦身, mobile 独有 5 节)
+5. apps/server/AGENTS.md (S67 新建 + S68 瘦身, server 独有 5 节)
+6. apps/mobile/BUGS.md (含 BUG-066~071, 22 个)
+7. apps/mobile/CODING_STANDARDS.md (38 条)
+8. apps/mobile/DEPLOY.md / apps/web/DEPLOY.md / docs/DEPLOY.md / apps/server/deploy.sh
+
+**📦 commit**: 4553108 v3.0.30 P5: AGENTS.md 跨端收口 (BUG-071 + 根 AGENTS.md v2.0 + mobile/server AGENTS.md 瘦身) — 已 push origin/main (5 文件, 330 行新增 / 255 行删除, 净 +75 行)
+
+**🛠️ 收口设计** (S68 BUG-071 核心): 根 AGENTS.md = 跨端统一规范, 子项目 AGENTS.md = 各 app 独有架构/任务 SOP, 互不重复. 任何 AI 接到任务必先读根 AGENTS.md (§ 3 跨端必读), 再跳到对应子 AGENTS.md. 跟 GitHub Copilot Coding Agent / Codex / Cursor 标准一致. 不写 ADR-0002 (收口不是新架构决策, 是"已有规范的分层优化", 写进 BUG-071 教训段).
