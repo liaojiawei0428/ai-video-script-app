@@ -180,5 +180,7 @@ curl https://ab.maque.uno/api/version              # 期望 = 当前版本 + 真
 **后端 worker 9 条实战约束** → [`../../docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](../../docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md)
 **跨端统一规范 (S68 收口核心)** → [`../../AGENTS.md`](../../AGENTS.md)
 
+**🆕 S68 收口**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md), 本文件只保留 server 独有 5 节. 收口设计 → BUG-071 (跨端规范重复 GAP, S68 自检发现) + BUG-070 (维护模式流程 GAP) + 看根 AGENTS.md § 9.
+
 > **最后更新**: 2026-06-24 (S68 收口, v1.1 瘦身版)
 > **下次 review**: server 端有架构变更 / 新流程 / 维护模式机制变化时

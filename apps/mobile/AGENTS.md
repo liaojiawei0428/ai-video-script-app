@@ -76,5 +76,7 @@
 **mobile 硬性规范 38 条** → [`./CODING_STANDARDS.md`](./CODING_STANDARDS.md)
 **跨端统一规范 (S68 收口核心)** → [`../../AGENTS.md`](../../AGENTS.md)
 
+**🆕 S68 收口**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md), 本文件只保留 mobile 独有 5 节. 收口设计 → BUG-071 (跨端规范重复 GAP, S68 自检发现) + 看根 AGENTS.md § 9.
+
 > **最后更新**: 2026-06-24 (S68 收口, v1.1 瘦身版)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时
