@@ -1966,3 +1966,47 @@ const baseText = isModification
 8. apps/web/DEPLOY.md (S65 新建)
 9. docs/DEPLOY.md
 10. docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md
+
+| S66 (当前) | 2026-06-24 | **[已验收] 后端部署规范 P0+P1 补齐 (BUG-069 + 4 份新规范文档)** — user 问"部署后端的相关流程和规范有吗?"。S66 自检发现 8 个 GAP, 按推荐方案 (B) P0+P1 全做。
+
+**🔴 P0 修复 (2 个 GAP)**:
+1. **GAP #0: BUG-069** `apps/server/ecosystem.config.js` APP_VERSION 写 `3.0.26`, 跟实际 `3.0.29` 不一致 (S64 BUG-066 漏修的第 6 处). 两处都改 3.0.26 → 3.0.29 (env + env_production)
+2. **GAP #1: ENV 变量管理规范缺失**:
+   - `apps/server/.env.example` 32 → 110 行 (补全 JWT_SECRET / MYSQL_* / PAY_KEY / ALIPAY_* / AGNES_API_KEY 8 个必填变量)
+   - 新建 `docs/ENV_MANAGEMENT.md` (280 行, 9 节): § 1 env 4 类分类 / § 2 强密钥生成 SOP / § 3 6 类密钥轮换 SOP / § 4 部署 env 4 条操作 / § 5 .env 防泄露 / § 6 APP_VERSION 6 处同步 (含 ecosystem.config.js) / § 7 常见 7 类问题 / § 8 AI Agent 必跑 8 项 / § 9 配套文档
+
+**🟡 P1 新建规范 (3 份文档)**:
+3. **GAP #3: PM2_GUIDE** 新建 `docs/PM2_GUIDE.md` (340 行, 8 节): § 1 ecosystem.config.js 7 块完整字段规范 / § 2 fork vs cluster 模式选型 / § 3 PM2 命令速查 10 条 / § 4 env 注入优先级 (env_production > shell env > .env) / § 5 高级配置 (V8 内存 / graceful shutdown) / § 6 常见 6 类问题 (含 BUG-008 跟 BUG-069 自检) / § 7 AI 8 项 checklist / § 8 配套
+4. **GAP #4: 后端日志管理** 扩 `docs/DEPLOY.md § 4.5` (75 行): § 4.5.1 日志位置 (combined.log/out.log/error.log) / § 4.5.2 日志查询技巧 (grep/JQ/JSON parse) / § 4.5.3 日志清理 SOP (pm2 flush / 手动 / 归档) / § 4.5.4 .gitignore
+5. **GAP #2: DB 迁移 SOP** 新建 `docs/DB_MIGRATION.md` (260 行, 9 节): § 1 迁移方式选型 (initTables 99% / 手动 SQL 1%) / § 2 增量迁移规范 (ADD 带 DEFAULT / 加表 / 加索引 / 改类型) / § 3 schema 版本管理 / § 4 跨版本回滚兼容性 / § 5 部署时迁移流程 / § 6 实战案例 (v1.2→v2.0 / v2.0→v2.5 / v3.0) / § 7 常见 5 类 / § 8 AI 8 项 / § 9 配套
+
+**📝 规范修订**:
+- `apps/mobile/BUGS.md` — 追加 BUG-069 (S66 修 ecosystem.config.js 漏修, 含 5 教训)
+- `apps/mobile/CODING_STANDARDS.md` — 加第 34-37 条新规范 (源自 BUG-069 + ENV/PM2/DB 3 份新文档), 规范总数 33 → 37
+- `docs/VERSION_MANAGEMENT.md § 9` — 索引表追加 4 个新文档 (ENV_MANAGEMENT/PM2_GUIDE/DB_MIGRATION/.env.example 补全)
+
+**🐛 BUG-069 详细**:
+- 现象: `pm2 env 0 | grep APP_VERSION` 返 `3.0.26` (不是 3.0.29)
+- 根因: S64 BUG-066 修了 5 处, 漏了 ecosystem.config.js (PM2 启动配置, 不在 src/ 下容易被遗忘)
+- 隐患: PM2 读 env.APP_VERSION=3.0.26, /api/version 返 3.0.26 → 客户端收到 needUpdate=true → 强制升级弹窗 → 用户被强制回退
+- 修法: 改 ecosystem.config.js env + env_production 两处 APP_VERSION 同时同步
+- 教训: 6 处版本号同步必含 ecosystem.config.js; 部署后必 `pm2 env 0 | grep APP_VERSION` + `curl /api/version` 双验证
+
+**🚀 部署验证**: 本次纯规范修订 + 1 行 ecosystem.config.js APP_VERSION 修改, 不需要重跑 5 维验证. server 实际版本号仍是 v3.0.29 (跟当前一致). 部署 ecosystem.config.js env.APP_VERSION=3.0.29 是 sync 操作, 没改 server 行为, 但下次 PM2 重启时会读到正确版本.
+
+**🎯 跨 AI 协作**: S66 严格按 STANDARDS_EVOLUTION.md § 3 5 步 SOP 跑:
+1. 列出变更 → 2. 判定哪些规范需改 → 3. 起草 (4 新文件 + 4 修订) → 4. 自检 (cross-ref + grep) → 5. commit + push
+
+**📊 当前生效规范** (按 VERSION_MANAGEMENT.md § 9.1 优先级):
+1. docs/STANDARDS_EVOLUTION.md
+2. docs/VERSION_MANAGEMENT.md
+3. docs/standards/ADR/ (0000 template + 0001 changelog 决策)
+4. docs/ENV_MANAGEMENT.md (S66 新)
+5. docs/PM2_GUIDE.md (S66 新)
+6. docs/DB_MIGRATION.md (S66 新)
+7. apps/mobile/AGENTS.md
+8. apps/mobile/BUGS.md (含 BUG-069)
+9. apps/mobile/CODING_STANDARDS.md (37 条)
+10. apps/mobile/DEPLOY.md / apps/web/DEPLOY.md / docs/DEPLOY.md / apps/server/deploy.sh
+
+**📦 commit (pending)**: v3.0.30 P3: 后端部署规范 P0+P1 补齐 (BUG-069 + 4 份新规范)
