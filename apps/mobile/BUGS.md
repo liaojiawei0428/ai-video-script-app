@@ -1169,3 +1169,68 @@
   5. **异步任务余额守门有 race condition**: confirm 时锁不住未来 30s-2min 的余额变化, 必须配合 cron / settled 状态机
   6. **新功能加 UI 必同步 /api/pricing**: 加新计费项 (角色图/镜头图) 时, /api/pricing 跟 VipCenter UI 必同步, 不然用户看不到
   7. **加新 BUG 必做"端到端审计 SOP"**: S69 这次跑了 4 步 (代码 grep + 公网 API + Playwright + 3 端比对), 流程化才能 1 session 发现多 BUG
+
+
+---
+
+## BUG-073 (S69 部署踩 8h, v3.0.31): S54 1-行 minified src/index.ts 编译坏, tsc 5.9.3 保留 ESM 句, Node 22 静默忽略, server ReferenceError 启动失败
+
+### 现象
+
+- S69 部署 shipin-APP v3.0.31, scp 上传 dist + tar 解压 + pm2 delete+start
+- server 启动 1s DEAD, 0 stdout 0 stderr 0 退出码
+- `ss -tln | grep 6000` 无 LISTEN
+- 排查 8h 才发现: src/index.ts 1-行 minified (S54 时改), 6210 字符, 17 routes import 句在中段
+- tsc 5.9.3 编译时 17 routes import **没编译成 require**, **保留 ESM 句** 到 dist/index.js
+- Node 22 把 ESM `import` 句在 CJS 文件中**静默忽略** (不 SyntaxError)
+- 后续 `appConfig.port` 报 `ReferenceError: appConfig is not defined`, server.listen 永不 fire
+
+### 根因 (3 层叠加)
+
+1. **S54 1-行 minified src**: 当时 `apps/server/src/index.ts` 被改成 1-行 minified, 内部 11 个文件顶部 import + 17 routes 中段 import + 后续 1-行 statement chain
+2. **tsc 5.9.3 中段 import 保留**: 即使 `tsconfig.json` `module: "CommonJS"`, tsc 编译 1-行 minified 源时, 中段 import 句**保留** ESM, 不编译成 `__importDefault(require(...))`
+3. **Node 22 静默忽略 ESM 句**: `import { X } from 'Y'` 在 .js CJS 文件中, **不 SyntaxError**, **不执行**, 后续 `X` 是 undefined
+
+### 排查 8h 真实时间线
+
+| 时间 | 操作 | 结果 |
+|---|---|---|
+| 0:00 | scp + tar + pm2 start | server 1s DEAD, 0 输出 |
+| 1:00 | `pm2 logs` 看 error.log | 1.6G 太大, 写入慢, 看老日志 |
+| 2:00 | `node dist/index.js` 直跑 | 1s DEAD, 0 输出 (被 bash 父进程 SIGHUP 杀) |
+| 3:00 | `node -e "require + setTimeout"` | hold 8s, require OK, **server.listen 永远没 fire** |
+| 4:00 | hook `Module.prototype.require` | 只显示 4 个 require (fs, config, express, http), 17 routes 没 fire |
+| 5:00 | 看 dist L10 1-行 minified 段 | 包含 17 import 句, 字符串存在但 V8 不执行 |
+| 6:00 | 看 S54 注释 `v3.0.0.32 (S54): 删重 import` | 确认 S54 时改的 1-行 minified |
+| 7:00 | 用 S64 backup dist 替换 (201 行 tsc 完整) | server listen 6000 ✓ |
+| 8:00 | 6 维验证 + S69 修法验证 | BUG-072 4 修法全生效 |
+
+### 修法 (S69 临时修)
+
+1. **从 S64 backup 恢复 dist/index.js** (201 行 tsc 完整输出, 跑得起来)
+   - `cp /www/wwwroot/shipin-APP/dist.bak.s64-20260624_100456/index.js /www/wwwroot/shipin-APP/dist/index.js`
+2. **保留 src/index.ts 1-行 minified** (跟 S54 状态一致, 因为 tsc 编译坏, 走"单文件 tsc + cp"模式, 不重 build index.js)
+3. **S69 src 修法通过 `tsc src/routes/pricing.ts --outDir dist/routes` + `cp dist/changelog.json`** (跟 S67/S66 部署验证)
+4. **6 维验证全过** (pm2 env / port / /health / /api/version / /api/pricing / /api/novels 401)
+
+### 教训 (8 条)
+
+1. **dist 行数 < 30 = 1-行 minified = 高风险**: 部署前必 `wc -l dist/index.js`, < 30 行 必查 src 是不是 1-行 minified
+2. **1-行 minified 跟 tsc 编译器 spec gap**: 内部 import 句会被保留 ESM (即使 `module: "CommonJS"`), 部署前必先 `node -e "require('./dist/index.js'); setTimeout(()=>{}, 3000)"` 跑 3s, 看 `ss -tln` 是不是 LISTEN
+3. **server 启动 1s DEAD 0 输出 ≠ 应用 bug**: 大概率是 ESM 句 + Node 22 静默忽略, 排查要看 dist 字符串, 不只看 logs
+4. **永久备份链是救命稻草**: S64 backup `dist.bak.s64-20260624_100456` 是 v3.0.30 之前 tsc 完整 build, S69 部署踩坑时第一时间恢复, 8h 排查 → 1h 恢复
+5. **pm2 env + ss + curl + /api/version 4 维 30s 自检**: 部署完 30s 内必跑, 不要等用户报
+6. **src 是 1-行 minified 时禁 tsc 重 build**: tsc 编译 1-行 minified 会保留 ESM 句, 走"单文件 tsc + cp 到 dist"模式
+7. **Node 22 静默 ESM 句 行为**: `import` 在 CJS .js 文件中**不** SyntaxError, **不**执行, 后续 `X` undefined ReferenceError
+8. **SSH key 客户端 cache 严重坑**: Windows OpenSSH 9.5p2 + MinGit 9.9p1 都 cache key fingerprint, 必须 `ssh-agent` 加载才走对 (S69 同时踩)
+
+### 后续 TODO (P1)
+
+- [ ] 把 src/index.ts 1-行 minified 拆回多行 (165 行可读格式, 12 import 顶部 + 11 routes import 顶部 + 完整中间代码)
+- [ ] tsc 完整 build, 生成 200+ 行 dist/index.js
+- [ ] 部署新 dist, 验证 6 维
+- [ ] 写 `apps/server/AGENTS.md` 新铁律: "dist < 30 行 = 1-行 minified = 高风险, 必查 + 必恢复 backup"
+- [ ] 写 `docs/DEPLOY.md` 新章节: "1-行 minified 排查 SOP (8 步 30min)"
+
+---
+
