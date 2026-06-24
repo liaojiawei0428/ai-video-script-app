@@ -1,21 +1,26 @@
 // apps/web/src/pages/DownloadPage.tsx
 // v3.0.0 (S58 P1): APP 下载页 (用户浏览器访问 ab.maque.uno/download 看到)
-// APK 路径: https://ab.maque.uno/app/DeepScript_v3.0.0.apk (nginx alias 公开)
+// v3.0.29 (S64): 硬编码 fallback 改为 import 单一来源 (修复 BUG-067)
+//
+// APK 路径: https://ab.maque.uno/app/DeepScript_v{VERSION}.apk (nginx alias 公开)
 
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Smartphone, Download, CheckCircle, ChevronRight, Shield, Image as ImageIcon, Video as VideoIcon, ListChecks, Wallet, Sparkles, Home, ArrowLeft, Crown } from 'lucide-react';
+import { APP_VERSION, APP_BUILD_DATE } from '../config/version';
 
 interface VersionInfo {
   version: string;
   downloadUrl: string;
   changelog: string;
+  highlights?: string[];
+  buildDate?: string;
   forceUpdate: boolean;
   needUpdate: boolean;
   sizeBytes?: number;
 }
 
-const APK_SIZE_BYTES = 31_214_621; // 同步 build manifest, 真实 29.8MB
+const APK_SIZE_BYTES_FALLBACK = 30_073_380; // v3.0.29 真实大小 28.7 MB, fallback 仅 server 不可达时使用
 
 export function DownloadPage() {
   const location = useLocation();
@@ -29,7 +34,8 @@ export function DownloadPage() {
       .then(r => r.json())
       .then(j => {
         if (j.success) {
-          setServerVer({ ...j.data, sizeBytes: APK_SIZE_BYTES });
+          // v3.0.29 (S64): sizeBytes 直接用 server /api/version 返回的, 没有 fallback (server 不可达就显示 '未知')
+          setServerVer({ ...j.data, sizeBytes: j.data.sizeBytes ?? APK_SIZE_BYTES_FALLBACK });
         } else {
           setErr(j.error?.message || '获取版本失败');
         }
@@ -38,9 +44,11 @@ export function DownloadPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const version = serverVer?.version || '3.0.0';
-  const downloadUrl = serverVer?.downloadUrl || 'https://ab.maque.uno/app/DeepScript_v3.0.0.apk';
-  const sizeMB = serverVer?.sizeBytes ? (serverVer.sizeBytes / 1024 / 1024).toFixed(1) : '29.8';
+  const version = serverVer?.version || APP_VERSION;
+  const downloadUrl = serverVer?.downloadUrl || `https://ab.maque.uno/app/DeepScript_v${APP_VERSION}.apk`;
+  const sizeMB = serverVer?.sizeBytes ? (serverVer.sizeBytes / 1024 / 1024).toFixed(1) : (APK_SIZE_BYTES_FALLBACK / 1024 / 1024).toFixed(1);
+  const highlights = serverVer?.highlights || [];
+  const buildDate = serverVer?.buildDate || APP_BUILD_DATE;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-bg-primary via-bg-secondary to-bg-primary">
@@ -126,37 +134,30 @@ export function DownloadPage() {
         </div>
 
         {/* 更新日志 */}
-        {serverVer?.changelog && (
+        {(serverVer?.changelog || highlights.length > 0) && (
           <div className="glass p-5 md:p-6 rounded-2xl border border-border">
             <h2 className="text-base font-semibold text-text-primary mb-3 flex items-center gap-2">
               <CheckCircle size={16} className="text-success" />
               v{version} 更新内容
+              <span className="text-xs text-text-tertiary font-normal ml-1">({buildDate})</span>
             </h2>
-            <div className="text-sm text-text-secondary leading-relaxed">
-              {serverVer.changelog}
-            </div>
-            <ul className="mt-3 space-y-1.5 text-xs text-text-secondary">
-              <li className="flex items-start gap-2">
-                <ChevronRight size={12} className="text-primary flex-shrink-0 mt-0.5" />
-                新增 8 个核心页面 (个人中心/登录/注册/账号设置/任务/大纲/VIP 中心/管理员登录)
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={12} className="text-primary flex-shrink-0 mt-0.5" />
-                头像上传支持 (8 种预设 + URL)
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={12} className="text-primary flex-shrink-0 mt-0.5" />
-                VIP 会员中心 (¥10/年, 全场 8 折费率优惠)
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={12} className="text-primary flex-shrink-0 mt-0.5" />
-                任务进度列表 (跨多任务实时轮询)
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={12} className="text-primary flex-shrink-0 mt-0.5" />
-                跟 web 端 1:1 镜像, 体验统一
-              </li>
-            </ul>
+            {serverVer?.changelog && (
+              <div className="text-sm text-text-secondary leading-relaxed">
+                {serverVer.changelog}
+              </div>
+            )}
+            {highlights.length > 0 ? (
+              <ul className="mt-3 space-y-1.5 text-xs text-text-secondary">
+                {highlights.map((h, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <ChevronRight size={12} className="text-primary flex-shrink-0 mt-0.5" />
+                    {h}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-text-tertiary mt-3">本次更新内容详见版本说明</p>
+            )}
           </div>
         )}
 

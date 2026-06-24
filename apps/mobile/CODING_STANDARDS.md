@@ -350,6 +350,73 @@
   - `lottie-react-native` — 状态生图动画当前用 ActivityIndicator, 后续若需骨架屏再装
   - 装新包前必 `cat package.json` + `cat android/app/build.gradle` 看是否需 Android 配置
 
+## 30. server `package.json` version 跟 fallback 必同步当前版本 (源自 BUG-066)
+
+- ✅ **改 server 版本必同步 2 处源码**:
+  - `apps/server/package.json` `"version"` 字段 (给运维/包管理器看的"门面")
+  - `apps/server/src/index.ts:68` fallback `process.env.APP_VERSION || '<当前版本>'`
+- ❌ **禁止 fallback 写历史残留版本** (如 `'3.0.0-alpha'`), 即使生产 PM2 env 看起来对, 源码 fallback 是**最后防线**
+- ⚠️ **隐藏风险**: env 不生效 (e.g. ecosystem.config.js 被覆盖 / 误删) → server /api/version 返 fallback → 客户端收到强制升级弹窗, 但 APK 实际没那个版本 → 死循环
+- ✅ 改完后**双验证**:
+  ```bash
+  grep '"version"' apps/server/package.json          # 当前版本
+  grep "process.env.APP_VERSION ||" apps/server/src/index.ts  # 当前版本
+  curl /api/version                                   # 实际返当前版本
+  ```
+- ✅ 跨文件交叉引用: `docs/VERSION_MANAGEMENT.md` § 2.3
+
+## 31. 跨端版本号必从单一来源读取, 禁止硬编码 (源自 BUG-067)
+
+- ✅ **每个 app 必有自己的 `src/config/version.ts` 单一来源**:
+  - `apps/mobile/src/config/version.ts` (S58 起就有)
+  - `apps/web/src/config/version.ts` (S64 新建, 跟 mobile 同结构)
+  - `apps/server/package.json` (server 端用 package.json version 字段)
+- ❌ **禁止在 .tsx / .ts 里硬编码 `const APP_VERSION = '3.0.0'`**:
+  - `apps/web/src/components/Layout.tsx:44` (修前硬编码 v3.0.0)
+  - `apps/web/src/pages/AboutPage.tsx:7-8` (修前硬编码 v3.0.0 + 2026-06-13)
+  - `apps/web/src/pages/DownloadPage.tsx:41-42` (修前硬编码 v3.0.0 fallback)
+- ✅ 必用 import:
+  ```tsx
+  import { APP_VERSION, APP_BUILD_DATE } from '../config/version';
+  // ...
+  <span>v{APP_VERSION}</span>
+  <p>v{APP_VERSION} · {APP_BUILD_DATE}</p>
+  ```
+- ✅ **fallback 默认值必跟当前版本一致**, 跟第 30 条同根因
+- ❌ **禁止用 monorepo shared 包 import version** (跟 BUG-005/009 同根因: shared 包 import value 触发 Metro 编译坑)
+- ✅ **changelog 严禁硬编码通用文案**, 必读 server `apps/server/changelog.json` 真实条目
+- ✅ 跨文件交叉引用: `docs/VERSION_MANAGEMENT.md` § 3 单一来源原则
+
+## 32. 跨 AI 协作必读 `docs/VERSION_MANAGEMENT.md` 规范文档 (源自 BUG-068)
+
+- ✅ **任何 AI 改 shipin-APP 项目前必读 `docs/VERSION_MANAGEMENT.md`**:
+  - § 1 版本号格式 (1/2/3 类 + 进位规则)
+  - § 2 6 处版本号位置统一管理
+  - § 3 单一来源原则
+  - § 4 changelog 维护流程
+  - § 5 发版 8 步 SOP + 5 维验证
+  - § 6 失败诊断 (8 类)
+  - § 7 AI Agent 必跑清单
+- ✅ **触发条件 (满足任一, 必跑 § 7.1 - § 7.5)**:
+  - 改了 `version.ts` / `build.gradle` / `package.json` / `ecosystem.config.js`
+  - 加了新依赖 (npm i xxx)
+  - 改了 server `/api/version` / `/api/notifications` / `/api/admin` 任一端点
+  - 改了 mobile `utils/updater.tsx` (升级链路核心)
+  - 改了 web `pages/DownloadPage.tsx` 或 `pages/AboutPage.tsx`
+- ✅ **改完代码必跑 § 5.2 6 处版本号同步自检**:
+  ```
+  □ mobile src/config/version.ts APP_VERSION
+  □ mobile build.gradle versionCode + versionName
+  □ server package.json version
+  □ server src/index.ts fallback
+  □ web src/config/version.ts APP_VERSION
+  □ changelog.json 追加当前版本条目
+  ```
+- ✅ **改完代码必跑 § 5.8 5 维验证** (公网 APK 200 / SHA256 一致 / /api/version 触发升级 / /download 页 Playwright / 历史 APK 未覆盖)
+- ✅ **commit message 必带版本号**: `git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"`
+- ❌ **禁止依赖 PR 描述或聊天记录** — 必须有显式规范文档, 跨 AI 协作统一入口
+- 配套: `apps/mobile/AGENTS.md` 引用本规范, AI 入口必读
+
 ---
 
 # 第二部分: BUG 记录强制流程 (硬性流程)
@@ -436,7 +503,7 @@
 
 ---
 
-# 当前生效规则 (2026-06-24 v3.0.29)
+# 当前生效规则 (2026-06-24 v3.0.30)
 
 | 类别 | 规范数 | 触发 BUG |
 |---|---|---|
@@ -468,7 +535,10 @@
 | mobile 改完必跑 tsc --noEmit 验证 | 1 条 (新) | BUG-056, BUG-063, BUG-064 |
 | 禁止 state 变量名用 `styles` (跟 StyleSheet 冲突) | 1 条 (新) | BUG-064 |
 | 写新依赖前必 grep package.json 验证 | 1 条 (新) | BUG-005, BUG-009, BUG-065 |
-| **合计** | **29 条** | **17 个 BUG** |
+| **server package.json version 跟 fallback 同步** | 1 条 (新, S64) | BUG-066 |
+| **跨端版本号必单一来源 (禁硬编码)** | 1 条 (新, S64) | BUG-067 |
+| **跨 AI 协作必读 VERSION_MANAGEMENT.md** | 1 条 (新, S64) | BUG-068 |
+| **合计** | **32 条** | **20 个 BUG** |
 
 下次新 BUG 修完, 必:
 1. 追加 BUGS.md BUG-NNN 条目

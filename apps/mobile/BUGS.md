@@ -788,3 +788,112 @@
   3. Fallback UI 必"功能等价", 不能光 throw + 报错
   4. 提炼新规范到 CODING_STANDARDS.md 第 29 条 (写新依赖前必查 package.json)
 
+---
+
+## v3.0.29 → v3.0.30 修复历史 (S64 P0-P3, 2026-06-24)
+
+### BUG-066 (S64, v3.0.30 修): server `apps/server/package.json` version 字段跟 ecosystem.config.js APP_VERSION 不一致, 12 个版本未同步 (S17 起残留)
+
+- **现象**: S64 升级流程自检发现:
+  - `apps/server/package.json:3` `"version": "3.0.0-alpha"` ← **S17 历史残留, 12 个版本没更新**
+  - `apps/server/src/index.ts:68` fallback `'3.0.0-alpha'` ← **同上, fallback 错版本**
+  - 实际生产: `ecosystem.config.js` env_production.APP_VERSION = `3.0.29` (PM2 跑这个, /api/version 返 3.0.29)
+  - **隐藏风险**: 如果 PM2 重启时 env 变量未生效 (e.g. ecosystem.config.js 误删/被覆盖), server /api/version 会回退到 fallback `'3.0.0-alpha'`, 客户端会收到强制升级弹窗, **但实际 APK 是 v3.0.29** → 用户被强制回退到 v3.0.0-alpha (旧版, 实际不存在) → 弹窗永远关不掉
+- **根因**:
+  - S17 (v3.0.0-alpha) 写 `index.ts` fallback 用了 `'3.0.0-alpha'` 临时值
+  - S18-S63 期间 12 次发版, 每次只 bump `ecosystem.config.js` 的 env (生产可见)
+  - 没人回头同步 `package.json` 跟 `index.ts` fallback (源码默认), 因为"生产 PM2 env 看起来 OK"
+  - **盲点**: 运维读 `package.json` 会误以为 server 是 v3.0.0-alpha, 跟实际跑 v3.0.29 不符, 排查问题时会困惑
+- **修法 (v3.0.30, S64)**:
+  - `apps/server/package.json:3` `"version": "3.0.0-alpha"` → `"version": "3.0.29"` (跟 ecosystem 同步)
+  - `apps/server/src/index.ts:68` `process.env.APP_VERSION || '3.0.0-alpha'` → `|| '3.0.29'` (跟实际生产对齐)
+  - 新增 `apps/server/src/shared/changelog.ts` (185 行) 从 `apps/server/changelog.json` 读真实 changelog
+  - 新增 `apps/server/changelog.json` 维护 11 个版本条目 (3.0.29 → 1.0.0)
+  - `/api/version` 改返回 `{version, downloadUrl, changelog, highlights[], buildDate, forceUpdate, needUpdate}` 真实字段
+  - 配套 deploy.sh: 加 `cp changelog.json dist/changelog.json` (tsc 不复制 json)
+- **验证**:
+  - `curl /api/version` 返回 `changelog: "角色库 UI 商业化重设计 + 5 BUG 修复"` + `highlights: [5 条真实要点]`
+  - 改 ecosystem.config.js 删 APP_VERSION 重启, /api/version 仍返回 3.0.29 (fallback 正确)
+  - web /download 页 Playwright 访问看到 v3.0.29 + 真实 5 条 highlights
+- **教训**:
+  1. **源码 fallback 必跟当前生产版本一致**, 不能"看起来 PM2 env 跑对就 OK"
+  2. **package.json version 字段必跟 ecosystem.config.js APP_VERSION 同步**, 这是给运维/包管理器看的"门面"
+  3. **changelog 必真实可读**, 严禁硬编码通用文案 ("优化性能，修复已知问题") — 跟 BUG-067 同根因
+  4. 提炼新规范到 CODING_STANDARDS.md 第 30 条 (server fallback 必同步当前版本)
+  5. 跟 BUG-008 (PM2 env 不刷) 同根因: "env 看起来对 = 真对" 是误判, 源码 fallback 是最后防线
+
+### BUG-067 (S64, v3.0.30 修): web 端 3 处硬编码版本号 `v3.0.0`, 跟 server /api/version 实际返回 v3.0.29 不一致, 用户在浏览器看到老版本
+
+- **现象**: S64 全 AI 提示 user 问"最新 APK 是否更新到官网"时, 检查 web 端发现:
+  - `apps/web/src/components/Layout.tsx:44` `<span>v3.0.0</span>` ← 硬编码
+  - `apps/web/src/pages/AboutPage.tsx:7` `const APP_VERSION = '3.0.0'` ← 硬编码
+  - `apps/web/src/pages/AboutPage.tsx:8` `const BUILD_DATE = '2026-06-13'` ← 硬编码
+  - `apps/web/src/pages/DownloadPage.tsx:41` `const version = serverVer?.version || '3.0.0'` ← fallback 硬编码
+  - `apps/web/src/pages/DownloadPage.tsx:42` `const downloadUrl = ... || 'https://ab.maque.uno/app/DeepScript_v3.0.0.apk'` ← fallback 硬编码
+  - **用户场景**: 浏览器打开 `https://ab.maque.uno/download`, 看 Layout 顶部 `v3.0.0`, 但 server /api/version 实际返 3.0.29, APK 已经是 3.0.29 → **用户困惑** "这是 v3.0.0 还是 v3.0.29?"
+  - 跟 DownloadPage 5 条 changelog `<li>` 全是 hardcoded "新增 8 个核心页面..." (S58 P1 写的, 跟当前 S64 实际 changelog 没关系)
+- **根因**:
+  - S56 写 AboutPage 时直接 `const APP_VERSION = '3.0.0'` 硬编码
+  - S58 P1 写 Layout + DownloadPage 时同样硬编码 `'3.0.0'`, **从来没建过 web 端 version.ts 单一来源**
+  - 跟 BUG-066 同根因: "env/fallback 看起来对 = 真对" — 实际 DownloadPage fetch /api/version 后 setState 拿到 3.0.29, 但 Layout/AboutPage 是另一份, 完全不读 /api/version
+  - 跨端 mobile 有 src/config/version.ts 单一来源, web 端**没有** — 设计缺失
+- **修法 (v3.0.30, S64)**:
+  - 新建 `apps/web/src/config/version.ts` (跟 mobile 同结构, 含 APP_VERSION/APP_VERSION_CODE/APP_NAME/APP_DISPLAY_NAME/APP_BUILD_DATE)
+  - Layout.tsx 删硬编码 `v3.0.0`, 改 `import { APP_VERSION }` + `<span>v{APP_VERSION}</span>`
+  - AboutPage.tsx 删硬编码 const, 改 `import { APP_VERSION, APP_BUILD_DATE }`
+  - DownloadPage.tsx fallback 改用 APP_VERSION (跟 config 同步, 不会跟 server 不一致)
+  - DownloadPage.tsx 5 条 hardcoded `<li>` 改成 `highlights.map(...)`, 动态渲染 server /api/version 返回的真实 highlights
+  - APK_SIZE_BYTES_FALLBACK 改为 30_073_380 (v3.0.29 真实大小 28.7 MB), 不是 S58 写死的 31_214_621
+- **验证**:
+  - web build 通过
+  - Playwright 访问 https://ab.maque.uno/download 看到:
+    - Layout 顶部: `v3.0.29`
+    - DownloadPage Hero: `当前最新版本: v3.0.29 · 28.7 MB`
+    - 更新内容: `v3.0.29 更新内容 (2026-06-24)` + 5 条真实 highlights
+  - 浏览器 DevTools 看 Layout 跟 AboutPage 都是 v3.0.29, 跟 server /api/version 一致
+- **教训**:
+  1. **跨端展示必统一从单一来源读** — mobile 有 src/config/version.ts, web/server 也必须有
+  2. **严禁硬编码版本号/日期/changelog**, 必走 config/version.ts 或 server /api/version
+  3. **fallback 默认值必跟当前版本一致**, 跟 BUG-066 同根因
+  4. 提炼新规范到 CODING_STANDARDS.md 第 31 条 (跨端 version 必单一来源)
+  5. 跟 BUG-007/008 (弹窗老代码) 同根因: "看起来能跑 = 真对" 是误判, 源码必保证静态一致性
+
+### BUG-068 (S64, v3.0.30 修): mobile 升级弹窗链路不清晰, 缺文档规范, AI Agent 容易改坏 updater.tsx 触发 7 类已知失败
+
+- **现象**: S64 全 AI 自检发现:
+  - `apps/mobile/src/utils/updater.tsx` (462 行) 是 mobile 升级链路的核心, BUG-021/022/023/024/025/026 都是这文件
+  - 但**没有专门规范文档**总结 7 类失败的诊断流程, AI 改 updater.tsx 容易踩坑
+  - 当前 `apps/mobile/DEPLOY.md` § 8 有 7 类诊断, 但跟 CODING_STANDARDS / VERSION_MANAGEMENT 没串起来
+  - 跨端 (mobile + web + server) 没有统一的 "版本管理规范文档"
+- **根因**:
+  - S58 P10 (BUG-025) 修完时只更新了 DEPLOY.md, 没单独建版本管理规范
+  - 后续 S59-S63 期间多次碰升级链路 (BUMP server APP_VERSION / Playwright 验证 / APK 列表清理), 知识散落在各 PR 描述, 没汇总
+  - 跨 AI 协作时 (coder/verifier), 缺乏统一入口, 每个 AI 都要重新摸一遍
+- **修法 (v3.0.30, S64)**:
+  - 新建 `docs/VERSION_MANAGEMENT.md` (360 行, v3.x 完整版) — 覆盖以下 9 节:
+    - § 1 版本号格式 + 进位规则
+    - § 2 版本号在 4 个位置的统一管理 (mobile/web/server/ecosystem)
+    - § 3 单一来源原则 (每个 app 自己维护 src/config/version.ts)
+    - § 4 changelog 维护流程 (apps/server/changelog.json + shared/changelog.ts)
+    - § 5 发版流程 (8 步 SOP, 含 5 维验证)
+    - § 6 失败诊断 (8 类, 含 BUG-024/025/066/067)
+    - § 7 AI Agent 必跑清单 (5 个触发条件)
+    - § 8 历史版本演进表 (3.0.0+)
+    - § 9 配套文档索引
+  - 冻结 S11 写的 `docs/VERSION_POLICY.md` (v2.0.0 冻结版), 在头部加废弃说明
+  - `apps/mobile/AGENTS.md` 引用 `docs/VERSION_MANAGEMENT.md`, AI 入口必读
+  - `apps/mobile/CODING_STANDARDS.md` 加 30/31/32 条新规范 (源自 BUG-066/067/068)
+  - `apps/mobile/BUGS.md` 加 BUG-066/067/068 3 个新条目
+  - `DEV_PROGRESS.md` 加 S64 会话追踪
+- **验证**:
+  - 下次 AI (coder) 改 shipin-APP 时, 必读 docs/VERSION_MANAGEMENT.md + apps/mobile/AGENTS.md, 不会重复踩 BUG-024/025/066/067
+  - 所有版本号变更触发 § 7.2 6 处自检, 不会再出现 "改一处忘改其它" 的 BUG
+  - 跨 AI (coder + verifier) 协作时, 都按 § 5.8 5 维验证 SOP 跑
+- **教训**:
+  1. **跨 AI 协作必有统一规范文档**, 不能依赖 PR 描述或聊天记录
+  2. **规范文档必须 4 节起步**: 版本号规则 + 单一来源 + 部署流程 + 失败诊断
+  3. **AI Agent 入口必引用规范**, AGENTS.md/CLAUDE.md 加 "必读 N 份规范" 列表
+  4. **commit message 必带版本号 + BUG 编号**, 跟 BUGS.md 双向追溯
+  5. 跟 BUG-005/009 (monorepo shared 包坑) 同根因: "复制粘贴看起来 OK = 真对" — 跨 AI 必须有显式规范
+
+

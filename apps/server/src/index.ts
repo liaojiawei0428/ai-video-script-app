@@ -64,16 +64,21 @@ app.get('/health', (req, res) => {
 });
 
 // APP版本检查（公开接口）
+// v3.0.29 (S64): 版本号 fallback 同步到 3.0.29, changelog 从 changelog.json 读取真实条目
+import { readChangelog } from './shared/changelog';
 app.get('/api/version', (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.0-alpha';
+  const currentVersion = process.env.APP_VERSION || '3.0.29';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
+  const changelogEntry = readChangelog(currentVersion);
   res.json({
     success: true,
     data: {
       version: currentVersion,
       downloadUrl: 'https://ab.maque.uno/app/DeepScript_v' + currentVersion + '.apk',
-      changelog: '优化性能，修复已知问题',
+      changelog: changelogEntry.summary,
+      highlights: changelogEntry.highlights,
+      buildDate: changelogEntry.buildDate,
       forceUpdate: needUpdate,
       needUpdate,
     },

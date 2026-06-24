@@ -1,0 +1,143 @@
+{
+  "_comment": "Deep剧本 APP 版本 changelog 数据源 (S64 规范: 真实条目, 严禁硬编码)",
+  "_spec": "VERSION_MANAGEMENT.md § 4",
+  "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条要点)/type (major|minor|patch)",
+  "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删",
+  "entries": [
+    {
+      "version": "3.0.29",
+      "buildDate": "2026-06-24",
+      "type": "minor",
+      "summary": "角色库 UI 商业化重设计 + 5 BUG 修复",
+      "highlights": [
+        "角色库三屏全面商业化重设计 (Notion/Linear dark theme 风格)",
+        "新建 theme/character.ts (191 行) + 4 个商业化组件 (CharacterAvatar/Chip/EmptyState/LinearGradient)",
+        "BUG-061 修 WCAG 11.6:1 对比度 (text.body 替代 text.tertiary)",
+        "BUG-062 替换 emoji icon → Ionicons 矢量图标 (跨 OS 一致)",
+        "BUG-063 chip alpha 12.5% 隐形 → 改用不透明 bg"
+      ]
+    },
+    {
+      "version": "3.0.28",
+      "buildDate": "2026-06-22",
+      "type": "minor",
+      "summary": "角色库跟 Web 端 1:1 对齐",
+      "highlights": [
+        "CharacterDetailScreen 加编辑模式 + 确认 + 生成三视图",
+        "CharacterListScreen 加重新分析角色按钮 + sheet 单图预览",
+        "CharacterDescriptionReviewScreen 删 11 维字段编辑, 改 2 个 textarea",
+        "AssetLibraryScreen 单图 sheet 预览 (替代 3 张变体图网格)"
+      ]
+    },
+    {
+      "version": "3.0.25",
+      "buildDate": "2026-06-19",
+      "type": "minor",
+      "summary": "LLM prompt 优化 + 分镜模式 + Web VipCenterPage 文案",
+      "highlights": [
+        "server 端 LLM prompt 优化",
+        "分镜模式支持",
+        "Web VipCenterPage 文案补 15s 提醒",
+        "BUG-055 修 mobile 时长 chip 按 isVip 动态显示"
+      ]
+    },
+    {
+      "version": "3.0.22",
+      "buildDate": "2026-06-15",
+      "type": "patch",
+      "summary": "修 BUG-026 authorities 让 blob-util 内部匹配",
+      "highlights": [
+        "BUG-026 修 FileProvider authorities 路径匹配",
+        "blob-util 内部 file:// URI 解析修复"
+      ]
+    },
+    {
+      "version": "3.0.21",
+      "buildDate": "2026-06-14",
+      "type": "patch",
+      "summary": "Android 7+ StrictMode FileProvider 修",
+      "highlights": [
+        "BUG-025 修 actionViewIntent 路径用 _state.destPath 不用 res.path()",
+        "Android 7+ StrictMode 禁用 file:// URI, 改 content://"
+      ]
+    },
+    {
+      "version": "3.0.13",
+      "buildDate": "2026-06-13",
+      "type": "major",
+      "summary": "生图 Agent 极简 passthrough 模式",
+      "highlights": [
+        "删除所有 LLM 干预 (字段提取 / SDXL 模板 / 智能选模板)",
+        "用户原文 + 末尾 quality tags = 发给 agens",
+        "imagePromptLibrary.ts 整文件删除",
+        "imageAgentService processTurn/translatePlan 简化为无 LLM 直发"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "buildDate": "2026-06-09",
+      "type": "major",
+      "summary": "v3.0.0 整体升级 - Agent 矩阵 + 状态机重构",
+      "highlights": [
+        "v3.0.0 Phase A: agnesImageProvider 重构 (extra_body.image + response_format)",
+        "v3.0.0 Phase B: 生图 Agent 后端 (9 态状态机 + LLM 自适应)",
+        "v3.0.0 Phase C: 视频 Agent 后端 (setInterval 5s 轮询 + 失败重试)",
+        "v3.0.0 Phase D: web Layout 加 ImageIcon/VideoIcon nav 项 + v3.0.0-alpha 标",
+        "v3.0.0 Phase E: mobile ImageAgentScreen/VideoAgentScreen",
+        "v3.0.0 Phase F: 版本号同步 (server package.json + src/index.ts + ecosystem)"
+      ]
+    },
+    {
+      "version": "2.5.36",
+      "buildDate": "2026-06-09",
+      "type": "major",
+      "summary": "BUG 集中修复 + web deploy 脚本 + 版本号同步",
+      "highlights": [
+        "10 个 BUG 修复 (episodes/tasks 鉴权 / character double-JSON / WS 进度重置 / 通知路由)",
+        "apps/web/scripts/deploy.sh 新建",
+        "apps/server/package.json 1.0.0 → 2.5.36",
+        "/api/version 默认值 1.0.0 → 2.5.36"
+      ]
+    },
+    {
+      "version": "2.5.0",
+      "buildDate": "2026-05-31",
+      "type": "major",
+      "summary": "v2.5.x 五大新功能落地 (漫画 / 风格圣经 / 系统通知 / 描述修复 / 120 秒约束)",
+      "highlights": [
+        "漫画生成 (v2.5.19) - 多页生成 + 按页计费",
+        "风格圣经 styleBible (v2.5.9/v2.5.13 重构) - 注入所有 prompt",
+        "系统通知 (v2.5.15) - 任务完成/失败/余额不足自动推送",
+        "角色描述字段修复 (v2.5.34-35) - 自由文本 + 双层 JSON 归一化",
+        "镜头 120 秒强约束 (v2.5.33) - retry + auto-scale 兜底"
+      ]
+    },
+    {
+      "version": "2.0.0",
+      "buildDate": "2026-06-04",
+      "type": "major",
+      "summary": "角色一致性三阶段流程 + Web 端全新上线",
+      "highlights": [
+        "角色一致性三阶段流程 (描述→确认→1 张三视图变体图)",
+        "分集大纲确认步骤 (AI 出摘要→用户调整→生成剧本)",
+        "章节事件图谱 plotGraph 注入剧本生成",
+        "5 画风预设系统 (写实/古风水墨/动漫/赛博/3D)",
+        "PDF/Word/Markdown 剧集导出",
+        "Web 端全新上线 (Vite+React 18+TS+Tailwind+shadcn/ui+Zustand)"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "buildDate": "2026-05-21",
+      "type": "major",
+      "summary": "初始发布 - AI 剧本生成 + 书架 + WebSocket 实时通讯",
+      "highlights": [
+        "AI 剧本生成 (基于上传小说分析 → 剧本生成 → 分镜)",
+        "书架管理 (本地缓存, 离线浏览)",
+        "WebSocket 实时通讯 (AI 生成进度推送)",
+        "用户鉴权 (JWT + bcrypt)",
+        "VIP 机制 + 在线充值"
+      ]
+    }
+  ]
+}

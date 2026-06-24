@@ -3,6 +3,8 @@ import { useAuthStore } from '../store/auth';
 import { BookOpen, Sparkles, Wallet, LogOut, Home, ListChecks, Settings, Image as ImageIcon, Video as VideoIcon, Crown, User as UserIcon, Smartphone } from 'lucide-react';
 import { NotificationBell, NotificationPanel, NotificationToast } from './Notifications';
 import { useEffect } from 'react';
+// v3.0.29 (S64): 版本号从 src/config/version.ts 单一来源读取 (修复 BUG-067)
+import { APP_VERSION } from '../config/version';
 
 export function Layout() {
   const { user, logout, fetchBalance } = useAuthStore();
@@ -41,7 +43,7 @@ export function Layout() {
               <Sparkles size={18} className="text-white" />
             </div>
             <span className="text-lg font-bold gradient-text">Deep剧本</span>
-            <span className="text-xs text-text-tertiary ml-1">v3.0.0</span>
+            <span className="text-xs text-text-tertiary ml-1">v{APP_VERSION}</span>
           </Link>
           <nav className="hidden md:flex items-center gap-1">
             {navItem('/', Home, '书架')}

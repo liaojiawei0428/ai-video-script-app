@@ -1,11 +1,10 @@
 // apps/web/src/pages/AboutPage.tsx
 // v3.0.1 (S56): 关于我们页 (版本号 + 法律 + 算法备案)
+// v3.0.29 (S64): 版本号 / buildDate 改为 import 单一来源 (修复 BUG-067)
 
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Info, FileText, Shield, Code, Server } from 'lucide-react';
-
-const APP_VERSION = '3.0.0';
-const BUILD_DATE = '2026-06-13';
+import { APP_VERSION, APP_BUILD_DATE } from '../config/version';
 
 export function AboutPage() {
   const location = useLocation();
@@ -29,7 +28,7 @@ export function AboutPage() {
           D
         </div>
         <h2 className="text-xl font-bold text-text-primary">Deep剧本</h2>
-        <p className="text-sm text-text-tertiary mt-1">v{APP_VERSION} · {BUILD_DATE}</p>
+        <p className="text-sm text-text-tertiary mt-1">v{APP_VERSION} · {APP_BUILD_DATE}</p>
         <p className="text-xs text-text-tertiary mt-3">
           AI 驱动的剧本生成平台<br />
           角色一致性 · 分集大纲 · 无限画布 · 智能助手
