@@ -211,6 +211,117 @@ app.get('/api/version', (req, res) => {
 > **AI Agent 改版本号必跑**: § 5.1 → § 5.8, 8 步, 30 分钟。
 > 详细命令模板在 § 6 + `apps/mobile/DEPLOY.md`。
 
+### § 5.0 ⚠️ 分支判断 (S67 新增, BUG-070 教训)
+
+**部署前必先判断**: 当前 server 有没有用户正在跑 AI 任务?
+
+| 场景 | SOP |
+|---|---|
+| **无活跃任务** (`active-tasks` = 0) | 按下面 § 5.1 → § 5.8 标准 8 步跑 |
+| **有活跃任务** (`active-tasks` > 0, 用户在分析小说 / 生图 / 生视频) | **必跑 § 5.A 活跃任务场景部署专项** (S67 新增, 维护模式流程) |
+
+**核心原则**: **绝不能直接 `pm2 restart`** — 会打断用户正在跑的 LLM 任务, 浪费 token + 钱 + 用户体验崩。
+
+**S67 新增 AI 行为规范**: 任何 AI 接到 server 部署任务, **第一步必跑**:
+
+```bash
+# 查活跃任务数
+COUNT=$(curl -s "https://ab.maque.uno/api/admin/active-tasks" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['count'])")
+echo "活跃任务数: $COUNT"
+
+# 决策:
+[ "$COUNT" -gt 0 ] && echo "→ 必跑 § 5.A 维护模式流程" || echo "→ 标准 § 5.1-5.8"
+```
+
+**对应代码**:
+- 端点: `apps/server/src/routes/admin.ts:136` (`GET /api/admin/active-tasks`)
+- 维护开关: `apps/server/src/routes/admin.ts:144` (`PUT /api/admin/maintenance?enable=true`)
+- 共享状态: `apps/server/src/shared/maintenance.ts` (全局变量)
+- controller 检查: `apps/server/src/controllers/characterController.ts:14` + `novelController.ts:12` (import `getMaintenance`)
+
+**详细规范**: [`apps/server/AGENTS.md`](../apps/server/AGENTS.md) § 部署前必跑 5 项 + [`apps/server/deploy.sh`](../apps/server/deploy.sh) (远端部署脚本, 67 行, 完整 6 步流程)
+
+### § 5.A 活跃任务场景部署专项 (S67 新增, BUG-070 教训)
+
+> **触发条件**: `active-tasks > 0`, 用户在分析小说 / 生图 / 生视频。
+>
+> **目标**: 保护用户正在跑的任务, 不打断不浪费 token, 让旧任务跑完再部署。
+
+**9 步流程**:
+
+```bash
+# ========== 1. 预检查活跃任务 ==========
+COUNT=$(curl -s "${SERVER}/api/admin/active-tasks" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['count'])")
+echo "活跃任务数: $COUNT"
+
+# ========== 2. 发维护公告 (推送给所有用户) ==========
+curl -s -X POST "${SERVER}/api/notifications/admin/announcement" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{"title":"系统维护通知","content":"系统即将升级维护, 正在运行的任务将正常完成, 请稍候。"}'
+
+# ========== 3. 开维护模式 (controller 拒绝新任务, 已在跑的不影响) ==========
+curl -s -X PUT "${SERVER}/api/admin/maintenance?enable=true"
+echo "维护模式已开启, 新任务将被拒绝"
+
+# ========== 4. 等活跃任务跑完 (最多 15 分钟, 循环检查) ==========
+WAITED=0
+MAX_WAIT=900
+while [ $WAITED -lt $MAX_WAIT ]; do
+  COUNT=$(curl -s "${SERVER}/api/admin/active-tasks" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['count'])")
+  echo "剩余任务: $COUNT  (已等 ${WAITED}s)"
+  [ "$COUNT" -eq 0 ] && break
+  sleep 10
+  WAITED=$((WAITED + 10))
+done
+
+# ========== 5. 超时决策 ==========
+if [ $WAITED -ge $MAX_WAIT ]; then
+  echo "⚠️ 超时 15 分钟, 仍有 $COUNT 任务"
+  echo "   强制部署 = 这些任务会被 kill, 用户已经扣的 token 钱白花"
+  echo "   只能紧急情况 (安全补丁) 才能强制, 必先 PM admin 备案"
+  read -p "强制部署? (yes/no): " FORCE
+  [ "$FORCE" != "yes" ] && echo "取消部署, 等待任务完成" && exit 1
+fi
+
+# ========== 6. 执行部署 ==========
+cd /www/wwwroot/shipin-APP
+tar xzf /tmp/dist-server-{VER}.tar.gz
+pm2 delete ai-script-server && pm2 start ecosystem.config.js --env production
+
+# ========== 7. 关维护模式 ==========
+curl -s -X PUT "${SERVER}/api/admin/maintenance?enable=false"
+
+# ========== 8. 发完成公告 ==========
+curl -s -X POST "${SERVER}/api/notifications/admin/announcement" \
+  -d '{"title":"系统升级完成","content":"已恢复正常使用。"}'
+
+# ========== 9. 6 维验证 ==========
+pm2 env 0 | grep APP_VERSION          # 期望 = 新版本
+curl /health                          # 期望 200
+curl /api/version                     # 期望 新版本 + changelog + highlights
+curl -X POST /api/novels              # 期望 401 (鉴权)
+ss -tlnp | grep 6000                  # 期望 LISTEN
+pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
+```
+
+**一键脚本** (推荐):
+
+```bash
+# 服务器端跑 (ADMIN_TOKEN 必填)
+ADMIN_TOKEN=xxx bash apps/server/deploy.sh
+```
+
+脚本里 6 步 (检查任务 → 公告 → 维护 → 等任务 → 部署 → 恢复) 全部自动。
+
+**配套文档**:
+- [`apps/server/AGENTS.md`](../apps/server/AGENTS.md) (S67 新建, server 端 AI 入口)
+- [`apps/server/deploy.sh`](../apps/server/deploy.sh) (远端部署脚本, 67 行)
+- [`docs/DEPLOY.md`](./DEPLOY.md) § 0 节点 0 + § 1 + § 5.3
+- [`apps/mobile/CODING_STANDARDS.md`](../apps/mobile/CODING_STANDARDS.md) 第 38 条 (S67 新增)
+
 ### § 5.1 判定版本号类别 (1 类 / 2 类 / 3 类)
 
 按 § 1 定义判定, 列本次变更项 → 取最高类别 → 按进位规则算新版本号。
@@ -462,9 +573,10 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 | `docs/standards/ADR/0001-server-changelog-source-of-truth.md` (S65 新建) | server changelog 单一来源决策 |
 | `docs/ENV_MANAGEMENT.md` (S66 新建) | server env 变量管理 (强密钥 + 6 类轮换 + 防泄露 + 8 项 AI checklist) |
 | `docs/PM2_GUIDE.md` (S66 新建) | PM2 + ecosystem.config.js 完整规范 (fork vs cluster + 10 条命令 + BUG-069 自检) |
-| `docs/DB_MIGRATION.md` (S66 新建) | server DB 迁移 SOP (initTables 自动 + 手动 SQL + 不删字段 + 6 个月观察期) |
+| `docs/DB_MIGRATION.md` (S66 新建) | server DB 迁移 SOP (initTables 自动 vs 手动 SQL + 不删字段 + 跨版本回滚兼容性) |
+| `apps/server/AGENTS.md` (S67 新建) | **server 端 AI 入口** (跟 mobile AGENTS.md 对称, 含活跃任务部署 SOP + 8 条铁律 + S67 自检命令) |
 | `apps/mobile/AGENTS.md` | Mobile AI Agent 入口, 项目速览 |
-| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068/069 是 S64-S66 触发的源头) |
+| `apps/mobile/BUGS.md` | 历史 BUG (BUG-066/067/068/069/070 是 S64-S67 触发的源头) |
 | `apps/mobile/CODING_STANDARDS.md` | 硬性规范 (第 30/31/32 条 S64, 第 33 条 S65, 第 34-37 条 S66) |
 | `apps/mobile/DEPLOY.md` | Mobile 端完整部署 SOP |
 | `apps/server/deploy.sh` | Server 远端部署脚本 (公告 + 维护 + 重启) |
@@ -497,5 +609,5 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 
 ---
 
-> **最后更新**: 2026-06-24 (S66 P0)
+> **最后更新**: 2026-06-24 (S67 P0)
 > **下次 review**: 每个 3 类发版后必更新本文件 + 触发 [`STANDARDS_EVOLUTION.md` § 3 5 步修订流程](./STANDARDS_EVOLUTION.md)

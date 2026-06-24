@@ -515,6 +515,24 @@
 - ✅ **部署后必 `pm2 env 0 | grep APP_VERSION`** 验证 env 生效
 - ✅ **宝塔面板手动添加 `ai-script-server` 进程** — PM2 进程列表跟宝塔 PM2 管理器是两个独立服务
 
+## 38. server 部署必先检查活跃任务 + 跑维护模式 (源自 BUG-070, S67)
+
+- ✅ **任何 AI 接到 server 部署任务, 第一步必查活跃任务** (有用户在分析小说 / 生图 / 生视频时):
+  ```bash
+  COUNT=$(curl -s "${SERVER}/api/admin/active-tasks" \
+    -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['count'])")
+  ```
+- ✅ **有活跃任务时必跑维护模式流程** (按 [`apps/server/AGENTS.md`](../../apps/server/AGENTS.md) § 部署前必跑 5 项):
+  1. 查活跃任务 → 2. 发维护公告 → 3. 开维护模式 (`PUT /api/admin/maintenance?enable=true`) → 4. 等任务跑完 (最多 15 分钟) → 5. 部署 → 6. 关维护 + 发完成公告
+- ❌ **禁止直接 `pm2 restart` 或 `pm2 delete + start` 而不跑维护模式** — 会打断用户正在跑的 LLM / Agnes 任务, **浪费 token 钱 + 用户体验崩 + 用户投诉**
+- ✅ **维护模式只拒新任务, 不 kill 在跑任务** — controller (`characterController.ts:14` + `novelController.ts:12` 检查 `getMaintenance()`) 拒绝新任务, 但 setImmediate 跑着的 background 任务继续
+- ❌ **禁止强制部署除非紧急** (安全补丁) — 强制部署 = 正在跑的任务被 kill, 用户已经扣的 token 钱白花, 必须先 PM admin 备案
+- ✅ **AI 必读 [`apps/server/AGENTS.md`](../../apps/server/AGENTS.md) § 部署前必跑 5 项 + 5 类任务必做** — 这是 server 端 AI 入口, 跟 mobile AGENTS.md 对称
+- ✅ **AI 必跑 [`apps/server/deploy.sh`](../../apps/server/deploy.sh)** — 远端部署脚本, 含完整 6 步维护模式流程
+- ✅ **部署后必跑 6 维验证** (跟第 35 条 § 4 配套)
+- 配套文档: `docs/VERSION_MANAGEMENT.md § 5.0 / § 5.A` (S67 新增), `docs/DEPLOY.md § 0 节点 0`
+
 ---
 
 # 第二部分: BUG 记录强制流程 (硬性流程)
@@ -637,7 +655,12 @@
 | **跨端版本号必单一来源 (禁硬编码)** | 1 条 (新, S64) | BUG-067 |
 | **跨 AI 协作必读 VERSION_MANAGEMENT.md** | 1 条 (新, S64) | BUG-068 |
 | **规范随版本迭代自更新 (STANDARDS_EVOLUTION.md)** | 1 条 (新, S65) | (S65 GAP 修复) |
-| **合计** | **33 条** | **20 个 BUG** |
+| **server APP_VERSION 6 处同步 (含 ecosystem.config.js)** | 1 条 (新, S66) | BUG-069 |
+| **server env 变量管理 (强密钥 + 轮换)** | 1 条 (新, S66) | (S66 GAP 修复) |
+| **server DB 迁移 SOP (兼容 + 不删字段)** | 1 条 (新, S66) | (S66 GAP 修复) |
+| **PM2 + ecosystem.config.js 完整规范** | 1 条 (新, S66) | (S66 GAP 修复) |
+| **server 部署必先检查活跃任务 + 跑维护模式** | 1 条 (新, S67) | BUG-070 |
+| **合计** | **38 条** | **21 个 BUG** |
 
 下次新 BUG 修完, 必:
 1. 追加 BUGS.md BUG-NNN 条目

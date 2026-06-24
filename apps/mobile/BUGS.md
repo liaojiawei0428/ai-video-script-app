@@ -919,3 +919,30 @@
   3. **VERSION_MANAGEMENT.md § 2 6 处自检清单追加 ecosystem.config.js** (S66 修订, 5 处 → 6 处)
   4. **部署后必跑** `pm2 env 0 | grep APP_VERSION` + `curl /api/version` 双验证 (防 env 不生效)
   5. 跟 BUG-008 (PM2 env 不刷) 同根因: "env 看起来对 ≠ 真对", 必须源码 + 运行时双验
+
+### BUG-070 (S67, v3.0.29 → v3.0.30 修): AI 部署 server 时跳过活跃任务检查, 直接 pm2 restart 会打断用户 AI 任务
+
+- **现象**: S67 自检发现 — VERSION_MANAGEMENT.md § 5 跨端 SOP 8 步流程只讲 "pm2 delete + start", 没提活跃任务检查; apps/server/AGENTS.md 不存在; CODING_STANDARDS.md 没硬性规范. AI 接到"部署 server"任务, 按现有规范会直接 `pm2 delete + start`, **打断用户正在分析小说 / 生图 / 生视频的任务**, token 钱白花, 用户投诉.
+- **根因**:
+  - VERSION_MANAGEMENT.md § 5 (S64) 没考虑活跃任务场景, 只写了标准 8 步
+  - 没有 server 端 AI 入口 (apps/server/AGENTS.md), AI 只读 mobile AGENTS.md
+  - deploy.sh 头部注释 "AI 助手在执行部署前必须完整阅读 docs/DEPLOY.md" 是软提示, AI 可能跳过
+  - server 后端其实已经实现了完整维护模式机制 (`routes/admin.ts:136 active-tasks` + `routes/admin.ts:144 maintenance` + `shared/maintenance.ts` + controller 检查), 但 AI 行为规范没引用
+- **修法 (v3.0.30, S67)**:
+  - 新建 `apps/server/AGENTS.md` (240 行, S67) — server 端 AI 入口, 跟 mobile AGENTS.md 对称, 含部署前必跑 5 项 + 5 类任务必做 + 8 条铁律 + S67 自检命令
+  - `docs/VERSION_MANAGEMENT.md § 5.0` 新增分支判断 (有/无活跃任务)
+  - `docs/VERSION_MANAGEMENT.md § 5.A` 新增活跃任务场景部署专项 (9 步完整流程)
+  - `apps/mobile/CODING_STANDARDS.md` 加第 38 条新规范: server 部署必先检查活跃任务 + 跑维护模式
+  - `VERSION_MANAGEMENT.md § 9` 索引表追加 `apps/server/AGENTS.md`
+- **验证**:
+  - 部署前跑 `curl /api/admin/active-tasks` 拿 COUNT, > 0 时按 § 5.A 跑
+  - 维护模式开启后, 客户端发新分析任务会失败 (controller 拒绝)
+  - 已经在跑的任务继续执行 (background setImmediate 不受影响)
+  - 15 分钟内任务跑完 COUNT = 0, 自动进入 § 5.A 第 6 步部署
+  - 部署后 6 维验证全通过
+- **教训**:
+  1. **AI 行为规范必覆盖所有触发场景** — S66 补后端运维手册时, 只补了 "AI 怎么改 PM2 配置", 没补 "AI 怎么安全部署"
+  2. **每个 app 必有 AGENTS.md** (mobile / web / server) — AGENTS.md 是 AI 必读入口, 不能跨 app 共用
+  3. **后端代码已有机制没在 AI 规范里 = 等于不存在** — `routes/admin.ts:136` 等端点存在, 但 AI 不知道调, 等于零
+  4. **跨端 SOP 必须考虑运行时状态** — VERSION_MANAGEMENT § 5 跨端只讲静态 SOP (改版本/build/tar/scp/pm2), 没讲动态状态 (活跃任务)
+  5. **AI Agent 入口文档比代码注释更重要** — deploy.sh 头部注释 S58 就写了"AI 必读 docs/DEPLOY.md", 但实际没人读, 因为 AGENTS.md 没强制引用
