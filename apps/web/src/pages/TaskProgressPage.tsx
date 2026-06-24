@@ -276,7 +276,8 @@ export function TaskProgressPage() {
                 }
               }
               if (data.totalEpisodes) setTotalEpisodes(data.totalEpisodes);
-              if (data.currentEpisode != null) setCurrentEpisode(data.currentEpisode);
+              if (data.currentEpisode !== null && data.currentEpisode !== undefined)
+                setCurrentEpisode(data.currentEpisode);
               if (data.detail) setPhaseDetail(data.detail);
 
               if (nid) {
@@ -386,7 +387,7 @@ export function TaskProgressPage() {
               }
             } else if (data.type === 'task_update') {
               const t = data.task;
-              if (t?.progress != null) {
+              if (t?.progress !== null && t?.progress !== undefined) {
                 setProgress(t.progress);
                 if (t.status !== currentState && t.status !== 'running') setStatus(t.status);
               }

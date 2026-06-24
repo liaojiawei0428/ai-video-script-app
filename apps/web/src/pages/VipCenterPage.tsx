@@ -116,7 +116,7 @@ export function VipCenterPage() {
           </li>
           <li className="flex items-start gap-2">
             <CheckCircle size={16} className="text-success flex-shrink-0 mt-0.5" />
-            <span><strong>视频 5s + 10s 免费</strong>（普通用户 5s 免费，10s 收 0.1 元）</span>
+            <span><strong>视频 5s + 10s 免费</strong>（普通用户 5s 免费，10s/15s 各收 0.1 元）</span>
           </li>
           <li className="flex items-start gap-2">
             <CheckCircle size={16} className="text-success flex-shrink-0 mt-0.5" />

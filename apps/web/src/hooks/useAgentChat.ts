@@ -321,6 +321,7 @@ export function useAgentChat(options?: UseAgentChatOptions): UseAgentChatReturn 
 
             // SSE 解析循环
             // 每条事件格式: `event: <name>\ndata: <json>\n\n`
+            // eslint-disable-next-line no-constant-condition -- 显式循环, done 时 break
             while (true) {
               const { value, done } = await reader.read();
               if (done) break;

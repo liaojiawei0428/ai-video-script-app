@@ -317,7 +317,7 @@ export function ProfilePage() {
                     key={item.to}
                     href={item.to}
                     target="_blank"
-                    rel="noopener"
+                    rel="noopener noreferrer"
                     className="flex items-center gap-3 p-4 hover:bg-bg-secondary/40 transition-colors"
                   >
                     {inner}

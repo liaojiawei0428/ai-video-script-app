@@ -1,6 +1,9 @@
 /**
  * v2.0.0 - 资产库
- * 显示已确认 + 已生图的角色 (3 张变体图网格)
+ * v3.0.28 (S62 P1 BUG-056): 跟 CharacterListScreen 一起修, `CharacterWithAssets` 类型不存在
+ *   shared-types 里没导出, 改用 server 真源 `Character` 类型
+ * v3.0.28 (S62 P2 BUG-060): 显示已生图的角色 (单图三视图 sheet, 跟 server v2.5.13 + Web 对齐)
+ *   之前显示 3 张变体图网格 (front_bust/side_bust/full_body), 跟实际数据不符
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import {
@@ -11,7 +14,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { colors, spacing, radii, typography, shadows } from '../theme';
 import { GlassCard } from '../components';
 import { listAssets } from '../api/client';
-import type { CharacterWithAssets } from '@ai-script/shared-types';
+import type { Character } from '@ai-script/shared-types';
 
 type RouteParams = { novelId: string };
 
@@ -20,7 +23,7 @@ export function AssetLibraryScreen(): React.JSX.Element {
   const navigation = useNavigation<any>();
   const { novelId } = route.params as RouteParams;
 
-  const [assets, setAssets] = useState<CharacterWithAssets[]>([]);
+  const [assets, setAssets] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -40,32 +43,32 @@ export function AssetLibraryScreen(): React.JSX.Element {
 
   const onRefresh = useCallback(() => { setRefreshing(true); load(); }, [load]);
 
-  const renderAsset = ({ item }: { item: CharacterWithAssets }) => {
-    const variants = item.imageVariants || [];
+  const renderAsset = ({ item }: { item: Character }) => {
+    // v3.0.28 (S62 P2 BUG-060): server v2.5.13 后改单图三视图, 只存 angle='sheet' 的一张图
+    // 之前显示 3 张变体 (front_bust/side_bust/full_body), 但 imageVariants 里只有 1 个 sheet,
+    // 渲染时其他 2 个 slot 是空图占位, 用户体验差
+    const sheetVariant = (item.imageVariants || []).find((v: any) => v.angle === 'sheet');
+    const imageData = (sheetVariant as any)?.imageData || (sheetVariant as any)?.url;
     return (
       <TouchableOpacity
         style={styles.assetCard}
         activeOpacity={0.7}
         onPress={() => navigation.navigate('CharacterDetail', { characterId: item.id })}
       >
-        <View style={styles.variantsRow}>
-          {variants.slice(0, 3).map((v, i) => (
-            <View key={i} style={styles.variantBox}>
-              {v.imageData ? (
-                <Image
-                  source={{ uri: v.imageData.startsWith('data:') ? v.imageData : `data:image/svg+xml;base64,${v.imageData}` }}
-                  style={styles.variantImg}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Ionicons name="image-outline" size={24} color={colors.text.tertiary} />
-              )}
-            </View>
-          ))}
+        <View style={styles.sheetBox}>
+          {imageData ? (
+            <Image
+              source={{ uri: imageData.startsWith('data:') ? imageData : `data:image/svg+xml;base64,${imageData}` }}
+              style={styles.sheetImg}
+              resizeMode="cover"
+            />
+          ) : (
+            <Ionicons name="image-outline" size={48} color={colors.text.tertiary} />
+          )}
         </View>
         <View style={styles.assetInfo}>
           <Text style={styles.assetName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.assetMeta}>{item.gender || '?'} · {variants.length} 张变体</Text>
+          <Text style={styles.assetMeta}>{item.gender || '?'} · 三视图</Text>
         </View>
       </TouchableOpacity>
     );
@@ -93,13 +96,13 @@ export function AssetLibraryScreen(): React.JSX.Element {
           <View style={styles.empty}>
             <Ionicons name="images-outline" size={64} color={colors.text.tertiary} />
             <Text style={styles.emptyTitle}>资产库为空</Text>
-            <Text style={styles.emptySub}>完成角色描述确认 + 变体图生成后, 资产会在这里展示</Text>
+            <Text style={styles.emptySub}>完成角色描述确认 + 三视图生成后, 资产会在这里展示</Text>
           </View>
         }
         ListHeaderComponent={
           assets.length > 0 ? (
             <Text style={styles.headerSub}>
-              共 {assets.length} 个资产 · 每个角色 3 张变体
+              共 {assets.length} 个资产 · 每个角色 1 张三视图
             </Text>
           ) : null
         }
@@ -118,12 +121,13 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: colors.bg.secondary,
     borderRadius: radii.lg, padding: spacing.sm, ...shadows.sm,
   },
-  variantsRow: { flexDirection: 'row', gap: 4, marginBottom: spacing.sm },
-  variantBox: {
-    flex: 1, aspectRatio: 1, backgroundColor: colors.bg.tertiary || colors.bg.primary,
-    borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  // v3.0.28 (S62 P2 BUG-060): 改单图三视图 sheet 容器 (替代 3 张变体图网格)
+  sheetBox: {
+    aspectRatio: 1, backgroundColor: colors.bg.tertiary || colors.bg.primary,
+    borderRadius: radii.md, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden', marginBottom: spacing.sm,
   },
-  variantImg: { width: '100%', height: '100%' },
+  sheetImg: { width: '100%', height: '100%' },
   assetInfo: { paddingHorizontal: 4 },
   assetName: { ...typography.h3, color: colors.text.primary, fontWeight: '700', marginBottom: 2 },
   assetMeta: { ...typography.caption, color: colors.text.tertiary, fontSize: 11 },

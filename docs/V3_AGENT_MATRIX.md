@@ -1,6 +1,25 @@
 # V3.0.0 Agent 矩阵扩展 方案文档 V2.0
 
 > **基线**: v2.5.36 已部署生产 (159.75.16.110)
+
+---
+
+> ⚠️ **本文件是 v3.0.0 设计稿** (2026-06-09 写)。
+> **当前实现版本 v3.0.0.30** (S50 已验收, 2026-06-12)。
+>
+> 设计稿 vs 实际差异:
+> - **状态机**: 设计稿写 9 态, 实际 12 态 (见 `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` § 6)
+> - **极简模式后** (`v3.0.0.13+`): `plan_cn_ready` / `plan_translating` / `awaiting_confirmation` 已不走,
+>   实际路径是 `idle → awaiting_clarification → plan_ready → tool_queued → tool_executing → tool_completed`
+> - **图片/视频流式卡片**: 设计稿没有, 实际加了 `streaming` part (S28/S47)
+> - **中文 UI + 后台 LLM 翻译**: 设计稿未考虑, 实际加了 `promptTranslator.ts` (S49b)
+> - **角色标签分类**: 设计稿英文 union, 实际 LLM 输出中文 + `mapRoleTypeToLegacy` 兼容 (S50)
+>
+> **本文件保留作为设计决策历史**, 不要按它指导当前编码。
+> 当前实现规范看:
+> 1. `apps/server/src/shared/types.ts` (PlanData / QuestionData / AgentPart / AgentConversationStatus)
+> 2. `apps/server/src/services/imageAgentService.ts` + `videoAgentService.ts`
+> 3. `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md` § 6 (状态机 + 实战约束)
 >
 > **目标**: 扩展出 "AI 助手 / 生图 Agent / 视频 Agent" 三个独立 Agent 板块
 >

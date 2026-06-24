@@ -761,6 +761,7 @@ export class VideoAgentService {
       const chunks: Uint8Array[] = [];
       let totalBytes = 0;
       // v3.0.0.1: 视频一般 2-3 MB, 内存安全; 不用 stream-to-disk (避免占 IO)
+      // eslint-disable-next-line no-constant-condition -- 显式循环, done 时 break
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;

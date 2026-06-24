@@ -152,7 +152,7 @@ export function TasksPage() {
           }
         } else if (data.type === 'task_update') {
           const t = data.task;
-          if (t?.progress != null) {
+          if (t?.progress !== null && t?.progress !== undefined) {
             setTasks(prev => prev.map(tt =>
               tt.id === nid ? { ...tt, progress: t.progress, status: t.status } : tt
             ));

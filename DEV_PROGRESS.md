@@ -1866,3 +1866,50 @@ const baseText = isModification
 3. mobile 改完必跑 tsc --noEmit, RN bundle 跑老 Metro cache 会隐藏 TS 错 (S62 BUG-056 实证, S63 BUG-063/064 又现)
 4. 写新依赖前必 grep package.json, web 端有**不代表** mobile 有 (跟 BUG-005/009/065 同根因)
 5. state 变量名禁止用 `styles`, 跟 StyleSheet 冲突 (BUG-064, 跟 BUG-031/032 同根因)| user 蓝叠装 v3.0.29 后验证: 角色库文字清晰, chip 边框可见, hero 渐变 banner 漂亮, 大头像 ring + 状态 dot 商业化; 详情页 hero + Markdown 渲染; 描述确认页 progress bar 实时更新|
+| S64 (当前) | 2026-06-24 | **[已验收] 跨端版本管理统一规范 (v3.0.29 基础上)** — user 问"最新 APK 是否更新到官网, 版本管理是否迭代, APP 更新提醒是否设置"。全面自检发现 3 个隐藏 GAP + 写完整规范文档。
+
+**🔴 P0 - 修复的 GAP**:
+
+1. **BUG-066** pps/server/package.json:3 "version": "3.0.0-alpha" 跟实际 production ecosystem.config.js APP_VERSION=3.0.29 不一致 (S17 历史残留, 12 个版本未同步) — 改 "version": "3.0.29"
+2. **BUG-066** pps/server/src/index.ts:68 fallback '3.0.0-alpha' 跟当前生产版本不一致 (env 失效时回退错版本会触发死循环) — 改 || '3.0.29'
+3. **BUG-066** /api/version 硬编码 changelog: '优化性能，修复已知问题' 通用文案 (用户看不到真实更新内容) — 改读 pps/server/changelog.json 真实条目
+
+**🟢 新增 5 文件**:
+- pps/server/src/shared/changelog.ts (185 行) — 多路径读 changelog.json, 缓存, fallback 兜底
+- pps/server/changelog.json (143 行) — 维护 11 个版本真实 changelog (1.0.0 → 3.0.29)
+- pps/web/src/config/version.ts (21 行) — web 端版本号单一来源 (跟 mobile 同结构)
+- docs/VERSION_MANAGEMENT.md (455 行) — 跨端版本管理 9 节完整规范 (v3.x 完整版, 替代 S11 冻结的 VERSION_POLICY.md)
+- docs/VERSION_POLICY.md 头部加废弃说明 + 指向 VERSION_MANAGEMENT.md
+
+**🔧 替换的硬编码 (3 处 web 端, BUG-067)**:
+- pps/web/src/components/Layout.tsx:44 硬编码 3.0.0 → import { APP_VERSION } + <span>v{APP_VERSION}</span>
+- pps/web/src/pages/AboutPage.tsx:7-8 硬编码 const → import { APP_VERSION, APP_BUILD_DATE }
+- pps/web/src/pages/DownloadPage.tsx 5 条 hardcoded changelog <li> → highlights.map(...) + 3 处硬编码 fallback → 走 APP_VERSION
+- pps/web/src/pages/DownloadPage.tsx:37 残留 APK_SIZE_BYTES 引用 → 改 APK_SIZE_BYTES_FALLBACK
+
+**📝 规范文档扩展**:
+- pps/mobile/AGENTS.md 加必读 docs/VERSION_MANAGEMENT.md + 跨端版本管理 4 条铁律
+- pps/mobile/BUGS.md 追加 BUG-066/067/068 (3 个新条目)
+- pps/mobile/CODING_STANDARDS.md 加第 30/31/32 条新规范 (源自 BUG-066/067/068)
+- pps/mobile/CODING_STANDARDS.md 规范总数: 29 → **32 条** / BUG 总数: 17 → **20 个**
+
+**🚀 部署验证 (5 维全通过)**:
+1. **server 重建**: tsc 0 错 + changelog.json 已 cp 到 dist/ (5860 bytes)
+2. **server 上线**: pm2 delete 0 + pm2 start → pid 24927 online, APP_VERSION=3.0.29, 内存 22.9mb
+3. **/api/version 修复验证**: 返 {"version":"3.0.29","changelog":"角色库 UI 商业化重设计 + 5 BUG 修复","highlights":[5 条真实要点],"buildDate":"2026-06-24","forceUpdate":true,"needUpdate":true} ✓
+4. **公网 APK HTTP 200**: https://ab.maque.uno/app/DeepScript_v3.0.29.apk (28.7 MB) ✓
+5. **web 重建**: vite build 成功 (469.36 kB JS + 40.98 kB CSS, hash index-DoXhDwc-.js), nginx root=/www/wwwroot/ab.maque.uno/dist 已替换
+6. **Playwright 验证 /download**: heading 3.0.29 更新内容(2026-06-24) + 5 条真实 highlights + 下载按钮 href=https://ab.maque.uno/app/DeepScript_v3.0.29.apk (text=下载 APP v3.0.29(28.7 MB)) ✓
+7. **Git**: commit 990e0d5 已 push 到 origin/main (14 files / +2832 / -1879, 4 新文件)
+8. **SSH key**: 用完立即 mavis-trash (按 S58 BUG-003 + user 偏好)
+
+**🎯 跨 AI 协作规范 (避免 BUG-024/025/066/067 再犯)**:
+- 任何 AI 改 shipin-APP 项目前必读 docs/VERSION_MANAGEMENT.md § 1-9
+- 触发条件 (5 类): 改 version.ts / 加依赖 / 改 /api/version / 改 updater.tsx / 改 DownloadPage 或 AboutPage
+- 改完必跑 § 7.2 6 处版本号同步自检 + § 7.5 commit message 带版本号
+
+**🟡 已知 GAP (留给下次 AI)**:
+- DEV_PROGRESS.md CRLF/LF 行尾噪音 (S64 commit 时 1828+/1828- 虚 diff), 下次 AI 可加 .gitattributes 配 autocrlf=false 解决
+- git workspace 还有 N 个历史脏文件 (CI config / scripts / .eslintrc 等) 未提交, 不是 S64 范围
+
+**📦 commit**: 990e0d5 v3.0.30: 跨端版本管理统一规范 (BUG-066/067/068) (已 push origin/main)

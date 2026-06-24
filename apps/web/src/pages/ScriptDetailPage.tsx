@@ -20,11 +20,16 @@ interface Novel {
 interface Episode { id: string; episodeNumber: number; title: string; summary?: string; durationSec: number; status: string; }
 
 const SECTION_RE = {
-  genre:  /(?:📖\s*类型|类型)[：:]\s*([^\n📌🎨💭🎭📜🏞️]+)/,
-  theme:  /(?:📌\s*主题|主题)[：:]\s*([^\n📖🎨💭🎭📜🏞️]+)/,
-  style:  /(?:🎨\s*风格|风格)[：:]\s*([^\n📖📌💭🎭📜🏞️]+)/,
-  tone:   /(?:💭\s*基调|基调)[：:]\s*([^\n📖📌🎨🎭📜🏞️]+)/,
-  plot:   /(?:📜\s*剧情要点|剧情要点)[：:]\s*([\s\S]*?)(?=🏞️|主要场景|$)/,
+  // eslint-disable-next-line no-misleading-character-class -- emoji 用 surrogate pair, 现有 JS 引擎兼容
+  genre:  /(?:📖\s*类型|类型)[：:]\s*([^\n📌🎨💭🎭📜🏞️]+)/u,
+  // eslint-disable-next-line no-misleading-character-class -- emoji 用 surrogate pair, 现有 JS 引擎兼容
+  theme:  /(?:📌\s*主题|主题)[：:]\s*([^\n📖🎨💭🎭📜🏞️]+)/u,
+  // eslint-disable-next-line no-misleading-character-class -- emoji 用 surrogate pair, 现有 JS 引擎兼容
+  style:  /(?:🎨\s*风格|风格)[：:]\s*([^\n📖📌💭🎭📜🏞️]+)/u,
+  // eslint-disable-next-line no-misleading-character-class -- emoji 用 surrogate pair, 现有 JS 引擎兼容
+  tone:   /(?:💭\s*基调|基调)[：:]\s*([^\n📖📌🎨🎭📜🏞️]+)/u,
+  // eslint-disable-next-line no-misleading-character-class -- emoji 用 surrogate pair, 现有 JS 引擎兼容
+  plot:   /(?:📜\s*剧情要点|剧情要点)[：:]\s*([\s\S]*?)(?=🏞️|主要场景|$)/u,
   scenes: /(?:🏞️?\s*主要场景|主要场景)[：:]\s*([\s\S]*?)$/,
 };
 

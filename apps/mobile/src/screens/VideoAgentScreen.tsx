@@ -31,14 +31,22 @@ const SUGGESTIONS = [
   '古风仙子在月下舞剑',
 ];
 
+// v3.0.25: 跟 web VIDEO_RATIO_OPTIONS 1:1 对齐 (8 选项: auto/16:9/9:16/1:1/3:2/2:3/4:3/3:4)
+// 历史: mobile 只有 4 个, 漏 3:2/2:3/4:3/3:4
 const ASPECT_RATIOS = [
   { value: '',        label: '自动', icon: 'help-circle-outline' },
   { value: '16:9',    label: '16:9', icon: 'tablet-landscape-outline' },
   { value: '9:16',    label: '9:16', icon: 'phone-portrait-outline' },
   { value: '1:1',     label: '1:1',  icon: 'square-outline' },
+  { value: '3:2',     label: '3:2',  icon: 'tablet-landscape-outline' },
+  { value: '2:3',     label: '2:3',  icon: 'phone-portrait-outline' },
+  { value: '4:3',     label: '4:3',  icon: 'crop-landscape' },
+  { value: '3:4',     label: '3:4',  icon: 'crop-portrait' },
 ];
 
-const DURATIONS = [3, 5, 10];
+// v3.0.25: 跟 web [5, 10, 15] + server ALLOWED_DURATIONS 一一对应
+// 历史: v3.0.0.18 时代是 [3, 5, 10], 但 user 反馈 3秒太短想要 15秒 (web v3.0.0.21 已改), mobile 漏改
+const DURATIONS = [5, 10, 15];
 
 interface ConvListItem {
   id: string;
@@ -121,6 +129,11 @@ export function VideoAgentScreen(): React.JSX.Element {
   const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050 修: 用户主动新建/删除时不 auto-load 旧 conv
   const scrollRef = useRef<ScrollView>(null);
   const { showAlert, showConfirm } = useDialog();
+
+  // v3.0.27 (BUG-055 修): 时长 chip 价格提示按 user.isVip 动态显示 (之前写死, VIP 选 10s 也显示 ¥0.1, 实际免费)
+  // server 计费: VIP 5s+10s 免费 / 15s 收 0.1; 普通 5s 免费 / 10s+15s 各 0.1
+  const userInfo = useNovelStore(s => s.userInfo);
+  const isVip = (userInfo?.vipLevel ?? 0) >= 1;
 
   useEffect(() => { loadHistory(); }, []);
 
@@ -540,7 +553,9 @@ export function VideoAgentScreen(): React.JSX.Element {
             </TouchableOpacity>
           ))}
           <Text style={styles.selectorHint}>
-            {selectedDuration === 5 ? '🟢 5s 免费' : `🟡 ${selectedDuration}s ¥0.1/条`}
+            {isVip
+              ? (selectedDuration === 15 ? '🟡 15s ¥0.1/条' : '🟢 VIP 免费')
+              : (selectedDuration === 5 ? '🟢 5s 免费' : `🟡 ${selectedDuration}s ¥0.1/条`)}
             {selectedDuration >= 10 && ' · 1-3分钟'}
           </Text>
         </View>

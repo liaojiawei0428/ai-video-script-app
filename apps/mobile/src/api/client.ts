@@ -353,6 +353,28 @@ export const getStylePresets = () =>
 export const listCharactersByNovel = (novelId: string) =>
   apiClient.get(`/novels/${novelId}/characters`);
 
+// v3.0.28 (S62 P1): 跟 web 端 `backfillCharactersApi` 对齐 — 从已有 analysisReport 重新提取角色
+// server 路由: POST /api/novels/:novelId/backfill-characters (routes/novels.ts:42)
+// 之前 mobile 没有, 列表页没"重新分析角色"按钮, 用户反馈"角色库为空没法刷新"
+export const backfillCharactersApi = (novelId: string) =>
+  apiClient.post(`/novels/${novelId}/backfill-characters`);
+
+// v3.0.28 (S62 P1): 跟 web 端 `updateCharacterFullApi` 对齐 — 完整更新角色
+//   (name/aliases/roleType/description/extraDescription)
+// server 路由: PUT /api/novels/characters/:characterId/full (routes/novels.ts:56)
+// 之前 mobile 只有 `updateCharacter` (PUT /novels/characters/:cid) 仅支持 name/appearance/personality/roleType,
+// 描述 textarea 编辑后无法保存
+export const updateCharacterFullApi = (
+  characterId: string,
+  data: {
+    name?: string;
+    aliases?: string[];
+    roleType?: string;
+    description?: string;
+    extraDescription?: string;
+  }
+) => apiClient.put(`/novels/characters/${characterId}/full`, data);
+
 // ---- v3.0.0 Image Agent (生图) - 跟 web src/lib/api.ts imageAgent* 1:1 对齐 ----
 // v3.0.24 (S60 P2 BUG-041): 补全 image/video-agent 12 个 API
 //   之前 mobile ImageAgentScreen 调 /video-agent/confirm 错的 (复制粘贴没改)
