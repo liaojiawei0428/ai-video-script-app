@@ -1913,3 +1913,56 @@ const baseText = isModification
 - git workspace 还有 N 个历史脏文件 (CI config / scripts / .eslintrc 等) 未提交, 不是 S64 范围
 
 **📦 commit**: 990e0d5 v3.0.30: 跨端版本管理统一规范 (BUG-066/067/068) (已 push origin/main)
+
+| S65 (当前) | 2026-06-24 | **[已验收] 部署规范统一 + 规范自迭代 SOP (ADR 实践)** — user 反馈"部署流程是否有相关规范?" + "每次版本更新/重大更新都要及时做好规范文件"。GitHub 调研后采用 ADR (Architecture Decision Records) 方案。
+
+**🟢 修复 5 个 GAP (部署规范统一)**:
+1. GAP #1 5 维 vs 6 维验证分工 (docs/DEPLOY.md § 0 加 cross-ref + § 6 标注 server-only 6 维 / 跨端 5 维)
+2. GAP #2 SSH key 矛盾 (§ 6 #8 区分永久 key ~/.ssh/id_ed25519 保留 vs 临时 /tmp/deploy_key_*.pem mavis-trash)
+3. GAP #3 docs/APP_RELEASE_GUIDE.md 冻结 (指向 VERSION_MANAGEMENT.md)
+4. GAP #4 跨端统一入口 (VERSION_MANAGEMENT.md § 9 加 10 个文档按优先级排序的 AI Agent 必读列表)
+5. GAP #5 新建 apps/web/DEPLOY.md (web 端配套规范, 130 行, 5 步 + 5 维验证 + 4 类常见问题)
+
+**🟢 新建 4 份规范文档 (S65 核心交付)**:
+- docs/STANDARDS_EVOLUTION.md (347 行) — 规范自迭代 SOP, 9 节
+- apps/web/DEPLOY.md (247 行) — web 端部署配套规范
+- docs/standards/ADR/README.md (59 行) — ADR 索引
+- docs/standards/ADR/0000-adr-template.md (82 行) — 6 模块标准模板
+
+**🟢 新建 1 份示范 ADR**:
+- docs/standards/ADR/0001-server-changelog-source-of-truth.md (176 行) — server changelog 单一来源决策追溯
+
+**🔧 修订 3 份规范文档**:
+- docs/DEPLOY.md (§ 0 加跨端引用 + § 6 修 5/6 维 + SSH key 区分)
+- docs/APP_RELEASE_GUIDE.md (冻结 + 指向 VERSION_MANAGEMENT)
+- docs/VERSION_MANAGEMENT.md (§ 9 升级为跨端统一入口)
+- apps/mobile/AGENTS.md (加 STANDARDS_EVOLUTION.md 为必读第 0 份)
+- apps/mobile/CODING_STANDARDS.md (加第 33 条新规范, 32 → 33)
+
+**📊 GitHub 调研方案**:
+- ADR (joelparkerhenderson/architecture_decision_record) — 主流, 6 元素结构, 不可变历史
+- Agent Skills 体系 (Ant Group) — SKILL.md 元数据 + 三层渐进式披露
+- JoyAgent + JoyCode Agent+Code 闭环 — 应用反馈 → 学习 → 进化
+
+**🚀 部署验证**: 本次纯规范修订, 无 server/mobile 代码改动, 不需要重跑 5 维验证. server 仍 v3.0.29.
+
+**🎯 规范自迭代触发 (按 STANDARDS_EVOLUTION.md § 2)**:
+- 3 类发版 → 必跑 § 3 SOP 修订全部规范
+- 架构重大变更 → 必新建 ADR
+- 重大 BUG 修复 → BUGS.md + CODING_STANDARDS.md 强制更新
+- 新增/废弃文档 → 头部加废弃说明 + 指向新规范
+- 修复规范 GAP → 一次性修订全套相关规范 (本次 S65)
+
+**📦 commit**: abd20b6 v3.0.30 P2: 部署规范统一 + 规范自迭代 SOP (STANDARDS_EVOLUTION + ADR-0001) (已 push origin/main)
+
+**🎯 下个 AI 必读优先级** (按 STANDARDS_EVOLUTION.md § 9 + VERSION_MANAGEMENT.md § 9.1):
+1. docs/STANDARDS_EVOLUTION.md (新加最高优先级)
+2. docs/VERSION_MANAGEMENT.md
+3. docs/standards/ADR/
+4. apps/mobile/AGENTS.md
+5. apps/mobile/BUGS.md
+6. apps/mobile/CODING_STANDARDS.md (33 条)
+7. apps/mobile/DEPLOY.md
+8. apps/web/DEPLOY.md (S65 新建)
+9. docs/DEPLOY.md
+10. docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md
