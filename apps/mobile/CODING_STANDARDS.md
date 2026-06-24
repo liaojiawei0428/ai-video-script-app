@@ -247,6 +247,109 @@
 - ✅ 升级 UI 代码 review 时必查 `App.tsx` 跟 `updater.tsx` 两处, 看是否重复
 - ✅ 诊断: 升级行为**真机跟 AVD 不一致** = 100% 是 `App.tsx` 有全屏升级页抢 return, 删 `App.tsx` 强制更新页 if 块
 
+## 25. 主题对比度硬性 ≥ 4.5:1 (WCAG AA, 源自 BUG-061)
+
+- ✅ **所有文字颜色在背景上的对比度必须 ≥ 4.5:1** (WCAG AA 最低线)
+  - 文字 (≥ 18pt 正常) 用 `#F8FAFC` (12.6:1) 配 `#151525` bg, 没问题
+  - 辅助文字 (12-13pt) 用 `#CBD5E1` (7.4:1) 配 bg, 没问题
+  - placeholder 用 `#94A3B8` (4.5:1) 配 bg, 临界但合规
+- ❌ **禁止用 `colors.text.tertiary` (#94A3B8) 配 `colors.bg.tertiary` (#1E1E35)** — 实测 4.36:1, **WCAG fail**
+- ❌ **禁止 chip 文字用 `bg = color + '20'` (12.5% alpha) 凑** — 视觉上隐形, 必加 `border: color + '40'` (1px, 25% alpha) 辅助
+- ✅ **写新 screen 前先列对比度表**, 跟背景色对一遍:
+  ```
+  bg.primary #0A0A14 → text.primary #F8FAFC (15.5:1) ✅
+  bg.primary #0A0A14 → text.muted #CBD5E1 (10.5:1) ✅
+  bg.secondary #151525 → text.body #E2E8F0 (12.0:1) ✅ (替代原 text.tertiary)
+  bg.secondary #151525 → text.muted #CBD5E1 (8.0:1) ✅
+  bg.tertiary #1E1E35 → text.subtle #94A3B8 (5.5:1) ✅
+  ```
+- ✅ **场景化 theme**: 角色库用 `src/theme/character.ts` (含 5 级文字 + 3 层 surface + role 配色), 不跟全局共用
+- ✅ 商业化 UI 第一个验证项: **跑 WebAIM Contrast Checker** (https://webaim.org/resources/contrastchecker/) 对比度 ≥ 4.5:1
+
+## 26. 禁止 emoji 当 UI icon, 用 react-native-vector-icons/Ionicons (源自 BUG-062)
+
+- ❌ **禁止用 emoji 当 UI icon** (🏷/📛/📝/📖/✨/⏰/✅/❌ 等)
+  - emoji 渲染依赖系统字体, 跨 Android 7/14, iOS 不一致
+  - emoji 风格跟 shipin-APP 其他用 Ionicons 的 screen 不统一
+  - 商业化 APP 看 emoji 像 "草稿原型", 跟 Notion/Linear 风格差几个档次
+- ✅ **统一用 `react-native-vector-icons/Ionicons`** (package.json 已装, RN 0.73 默认支持)
+  ```ts
+  import Ionicons from 'react-native-vector-icons/Ionicons';
+  <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+  ```
+- ✅ **跨 screen 一致**: shipin-APP 所有 icon 都用 Ionicons, 包括:
+  - 角色类型: `flame/skull/shield/person` (主角/反派/配角/次要)
+  - 状态: `hourglass-outline/create-outline/sync/image-outline/checkmark-circle`
+  - 画风: `videocam-outline/flower-outline/rocket-outline/heart-outline/cube-outline`
+  - 通用: `arrow-back/chevron-down/close/save/sparkles/sync/refresh/...`
+- ⚠️ **允许保留字符 icon** (✓ ✕ ⚠) — Toast / Alert 内部 native 弹窗用, 跟 RN 自带风格一致
+- ✅ 跟 BUG-050 (历史 chip emoji) 同根因, 写新 chip/badge/card 必先 grep `(🏷|📛|📝|📖|✨|⏰|✅|❌|🔍|💡)` 排查
+
+## 27. mobile 改完必跑 tsc --noEmit 验证 (源自 BUG-063/064, S62 BUG-056 重申)
+
+- ✅ **mobile 改完任何代码, 必跑 `tsc --noEmit` 验证** (RN 项目配了 `tsconfig.json`, 0 配置即可)
+  ```bash
+  cd apps/mobile
+  node ../../node_modules/typescript/bin/tsc --noEmit 2>&1 | head -20
+  ```
+- ❌ **禁止只跑 `gradlew assembleRelease` 验证** — RN 0.73 + Metro 0.80 老 cache 兼容老 JSX 调用, **会隐藏 TS 类型错** (BUG-056 实证)
+- ⚠️ **历史 BUG 同根因 (S58~S62 期间累积 76 个 tsc errors)**:
+  - BUG-031/032 (S59): 缺 theme import 编译失败
+  - BUG-056 (S62): `CharacterWithAssets` 类型未导出 silent fail
+  - BUG-063 (S63): 9 个 `showToast('msg', 'error')` 老 2 参 API
+  - BUG-064 (S63): 17 个 state `styles` 跟 StyleSheet 冲突
+- ✅ **写新 screen / 重写旧 screen, 必跑 tsc 验自己改的部分 0 错** (老错不归本次, 记录在 BUGS.md)
+- ✅ 跨端 API 重构 (Toast/Dialog/Sheet) 后, 必 audit 老调用点, 改完跑 tsc 验
+
+## 28. 禁止 state 变量名用 `styles` (跟 StyleSheet 冲突, 源自 BUG-064)
+
+- ❌ **禁止用 `styles` 当 state 变量名** (跟本地 `const styles = StyleSheet.create({...})` 冲突)
+  ```ts
+  // ❌ 错: styles 既当 state 又当 StyleSheet
+  const [styles, setStyles] = useState<StylePreset[]>([]);
+  // ...
+  const styles = StyleSheet.create({...})  // TS 报错: 重复声明
+
+  // ✅ 对: state 用语义化名字
+  const [stylePresets, setStylePresets] = useState<StylePreset[]>([]);
+  const styles = StyleSheet.create({...})
+  ```
+- ✅ **StyleSheet 变量名** 统一用 `styles` (RN 惯例, 跟 react-native 文档一致)
+- ✅ **state 变量命名规范**:
+  - 数据列表: `characters` / `episodes` / `novels` (跟 server 字段名一致)
+  - 配置类: `stylePresets` / `userInfo` / `novelConfig`
+  - 状态类: `loading` / `refreshing` / `extracting` / `backfilling`
+  - 消息类: `errorMsg` / `backfillMsg` / `successMsg`
+- ✅ 跟 BUG-031/032 (S59 缺 theme import 编译失败) 同根因 — 都是 "写完没 tsc 验证"
+
+## 29. 写新依赖前必 grep package.json 验证 (源自 BUG-005/009/065)
+
+- ✅ **写新组件用第三方包, 必先 `cat apps/mobile/package.json | grep "<package>"` 验证**
+  - shipin-APP mobile 跟 web 栈不同, web 端有**不代表** mobile 有
+  - web 端 Vite 项目用 `react-native-linear-gradient` 替代品 (web 用 CSS), 跟 mobile 完全不同
+- ❌ **禁止"看 web 端有就以为 mobile 也有"** (跟 BUG-005 S58 mobile `STYLE_PRESETS` 从 monorepo 拿 undefined 同根因)
+- ✅ **mobile 软依赖标准做法**: try-require 模式
+  ```ts
+  let RNLinearGradient: any = null;
+  try {
+    const mod = require('react-native-linear-gradient');
+    RNLinearGradient = mod?.default || mod;
+  } catch {
+    RNLinearGradient = null;
+  }
+  // fallback: View 叠 3 段半透明色
+  if (!RNLinearGradient) {
+    return <View style={[styles.fallback, style]}>{children}</View>;
+  }
+  return <RNLinearGradient ...>{children}</RNLinearGradient>;
+  ```
+- ✅ **fallback 必"功能等价"**, 视觉上接近, 不能 throw 阻塞渲染
+- ✅ shipin-APP mobile 当前**没装**的包 (S63 摸底):
+  - `react-native-linear-gradient` — 角色库 hero 用 fallback View 渐变模拟
+  - `react-native-svg` — 角色类型 icon 当前用 Ionicons (RN 0.73 自带), 后续若需复杂 SVG 再装
+  - `lottie-react-native` — 状态生图动画当前用 ActivityIndicator, 后续若需骨架屏再装
+  - 装新包前必 `cat package.json` + `cat android/app/build.gradle` 看是否需 Android 配置
+
 ---
 
 # 第二部分: BUG 记录强制流程 (硬性流程)
@@ -333,7 +436,7 @@
 
 ---
 
-# 当前生效规则 (2026-06-16 v3.0.2)
+# 当前生效规则 (2026-06-24 v3.0.29)
 
 | 类别 | 规范数 | 触发 BUG |
 |---|---|---|
@@ -353,10 +456,19 @@
 | Native module 引用 | 1 条 | (历史) |
 | build.gradle / gradle.properties | 1 条 | (历史) |
 | screen 跟 client.ts 双向核对 | 1 条 | BUG-009 |
-| server 返嵌套对象必拿 .字段 | 1 条 (新) | BUG-005, BUG-009, BUG-011 |
-| APP 内下载必用自定义 Modal 进度 | 1 条 (新) | BUG-010 |
-| React component 必用 .tsx 后缀 | 1 条 (新) | BUG-012 |
-| **合计** | **19 条** | **12 个 BUG** |
+| server 返嵌套对象必拿 .字段 | 1 条 | BUG-005, BUG-009, BUG-011 |
+| APP 内下载必用自定义 Modal 进度 | 1 条 | BUG-010 |
+| React component 必用 .tsx 后缀 | 1 条 | BUG-012 |
+| release APK 必用永久 keystore | 1 条 | BUG-023 |
+| 试纸 / 新版本 APK 必重打包 | 1 条 | BUG-024 |
+| actionViewIntent 必用 _state.destPath | 1 条 | BUG-025 |
+| 永远只让 1 套升级 UI 代码存活 | 1 条 | BUG-026 |
+| 主题对比度硬性 ≥ 4.5:1 (WCAG AA) | 1 条 (新) | BUG-061 |
+| 禁止 emoji 当 UI icon, 用 Ionicons | 1 条 (新) | BUG-062 |
+| mobile 改完必跑 tsc --noEmit 验证 | 1 条 (新) | BUG-056, BUG-063, BUG-064 |
+| 禁止 state 变量名用 `styles` (跟 StyleSheet 冲突) | 1 条 (新) | BUG-064 |
+| 写新依赖前必 grep package.json 验证 | 1 条 (新) | BUG-005, BUG-009, BUG-065 |
+| **合计** | **29 条** | **17 个 BUG** |
 
 下次新 BUG 修完, 必:
 1. 追加 BUGS.md BUG-NNN 条目

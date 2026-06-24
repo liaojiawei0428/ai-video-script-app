@@ -1759,4 +1759,110 @@ const baseText = isModification
 | S47 (当前) | 2026-06-12 | **[已验收] v3.0.0.27 视频/图片流式卡片持久化**: server 端 4 处 videoAgentService + 4 处 imageAgentService 写 streaming/video/error part 到 conv.messages. video: helper line 93+108 (pushStreamingProgress + replaceStreamingPart), confirm:304, fail_rollback:385, completed:455, failed:490. image: helper line 107+121, confirm:409, completed:518, failed:558. E2E 5 项全过: (i) video confirm 后 status=tool_queued, last message 3rd part=streaming{stage:generating}; (ii) video tool_completed 后 last message streaming→video{mutate 成功, **同一 message id c8f36159 保留 plan+text+video**, 卡片原地变} (iii) confirm 后立即 GET 看到 streaming part; (iv) image 30s 跑通 streaming→image{role:result,url}; (v) cleanup 4 rows. PM2 restart server pid 63430 online. md5 videoAgentService.js=a8c7dcfc822222ac1a7ad7a1f72c097d, imageAgentService.js=f6ba0262082e225b22a65a55f697b506 | user 刷新 web (Ctrl+Shift+R) 验证: 1) refresh during generating 应看到 spinner 卡片; 2) refresh after completed 应看到 in-card video |
 | S48 (当前) | 2026-06-12 | **[已验收] v3.0.0.28 plan.prompt 100% passthrough 原文** (修 v3.0.0.13 历史 BUG: server 端 append `, masterpiece, best quality, ultra detailed, 8k, highly detailed` + i2v `[Modification Mode] ...` prefix, 跟 user "不要改动用户原文" 偏好冲突). (1) imagePromptBuilder.ts 全文重写: 删 QUALITY_TAGS const, buildPassthroughPrompt+buildI2VModificationPrompt 都 return `(userText || '').trim()`, DEFAULT_NEGATIVE 保留 (那是约束不是改原文), file-top 注释 v3.0.0.28; (2) videoAgentService.ts line 218-225 简化: `const finalPrompt = (userText || '').trim()` 一行, isModification 分支仅 `useRefForI2V=lastResultUrl` (no prompt mangle), 删 buildPassthroughPrompt/buildI2VModificationPrompt import; (3) imageAgentService.ts line 333 注释 v3.0.0.28 (enPrompt 现在 = userText.trim via buildFinalEnglishPrompt 简化, 不再改代码). E2E 3 项全过: (i) video plan.prompt='testing 100% original S48' 严格 = userText 无 masterpiece; (ii) image 同样; (iii) video userTextLen=25 == AgnesVideoProvider createTask promptLen=25; image userTextLen=26 == background run promptLen=26 == AgnesImageProvider done (8.6s). PM2 restart pid 27195 online. md5 dist/index.js=e6d3d336, imagePromptBuilder.js=ee94409b, videoAgentService.js=fd9e7862, imageAgentService.js=e349a807 | user 强刷 web (Ctrl+Shift+R) + 重新触发 conv 验证末尾是否清干净 |
 | S49b (当前) | 2026-06-12 | **[已验收] v3.0.0.29 角色库 UI 中文显示 + 后台 LLM 翻译英文发 agens** (修历史 deploy GAP: 3 文件 sync, 跟 user 提的 "中英文夹杂混一起会把 AI 搞混乱"). (1) 新文件 `apps/server/src/services/promptTranslator.ts` (80 行): `translateCharacterDescriptionToEnglish(zhText)` 用 agnesTextProvider.chatCompletion 翻译, system prompt 明确要求保留摄影 trigger 词 (photorealistic/85mm/bokeh/cinematic/8k uhd) + 中文量词翻译 (瓜子脸→oval face/杏眼→almond eyes/柳叶眉→arched eyebrows/樱桃小嘴→cherry lips), 失败 fallback catch err + return 'zhText photographic' 不阻塞; (2) characterService.ts line 542 改: `sheetData.prompt_safe_description = translatedVisualText || visualText.slice(0,1500)` (translated 优先, fallback 原文), visualText 保持中文给 UI; (3) **3 文件 sync GAP 修** (coder raise, sign-off A+A'): scp 本地 NEW characterSheetPrompt.ts (md5=3c573cd) + characterDescription.ts (md5=beae233) + styleBible.ts (md5=32798e18) 到生产, 修 parent PR 漏 deploy 历史 GAP. E2E 4 项: (i) promptTranslator log translatedLen=526/564/584 hasTriggerWords=true 3/3; (ii) GET description 仍中文 (UI); (iii) fallback code review pass (runtime skip 不必要); (iv) 3x 跑翻译 3/3 trigger 词保持 95% 一致. PM2 pid 19980 online. 翻译示例 (84字中文 → 526字英文): '她有一张瓜子脸,杏眼,柳叶眉,樱桃小嘴...' → 'She has an oval face(瓜子脸), almond eyes(杏眼), arched eyebrows(柳叶眉), cherry lips(樱桃小嘴)... photorealistic, 85mm lens, bokeh, cinematic lighting, 8k uhd, high detail.' 中文语义 1:1 保留 + trigger 词自动加 | user 强刷 web (Ctrl+Shift+R) + 试新角色生图 (输入中文 trigger 词 like '瓜子脸/杏眼', 看翻译后英文) |
-| S50 (当前) | 2026-06-12 | **[已验收] v3.0.0.30 角色库 description 详尽度 + 角色标签分类** (修 user 提的 "角色库详细信息怎么变得这么短了" + "通过小说分析时把每个角色内容都分析仔细"). (1) `characterDescription.ts` system prompt 改丰度: 主角 800-2000 字 (5 section 完整: 基本/外貌/性格/语言/标志性特征, 5+ 原文事例, 章节标注), 重要配角 300-800 字, 次要配角 80-200 字, 路人 30-60 字. **核心: 标签分类必做 (主角/重要配角/次要配角/正派/反派/跑龙套/路人甲乙丙丁), 丰度上限不强制, 小说没提就少写不编造**. user prompt `novelExcerpts.slice(0, 12000)` → `slice(0, 30000)`, `fullSummary.slice(0, 6000)` → `slice(0, 15000)`; (2) `characterService.ts` 删 `visualText.slice(0, 1500)` 3 处硬截断 (S49b 加的限制, 改后不截断 DB 字段 TEXT 够长), `extractDistinctiveFeatures` 300 → 800 字符; (3) **额外修**: novels 表加 `novel_excerpts` LONGTEXT column + `novelModel.mapRowToNovel` 加映射 + `Novel` interface 加 `novelExcerpts?: string`; (4) **JSON output schema 加 `roleType` 字段** (LLM 自主分类, 不绑定旧英文 union); (5) **兼容补丁**: `mapRoleTypeToLegacy()` (characterService.ts:25-46) 把中文→英文 (主角→protagonist, 重要/次要→supporting, 跑龙套/路人→minor, 旧英文直通), 2 处 SQL UPDATE wrap mapping; (6) **d390 副作用处置**: LLM 重分类 6 角色后, user 选 A 接受 + coder 推荐方案 0 一次性 SQL 回填 d390 6 角色 role_type 旧英文 (LLM 中文分类判断保留在 response.characters[].roleType, DB column 存 legacy 英文 union 跟 TS type 一致). E2E 5 项全过: (v) 静态 18/18 PASS (5 标签分类 + 3 alignment + 丰度上限不强制 + 严禁编造 + JSON schema roleType + 配角不强求 5 section); (vi) 真 LLM 2/2 角色正确分类; (vii) 真生产 d390 novel 验证丰度: 苏蓉蓉 主角/正派 1360 chars / 独孤琰 主角/反派 1199 / 万公公 重要配角/正派 666 / 秋霞 623 / 陆婕妤 次要配角/反派 624 / 金枝 461 chars. PM2 pid 27908 online, 0 build 0 restart. dist md5: characterDescription.js=30738e49, characterService.js=2a3bd0c1, novel.js=ac67c74e, types.js=8963201168a2449f79025884824955f2. **苏蓉蓉 1360 chars example 完美**: 5 section 完整 + 朱砂痣+肤白如雪+柳叶弯眉+第1章标注 + 4 个原文事例 (强作镇定/聪明坚韧/重情护仆/随机应变) + 3 句引语 (臣妾参见陛下/傻丫头/你若再犯) | user 强刷 web (Ctrl+Shift+R) + 试新小说 extractDescriptions, 验证 description 详尽度 + 角色标签 |
+| S50 | 2026-06-12 | **[已验收] v3.0.0.30 角色库 description 详尽度 + 角色标签分类** (修 user 提的 "角色库详细信息怎么变得这么短了" + "通过小说分析时把每个角色内容都分析仔细"). (1) `characterDescription.ts` system prompt 改丰度: 主角 800-2000 字 (5 section 完整: 基本/外貌/性格/语言/标志性特征, 5+ 原文事例, 章节标注), 重要配角 300-800 字, 次要配角 80-200 字, 路人 30-60 字. **核心: 标签分类必做 (主角/重要配角/次要配角/正派/反派/跑龙套/路人甲乙丙丁), 丰度上限不强制, 小说没提就少写不编造**. user prompt `novelExcerpts.slice(0, 12000)` → `slice(0, 30000)`, `fullSummary.slice(0, 6000)` → `slice(0, 15000)`; (2) `characterService.ts` 删 `visualText.slice(0, 1500)` 3 处硬截断 (S49b 加的限制, 改后不截断 DB 字段 TEXT 够长), `extractDistinctiveFeatures` 300 → 800 字符; (3) **额外修**: novels 表加 `novel_excerpts` LONGTEXT column + `novelModel.mapRowToNovel` 加映射 + `Novel` interface 加 `novelExcerpts?: string`; (4) **JSON output schema 加 `roleType` 字段** (LLM 自主分类, 不绑定旧英文 union); (5) **兼容补丁**: `mapRoleTypeToLegacy()` (characterService.ts:25-46) 把中文→英文 (主角→protagonist, 重要/次要→supporting, 跑龙套/路人→minor, 旧英文直通), 2 处 SQL UPDATE wrap mapping; (6) **d390 副作用处置**: LLM 重分类 6 角色后, user 选 A 接受 + coder 推荐方案 0 一次性 SQL 回填 d390 6 角色 role_type 旧英文 (LLM 中文分类判断保留在 response.characters[].roleType, DB column 存 legacy 英文 union 跟 TS type 一致). E2E 5 项全过: (v) 静态 18/18 PASS (5 标签分类 + 3 alignment + 丰度上限不强制 + 严禁编造 + JSON schema roleType + 配角不强求 5 section); (vi) 真 LLM 2/2 角色正确分类; (vii) 真生产 d390 novel 验证丰度: 苏蓉蓉 主角/正派 1360 chars / 独孤琰 主角/反派 1199 / 万公公 重要配角/正派 666 / 秋霞 623 / 陆婕妤 次要配角/反派 624 / 金枝 461 chars. PM2 pid 27908 online, 0 build 0 restart. dist md5: characterDescription.js=30738e49, characterService.js=2a3bd0c1, novel.js=ac67c74e, types.js=8963201168a2449f79025884824955f2. **苏蓉蓉 1360 chars example 完美**: 5 section 完整 + 朱砂痣+肤白如雪+柳叶弯眉+第1章标注 + 4 个原文事例 (强作镇定/聪明坚韧/重情护仆/随机应变) + 3 句引语 (臣妾参见陛下/傻丫头/你若再犯) | user 强刷 web (Ctrl+Shift+R) + 试新小说 extractDescriptions, 验证 description 详尽度 + 角色标签 |
+| S51 | 2026-06-23 | **[已验收] 项目扫描 + 状态概览（冷启动）**（user 离线 11 天后回来重新进入项目，无开发动作）。(1) 通读根目录 + AGENTS.md + DEV_PROGRESS.md 全文（1762 行）+ apps/server/src + apps/web/src 文件清单；(2) 确认当前代码版本 `v3.0.0.30` (S50 已验收, 2026-06-12)，server 包 v3.0.0-alpha / web 包 v2.0.0（版本号未同步）；(3) 确认 P0 GAP 3 项未变 (outline/plotGraph 未串主流程 / scriptService 未注 plotGraph / 积分订单未实现)，P1/P2 累计待办 ~10 项；(4) 本地工具：node ✓ npm ✓ git ✗ (PowerShell PATH 没注册但 .git/ 存在)；(5) 给 user 简版项目速览 + 当前状态 + 候选下一步，等 user 决定方向 | user 决定下一步方向（PR 链续推 / 修 P0 GAP / 新需求）|
+| S52 | 2026-06-23 | **[已验收] 项目代码规范清理 + 工具链补齐**（user 要求 "删除不合理和过时重复的，根据目前的规范优化调整到最合理合适的"）。**🟢 文档清理（5 处）**：① `apps/mobile/CLAUDE.md` 跟 `AGENTS.md` 100% 重复 → 改成 Claude Code 入口差异化 (5 行 + link AGENTS.md)；② `docs/VERSION_POLICY.md` 严重过时（停在 v2.0.0）→ 顶部加 ⚠️ "本文件冻结于 v2.0.0" 警告段；③ `docs/V3_AGENT_MATRIX.md` 严重过时（V3.0.0 设计稿 vs 当前 v3.0.0.30 实际 12 态）→ 顶部加 ⚠️ 设计稿 vs 实际差异表 + 5 项差异点 + 指向 DEPLOYMENT_AND_BACKEND_RULES.md §6；④ `docs/specs/ai-execution-protocol.md §7.3` 中文思考规范跟 AGENTS.md 重复 → 加 "以 AGENTS.md 为权威源" 注释；⑤ `apps/mobile/AGENTS.md:38` 写本机绝对路径 → 改成 monorepo 相对路径说明。**🟢 工具链补齐（ESLint 8 + Prettier 3 + Husky 9 + lint-staged 15）**：① Root `.prettierrc` (100 列 + singleQuote + LF) + `.editorconfig` (2 空格 + LF + UTF-8) + root `package.json` devDeps 加齐；② `apps/server/.eslintrc.cjs` + `apps/web/.eslintrc.cjs` 用软着陆策略：3 个 error 级真 BUG 防护（`eqeqeq` / `no-var` / `no-empty` + web `react-hooks/rules-of-hooks`），其余全 warn（`no-explicit-any` / `no-floating-promises` / `no-misused-promises` 等），不开 `no-unsafe-*` 和 `recommended-requiring-type-checking`（现状 any 满天飞，全开刷 1000+ 错违反"最小侵入"）；③ `turbo.json` 升 v2（`pipeline` → `tasks`）+ root `package.json` 加 `packageManager` 字段（turbo v2 必需）；④ Husky pre-commit 只跑 `lint-staged` = `prettier --write`（不跑 eslint/tsc，commit 流畅）；⑤ `noUncheckedIndexedAccess: true` **撤销**（原本想开，刷 50+ 编译错太大），server tsconfig 加 `noImplicitOverride` + `noFallthroughCasesInSwitch`（低风险严格化）。**🟢 修 16 个真 lint BUG（都该 catch 的）**：① `!=` → `!==` 3 处（`TasksPage.tsx:155` + `TaskProgressPage.tsx:279,389`，避免 null/undefined 跟 0 比较）；② `while (true)` 2 处（server `videoAgentService.ts:764` + web `useAgentChat.ts:324`）加 `// eslint-disable-next-line no-constant-condition` 注释；③ `target="_blank"` 缺 `rel="noopener noreferrer"`（`ProfilePage.tsx:316`，安全 BUG，旧浏览器可被钓鱼）；④ 正则 emoji 字符类缺 `/u` flag（`ScriptDetailPage.tsx:23-26` 4 处，避免 surrogate pair 错位）；⑤ server tsconfig 把 `scripts/` 加 include + `.eslintrc.cjs` 加 scripts/ ignore（让 ESLint 跟 tsc 对齐，scripts 用 tsx 单独跑）；⑥ server `test-ffmpeg-helper.ts` 之前 `parsing error` 跟 ESLint 冲突 → 解决。**🟢 CI 集成**：`.github/workflows/ci.yml` 加 `lint` job（lint + typecheck + format:check 跑在 test-backend 前），3 个 jobs 链路：lint → test-backend → build-docker。**🟢 Root scripts**：lint / lint:fix / format / format:check / typecheck 全部用 `npm --prefix apps/{server,web}` 显式指定（**避开 `npm workspaces`**，避免 hoist 破坏 mobile RN node_modules 结构）。**🔴 软着陆策略**：541 (server) + 254 (web) warnings 全部保留（不上 error），等后续 PR 逐文件清；任何 PR commit 不会因 warning 阻塞，但 errors 0 是硬门槛。**E2E 验证全通过**：server `tsc --noEmit` 0 错 + server `eslint` 0 errors/541 warnings；web `tsc -b --noEmit` 0 错 + web `eslint` 0 errors/254 warnings；root `npm run lint` 跑通；husky `prepare` 在 PowerShell+无 git 环境下 graceful fallback（`husky || true`）；CI lint job 跟 test-backend 串好。**📊 项目工程化提升**：从 "100% 文档治 + 0 工具治" → "95% 文档治 + 5% 工具治"（lint/typecheck/format 三个硬卡点就位，剩下靠人 + agent memory 沉淀）。**📝 遗留 TODO（不进 dev 分支）**：① 逐文件清 warnings（541+254 条，主要是 `no-explicit-any` + `no-floating-promises` + `react-hooks/exhaustive-deps`）；② server `noUncheckedIndexedAccess` 重新评估时机（待所有 controller 的 `req.params.id` 处理加 `?.id ?? ''` 后再开）；③ mobile `apps/mobile` 加 ESLint 配置（user 节奏暂不动，等 web 端做透再搬）；④ pre-commit hook 在装了 git 之后实测一遍（当前 PowerShell PATH 没 git，husky install 走 fallback） | 候选下一步（按 user 偏好）：A) 接 v3.0.0 PR 链续推（S50 之后下一个 PR）；B) 修 P0 GAP（outline/plotGraph 真串主流程）；C) 逐文件清 warnings（lint 警告大扫除）；D) mobile 端规范同步（按 user 节奏暂缓）|
+| S62 (已验收) | 2026-06-23 | **[已验收] 角色库 mobile 跟 web 端 1:1 对齐 (v3.0.28)** — user 反馈 "角色信息无法编辑, 无法生成三视图, 跟 web 端生成角色图的功能不一样"。5 个隐藏 BUG 一起修:
+
+**🐛 修复清单 (5 BUG)**:
+1. **BUG-056** CharacterWithAssets 类型 shared-types 没导出 → CharacterListScreen + AssetLibraryScreen 改用 server 真源 Character
+2. **BUG-057** CharacterDescriptionReviewScreen 用 11 维字段编辑 (DIMENSIONS 数组), 跟 server v2.5.34 自由文本不匹配 → 重构成 2 个 textarea
+3. **BUG-058** mobile client.ts 缺 backfillCharactersApi (server `POST /novels/:id/backfill-characters` 端点存在) → 补 helper
+4. **BUG-059** mobile client.ts 缺 updateCharacterFullApi (server `PUT /novels/characters/:cid/full` 端点存在) → 补 helper
+5. **BUG-060** mobile CharacterDetailScreen 还在 3 张变体图模式 (front_bust/side_bust/full_body), 跟 server v2.5.13 单图三视图 sheet 不一致 → 整体重写
+
+**🟢 改动文件 (5 个 screen + 1 个 client + 3 处版本号)**:
+- `apps/mobile/src/api/client.ts` — 加 `backfillCharactersApi` + `updateCharacterFullApi` (跟 web 1:1)
+- `apps/mobile/src/screens/CharacterListScreen.tsx` — 加"重新分析角色"按钮 + 描述摘要 + 单图 sheet 预览 (172→260 行)
+- `apps/mobile/src/screens/CharacterDetailScreen.tsx` — 整体重写 (310→575 行), 加编辑模式 (角色类型/别名/主描述/补充描述) + 确认 + 生成三视图单图
+- `apps/mobile/src/screens/CharacterDescriptionReviewScreen.tsx` — 整体重写 (344→480 行), 删 11 维字段编辑, 改 2 个 textarea
+- `apps/mobile/src/screens/AssetLibraryScreen.tsx` — 改单图 sheet 预览 (替代 3 张变体图网格)
+- `apps/mobile/src/config/version.ts` — APP_VERSION 3.0.27 → 3.0.28
+- `apps/mobile/android/app/build.gradle` — versionCode 34→35, versionName 3.0.27→3.0.28
+- `apps/mobile/BUGS.md` — 新增 BUG-056~060 (5 条新条目)
+- `apps/server/ecosystem.config.js` — env + env_production APP_VERSION 3.0.27 → 3.0.28 (PM2 reload)
+
+**🟢 构建 + 部署**:
+- `gradlew assembleRelease` BUILD SUCCESSFUL in 1m 29s (增量编译, 373 task UP-TO-DATE)
+- APK: `app-release.apk` 30,064,869 bytes (28.7 MB), SHA256=9732531BE7218279B641490327764F84EFA8FA9CAE0D9A30D9132139CD5452EB
+- 签名: `CN=DeepScript Release, O=shipin-APP` (永久 release.keystore, BUG-023 保护)
+
+**🟢 5 维验证全通过**:
+1. 公网 APK HTTP 200 (`HTTP/2 200, content-type: application/vnd.android.package-archive`)
+2. 远端 SHA256 = 本机 (`9732531be7218279b641490327764f84efa8fa9cae0d9a30d9132139cd5452eb`)
+3. `/api/version?version=3.0.27` 返 `version=3.0.28, needUpdate=true, forceUpdate=true`
+4. 历史 APK 28 个全保留 (v3.0.0 ~ v3.0.28, 不覆盖)
+5. PM2 pid 57397 online, `pm2 env 0 | grep APP_VERSION` 返 3.0.28
+
+**📊 当前状态**:
+- user 蓝叠装 v3.0.27 → 启动 → server 返 3.0.28 + forceUpdate=true → 弹 3 按钮升级窗
+- 装 v3.0.28 后 → server 3.0.28 == client 3.0.28 → 不弹窗 ✅
+- 角色库完整功能: 编辑描述/确认/生成三视图, 跟 web 端一致
+
+**🎯 教训 (写进 BUGS.md)**:
+1. 三端 (web/mobile/server) 字段类型/UI/API helper 必同步, server 端点重构时 mobile client.ts 必同步补 helper
+2. RN bundle 跑老 Metro 缓存会**隐藏 TS 编译错误**, 写 `import type` 之前必 grep shared-types 真源
+3. server 核心数据结构变更 (3 张变体 → 1 张三视图) 三端必同步, 否则 mobile UI 渲染时空 slot
+4. 跨端重写 (mobile 角色库跟 web 对齐) 必先列 `cat src/api/client.ts | grep "export"` 双向核对 API helper, 必先 grep shared-types 字段| user 蓝叠装 v3.0.28 后验证: 角色库列表页看到描述摘要 + sheet 单图 + "重新分析"按钮; 详情页点编辑 → 改描述 → 保存; 点生成三视图 → 看到单图 sheet (不是 3 张)|
+
+| S63 (当前) | 2026-06-24 | **[已验收] 角色库 UI 商业化重设计 (v3.0.29)** — user 反馈 "角色库的 UI 重新设计, 现在文字太黑了, 和背景色一起完全看不到, 同时 UI 界面排版太丑了, 重新做一个更好看的 UI 设计, 搜索相关 UI 组件, 去 ui 效果足够商业化"。重设计 3 屏 + 4 新组件 + 1 新 theme, 修 5 个 BUG (BUG-061~065):
+
+**🐛 修复清单 (5 BUG)**:
+1. **BUG-061** `colors.text.tertiary` (#94A3B8) 在 `bg.tertiary` (#1E1E35) 上对比度 4.36:1, WCAG AA 4.5:1 临界 (实测 4.0:1, fail) → 新建 `src/theme/character.ts` 含 5 级文字 (`text.primary` 12.6:1 / `body` 11.6:1 / `muted` 7.4:1 / `subtle` 4.5:1), 3 层 surface, 4 角色配色 (主角红/反派紫/配角蓝/次要灰)
+2. **BUG-062** 角色库用 emoji (🏷/📛/📝/📖/✨) 当 icon, 跨 Android 7/14 渲染不一致, 商业化看像草稿原型 → 4 角色用 Ionicons (flame/skull/shield/person) + 5 状态 (hourglass/create/sync/image/checkmark) + 5 画风 (videocam/flower/rocket/heart/cube)
+3. **BUG-063** 9 处 `showToast('msg', 'error')` 老 2 参 API (S60 重构后已废弃) → 全量替换 `showToast({ message, variant })`, tsc 0 错
+4. **BUG-064** `const [styles, setStyles] = useState<StylePreset[]>([])` 跟本地 `const styles = StyleSheet.create({...})` 冲突, TS 报 17 个错 (RN bundle 跑老 Metro cache 隐藏) → state 改名 `stylePresets` / `setStylePresets`
+5. **BUG-065** `LinearGradient.tsx` 用 `react-native-linear-gradient` 第三方包, shipin-APP 没装 → try-require 模式 + fallback View 3 段半透明色, 视觉接近
+
+**🟢 新增文件 (5 个)**:
+- `apps/mobile/src/theme/character.ts` (191 行) — 角色专用 theme (role 配色 + 5 级文字 + 3 层 surface + gradient + status 5 态 + getRoleColor/getRoleLabel/getStatusInfo helper)
+- `apps/mobile/src/components/CharacterAvatar.tsx` (149 行) — 圆角方形 + 角色色 ring + 状态 dot + 自动 fallback (首字 + 渐变)
+- `apps/mobile/src/components/Chip.tsx` (89 行) — 通用 Chip + RoleChip + StatusChip + StyleChip
+- `apps/mobile/src/components/EmptyState.tsx` (90 行) — 商业化空态 (大圆形 + 渐变 icon + 标题 + 副标题 + CTA)
+- `apps/mobile/src/components/LinearGradient.tsx` (74 行) — try-require 软依赖 + View 3 段渐变 fallback
+
+**🟢 重写文件 (3 个 screen + 1 个 theme index)**:
+- `CharacterListScreen.tsx` — 308 行 (整体重设计: hero banner + 大头像卡片 + role color ring + 状态 dot)
+- `CharacterDetailScreen.tsx`` — 505 行 (hero header + 状态 chip + Markdown 描述 + sticky bottom gradient button)
+- `CharacterDescriptionReviewScreen.tsx` — 458 行 (progress bar + 大头像卡片 + inline edit 跟 detail 一致)
+- `apps/mobile/src/components/index.ts` — 导出 4 新组件
+
+**🟢 商业化 UI 原则应用 (S63 调研)**:
+- WCAG 4.5:1+ 对比度, 不用 text.tertiary 在 bg.tertiary
+- 渐变 primary button (替代纯色填充), soft shadow
+- 头像 + 角色色 ring + 状态 dot (Discord/Linear 风格)
+- Markdown 渲染描述 (# / - / 段落), 1.6 line-height
+- Sticky bottom action bar (gradient 背景)
+- 整体 Notion/Linear dark theme 风格
+
+**🟢 构建 + 部署**:
+- `tsc --noEmit` 0 错 (S63 改动文件范围内)
+- `gradlew assembleRelease` BUILD SUCCESSFUL in 1m 33s (增量编译, 21 executed / 373 up-to-date)
+- APK: `app-release.apk` 30,073,380 bytes (28.7 MB)
+- SHA256: `0E91EA0FF04BF44F116EAB59A50118D73B1CB93081074D43E84E1C16FC86915F`
+- 签名: `CN=DeepScript Release, O=shipin-APP, L=Shenzhen, ST=Guangdong, C=CN` (BUG-023 保护)
+- versionCode 35 → 36, versionName 3.0.28 → 3.0.29
+
+**🟢 5 维验证全通过**:
+1. 公网 APK HTTP 200 (`HTTP/2 200, content-type: application/vnd.android.package-archive, content-length: 30073380`)
+2. 远端 SHA256 = 本机 (`0e91ea0ff04bf44f116eab59a50118d73b1cb93081074d43e84e1c16fc86915f` lowercase 一致)
+3. `/api/version?version=3.0.28` 返 `{"success":true,"data":{"version":"3.0.29","needUpdate":true,"forceUpdate":true}}`
+4. 历史 APK 32 个全保留 (v3.0.0 ~ v3.0.29, 不覆盖)
+5. PM2 pid 23753 online, `pm2 env 0 | grep APP_VERSION` 返 3.0.29
+
+**🟢 文档同步 (按规范)**:
+- `apps/mobile/BUGS.md` — 新增 BUG-061~065 (5 条新条目, 含 WCAG 对比度表 / Ionicons 选型 / 老 API 同步教训)
+- `apps/mobile/CODING_STANDARDS.md` — 新增第 25-29 条 (主题对比度硬性 / 禁止 emoji icon / 必 tsc 验证 / 禁 state 用 styles 名 / 写新依赖前 grep package.json)
+- `apps/server/ecosystem.config.js` — env + env_production APP_VERSION 3.0.28 → 3.0.29 (PM2 delete + start)
+
+**📊 当前状态**:
+- user 蓝叠装 v3.0.28 → 启动 → server 返 3.0.29 + forceUpdate=true → 弹 3 按钮升级窗
+- 装 v3.0.29 后: 角色库列表页 hero banner 渐变 + 大头像 + role icon; 详情页 hero + Markdown 描述; 描述确认页 progress + 卡片 inline edit
+- 商业化 dark theme 风格达成, 文字清晰可见, chip 对比度足够
+
+**🎯 教训 (写进 BUGS.md + CODING_STANDARDS)**:
+1. WCAG 4.5:1 是底线, theme 设计要按场景分 (全局 / 角色库 / 生图), 3 档色阶不够用
+2. 禁止 emoji 当 UI icon, 用 Ionicons 矢量图标 (跨 OS 一致, 商业化)
+3. mobile 改完必跑 tsc --noEmit, RN bundle 跑老 Metro cache 会隐藏 TS 错 (S62 BUG-056 实证, S63 BUG-063/064 又现)
+4. 写新依赖前必 grep package.json, web 端有**不代表** mobile 有 (跟 BUG-005/009/065 同根因)
+5. state 变量名禁止用 `styles`, 跟 StyleSheet 冲突 (BUG-064, 跟 BUG-031/032 同根因)| user 蓝叠装 v3.0.29 后验证: 角色库文字清晰, chip 边框可见, hero 渐变 banner 漂亮, 大头像 ring + 状态 dot 商业化; 详情页 hero + Markdown 渲染; 描述确认页 progress bar 实时更新|

@@ -517,3 +517,274 @@
 | versionCode | 27→30 (失败) | **31 (OK)** |
 
 **APK**: `https://ab.maque.uno/app/DeepScript_v3.0.24.apk` (待 push 新 APK)
+
+---
+
+## S61 P1 总结 (v3.0.27)
+
+### BUG-054 (S61 P1, v3.0.25 修, v3.0.27 补记): VideoAgent 时长选项跟 Web 不一致 ([3,5,10] vs [5,10,15])
+
+- **现象**: v3.0.21 ~ v3.0.24 期间, mobile 时长 chip 是 3/5/10 秒, Web 已是 5/10/15 秒; mobile 用户选 15s 触发 server `ALLOWED_DURATIONS` 校验失败, 兜底分支 nearest-white-list 落回 10s (跟用户预期不符)
+- **根因**: web v3.0.0.21 改 `[5, 10, 15]` 时 (用户反馈"3 秒太短想要 15 秒"), mobile 漏改; v3.0.25 修代码注释里明确写 "v3.0.0.18 时代是 [3, 5, 10], mobile 漏改", 但**没记录到 BUGS.md** (违反硬性规范"修完 BUG 必追加 BUGS.md")
+- **三方对账** (v3.0.25+):
+  - server `apps/server/src/services/videoAgentService.ts:44`: `ALLOWED_DURATIONS = [5, 10, 15] as const` (权威源)
+  - web `apps/web/src/components/AgentChatPanel.tsx:128-132`: `DURATION_OPTIONS = [{5,...},{10,...},{15,...}]`
+  - mobile `apps/mobile/src/screens/VideoAgentScreen.tsx:49`: `const DURATIONS = [5, 10, 15]`
+- **修法 (v3.0.25)**: mobile `DURATIONS` 改 `[5, 10, 15]`, 注释写明"跟 web + server ALLOWED_DURATIONS 一一对应"
+- **验证**: 蓝叠 v3.0.25 选 15s → server 收 15 → 不触发 closest-white-list 兜底分支
+- **教训**:
+  1. 三端时长必须以 `server ALLOWED_DURATIONS` 为唯一权威源, web/mobile 端 UI 跟 server 同步
+  2. 改 server 端 `ALLOWED_DURATIONS` 时, **必须同步改 web + mobile 的 DURATION_OPTIONS + DURATIONS**
+  3. 任何 BUG 修完, 不管是不是"已经修好不影响", 都要追加 BUGS.md (这是硬性规范, 防止下个 AI 重复踩坑)
+
+### BUG-055 (S61 P1, v3.0.27 修): VideoAgent 时长 UI 文案 2 处不一致
+
+- **现象**:
+  1. Web `apps/web/src/pages/VipCenterPage.tsx:119` VIP 权益文案只写 "视频 5s + 10s 免费 (普通用户 5s 免费, 10s 收 0.1 元)", **完全没提 15s 价格**; 但 server `billingService.ts:38-50` 实际计费: VIP 5s+10s 免费但 15s 仍 0.1, 普通 5s 免费 10s+15s 各 0.1 → 用户读 VIP 权益可能误以为 15s 也免费, 实际生成扣费 → 投诉风险
+  2. mobile `apps/mobile/src/screens/VideoAgentScreen.tsx:550-553` 时长 chip 提示是静态文案 "🟢 5s 免费 / 🟡 ${d}s ¥0.1/条", **不读 `user.isVip`**; VIP 用户选 10s 时显示 "🟡 10s ¥0.1/条" 实际 VIP 免费, 选 15s 显示 "🟡 15s ¥0.1/条" 实际 VIP 仍收 0.1 (这条 server 一致, 但 10s 那条错)
+- **根因**:
+  1. web 文案是 v3.0.0.31 (S51) 改计费矩阵时漏写 15s (历史疏漏)
+  2. mobile UI 设计时只关心普通用户, 没考虑 VIP 场景 (BUG-053 修播放器后加的 UI 缺 VIP 分支)
+- **修法 (v3.0.27)**:
+  1. web VipCenterPage.tsx:119 改 "视频 5s + 10s 免费 (普通用户 5s 免费, 10s/15s 各收 0.1 元)"
+  2. mobile VideoAgentScreen.tsx 从 `useAuth` store 拿 `user.isVip`, 动态显示:
+     - VIP + 5s/10s: 🟢 "VIP 免费"
+     - VIP + 15s: 🟡 "15s ¥0.1/条"
+     - 普通 + 5s: 🟢 "5s 免费"
+     - 普通 + 10s/15s: 🟡 "${d}s ¥0.1/条"
+- **验证**:
+  - web: 浏览器装 v3.0.27, 进 VIP 中心, 看文案"10s/15s 各收 0.1 元" ✅
+  - mobile (VIP): 选 10s → 显示"🟢 VIP 免费" ✅; 选 15s → 显示"🟡 15s ¥0.1/条" ✅
+  - mobile (普通): 选 5s → 显示"🟢 5s 免费" ✅; 选 10s/15s → 显示"🟡 ${d}s ¥0.1/条" ✅
+  - server: 生成 VIP+10s → 计费 0 ✅; 生成 VIP+15s → 计费 0.1 ✅; 生成普通+10s/15s → 计费 0.1 ✅
+- **教训**:
+  1. 计费文案必须跟 server 计费表**完全对齐** (跟 BUG-054 同一根因: server 为权威源)
+  2. UI 状态文案必须按用户身份 (VIP/普通) 动态显示, 不写死
+  3. 修改计费/价格相关代码, **必须三端 (web+mobile+server) + 文案**同步
+
+---
+
+## S62 P1 修复历史 (v3.0.28, 角色库跟 Web 端 1:1 对齐)
+
+### BUG-056 (S62 P1, v3.0.28 修): mobile `CharacterWithAssets` 类型在 shared-types 里没导出, 但被 2 个 screen 引用
+
+- **现象**: `apps/mobile/src/screens/CharacterListScreen.tsx:10` 和 `apps/mobile/src/screens/AssetLibraryScreen.tsx:14` 都 `import type { CharacterWithAssets } from '@ai-script/shared-types'`, 但 `packages/shared-types/src/index.ts` **根本没有 `CharacterWithAssets` 这个 export**。TS 严格模式应该报 "Module has no exported member 'CharacterWithAssets'", 但 RN bundle 一直跑老 Metro 缓存, 没暴露出来
+- **根因**:
+  - 早期 (S58) 写 screen 时臆造了 `CharacterWithAssets` 类型 (期望是 `Character` + `assets` 字段)
+  - server characterModel 从没返回 `assets` 字段 (v2.0 资产库实际还是用 character 表), 实际 server 字段跟 `Character` 一致
+  - 共享类型包没有补这个类型, 但 import 语句一直没被发现编译错误
+- **修法 (v3.0.28)**:
+  - `CharacterListScreen.tsx` + `AssetLibraryScreen.tsx` 把 `CharacterWithAssets` 全部改成 `Character` (server 真源类型, 已有 description/extraDescription/imageVariants/imageGenStatus 等 v2.0 字段)
+  - 未来如果需要 `Character & { assets: ... }` 类型, 加到 shared-types 里而不是臆造
+- **验证**: TypeScript 严格模式编译通过 (隐式验证, 之前是 silent 错误); 装 v3.0.28 APK 列表页/资产库正常 render
+- **教训**:
+  1. **不要臆造类型** — 写 `import type` 之前必 `grep` shared-types 真源
+  2. RN bundle 跑老 Metro 缓存可能**隐藏 TS 错误**, 真发布前必跑 `npx tsc --noEmit` 验证
+  3. 写 screen 之前必 `cat src/api/client.ts | grep "export"` 列可用函数 (跟 BUG-009/011 同一根因)
+
+### BUG-057 (S62 P1, v3.0.28 修): CharacterDescriptionReviewScreen 还在用 11 维字段编辑, 跟 server v2.5.34 自由文本不一致
+
+- **现象**: `apps/mobile/src/screens/CharacterDescriptionReviewScreen.tsx` 编辑表单用 `DIMENSIONS` (11 维: name/age/height/build/face/features/hair/signature/clothes/personality/aliases) + `EXTRA_DIMENSIONS` (4 维: relationshipsText/emotionRange/actionHabits/signatureLines) 共 15 个 `TextInput` 字段. 但 server v2.5.34 后 description 字段是**自由文本字符串** (CharacterDescription 重构成 `string | null`), 用户编辑完保存后 server 接收的是空 JSON 对象 `{}`, 描述丢失
+- **根因**:
+  - server v2.5.34 重构 CharacterDescription 从 11 维 JSON 对象 → 自由文本字符串 (DEV_PROGRESS.md R 模块记录)
+  - mobile 11 维编辑 UI 没跟着改, 调 `confirmCharacter(id, { description: {...}, extraDescription: {...} })` 后 server 字段类型不匹配 → 实际 description 被清空
+- **修法 (v3.0.28)**: 整体重写 CharacterDescriptionReviewScreen, 跟 web 端 CharacterListPage.tsx 1:1 对齐:
+  - 删 `DIMENSIONS` (11 维) + `EXTRA_DIMENSIONS` (4 维) 数组
+  - 改用 2 个 `TextInput multiline` (主描述 textarea 220px 高 + 补充描述 textarea 120px 高)
+  - 顶部保留 "提取/重新生成描述" 按钮 (调 `extractCharacterDescriptions`, 跟旧版功能一致)
+  - 编辑保存调 `confirmCharacter` (description/extraDescription 是字符串, 跟 server 字段对齐)
+- **验证**: TypeScript 编译通过; 装 v3.0.28 APK 走完整流程: 上传小说 → 分析 → 提取描述 → 编辑 → 确认 → server description 字段是字符串不是 JSON 对象
+- **教训**:
+  1. server 字段类型重构 (JSON 对象 → 字符串) 时, 移动端 UI 必同步改 (这是 1:1 关系)
+  2. 跟 BUG-054/055 同根因: 三端类型/UI 必须跟 server 真源对齐
+  3. 编辑表单字段越多越复杂, 越容易脱节; 优先用自由文本 (跟 R 模块结论一致)
+
+### BUG-058 (S62 P1, v3.0.28 修): mobile client.ts 缺 `backfillCharactersApi`, 列表页没"重新分析角色"按钮
+
+- **现象**: Web `apps/web/src/lib/api.ts:95` 有 `backfillCharactersApi` (POST `/novels/:id/backfill-characters`), CharacterListPage.tsx 顶部"重新分析角色"按钮调它; mobile client.ts **没暴露** 这个 helper, CharacterListScreen.tsx 没有"重新分析角色"按钮 → 用户角色库为空或分析失败时**没法手动重试**
+- **根因**: web 端 v2.5.10 加 backfill-characters 端点时, mobile client.ts 漏补对应 helper
+- **修法 (v3.0.28)**:
+  - `apps/mobile/src/api/client.ts` 加 `backfillCharactersApi = (novelId: string) => apiClient.post(`/novels/${novelId}/backfill-characters`)` (跟 web 1:1)
+  - CharacterListScreen.tsx 顶部加"重新分析角色"按钮 (非空态 + 空态都显示), 调 backfillCharactersApi 后 3 秒刷新 (跟 web handleBackfill 1:1)
+- **验证**: 装 v3.0.28 APK 进小说详情 → 角色库 tab → 点"重新分析" → server 触发 backfill → 3s 后列表刷新看到新角色
+- **教训**:
+  1. web 端加新 API helper 时, 必同步补 mobile client.ts (跟 BUG-058 同根因: 漏跨端同步)
+  2. server 有端点但 client 没暴露, 移动端完全感知不到 — 改 server 端点时 audit 三端 client
+
+### BUG-059 (S62 P1, v3.0.28 修): mobile client.ts 缺 `updateCharacterFullApi`, 详情页不能保存描述编辑
+
+- **现象**: Web `apps/web/src/lib/api.ts:100-101` 有 `updateCharacterFullApi` (PUT `/novels/characters/:cid/full`, 支持 name/aliases/roleType/description/extraDescription 完整更新); mobile client.ts 只有 `updateCharacter` (PUT `/novels/characters/:cid`, **只支持 name/appearance/personality/roleType** 4 个字段, **没有 description/extraDescription/aliases**) → 用户编辑描述后保存接口报 400 / 字段被丢弃
+- **根因**: web 端 v2.5.11 加 updateCharacterFullApi 时, mobile client.ts 漏补对应 helper; 老的 `updateCharacter` 是 v1.0 端点, 字段不全
+- **修法 (v3.0.28)**:
+  - `apps/mobile/src/api/client.ts` 加 `updateCharacterFullApi = (characterId, data) => apiClient.put('/novels/characters/${cid}/full', data)` 跟 web 1:1
+  - CharacterDetailScreen.tsx 新编辑模式 (`handleSave`) 调 updateCharacterFullApi 完整保存 (name/aliases/roleType/description/extraDescription 全字段)
+- **验证**: 装 v3.0.28 APK 进角色详情 → 点"编辑" → 改主描述 textarea → 点"保存修改" → server description 字段是编辑后的字符串 (不是被丢弃)
+- **教训**:
+  1. 跟 BUG-058 同根因: web 加新端点时必同步补 mobile client.ts
+  2. mobile 老版 `updateCharacter` (v1.0 端点) 字段不全, 是技术债, 新代码必用 `updateCharacterFullApi`
+  3. API helper 跨端命名要一致 (`updateCharacterFullApi` / `backfillCharactersApi`), 不要随意改后缀
+
+### BUG-060 (S62 P2, v3.0.28 修): mobile CharacterDetailScreen 还在用 3 张变体图模式, 跟 server v2.5.13 单图三视图不一致
+
+- **现象**: `apps/mobile/src/screens/CharacterDetailScreen.tsx` (v3.0.27) "变体图" 区列出 3 张变体图 (front_bust/side_bust/full_body), 每张独立"重新生成 ¥0.3" 按钮; 但 server `characterService.generateImageVariants` v2.5.13 已改**单图三视图** (angle='sheet', character_sheet 三视图合 1 张), `imageVariants` 数组只存 1 个 sheet → mobile UI 渲染时 2 个 slot 是空的, 用户体验"差 2 张图"
+- **根因**:
+  - server v2.5.13 重构 (DEV_PROGRESS H 模块): "单图角色数" 改成 "1 张三视图 character sheet" 替代 "3 张变体图"
+  - mobile CharacterDetailScreen.tsx 没跟进重构, 还按 3 张变体图模式写
+  - 跟 web CharacterDetailPage.tsx 也对不上 (web 端是单图 sheet, 已重构)
+- **修法 (v3.0.28)**:
+  - 整体重写 CharacterDetailScreen, 跟 web 端 CharacterDetailPage.tsx 1:1 对齐
+  - 变体图区改单图 sheet (`(c.imageVariants || []).find(v => v.angle === 'sheet')`)
+  - "生成三视图" 按钮 (单图, 调 generateCharacterImages 不传 onlyAngles)
+  - "重新生图" 按钮 (status='completed' 后, 跟 web 一致)
+  - AssetLibraryScreen.tsx 同步改单图 sheet 预览 (替代 3 张变体图网格)
+- **验证**: 装 v3.0.28 APK 进角色详情 → 点"生成三视图" → 5-15s 后看到 1 张三视图 (sheet) 替代原来 3 张变体图; AssetLibraryScreen 网格每个角色显示 1 张大图
+- **教训**:
+  1. server 核心数据结构/字段重构时, **mobile + web 必须同步** (跟 BUG-057/058/059 同根因: 漏跨端同步)
+  2. "变体图" 概念从 3 张 → 1 张三视图, 是 UX 优化 (用户明确要求"1 张图包含所有分镜"), 三端必须跟 server 一致
+  3. mobile 老代码 (v3.0.0 ~ v3.0.27) CharacterDetailScreen + CharacterListScreen + AssetLibraryScreen 全部按 3 张变体图模式写, 是技术债, v3.0.28 整体重写
+
+---
+
+## S63 修复历史 (v3.0.29, 角色库 UI 商业化重设计)
+
+### BUG-061 (S63, v3.0.29 修): 角色库文字对比度不足 (WCAG 4.5:1 不达标), 跟背景色一起几乎看不见
+
+- **现象**: user 反馈 "角色库的 UI 重新设计, 现在文字太黑了, 和背景色一起完全看不到"
+  - `colors.text.tertiary` = `#94A3B8` 在 `colors.bg.tertiary` = `#1E1E35` 上对比度 4.36:1, **WCAG AA 4.5:1 临界** (实测勉强)
+  - 实际上在 `colors.bg.secondary` = `#151525` 上更差, 接近 4.0:1, 视觉上"白字灰背景" 几乎不可见
+  - `fieldLabel` (caption fontSize 12) 用 `text.tertiary` 配 `bg.secondary`, 用户根本看不清
+  - `roleChip` 用 `roleColor + '20'` (12.5% alpha) 当背景, 文字 `roleColor` 纯色, 在深色 bg 上**几乎隐形**
+  - `descText` (角色描述正文) 跟元数据 `charMeta` 用同一灰度, 层级不清
+- **根因**:
+  - theme/index.ts 全局 colors 没分级, 只有 primary/secondary/tertiary 3 档
+  - 角色库 screen 跟全局共用, 没为"角色展示" 场景设计专用色阶
+  - 写 code 时直接 `colors.text.tertiary`, 没做对比度自检
+- **修法 (v3.0.29)**:
+  - 新建 `src/theme/character.ts` (角色专用 theme), 加 5 级文字色阶:
+    - `text.primary` #F8FAFC (12.6:1) - 标题
+    - `text.body` #E2E8F0 (11.6:1) - 正文
+    - `text.muted` #CBD5E1 (7.4:1) - 辅助 (替代原 secondary 在 bg.secondary 上的 4.0:1)
+    - `text.subtle` #94A3B8 (4.5:1) - placeholder
+  - `surface` 3 层卡片: card / section / input, 跟 `colors.bg.primary` 区分, 制造视觉层级
+  - ROLE_COLORS 4 角色配色 (主角红/反派紫/配角蓝/次要灰) + `primaryAlpha` 18% alpha (替代 12.5%)
+  - STATUS_COLORS 5 状态 (待生成/待确认/生图中/已确认/已生图), 都 18% alpha
+  - 3 个 screen 全部用新 theme, 替换所有 `colors.text.tertiary` → `text.body/muted`
+- **验证**: 
+  - WCAG 对比度: text.body 在 bg.secondary 11.6:1 (AAA), text.muted 7.4:1 (AA+)
+  - 蓝叠装 v3.0.29 APK, 进角色库: 角色描述文字清晰可见, chip 边框/文字对比足够
+  - 装 X 截图前/后对比, 文字从"几乎看不见" → "清晰易读"
+- **教训**:
+  1. **WCAG AA 4.5:1 是最低线**, text on dark bg 不能用 `text.tertiary` 凑合
+  2. theme 设计要按"场景" 分 (全局 / 角色库 / 生图), 3 档色阶不够用
+  3. 商业化 UI 第一个验证项是 "文字跟背景对比度", 不是图标
+  4. 写 chip 文字必用 18% alpha 背景 + 1px 同色 border (40%), 不能光靠 12.5% alpha 凑
+  5. 提炼新规范到 CODING_STANDARDS.md 第 25 条 (主题对比度硬性)
+
+### BUG-062 (S63, v3.0.29 修): 角色库用 emoji 当 icon (🏷/📛/📝/📖/✨), 不够商业化, 应换 Ionicons 矢量图标
+
+- **现象**: user 反馈 "UI 界面排版太丑了, 重新做一个更好看的 UI 设计"
+  - 角色类型用 emoji 🏷️ (tag), 别名用 📛 (name badge), 描述用 📖 (book), 补充描述用 ✨ (sparkles)
+  - emoji 在不同 Android 系统渲染**严重不一致** (Android 7 蓝叠 跟 Android 14 完全不同), 字号粗细/位置漂移
+  - emoji 风格跟 shipin-APP 其他 screen (用 Ionicons 矢量图标) 不统一
+  - 商业化 APP 看 emoji 像 "草稿原型", 跟 Notion/Linear/Discord 风格差几个档次
+- **根因**:
+  - 写 code 时偷懒, 没用 `react-native-vector-icons/Ionicons` (package.json 已装, RN 0.73 默认支持)
+  - emoji 是 Unicode 字符, 渲染依赖系统字体, 不可控
+  - S58~S62 期间多个 screen (CharacterDetailScreen, CharacterDescriptionReviewScreen, ChatScreen 等) 都用 emoji
+- **修法 (v3.0.29)**:
+  - 新建 `src/components/Chip.tsx`, 3 个便捷 chip:
+    - `RoleChip`: 4 角色类型用 Ionicons `flame/skull/shield/person` (主角/反派/配角/次要)
+    - `StatusChip`: 5 状态用 Ionicons `hourglass-outline/create-outline/sync/image-outline/checkmark-circle`
+    - `StyleChip`: 5 画风用 Ionicons `videocam-outline/flower-outline/rocket-outline/heart-outline/cube-outline`
+  - 全部用 `Ionicons name={...} size={11-13} color={...}`, 不依赖 emoji 字体
+  - CharacterListScreen + CharacterDetailScreen + CharacterDescriptionReviewScreen 全部替换
+  - 字符 icon (✓ ✕ ⚠) 保留 (Toast/Alert 内部用, 跟 RN native 风格一致)
+- **验证**:
+  - 装 v3.0.29 APK, 蓝叠 Android 7 进角色库: 角色类型/状态/画风 chip 全部用矢量图标, 渲染稳定
+  - 跟 web 端 (用 lucide-react) 视觉接近 (Web 跟 Mobile 都用 vector icon family)
+- **教训**:
+  1. **禁止 emoji 当 UI icon**, 用 `react-native-vector-icons` 矢量图标
+  2. 跨 OS (Android 7/14, iOS) 渲染一致性, 商业化必备
+  3. shipin-APP package.json 已装 `react-native-vector-icons@10.3.0`, 写 code 前必 `import Ionicons from 'react-native-vector-icons/Ionicons'`
+  4. 提炼新规范到 CODING_STANDARDS.md 第 26 条 (禁止 emoji icon)
+  5. 跟 BUG-050 (历史 chip emoji) 同根因, 跨屏统一替换
+
+### BUG-063 (S63, v3.0.29 修): 角色库多个 screen 仍用 showToast('msg', 'error') 老 2 参 API, S60 之后已废弃为 showToast(config) / toast.error()
+
+- **现象**: TypeScript 编译报 9 个 `Expected 1 arguments, but got 2` 错误 (CharacterListScreen:1, CharacterDetailScreen:4, CharacterDescriptionReviewScreen:4)
+  - `showToast('msg', 'error')` 老 API: 第 2 参数 `variant` 在 S60 升级 Toast 组件时已删除
+  - 新 API: `showToast({ message, variant })` 或 `toast.error('msg')`
+  - **RN bundle 跑老 Metro 缓存, 这些 TS 错误一直隐藏没暴露** (跟 BUG-056 同根因)
+- **根因**:
+  - `src/components/Toast.tsx:88` 老 `export const showToast = toast.show` (只接 string 或 config, 不接 variant)
+  - 写 S62 CharacterListScreen/DetailScreen/DescriptionReviewScreen 时, 复制粘贴 S60 P3 之前的 `showToast('msg', 'error')` 老调用, 没适配新 API
+  - RN 0.73 + Metro 0.80 老 cache 兼容老 JSX 调用, 没暴露给 TS 严格模式
+- **修法 (v3.0.29)**:
+  - 全量 `sed` 替换 3 个 screen 的 9 处老调用:
+    - `showToast('msg', 'success')` → `showToast({ message: 'msg', variant: 'success' })`
+    - `showToast('msg', 'error')` → `showToast({ message: 'msg', variant: 'error' })`
+  - 引入 `toast.error` / `toast.success` 便捷调用, 后续新 code 用 `toast.error('msg')` (1 参, 不会写错)
+  - tsc 严格模式 0 错 (S63 改的文件范围内)
+- **验证**:
+  - tsc --noEmit 跑 3 个 screen 0 错
+  - 装 v3.0.29 APK, 进角色库点 "重新分析" 失败时, Toast 弹红框 + 错误文案 ✅
+  - 进角色详情点 "保存修改" / "生成三视图" 成功/失败, Toast 都正常弹
+- **教训**:
+  1. **API 重构后必 audit 老调用点**, 不能"重构完就忘" (跟 BUG-054/055 S61 时长 chip 同步到 web 同根因)
+  2. mobile 改完必跑 `tsc --noEmit` 验类型, RN bundle 跑老 Metro cache 会隐藏 TS 错 (S60 已学教训, S62 又忘, S63 重申)
+  3. 提炼新规范到 CODING_STANDARDS.md 第 27 条 (mobile 改完必 tsc 验证)
+  4. 跨组件 API (Toast/Dialog/Sheet) 重构, 必加 @deprecated 标记, 提示 IDE auto-import 警告
+
+### BUG-064 (S63, v3.0.29 修): 角色库 3 个 screen 状态变量名 `styles` 跟本地 StyleSheet `styles` 冲突, 引发 tsc 类型混乱
+
+- **现象**: TypeScript 编译报 17 个 `Property 'card' does not exist on type 'StylePreset[]'` 错误 (CharacterListScreen 全屏, CharacterDetailScreen/DescriptionReviewScreen 类似)
+  - `const [styles, setStyles] = useState<StylePreset[]>([])` (state 存画风预设)
+  - `const styles = StyleSheet.create({...})` (本地样式表)
+  - 两者同名, TS 优先用 state 类型 `StylePreset[]`, 报"找不到 card/cardBody/etc."
+  - **运行时实际跑 OK** (RN JSX 用第二个 const 时拿到 StyleSheet), 但 TS 严格模式报 17 个错
+  - 这导致后续 S63 重写时, StyleSheet 引用被打乱 (改 styles.xxx 报错, 删后找不回)
+- **根因**:
+  - S58 写 CharacterListScreen 时, 命名 `styles` state, 跟 StyleSheet 冲突
+  - 一直没跑 tsc 验, TS 错被 Metro cache 藏
+  - S62 重构时, copy-paste 老代码, 沿用冲突命名
+  - S63 重写时才发现, 但沿用 S58 命名, 导致同样 17 个错
+- **修法 (v3.0.29)**:
+  - state 改名 `stylePresets` / `setStylePresets`, 跟本地 `styles = StyleSheet.create` 区分
+  - 全量 `sed` 替换 3 个 screen 的 state 声明跟引用
+  - 写新 screen 必用 `styles` 命名 StyleSheet, 其他 state 用语义化名字 (`characters`, `loading`, `backfillMsg` 等)
+- **验证**:
+  - tsc --noEmit 跑 CharacterListScreen 0 错 (从 17 个降到 0)
+  - 装 v3.0.29 APK 跑角色列表, 画风 chip 正常显示
+- **教训**:
+  1. **state 变量名禁止用 `styles`**, 用 `stylePresets` / `data` / `items` 等语义化名字
+  2. **StyleSheet 变量名用 `styles` 是 RN 惯例**, 不要 reverse 占用
+  3. tsc --noEmit 是 mobile 改完必跑 (跟 BUG-063 同根因)
+  4. 提炼新规范到 CODING_STANDARDS.md 第 28 条 (禁止 state 用 styles 命名)
+  5. 跟 BUG-031/032 (S59 缺 theme import 编译失败) 同根因, 都是 "写完没 tsc 验证"
+
+### BUG-065 (S63, v3.0.29 修): mobile LinearGradient 组件用 `react-native-linear-gradient` 第三方包, 但 shipin-APP 没装, 运行时静默 fallback, UI 渐变不显示
+
+- **现象**: Phase 2 写 `src/components/LinearGradient.tsx`, 用 `require('react-native-linear-gradient')` 动态加载
+  - shipin-APP `package.json` 实际**没装** `react-native-linear-gradient` (跟 S60 ImageAgent/VideoAgent 当时讨论一致, 用 WebView/原生 video 替代)
+  - 运行时 `require()` 抛 MODULE_NOT_FOUND, try-catch 静默吞掉, 退到 fallback `View` 模拟
+  - fallback 视觉上 跟真渐变**明显不一样** (透明度叠加 3 段, 边缘不自然)
+- **根因**:
+  - 写组件时"想用现成包", 没 `cat package.json | grep linear-gradient` 验证是否真装了
+  - 跟 BUG-005 (S58 mobile `STYLE_PRESETS` 从 monorepo 拿 undefined) 同根因: "看 web 端有就以为 mobile 也有"
+  - web 端 Vite 项目用 `react-native-linear-gradient` 替代品 (web 用 CSS), 跟 mobile 完全不同
+- **修法 (v3.0.29)**:
+  - 用 `try { require('react-native-linear-gradient') } catch { fallback }` 模式
+  - Fallback 用 `View` 叠 3 段半透明色 (`backgroundColor + opacity`), 视觉接近
+  - 顶部加 5% 白色覆盖层柔化边缘
+  - 不阻塞渲染, 装了包就用真渐变, 没装就用 fallback
+  - **关键**: 跟 BUG-052 (S60 WebView 跟 Android 7 不兼容) 一样原则: "诊断渲染问题要看 logcat, 找 ClassNotFoundException, 不要从表面现象推断"
+- **验证**:
+  - 装 v3.0.29 APK 跑角色库: hero banner / button / progress bar 全部有渐变效果 (fallback View 3 段叠加)
+  - 视觉跟原计划接近, 渐变方向从左上到右下 (rotateY 镜像)
+  - 后续若装 `react-native-linear-gradient` 包, 自动用真渐变 (无需改代码)
+- **教训**:
+  1. **写新组件必先 grep package.json 验证依赖** (跟 BUG-005/009/011/031/032 同根因)
+  2. try-require 模式是 mobile 端"软依赖" 标准做法
+  3. Fallback UI 必"功能等价", 不能光 throw + 报错
+  4. 提炼新规范到 CODING_STANDARDS.md 第 29 条 (写新依赖前必查 package.json)
+

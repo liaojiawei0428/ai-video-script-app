@@ -1,37 +1,83 @@
+// 角色列表页 v3.0.29 (S63 UI redesign)
+// 跟 web CharacterListPage 1:1 对齐逻辑, 但 UI 全重设计
+//
+// 设计动机 (user 反馈 S63):
+//   旧版 (v3.0.28): 文字太黑 (text.tertiary 跟背景对比度 4.36:1, 几乎看不见)
+//                    UI 太丑 (emoji 当 icon, 12.5% alpha chip 隐形, 卡片扁平无层次)
+//   新版 (v3.0.29):
+//     1. 顶部 hero banner (渐变 + 角色总数 + 重新分析按钮)
+//     2. 卡片用 surface 层 (1A1A2E 跟背景对比) + 1px border + sm shadow
+//     3. 大头像 (72x72) + 角色色 ring + 状态 dot
+//     4. 角色类型用 RoleChip (替代 emoji 🏷)
+//     5. 状态用 StatusChip (5 态, 替代 emoji ✏️ 🖼️)
+//     6. 文字层级用 text.body (11.6:1 对比度, 替代 text.tertiary)
+//     7. 空态用 EmptyState 组件 (圆形渐变 icon + CTA)
+//     8. 整体风格: Linear / Notion dark theme
+
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Image,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, StatusBar,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { colors, spacing, radii, typography, shadows } from '../theme';
-import { GlassCard } from '../components';
-import { listCharactersByNovel, getStylePresets } from '../api/client';
-import type { CharacterWithAssets, StylePreset } from '@ai-script/shared-types';
+import { listCharactersByNovel, getStylePresets, backfillCharactersApi } from '../api/client';
+import type { Character, StylePreset } from '@ai-script/shared-types';
+import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, EmptyState, LinearGradientView as LinearGradient } from '../components';
+import { colors, spacing, radii, typography } from '../theme';
+import { surface, text, gradient, getStatusInfo } from '../theme/character';
 
 type RouteParams = { novelId: string };
+
+// 描述摘要 helper
+function summaryOf(text: string | undefined, maxLen: number = 80): string {
+  if (!text) return '';
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen).trim() + '…';
+}
+
+// 描述提取 (跟 web 端一致)
+function extractDescriptionText(desc: any): string {
+  if (!desc) return '';
+  if (typeof desc === 'string') return desc;
+  if (typeof desc === 'object') {
+    const lines: string[] = [];
+    const d = desc;
+    if (d.name) lines.push(`# ${d.name}`);
+    if (d.age) lines.push(`- 年龄: ${d.age}`);
+    if (d.height) lines.push(`- 身高: ${d.height}`);
+    if (d.build) lines.push(`- 体型: ${d.build}`);
+    if (d.face) lines.push(`- 脸型: ${d.face}`);
+    if (d.features) lines.push(`- 五官: ${d.features}`);
+    if (d.hair) lines.push(`- 发型: ${d.hair}`);
+    if (d.signature) lines.push(`- 标志: ${d.signature}`);
+    if (d.clothes) lines.push(`- 服装: ${d.clothes}`);
+    if (d.personality) lines.push(`- 性格: ${d.personality}`);
+    if (d.aliases && d.aliases.length) lines.push(`- 别名: ${d.aliases.join('、')}`);
+    return lines.join('\n');
+  }
+  return String(desc);
+}
 
 export function CharacterListScreen(): React.JSX.Element {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const { novelId } = route.params as RouteParams;
 
-  const [characters, setCharacters] = useState<CharacterWithAssets[]>([]);
-  const [styles, setStyles] = useState<StylePreset[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [stylePresets, setStylePresets] = useState<StylePreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [charRes, styleRes] = await Promise.all([
         listCharactersByNovel(novelId),
-        getStylePresets().catch(() => ({ data: { data: [] } })),
+        getStylePresets().catch(() => ({ data: { data: { presets: [] } } })),
       ]);
-      // v3.0.5 (S58 P6 BUG-011): server 返 { characters: [...], total: N }, 之前直接拿 data 当数组 → 渲染空
-      // server: characterController.listByNovel line 85 return success(res, { characters, total })
       setCharacters(charRes.data?.data?.characters || []);
-      // 同样 BUG: listStylePresets 返 { presets: rows }, 不是平铺数组
-      setStyles(styleRes.data?.data?.presets || []);
+      setStylePresets(styleRes.data?.data?.presets || []);
     } catch (e) {
       console.warn('Load characters failed', e);
     } finally {
@@ -47,59 +93,137 @@ export function CharacterListScreen(): React.JSX.Element {
     load();
   }, [load]);
 
-  const styleNameOf = (sid: string) => styles.find(s => s.id === sid)?.name || sid;
-
-  const getStatusBadge = (c: CharacterWithAssets) => {
-    if (!c.description) return { label: '待生成描述', color: colors.warning, icon: 'hourglass-outline' };
-    if (!c.confirmed) return { label: '待确认', color: colors.warning, icon: 'create-outline' };
-    if (!c.imageVariants || c.imageVariants.length === 0) return { label: '描述已确认', color: colors.success, icon: 'image-outline' };
-    return { label: `已生成 ${c.imageVariants.length} 张变体`, color: colors.success, icon: 'checkmark-circle' };
+  const handleBackfill = async () => {
+    if (!novelId || backfilling) return;
+    setBackfilling(true);
+    setBackfillMsg('🎭 正在从小说原文重新分析角色, 请稍候...');
+    try {
+      const r = await backfillCharactersApi(novelId);
+      const d: any = r.data?.data;
+      const parts: string[] = [];
+      if (d?.created > 0) parts.push(`新建 ${d.created} 个角色`);
+      if (d?.descriptionsGenerated !== undefined) {
+        parts.push(`描述生成 ${d.descriptionsGenerated}/${d?.total || 0} 个`);
+      }
+      setBackfillMsg(`✅ ${parts.join('，') || '已启动'}。3 秒后刷新...`);
+      setTimeout(load, 3000);
+    } catch (err: any) {
+      setBackfillMsg(`❌ 失败: ${err?.response?.data?.error?.message || err.message}`);
+      showToast({ message: '重新分析失败', variant: 'error' });
+    } finally {
+      setBackfilling(false);
+    }
   };
 
-  const renderItem = ({ item }: { item: CharacterWithAssets }) => {
-    const badge = getStatusBadge(item);
-    const cover = item.imageVariants?.[0]?.imageData;
+  const styleNameOf = (sid?: string) => stylePresets.find(s => s.id === sid)?.name || sid || '-';
+
+  // 统计
+  const confirmedCount = characters.filter(c => c.confirmed).length;
+  const sheetReadyCount = characters.filter(c =>
+    (c.imageVariants || []).some((v: any) => v.angle === 'sheet')
+  ).length;
+
+  const renderItem = ({ item }: { item: Character }) => {
+    const status = getStatusInfo(item);
+    const descText = extractDescriptionText(item.description);
+    const descSummary = descText ? summaryOf(descText, 100) : '暂无描述, 点击下方"重新分析角色"生成';
+    // v3.0.28: 单图三视图 sheet
+    const sheetVariant = (item.imageVariants || []).find((v: any) => v.angle === 'sheet');
+    const cover = (sheetVariant as any)?.imageData || (sheetVariant as any)?.url;
+
     return (
       <TouchableOpacity
-        activeOpacity={0.7}
+        activeOpacity={0.85}
         onPress={() => {
-          if (!item.description) {
+          if (!descText) {
             navigation.navigate('CharacterDescriptionReview', { characterId: item.id, novelId });
           } else {
             navigation.navigate('CharacterDetail', { characterId: item.id });
           }
         }}
       >
-        <GlassCard padded={true} style={styles.card}>
-          <View style={styles.cardInner}>
-            <View style={styles.avatarBox}>
-              {cover ? (
-                <Image
-                  source={{ uri: cover.startsWith('data:') ? cover : `data:image/svg+xml;base64,${cover}` }}
-                  style={styles.avatar}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Ionicons name="person" size={36} color={colors.text.tertiary} />
-              )}
-            </View>
-            <View style={styles.cardBody}>
-              <Text style={styles.charName} numberOfLines={1}>{item.name}</Text>
-              <Text style={styles.charMeta} numberOfLines={1}>
-                {/* v3.0.6 (S58 P7 BUG-013): server 字段是 roleType, 没有 gender/role 字段 */}
-                {item.roleType || '?'} · 画风: {styleNameOf(item.styleId)}
+        <View style={styles.card}>
+          {/* 左侧: 角色头像 (72x72) */}
+          <CharacterAvatar
+            name={item.name}
+            roleType={item.roleType}
+            imageUrl={cover}
+            size="md"
+            statusColor={status.color}
+            pulsing={status.animated}
+          />
+
+          {/* 右侧: 名字 + 角色 + 状态 + 描述摘要 */}
+          <View style={styles.cardBody}>
+            {/* 名字行 */}
+            <View style={styles.nameRow}>
+              <Text style={styles.charName} numberOfLines={1}>
+                {item.name}
               </Text>
-              <View style={[styles.badge, { backgroundColor: badge.color + '20' }]}>
-                <Ionicons name={badge.icon as any} size={12} color={badge.color} />
-                <Text style={[styles.badgeText, { color: badge.color }]}> {badge.label}</Text>
-              </View>
+              <Ionicons name="chevron-forward" size={16} color={text.subtle} />
             </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.text.tertiary} />
+
+            {/* chip 行: 角色类型 + 状态 */}
+            <View style={styles.chipRow}>
+              <RoleChip roleType={item.roleType} />
+              <StatusChip statusKey={status.key} />
+              {item.styleId && <StyleChip styleId={item.styleId} />}
+            </View>
+
+            {/* 描述摘要 (2 行, 弱化文字) */}
+            <Text style={styles.descSummary} numberOfLines={2}>
+              {descSummary}
+            </Text>
           </View>
-        </GlassCard>
+        </View>
       </TouchableOpacity>
     );
   };
+
+  // Hero header (跟卡片有视觉区分: 渐变背景 + 统计)
+  const renderHero = () => (
+    <LinearGradient
+      colors={gradient.hero}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.hero}
+    >
+      {/* 渐变装饰 (右上角光晕) */}
+      <LinearGradient
+        colors={gradient.heroAccent}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroGlow}
+      />
+
+      <View style={styles.heroContent}>
+        <View style={styles.heroIconRow}>
+          <Ionicons name="people" size={24} color="#fff" />
+          <Text style={styles.heroTitle}>角色库</Text>
+        </View>
+        <Text style={styles.heroSubtitle}>
+          共 {characters.length} 个角色 · 已确认 {confirmedCount} · 已生图 {sheetReadyCount}
+        </Text>
+
+        {/* 重新分析按钮 (右上角) */}
+        <TouchableOpacity
+          onPress={handleBackfill}
+          disabled={backfilling}
+          activeOpacity={0.8}
+          style={[styles.heroBtn, backfilling && { opacity: 0.6 }]}
+        >
+          {backfilling ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <>
+              <Ionicons name="sparkles" size={14} color="#fff" />
+              <Text style={styles.heroBtnText}>重新分析角色</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </LinearGradient>
+  );
 
   if (loading) {
     return (
@@ -111,25 +235,39 @@ export function CharacterListScreen(): React.JSX.Element {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
       <FlatList
         data={characters}
         keyExtractor={c => c.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="people-outline" size={64} color={colors.text.tertiary} />
-            <Text style={styles.emptyTitle}>暂无角色</Text>
-            <Text style={styles.emptySub}>上传小说后，AI 会自动分析并生成角色描述</Text>
-          </View>
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+          />
         }
         ListHeaderComponent={
-          characters.length > 0 ? (
-            <Text style={styles.headerSub}>
-              共 {characters.length} 个角色 · 点击查看详情
-            </Text>
-          ) : null
+          <View>
+            {renderHero()}
+            {backfillMsg && (
+              <View style={styles.backfillMsg}>
+                <Text style={styles.backfillMsgText}>{backfillMsg}</Text>
+              </View>
+            )}
+          </View>
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="people-outline"
+            title="暂无角色"
+            subtitle="上传小说后, AI 会自动分析并生成角色描述。也可以点击下方按钮手动触发。"
+            ctaLabel="重新分析角色"
+            ctaIcon="sparkles"
+            onCta={handleBackfill}
+            loading={backfilling}
+          />
         }
       />
     </View>
@@ -139,34 +277,128 @@ export function CharacterListScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg.primary },
-  list: { padding: spacing.md, paddingBottom: 40 },
-  headerSub: { ...typography.caption, color: colors.text.tertiary, marginBottom: spacing.md },
-  card: { marginBottom: spacing.md, ...shadows.sm },
-  cardInner: { flexDirection: 'row', alignItems: 'center' },
-  avatarBox: {
-    width: 56,
-    height: 56,
-    borderRadius: radii.md,
-    backgroundColor: colors.bg.tertiary || colors.bg.secondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
+  list: { paddingBottom: 40 },
+
+  // Hero
+  hero: {
+    position: 'relative',
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+    borderRadius: radii.lg,
     overflow: 'hidden',
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: surface.cardBorder,
   },
-  avatar: { width: 56, height: 56 },
-  cardBody: { flex: 1 },
-  charName: { ...typography.h3, color: colors.text.primary, fontWeight: '700', marginBottom: 2 },
-  charMeta: { ...typography.caption, color: colors.text.tertiary, marginBottom: 6 },
-  badge: {
+  heroGlow: {
+    position: 'absolute',
+    top: -60,
+    right: -60,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    opacity: 0.35,
+  },
+  heroContent: {
+    padding: spacing.lg,
+    gap: 6,
+  },
+  heroIconRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radii.sm,
+    gap: 8,
   },
-  badgeText: { ...typography.caption, fontWeight: '600', fontSize: 11 },
-  empty: { alignItems: 'center', paddingVertical: 80 },
-  emptyTitle: { ...typography.h2, color: colors.text.secondary, marginTop: spacing.md },
-  emptySub: { ...typography.body, color: colors.text.tertiary, marginTop: spacing.xs, textAlign: 'center', paddingHorizontal: spacing.xl },
+  heroTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.3,
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontWeight: '500',
+  },
+  heroBtn: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  heroBtnText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+
+  // Card
+  card: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: surface.card,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: surface.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  cardBody: {
+    flex: 1,
+    marginLeft: spacing.md,
+    gap: 8,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  charName: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    color: text.primary,
+    letterSpacing: -0.2,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  descSummary: {
+    fontSize: 13,
+    color: text.muted, // 关键: 11.6:1 对比度, 替代 text.tertiary
+    lineHeight: 19,
+  },
+
+  // Backfill 消息
+  backfillMsg: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    padding: 12,
+    borderRadius: radii.md,
+    backgroundColor: surface.section,
+    borderWidth: 1,
+    borderColor: surface.sectionBorder,
+  },
+  backfillMsgText: {
+    fontSize: 13,
+    color: text.body,
+    lineHeight: 18,
+  },
 });

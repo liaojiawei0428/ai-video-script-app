@@ -1,32 +1,91 @@
-// 角色详情页 v2.0.0
-// 展示 3 张变体图 (正面半身 / 侧面半身 / 全身)
-// 支持单独重新生成某张图 (按张扣费)
+// 角色详情页 v3.0.29 (S63 UI redesign)
+// 跟 web CharacterDetailPage 1:1 对齐逻辑, UI 全重设计
+//
+// 设计动机 (user 反馈 S63):
+//   旧版 (v3.0.28): 头部太挤 (person icon + name + 3 状态徽章挤一起)
+//                    描述 monospace font 跟字面 UI 不协调
+//                    编辑模式 textarea 灰色, 看不清输入内容
+//                    底部按钮 3 个 sticky 拥挤
+//   新版 (v3.0.29):
+//     1. Hero header: 大头像 (128x128) + 名字 + 角色 chip + 状态 chip 横排
+//     2. 字段改 section card (1A1A2E bg + 1px border) 而非 section
+//     3. 描述改 sans-serif + 1.6 line-height, monospace 只在编辑态
+//     4. 编辑模式 input/textarea 用 surface.input (rgba 255 5% + 10% border)
+//     5. 底部按钮改 gradient primary (替代纯色填充) + ghost
+//     6. 三视图预览: 1 张 sheet 大图 + 边框 + 角标
+//     7. 整体: Linear dark + 软阴影
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-  Image, Alert,
+  Image, TextInput, Modal, Pressable, StatusBar,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { getCharacter, generateCharacterImages } from '../api/client';
+import {
+  getCharacter, generateCharacterImages, confirmCharacter, updateCharacterFullApi,
+} from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { colors, spacing, radii, typography } from '../theme';
-import type { Character, ImageVariant } from '@ai-script/shared-types';
-import { showToast } from '../components';
+import { surface, text, gradient, getStatusInfo, getRoleColor } from '../theme/character';
+import type { Character } from '@ai-script/shared-types';
+import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, LinearGradientView as LinearGradient } from '../components';
 
-const ANGLE_LABELS: Record<ImageVariant['angle'], string> = {
-  front_bust: '正面半身',
-  side_bust: '侧面半身',
-  full_body: '全身',
-};
-const ANGLE_ICONS: Record<ImageVariant['angle'], string> = {
-  front_bust: 'person',
-  side_bust: 'person-outline',
-  full_body: 'body',
-};
+const ROLE_TYPES = [
+  { value: 'protagonist', label: '主角 (protagonist)' },
+  { value: 'antagonist', label: '反派 (antagonist)' },
+  { value: 'supporting', label: '配角 (supporting)' },
+  { value: 'minor', label: '次要 (minor)' },
+];
 
-const ANGLE_PRICE = 0.3; // ¥0.3/张
+// 描述提取
+function extractDescriptionText(desc: any): string {
+  if (!desc) return '';
+  if (typeof desc === 'string') return desc;
+  if (typeof desc === 'object') {
+    const lines: string[] = [];
+    const d = desc;
+    if (d.name) lines.push(`# ${d.name}`);
+    if (d.age) lines.push(`- 年龄: ${d.age}`);
+    if (d.height) lines.push(`- 身高: ${d.height}`);
+    if (d.build) lines.push(`- 体型: ${d.build}`);
+    if (d.face) lines.push(`- 脸型: ${d.face}`);
+    if (d.features) lines.push(`- 五官: ${d.features}`);
+    if (d.hair) lines.push(`- 发型: ${d.hair}`);
+    if (d.signature) lines.push(`- 标志: ${d.signature}`);
+    if (d.clothes) lines.push(`- 服装: ${d.clothes}`);
+    if (d.personality) lines.push(`- 性格: ${d.personality}`);
+    if (d.aliases && d.aliases.length) lines.push(`- 别名: ${d.aliases.join('、')}`);
+    return lines.join('\n');
+  }
+  return String(desc);
+}
+
+// 简单 Markdown 渲染 (跟 web 端保持轻量一致, 不引入 markdown 库)
+function renderMarkdown(text: string): React.ReactNode {
+  if (!text) return null;
+  const lines = text.split('\n');
+  return lines.map((line, idx) => {
+    if (line.startsWith('# ')) {
+      return <Text key={idx} style={styles.mdH1}>{line.slice(2)}</Text>;
+    }
+    if (line.startsWith('## ')) {
+      return <Text key={idx} style={styles.mdH2}>{line.slice(3)}</Text>;
+    }
+    if (line.startsWith('- ')) {
+      return (
+        <View key={idx} style={styles.mdBulletRow}>
+          <Text style={styles.mdBullet}>•</Text>
+          <Text style={styles.mdBulletText}>{line.slice(2)}</Text>
+        </View>
+      );
+    }
+    if (line.trim() === '') {
+      return <View key={idx} style={{ height: 6 }} />;
+    }
+    return <Text key={idx} style={styles.mdText}>{line}</Text>;
+  });
+}
 
 export function CharacterDetailScreen() {
   const route = useRoute<any>();
@@ -37,16 +96,35 @@ export function CharacterDetailScreen() {
 
   const [character, setCharacter] = useState<Character | null>(null);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState<ImageVariant['angle'] | 'all' | null>(null);
+
+  // 编辑模式
+  const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [aliasesDraft, setAliasesDraft] = useState('');
+  const [roleTypeDraft, setRoleTypeDraft] = useState<string>('supporting');
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [extraDescriptionDraft, setExtraDescriptionDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // 操作 state
+  const [confirming, setConfirming] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [roleTypeModal, setRoleTypeModal] = useState(false);
 
   const load = useCallback(async () => {
     if (!characterId) return;
     setLoading(true);
     try {
       const res = await getCharacter(characterId);
-      setCharacter(res.data?.data || null);
+      const c: any = res.data?.data || null;
+      setCharacter(c);
+      setNameDraft(c?.name || '');
+      setAliasesDraft((c?.aliases || []).join(', '));
+      setRoleTypeDraft(c?.roleType || 'supporting');
+      setDescriptionDraft(extractDescriptionText(c?.description));
+      setExtraDescriptionDraft(extractDescriptionText(c?.extraDescription));
     } catch (err: any) {
-      showToast('加载失败: ' + (err?.response?.data?.error?.message || err?.message), 'error');
+      showToast({ message: '加载失败: ' + (err?.response?.data?.error?.message || err?.message), variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -54,57 +132,88 @@ export function CharacterDetailScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  const onGenerate = async (angles?: Array<ImageVariant['angle']>) => {
-    if (!userInfo) {
-      showToast('请先登录', 'error');
-      return;
+  const handleSave = async () => {
+    if (!characterId) return;
+    setSaving(true);
+    try {
+      await updateCharacterFullApi(characterId, {
+        name: nameDraft.trim() || character?.name,
+        aliases: aliasesDraft.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+        roleType: roleTypeDraft,
+        description: descriptionDraft,
+        extraDescription: extraDescriptionDraft,
+      });
+      setCharacter((prev: any) => prev ? {
+        ...prev,
+        name: nameDraft.trim() || prev.name,
+        aliases: aliasesDraft.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+        roleType: roleTypeDraft,
+        description: descriptionDraft,
+        extraDescription: extraDescriptionDraft,
+      } : prev);
+      if (character) {
+        updateCharacter({
+          ...character,
+          name: nameDraft.trim() || character.name,
+          aliases: aliasesDraft.split(/[,，]/).map(s => s.trim()).filter(Boolean),
+          roleType: roleTypeDraft as any,
+          description: descriptionDraft as any,
+          extraDescription: extraDescriptionDraft as any,
+        });
+      }
+      showToast({ message: '✅ 已保存', variant: 'success' });
+      setEditing(false);
+    } catch (e: any) {
+      showToast({ message: '❌ 保存失败: ' + (e?.response?.data?.error?.message || e?.message || '未知错误'), variant: 'error' });
+    } finally {
+      setSaving(false);
     }
-    const targetAngles = angles || (['front_bust', 'side_bust', 'full_body'] as const);
-    const cost = targetAngles.length * ANGLE_PRICE;
+  };
 
-    if ((userInfo.balance || 0) < cost) {
-      Alert.alert('余额不足', `需要 ¥${cost.toFixed(2)}, 当前余额 ¥${(userInfo.balance || 0).toFixed(2)}`);
-      return;
+  const handleCancel = () => {
+    setNameDraft(character?.name || '');
+    setAliasesDraft((character?.aliases || []).join(', '));
+    setRoleTypeDraft(character?.roleType || 'supporting');
+    setDescriptionDraft(extractDescriptionText(character?.description));
+    setExtraDescriptionDraft(extractDescriptionText(character?.extraDescription));
+    setEditing(false);
+  };
+
+  const handleConfirm = async () => {
+    if (!characterId) return;
+    setConfirming(true);
+    try {
+      await confirmCharacter(characterId, { description: {} as any, extraDescription: {} as any });
+      setCharacter((prev: any) => prev ? { ...prev, confirmed: true } : prev);
+      showToast({ message: '✅ 已确认描述', variant: 'success' });
+    } catch (e: any) {
+      showToast({ message: '❌ 确认失败: ' + (e?.response?.data?.error?.message || e?.message || '未知错误'), variant: 'error' });
+    } finally {
+      setConfirming(false);
     }
+  };
 
-    Alert.alert(
-      '生成变体图',
-      `将为 ${character?.name} 生成 ${targetAngles.length} 张变体图, 共扣费 ¥${cost.toFixed(2)}`,
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '确认',
-          onPress: async () => {
-            setGenerating(angles ? targetAngles[0] : 'all');
-            try {
-              const res = await generateCharacterImages(characterId, angles);
-              const data = res.data?.data;
-              if (data?.variants) {
-                if (character) {
-                  const newChar = { ...character, imageVariants: data.variants, imageGenStatus: data.totalFailed > 0 ? 'partial' : 'completed' };
-                  setCharacter(newChar);
-                  updateCharacter(newChar);
-                }
-                showToast(`生成完成, 扣费 ¥${(data.charged || 0).toFixed(2)}`, 'success');
-                // 刷新余额
-                if (data.charged && userInfo) {
-                  useNovelStore.getState().setUserInfo({ ...userInfo, balance: (userInfo.balance || 0) - data.charged });
-                }
-              }
-            } catch (err: any) {
-              const msg = err?.response?.data?.error?.message || err?.message;
-              if (msg?.includes('余额不足')) {
-                Alert.alert('余额不足', msg);
-              } else {
-                showToast('生成失败: ' + msg, 'error');
-              }
-            } finally {
-              setGenerating(null);
-            }
-          },
-        },
-      ],
-    );
+  const handleGenerateImages = async () => {
+    if (!characterId) return;
+    setGenerating(true);
+    try {
+      const res = await generateCharacterImages(characterId);
+      const data: any = res.data?.data;
+      if (data?.variants && character) {
+        const newChar = { ...character, imageVariants: data.variants, imageGenStatus: (data.totalFailed > 0 ? 'partial' : 'completed') as any };
+        setCharacter(newChar);
+        updateCharacter(newChar);
+        showToast({ message: `✅ 已生成三视图, 扣费 ¥${(data.charged || 0).toFixed(2)}`, variant: 'success' });
+        if (data.charged && userInfo) {
+          useNovelStore.getState().setUserInfo({ ...userInfo, balance: (userInfo.balance || 0) - data.charged });
+        }
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.error?.message || err?.message;
+      showToast({ message: '❌ 生成失败: ' + msg, variant: 'error' });
+    } finally {
+      setGenerating(false);
+    }
   };
 
   if (loading || !character) {
@@ -115,196 +224,628 @@ export function CharacterDetailScreen() {
     );
   }
 
-  const variants = character.imageVariants || [];
-  const hasAll = variants.length === 3;
-  const missingAngles: Array<ImageVariant['angle']> = (['front_bust', 'side_bust', 'full_body'] as const).filter(a => !variants.find(v => v.angle === a));
+  const descText = extractDescriptionText(character.description);
+  const extraText = extractDescriptionText(character.extraDescription);
+  const sheetVariant = (character.imageVariants || []).find((v: any) => v.angle === 'sheet');
+  const sheetImgUrl = (sheetVariant as any)?.imageData || (sheetVariant as any)?.url;
+  const hasSheet = !!sheetImgUrl;
+  const status = getStatusInfo(character);
+  const role = getRoleColor(character.roleType);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <Text style={styles.name}>{character.name}</Text>
-          {character.confirmed ? (
-            <View style={styles.confirmedBadge}>
-              <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-              <Text style={styles.confirmedText}>已确认</Text>
-            </View>
-          ) : (
-            <View style={styles.pendingBadge}>
-              <Ionicons name="time-outline" size={14} color="#F59E0B" />
-              <Text style={styles.pendingText}>待确认</Text>
-            </View>
-          )}
-        </View>
-        {character.styleId && (
-          <View style={styles.styleBadge}>
-            <Ionicons name="color-palette-outline" size={14} color={colors.primary} />
-            <Text style={styles.styleBadgeText}>
-              {character.styleId === 'realistic' ? '写实电影风' :
-               character.styleId === 'ancient' ? '古风水墨' :
-               character.styleId === 'cyber' ? '赛博朋克' :
-               character.styleId === 'anime' ? '动漫风' :
-               character.styleId === '3d' ? '3D 渲染' : character.styleId}
-            </Text>
-          </View>
-        )}
-        {character.imageGenStatus && (
-          <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>生图状态:</Text>
-            <Text style={styles.statusValue}>
-              {character.imageGenStatus === 'none' ? '未生成' :
-               character.imageGenStatus === 'generating' ? '生成中...' :
-               character.imageGenStatus === 'partial' ? `部分完成 (${variants.length}/3)` :
-               character.imageGenStatus === 'completed' ? '✅ 已完成' :
-               character.imageGenStatus === 'failed' ? '❌ 失败' : character.imageGenStatus}
-            </Text>
-          </View>
-        )}
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>变体图 ({variants.length}/3)</Text>
-        <Text style={styles.sectionSubtitle}>每张图扣费 ¥{ANGLE_PRICE.toFixed(2)}</Text>
+        {/* === Hero Header (跟列表卡片区分, 用渐变背景) === */}
+        <LinearGradient
+          colors={gradient.hero}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
+        >
+          <LinearGradient
+            colors={role.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.heroGlow, { opacity: 0.3 }]}
+          />
 
-        {variants.length === 0 ? (
-          <View style={styles.emptyVariants}>
-            <Ionicons name="image-outline" size={48} color={colors.text.tertiary} />
-            <Text style={styles.emptyText}>尚无变体图</Text>
-            {!character.confirmed ? (
-              <Text style={styles.emptyHint}>请先确认角色描述</Text>
-            ) : (
-              <TouchableOpacity onPress={() => onGenerate()} disabled={generating !== null} style={[styles.btnPrimary, generating !== null && { opacity: 0.6 }]}>
-                {generating === 'all' ? <ActivityIndicator color="#fff" /> : (
-                  <>
-                    <Ionicons name="sparkles" size={18} color="#fff" />
-                    <Text style={styles.btnPrimaryText}>生成 3 张变体图 (¥{(3 * ANGLE_PRICE).toFixed(2)})</Text>
-                  </>
-                )}
+          {/* 返回按钮 (左上角) */}
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          <View style={styles.heroContent}>
+            {/* 大头像 (xl=128) */}
+            <CharacterAvatar
+              name={character.name}
+              roleType={character.roleType}
+              imageUrl={sheetImgUrl}
+              size="xl"
+              statusColor={status.color}
+              pulsing={status.animated}
+            />
+
+            <View style={styles.heroTextBlock}>
+              {editing ? (
+                <TextInput
+                  value={nameDraft}
+                  onChangeText={setNameDraft}
+                  style={styles.nameInput}
+                  placeholder="角色名"
+                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                />
+              ) : (
+                <Text style={styles.heroName} numberOfLines={1}>{character.name}</Text>
+              )}
+              {((character.aliases || []).length > 0 || (character as any).gender) && (
+                <Text style={styles.heroMeta} numberOfLines={1}>
+                  {((character.aliases || []).join(' · ') || '')}
+                  {((character.aliases || []).length > 0 && (character as any).gender) ? ' · ' : ''}
+                  {(character as any).gender || ''}
+                </Text>
+              )}
+            </View>
+
+            {/* 状态 chip 行 */}
+            <View style={styles.heroChipRow}>
+              <RoleChip roleType={character.roleType} size="md" />
+              <StatusChip statusKey={status.key} size="md" />
+              {character.styleId && <StyleChip styleId={character.styleId} />}
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* === 基本信息 (field grid 改 vertical list, 更易读) === */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="information-circle-outline" size={16} color={text.muted} />
+            <Text style={styles.sectionTitle}>基本信息</Text>
+          </View>
+
+          {/* 角色类型 */}
+          <View style={styles.fieldRow}>
+            <Text style={styles.fieldLabel}>角色类型</Text>
+            {editing ? (
+              <TouchableOpacity style={styles.fieldInput} onPress={() => setRoleTypeModal(true)}>
+                <Text style={styles.fieldInputText}>{roleLabelOf(roleTypeDraft)}</Text>
+                <Ionicons name="chevron-down" size={14} color={text.muted} />
               </TouchableOpacity>
+            ) : (
+              <View style={styles.fieldValueRow}>
+                <RoleChip roleType={character.roleType} size="md" />
+              </View>
             )}
           </View>
-        ) : (
-          <View>
-            {(['front_bust', 'side_bust', 'full_body'] as const).map(angle => {
-              const variant = variants.find(v => v.angle === angle);
-              return (
-                <View key={angle} style={styles.variantCard}>
-                  <View style={styles.variantHeader}>
-                    <View style={styles.variantTitleRow}>
-                      <Ionicons name={ANGLE_ICONS[angle]} size={18} color={colors.primary} />
-                      <Text style={styles.variantTitle}>{ANGLE_LABELS[angle]}</Text>
-                    </View>
-                    {variant && (
-                      <TouchableOpacity onPress={() => onGenerate([angle])} disabled={generating !== null} style={styles.regenerateBtn}>
-                        {generating === angle ? <ActivityIndicator color={colors.primary} size="small" /> : (
-                          <>
-                            <Ionicons name="refresh" size={14} color={colors.primary} />
-                            <Text style={styles.regenerateBtnText}>重新生成 ¥{ANGLE_PRICE.toFixed(2)}</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {variant ? (
-                    <View style={styles.imageContainer}>
-                      <Image
-                        source={{ uri: variant.url }}
-                        style={styles.image}
-                        resizeMode="contain"
-                        onError={() => showToast('图片加载失败', 'error')}
-                      />
-                    </View>
-                  ) : (
-                    <View style={styles.missingImage}>
-                      <Ionicons name="add-circle-outline" size={32} color={colors.text.tertiary} />
-                      <Text style={styles.missingText}>未生成</Text>
-                      {character.confirmed && (
-                        <TouchableOpacity onPress={() => onGenerate([angle])} disabled={generating !== null} style={[styles.btnPrimary, { marginTop: 8, paddingVertical: 8 }, generating !== null && { opacity: 0.6 }]}>
-                          {generating === angle ? <ActivityIndicator color="#fff" size="small" /> : (
-                            <Text style={styles.btnPrimaryText}>生成此角度 (¥{ANGLE_PRICE.toFixed(2)})</Text>
-                          )}
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </View>
 
-      {character.description && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>角色描述</Text>
-          {/* v3.0.6 (S58 P7 BUG-013): server 返 description 是字符串 (自由文本), 不是 10 字段对象
-              之前 S58 P1 臆造 10 字段结构, 实际 server v2.5.34 后是纯文本 */}
-          <Text style={styles.descValue}>{character.description}</Text>
-        </View>
-      )}
-
-      {character.extraDescription && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>补充描述</Text>
-          {/* 同 BUG-013: extraDescription 也是字符串 */}
-          <Text style={styles.descValue}>{character.extraDescription}</Text>
-        </View>
-      )}
-
-      {!hasAll && character.confirmed && missingAngles.length > 0 && (
-        <View style={styles.actionBar}>
-          <TouchableOpacity
-            onPress={() => onGenerate(missingAngles)}
-            disabled={generating !== null}
-            style={[styles.btnPrimary, { flex: 1 }, generating !== null && { opacity: 0.6 }]}
-          >
-            {generating === missingAngles[0] ? <ActivityIndicator color="#fff" /> : (
-              <Text style={styles.btnPrimaryText}>
-                生成剩余 {missingAngles.length} 张 (¥{(missingAngles.length * ANGLE_PRICE).toFixed(2)})
+          {/* 别名 */}
+          <View style={styles.fieldRow}>
+            <Text style={styles.fieldLabel}>别名</Text>
+            {editing ? (
+              <TextInput
+                value={aliasesDraft}
+                onChangeText={setAliasesDraft}
+                style={styles.fieldInput}
+                placeholder="别名1, 别名2"
+                placeholderTextColor={text.subtle}
+              />
+            ) : (
+              <Text style={styles.fieldValue}>
+                {(character.aliases || []).join(', ') || '未设置'}
               </Text>
             )}
-          </TouchableOpacity>
+          </View>
+
+          {/* 性别 */}
+          <View style={styles.fieldRow}>
+            <Text style={styles.fieldLabel}>性别</Text>
+            <Text style={styles.fieldValue}>{(character as any).gender || '未设置'}</Text>
+          </View>
         </View>
-      )}
-    </ScrollView>
+
+        {/* === 角色描述 (主) === */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="book-outline" size={16} color={text.muted} />
+            <Text style={styles.sectionTitle}>角色描述</Text>
+            <Text style={styles.sectionCounter}>
+              {editing ? descriptionDraft.length : descText.length} 字符
+            </Text>
+          </View>
+          {editing ? (
+            <TextInput
+              value={descriptionDraft}
+              onChangeText={setDescriptionDraft}
+              style={styles.textareaLarge}
+              multiline
+              placeholder="角色的完整描述 (Markdown 格式)..."
+              placeholderTextColor={text.subtle}
+              textAlignVertical="top"
+            />
+          ) : descText ? (
+            <View style={styles.markdownBox}>
+              {renderMarkdown(descText)}
+            </View>
+          ) : (
+            <Text style={styles.emptyHint}>暂无描述. 点击底部"编辑"按钮添加.</Text>
+          )}
+        </View>
+
+        {/* === 补充描述 === */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="sparkles-outline" size={16} color={text.muted} />
+            <Text style={styles.sectionTitle}>补充描述</Text>
+            <Text style={styles.sectionCounter}>
+              {editing ? extraDescriptionDraft.length : extraText.length} 字符
+            </Text>
+          </View>
+          {editing ? (
+            <TextInput
+              value={extraDescriptionDraft}
+              onChangeText={setExtraDescriptionDraft}
+              style={styles.textareaSmall}
+              multiline
+              placeholder="角色与其他角色的关系 / 情绪范围 / 名言 / 标志性动作..."
+              placeholderTextColor={text.subtle}
+              textAlignVertical="top"
+            />
+          ) : extraText ? (
+            <View style={styles.markdownBox}>
+              {renderMarkdown(extraText)}
+            </View>
+          ) : (
+            <Text style={styles.emptyHint}>无补充描述</Text>
+          )}
+        </View>
+
+        {/* === 三视图预览 === */}
+        {hasSheet && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="image-outline" size={16} color={text.muted} />
+              <Text style={styles.sectionTitle}>三视图</Text>
+            </View>
+            <View style={styles.sheetContainer}>
+              <Image source={{ uri: sheetImgUrl }} style={styles.sheetImage} resizeMode="contain" />
+              {/* 角标: 三视图标签 */}
+              <View style={styles.sheetBadge}>
+                <Ionicons name="cube" size={12} color="#fff" />
+                <Text style={styles.sheetBadgeText}>CHARACTER SHEET</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* === 角色类型下拉 Modal === */}
+        <Modal visible={roleTypeModal} transparent animationType="fade" onRequestClose={() => setRoleTypeModal(false)}>
+          <Pressable style={styles.modalMask} onPress={() => setRoleTypeModal(false)}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>选择角色类型</Text>
+              {ROLE_TYPES.map(r => {
+                const r2 = getRoleColor(r.value);
+                return (
+                  <TouchableOpacity
+                    key={r.value}
+                    style={[styles.modalOption, roleTypeDraft === r.value && styles.modalOptionActive]}
+                    onPress={() => { setRoleTypeDraft(r.value); setRoleTypeModal(false); }}
+                  >
+                    <View style={[styles.modalOptionIcon, { backgroundColor: r2.primaryAlpha }]}>
+                      <Ionicons name={r2.icon as any} size={16} color={r2.primary} />
+                    </View>
+                    <Text style={[styles.modalOptionText, roleTypeDraft === r.value && styles.modalOptionTextActive]}>
+                      {r.label}
+                    </Text>
+                    {roleTypeDraft === r.value && <Ionicons name="checkmark-circle" size={18} color={r2.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Pressable>
+        </Modal>
+      </ScrollView>
+
+      {/* === 底部操作栏 (sticky, gradient bg) === */}
+      <LinearGradient
+        colors={['rgba(10, 10, 20, 0.95)', colors.bg.primary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.actionBar}
+      >
+        {editing ? (
+          <>
+            <TouchableOpacity
+              onPress={handleCancel}
+              disabled={saving}
+              style={[styles.actionBtn, styles.actionBtnGhost]}
+            >
+              <Ionicons name="close" size={16} color={text.body} />
+              <Text style={styles.actionBtnGhostText}>取消</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.8}
+              style={[styles.actionBtn, saving && { opacity: 0.6 }]}
+            >
+              <LinearGradient
+                colors={gradient.primary}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.actionBtnGradient}
+              >
+                {saving ? <ActivityIndicator color="#fff" size="small" /> : (
+                  <>
+                    <Ionicons name="save" size={16} color="#fff" />
+                    <Text style={styles.actionBtnPrimaryText}>保存修改</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              onPress={() => setEditing(true)}
+              style={[styles.actionBtn, styles.actionBtnGhost]}
+            >
+              <Ionicons name="create-outline" size={16} color={text.body} />
+              <Text style={styles.actionBtnGhostText}>编辑</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleConfirm}
+              disabled={confirming || character.confirmed}
+              activeOpacity={0.8}
+              style={[styles.actionBtn, (confirming || character.confirmed) && { opacity: 0.5 }]}
+            >
+              <View style={[styles.actionBtnGradient, { backgroundColor: character.confirmed ? '#10B981' : 'transparent' }]}>
+                {character.confirmed ? (
+                  <>
+                    <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                    <Text style={styles.actionBtnPrimaryText}>已确认</Text>
+                  </>
+                ) : confirming ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                    <Text style={styles.actionBtnPrimaryText}>确认描述</Text>
+                  </>
+                )}
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleGenerateImages}
+              disabled={generating || !character.confirmed || character.imageGenStatus === 'generating'}
+              activeOpacity={0.8}
+              style={[styles.actionBtn, (generating || !character.confirmed) && { opacity: 0.5 }]}
+            >
+              <LinearGradient
+                colors={gradient.primary}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.actionBtnGradient}
+              >
+                {generating ? <ActivityIndicator color="#fff" size="small" /> :
+                 character.imageGenStatus === 'completed' ?
+                   <><Ionicons name="refresh" size={16} color="#fff" /><Text style={styles.actionBtnPrimaryText}>重新生图</Text></> :
+                   <><Ionicons name="sparkles" size={16} color="#fff" /><Text style={styles.actionBtnPrimaryText}>生成三视图</Text></>
+                }
+              </LinearGradient>
+            </TouchableOpacity>
+          </>
+        )}
+      </LinearGradient>
+    </View>
   );
+}
+
+function roleLabelOf(v: string) {
+  return ROLE_TYPES.find(r => r.value === v)?.label || v || '配角';
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg.primary },
-  header: { padding: spacing.lg, backgroundColor: colors.bg.secondary },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  name: { ...typography.h1, color: colors.text.primary, flex: 1 },
-  confirmedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: radii.sm },
-  confirmedText: { ...typography.caption, color: '#10B981', fontWeight: '600' },
-  pendingBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(245,158,11,0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: radii.sm },
-  pendingText: { ...typography.caption, color: '#F59E0B', fontWeight: '600' },
-  styleBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, alignSelf: 'flex-start', backgroundColor: colors.bg.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radii.sm },
-  styleBadgeText: { ...typography.caption, color: colors.primary },
-  statusRow: { flexDirection: 'row', marginTop: 8, alignItems: 'center' },
-  statusLabel: { ...typography.caption, color: colors.text.secondary, marginRight: 6 },
-  statusValue: { ...typography.caption, color: colors.text.primary, fontWeight: '600' },
-  section: { padding: spacing.md, backgroundColor: colors.bg.secondary, margin: spacing.md, borderRadius: radii.md },
-  sectionTitle: { ...typography.h3, color: colors.text.primary, marginBottom: 4 },
-  sectionSubtitle: { ...typography.caption, color: colors.text.tertiary, marginBottom: 12 },
-  emptyVariants: { alignItems: 'center', paddingVertical: 20, gap: 8 },
-  emptyText: { ...typography.body, color: colors.text.tertiary },
-  emptyHint: { ...typography.caption, color: colors.text.tertiary },
-  variantCard: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  variantHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  variantTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  variantTitle: { ...typography.body, color: colors.text.primary, fontWeight: '600' },
-  regenerateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, padding: 4 },
-  regenerateBtnText: { ...typography.caption, color: colors.primary, fontWeight: '600' },
-  imageContainer: { backgroundColor: colors.bg.primary, borderRadius: radii.md, padding: 8, alignItems: 'center' },
-  image: { width: 256, height: 256, backgroundColor: colors.bg.tertiary },
-  missingImage: { alignItems: 'center', paddingVertical: 24, backgroundColor: colors.bg.primary, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed' },
-  missingText: { ...typography.caption, color: colors.text.tertiary, marginTop: 4 },
-  btnPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 16, borderRadius: radii.md, gap: 6 },
-  btnPrimaryText: { ...typography.body, color: '#fff', fontWeight: '600' },
-  descRow: { flexDirection: 'row', paddingVertical: 4 },
-  descLabel: { ...typography.caption, color: colors.text.tertiary, width: 60 },
-  descValue: { ...typography.body, color: colors.text.primary, flex: 1 },
-  actionBar: { flexDirection: 'row', padding: spacing.md, gap: 8 },
+
+  // Hero
+  hero: {
+    position: 'relative',
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: surface.cardBorder,
+  },
+  heroGlow: {
+    position: 'absolute',
+    top: -50,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+  },
+  backBtn: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  heroContent: {
+    padding: spacing.lg,
+    paddingTop: 56,
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroTextBlock: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  heroName: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  nameInput: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: radii.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minWidth: 200,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  heroMeta: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontWeight: '500',
+  },
+  heroChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
+  },
+
+  // Section
+  section: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: surface.card,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: surface.cardBorder,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: spacing.md,
+  },
+  sectionTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: text.primary,
+  },
+  sectionCounter: {
+    fontSize: 11,
+    color: text.muted,
+  },
+
+  // Field
+  fieldRow: {
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    color: text.muted,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  fieldInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: surface.input,
+    borderRadius: radii.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: surface.inputBorder,
+  },
+  fieldInputText: {
+    fontSize: 14,
+    color: text.primary,
+  },
+  fieldValueRow: {
+    flexDirection: 'row',
+  },
+  fieldValue: {
+    fontSize: 14,
+    color: text.body,
+  },
+
+  // Textarea
+  textareaLarge: {
+    backgroundColor: surface.input,
+    borderRadius: radii.md,
+    padding: 12,
+    minHeight: 220,
+    fontSize: 13,
+    color: text.body,
+    lineHeight: 20,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: surface.inputBorder,
+    fontFamily: 'monospace',
+  },
+  textareaSmall: {
+    backgroundColor: surface.input,
+    borderRadius: radii.md,
+    padding: 12,
+    minHeight: 120,
+    fontSize: 13,
+    color: text.body,
+    lineHeight: 20,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: surface.inputBorder,
+    fontFamily: 'monospace',
+  },
+  emptyHint: {
+    fontSize: 13,
+    color: text.muted,
+    fontStyle: 'italic',
+  },
+
+  // Markdown 渲染
+  markdownBox: {
+    gap: 4,
+  },
+  mdH1: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: text.primary,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  mdH2: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: text.primary,
+    marginTop: 2,
+  },
+  mdText: {
+    fontSize: 14,
+    color: text.body,
+    lineHeight: 22,
+  },
+  mdBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingLeft: 8,
+  },
+  mdBullet: {
+    fontSize: 14,
+    color: text.muted,
+    marginRight: 6,
+    lineHeight: 22,
+  },
+  mdBulletText: {
+    flex: 1,
+    fontSize: 14,
+    color: text.body,
+    lineHeight: 22,
+  },
+
+  // 三视图
+  sheetContainer: {
+    backgroundColor: surface.input,
+    borderRadius: radii.md,
+    padding: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: surface.cardBorder,
+    position: 'relative',
+  },
+  sheetImage: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: radii.sm,
+  },
+  sheetBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  sheetBadgeText: {
+    fontSize: 9,
+    color: '#fff',
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+
+  // Modal
+  modalMask: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalCard: { width: '100%', maxWidth: 400, backgroundColor: surface.card, borderRadius: radii.lg, padding: spacing.md, gap: 4, borderWidth: 1, borderColor: surface.cardBorder },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: text.primary, marginBottom: 12 },
+  modalOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 12, borderRadius: radii.md },
+  modalOptionActive: { backgroundColor: 'rgba(99, 102, 241, 0.15)' },
+  modalOptionIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  modalOptionText: { flex: 1, fontSize: 14, color: text.body },
+  modalOptionTextActive: { color: text.primary, fontWeight: '600' },
+
+  // Bottom action bar
+  actionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: surface.cardBorder,
+  },
+  actionBtn: {
+    flex: 1,
+    borderRadius: radii.md,
+    overflow: 'hidden',
+  },
+  actionBtnGhost: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: surface.cardBorder,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  actionBtnGhostText: {
+    fontSize: 14,
+    color: text.body,
+    fontWeight: '600',
+  },
+  actionBtnGradient: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  actionBtnPrimaryText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
+  },
 });
