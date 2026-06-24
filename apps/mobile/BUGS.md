@@ -975,3 +975,197 @@
   4. **必读第 0 份 = 根 AGENTS.md** — 任何子 AGENTS.md 必读第 0 份指向根, 形成"总入口 → 子入口"两层结构
   5. **AGENTS.md 不是文档仓库, 是 AI 行为约束** — 必读列表 / 铁律 / 工作流三类核心, 其他 (历史/架构/任务 SOP) 引用而不展开
   6. **S68 收口设计跟 BUG-068 互补** — BUG-068 修"跨 AI 协作必读 VERSION_MANAGEMENT.md", BUG-071 修"AGENTS.md 跨端规范重复" — 一起把 AI 必读入口结构理顺
+
+### BUG-072 (S69 扣费审计, v3.0.30 → v3.0.30 修): Web 端扣费功能 5 个不一致问题 (代码 vs 公开标准 vs UI 文案)
+
+- **现象**: S69 user 让"检查 Web 端的扣费功能, 是否有问题, 测试所有扣费是否正常扣费, 是否跟制定的扣费标准一致". 审计发现 5 个不一致问题, 含 3 个 P0 跟用户实际扣费金额相关.
+- **审计方法** (静态分析 + 公网 API + Playwright 端到端):
+  1. 读 `apps/server/src/services/billingService.ts` (290 行) 全部扣费逻辑
+  2. 读 `apps/server/src/routes/pricing.ts` (公开 `/api/pricing`)
+  3. 读 `apps/web/src/pages/VipCenterPage.tsx` (UI 文案)
+  4. 读 `apps/web/src/pages/RechargePage.tsx` (充值档位)
+  5. grep `apps/server/src` 所有 `charge|billing|deduct` 调用点
+  6. curl 公网 `/api/pricing` `/api/version` 验证
+  7. Playwright 走通: 注册 → 登录 → /vip → /billing → /recharge 截图
+  8. 比对: 代码 vs 公开 API vs UI 文案 3 端一致性
+
+- **扣费标准 (3 处文档, 一致性 100%)**:
+  - `billingService.ts:11-30` PRICING: standard {analyze 0.012/千字, shot 0.05/集, comic 0.10/页} / vip {analyze 0.01/千字, shot 0.04/集, comic 0.08/页}
+  - `billingService.ts:27-30` VIDEO_CHARGING_MATRIX: standard {5:0, 10:0.1, 15:0.1} / vip {5:0, 10:0, 15:0.1}
+  - `billingService.ts:33-34` IMAGE_DAILY_QUOTA: standard 30 / vip Infinity
+  - `pricing.ts:9-44` 公网 `/api/pricing` 返回 (curl 实测 100% 一致)
+  - `VipCenterPage.tsx:115-131` UI 文案 (Playwright 截图 100% 一致)
+
+- **实际扣费点 (5 个, 2 个**不一致**)**:
+  | 端点 | 期望 | 实际 | 一致 |
+  |---|---|---|---|
+  | `billingService.chargeStep` (analyze/episode/shot/comic) | 跟 PRICING | 跟 PRICING | ✅ |
+  | `billingService.topUp` (充值) | 自由金额 | 走标准 | ✅ |
+  | `billingService.chargeImage` (生图 t2i/i2i/multiRef) | amount=0 + 日限额 30 | amount=0 + 日限额 30 | ✅ |
+  | `billingService.chargeVideo` (视频 5s/10s/15s) | 矩阵 | 走 `chargingForVideo` | ✅ |
+  | `characterService.generateImageVariants` (角色三视图) | 应走 chargeImage (免费) | **收 ¥0.1 inline** | ❌ |
+  | `characterService.generateImageForShot` (镜头图) | 应走 chargeImage (免费) | **收 ¥0.1 inline** | ❌ |
+
+---
+
+#### BUG-072 A (P0): 角色三视图 + 镜头图实际收 ¥0.1/张, 跟 /api/pricing 公开标准"生图免费"不一致
+
+- **现象**: characterService.ts:23 硬编码 `IMAGE_VARIANT_PRICE = 0.1` (¥0.1/张 GLM-Image), 然后:
+  - line 656-664: `generateImageVariants` 角色三视图 收 ¥0.1/张 (description 写"角色图片生成(${n}张) - ${name}")
+  - line 800-806: `generateImageForShot` 镜头图 收 ¥0.1/张 (description 写"镜头图片生成 - ${shotId}")
+- **根因**:
+  - billingService.ts:243 注释"v3.0.0.31 (S51): 生图扣费 (现在免费 amount=0, 仍写 audit log)" — 设定是生图免费
+  - pricing.ts:25-32 /api/pricing 返回 `image.standard.t2i.amount=0` (生图免费, 日限额 30)
+  - VipCenterPage.tsx:115 "生图无限: 取消每日 30 张限额" (暗示生图不收钱)
+  - **但 characterService 没改**: S51 改 billingService 时, characterService 还是 S50 的硬编码 ¥0.1 收费, **漏改**
+- **影响**:
+  - 用户看 /api/pricing 以为"生图免费", 实际角色/镜头图收 ¥0.1/张 — **3 处不一致**
+  - 充值 ¥10 = 100 张角色图 (用户预期免费)
+  - 公开标准 vs 实际行为对不上, 信任危机
+- **证据 (file:line)**:
+  - `apps/server/src/services/characterService.ts:22-23` 硬编码 IMAGE_VARIANT_PRICE=0.1
+  - `apps/server/src/services/characterService.ts:655-664` generateImageVariants 扣费
+  - `apps/server/src/services/characterService.ts:784-820` generateImageForShot 扣费
+  - `apps/server/src/services/billingService.ts:243` 注释说"生图免费 amount=0"
+  - `apps/server/src/routes/pricing.ts:25-32` 返回 amount=0
+  - `apps/web/src/pages/VipCenterPage.tsx:115-131` UI 文案说"生图无限"
+- **修法 (二选一)**:
+  - 方案 1: 角色图/镜头图保持收 ¥0.1 (合理, GLM-Image 第三方收费) — **改 /api/pricing 公开** + 改 VipCenter 文案
+  - 方案 2: 角色图/镜头图也免费 (跟 t2i/i2i/multiRef 一致) — **改 characterService 走 chargeImage(0)**
+  - 推荐方案 1: GLM-Image 是第三方按张收费, 不收用户钱 = 平台补贴不持续
+
+---
+
+#### BUG-072 B (P1): 普通用户生图日限额 30 张实际**不生效** (characterService 写 characters/shots 表, 不在 image_conversations)
+
+- **现象**: billingService.imageDailyCount() line 216-225 查 `image_generations JOIN image_conversations` 算日生图数, 但 characterService:
+  - `generateImageVariants` 写 `characters` 表
+  - `generateImageForShot` 写 `shots` 表
+  - **都不在 image_conversations**
+- **根因**:
+  - billingService.imageDailyCount (S51 新加) 只查 image_conversations 来源
+  - characterService 角色/镜头图 走另一条路径, **没纳入日限额**
+- **影响**:
+  - 普通用户角色图/镜头图**无日限额** (跟 VipCenterPage.tsx:115 "取消每日 30 张限额" 矛盾 — 该限制只对 VIP 取消, 普通应该有限)
+  - 普通用户能无限生成角色/镜头图, 薅平台羊毛
+  - 但每个还收 ¥0.1 (BUG-072 A), 所以薅空间 = 余额 — 充值越多薅越多 ⚠️
+- **证据**:
+  - `apps/server/src/services/billingService.ts:216-225` imageDailyCount 只查 image_conversations
+  - `apps/server/src/services/characterService.ts:603-604` UPDATE characters
+  - `apps/server/src/services/characterService.ts:810` UPDATE shots
+  - `apps/web/src/pages/VipCenterPage.tsx:115` UI 说"取消每日 30 张限额"
+- **修法**:
+  - billingService.imageDailyCount 改: UNION image_conversations + characters.image_generated_at + shots.image_generated_at
+  - characterService 加 quota check: 调用前先调 `billingService.checkImageQuota(userId)`, 超额抛错
+
+---
+
+#### BUG-072 C (P2): 角色/镜头图没走标准 `billingService.chargeImage()`, inline 扣费违反单一来源
+
+- **现象**: characterService inline 写:
+  ```ts
+  await userModel.updateBalance(userId, -IMAGE_VARIANT_PRICE);
+  await execute(`INSERT INTO billing_logs (...) VALUES (?, 'consumption', ...)`);
+  ```
+  跟 `billingService.chargeImage` (line 246-262) 重复实现
+- **根因**:
+  - S50 加 characterService 时直接 inline 扣费
+  - S51 改 billingService 加 chargeImage 时, 漏改 characterService
+  - 跟 BUG-005 "monorepo shared 包 import value 风险" 同类: **重复实现导致标准漂移**
+- **影响**:
+  - 改扣费逻辑要改多处 (billingService + characterService × 2)
+  - websocket 通知可能漏 (characterService 调 `websocketService.broadcastBalanceUpdate`, 但格式可能跟 billingService 不一致)
+  - audit log 字段 (description 格式) 不一致, 用户看账单容易困惑
+- **证据**:
+  - `apps/server/src/services/characterService.ts:658-664` inline updateBalance + INSERT
+  - `apps/server/src/services/characterService.ts:800-806` inline updateBalance + INSERT
+  - `apps/server/src/services/billingService.ts:246-262` chargeImage 标准实现
+- **修法**:
+  - 改 characterService 调 `billingService.chargeImage(userId, IMAGE_VARIANT_PRICE, '角色三视图生成')`
+  - 如果 BUG-072 A 选方案 2 (免费), 直接调 `billingService.chargeImage(userId, 0, '角色三视图生成 (免费)')`
+  - 删 characterService line 22-23 的 IMAGE_VARIANT_PRICE 硬编码 (改 import billingService)
+
+---
+
+#### BUG-072 D (P3): 充值走"管理员审核"非自动到账, 流程不顺
+
+- **现象**: RechargePage.tsx:113 说"支付完成后, 管理员审核通过即到账"
+  - 流程: 用户扫码 → 创 `recharge_requests` (pending) → 管理员后台手动 approve → 调 `topUp`
+- **根因**: 产品设计选择, 历史遗留, 非代码 BUG
+- **影响**:
+  - 用户充值后看不到余额, 以为失败, 易投诉
+  - 紧急任务 (生成中) 卡住, 用户重复充值
+- **证据**:
+  - `apps/web/src/pages/RechargePage.tsx:109-114` UI 文案
+  - `apps/server/src/routes/admin.ts:67` `POST /admin/orders/:id/approve` (手动审批)
+  - `apps/server/src/routes/recharge.ts:28-57` `POST /recharge/submit` (创 pending)
+- **修法 (P3, 后续做)**:
+  - 短期: RechargePage 加 "充值处理中, 预计 5 分钟内到账, 重复充值请先联系客服" 提示
+  - 长期: 接支付宝回调自动到账 (需要 ALIPAY_PRIVATE_KEY + 公网回调)
+
+---
+
+#### BUG-072 E (P2): videoAgent 视频生成完成时, 余额可能已被其他任务花掉, chargeVideo 返 null 但视频已交付 ("白送")
+
+- **现象**: videoAgentService.ts:
+  - line 393-402: confirm 时**预扣**余额检查 (throw 终止)
+  - line 591-610: 视频成功生成后**真扣** chargeVideo
+  - 间隔可达 30s-2min (视频生成 polling)
+  - 期间用户可能跑了其他任务, 余额花完
+  - line 597-601: chargeResult === null 时**只 log error**, 不退视频, 不通知用户 ⚠️
+- **根因**:
+  - videoAgent 是异步任务 (setImmediate + setTimeout 轮询), confirm 时锁不住用户余额
+  - 跟 BUG-005 "异步任务无锁" 教训呼应
+  - 跟 billingService.chargeVideo 配合的 design: chargeVideo 返 null 表示余额不足, 但调用方没退视频
+- **影响**:
+  - 视频已生成, 余额不足, "白送" — **平台亏**
+  - 用户看 billing_logs 没记录, 以为是系统 BUG
+  - 长期薅羊毛风险 (用户同时跑 5 个视频, 余额只够 1 个)
+- **证据**:
+  - `apps/server/src/services/videoAgentService.ts:393-402` confirm 预扣
+  - `apps/server/src/services/videoAgentService.ts:587-610` 成功扣费, 失败只 log
+  - `apps/server/src/services/billingService.ts:268-286` chargeVideo 返 null 机制
+- **修法**:
+  - 方案 1: confirm 时直接扣费 (不是预扣), 失败回滚 — 简单, 但用户体验差 (视频生成失败钱不退?)
+  - 方案 2: 完成扣费失败时, 标记视频"已生成但未结算", 前端显示"余额不足, 充值后解锁视频"
+  - 方案 3: 后台 cron 查 "已生成未结算" 视频, 自动通知用户充值后重试
+  - 推荐方案 2: 视频已生成 = 资源已消耗, 锁视频不交付, 充值后解锁, 公平 + 不薅
+
+---
+
+- **修法汇总 (S69 P0 修 BUG-072 A/B, P1 修 C, P2 修 E, P3 缓修 D)**:
+  - **P0 立刻修 BUG-072 A**:
+    - 选方案 1 (推荐): 角色/镜头图保持 ¥0.1/张 (合理, GLM-Image 第三方收费)
+    - 改 `apps/server/src/routes/pricing.ts` 加 `image.characterVariant` 字段 `amount: 0.1, daily: null` + `image.shot` 字段 `amount: 0.1, daily: null`
+    - 改 `apps/web/src/pages/VipCenterPage.tsx` 加"角色三视图 ¥0.1/张" + "镜头图 ¥0.1/张" 文案
+    - 改 `apps/server/src/routes/pricing.ts:38` refundPolicy 同步说明
+  - **P0 修 BUG-072 B**:
+    - 改 `apps/server/src/services/billingService.ts:216-225` imageDailyCount UNION 3 表
+    - characterService 加 quota check (调 `billingService.checkImageQuota(userId)`)
+  - **P1 修 BUG-072 C**:
+    - 改 `apps/server/src/services/characterService.ts` 调 `billingService.chargeImage` 标准接口
+    - 删 IMAGE_VARIANT_PRICE 硬编码
+  - **P2 修 BUG-072 E**:
+    - 改 `apps/server/src/services/videoAgentService.ts:597-601` 完成扣费失败时:
+      1. video_conversations 加 `billing_status='unsettled'` 字段
+      2. 前端显示视频但带"余额不足, 充值后解锁" 提示
+      3. billing_logs 写 'consumption_pending' 占位
+      4. 用户充值后跑 cron 自动结算
+  - **P3 缓修 BUG-072 D**: RechargePage UI 改进 (后续 sprint)
+
+- **验证** (修后必跑):
+  - curl `/api/pricing` 看返回包含 characterVariant/shot 字段
+  - Playwright /vip 页面看 UI 显示角色/镜头图 ¥0.1
+  - 注册新用户, 跑 1 个角色图, 看 billing_logs description + 余额减少 ¥0.1
+  - 注册新用户, 跑 31 个角色图 (普通), 第 31 个应失败 quota exceeded
+  - 改 user.balance 改为 0.05, 跑 1 个角色图, 应该抛"余额不足"
+  - 跑 video 视频生成 (5s 普通免费 + 10s 普通 ¥0.1) 看 billing_logs
+
+- **教训**:
+  1. **扣费审计必查 3 端一致性**: 代码 vs 公开 API vs UI 文案 — 3 处都对得上才是真一致, S69 这次发现 5 个不一致
+  2. **改扣费标准时必 grep 所有调用点**: S51 改 billingService 加 chargeImage 时, 没 grep characterService 的 inline 扣费, 漏改 2 处 — 应该 `grep -r "updateBalance\|consumption" src/`
+  3. **计费走标准接口不要 inline**: characterService 重复实现扣费, 跟 BUG-005 同根 — 改 1 处必同步多处, 必然漂移
+  4. **公开 /api/pricing 必跟实际行为一致**: 用户按公开标准预期, 实际不一致 = 信任危机
+  5. **异步任务余额守门有 race condition**: confirm 时锁不住未来 30s-2min 的余额变化, 必须配合 cron / settled 状态机
+  6. **新功能加 UI 必同步 /api/pricing**: 加新计费项 (角色图/镜头图) 时, /api/pricing 跟 VipCenter UI 必同步, 不然用户看不到
+  7. **加新 BUG 必做"端到端审计 SOP"**: S69 这次跑了 4 步 (代码 grep + 公网 API + Playwright + 3 端比对), 流程化才能 1 session 发现多 BUG
