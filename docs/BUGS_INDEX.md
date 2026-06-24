@@ -14,6 +14,7 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-078** | S71 | ✓ 已修 | **Web 端账单明细缺消费记录 (基本消费数据缺失)**: 只显示充值, 消费和免费完全没记录 | billing_logs 加 4 字段 (is_free/ref_type/ref_id/ref_label) + recordConsumption 统一入口 + /api/billing/transactions API + BillingPage 重写 (4 卡 + 3 tab + ref_type icon) |
 | **BUG-077** | S70 | ✓ 已修 | **宝塔 "项目" 找不到 shipin-APP 3 真相**: 内存 db + 错 db 路径 (default.db vs site.db) + 缺 NODE_PROJECT_NAME env | shipin-app.service 加 env + 修 site.db config + 杀 apt nginx + 启宝塔 nginx (12 维全过) |
 | **BUG-076** | S69 | ✓ 解释 | **宝塔 shipin_APP "未启动" 误导**: 宝塔把 shipin-APP 注册为 nginx 站点, 实际 shipin-APP 走 PM2 node, 跟 nginx 无关 | 监控走 PM2 + 6 维验证, 忽略宝塔"未启动"显示 |
 | **BUG-075** | S69 | ✓ 已修 | **BUG 案例库缺 AI 友好索引**: 74 BUG 散在 1146 行, 难快速定位 | `34a5714` (`docs/BUGS_INDEX.md` v1.0) |
@@ -78,6 +79,13 @@
 ### 🔍 "宝塔" / "panel" / "bt.cn" / "项目列表"
 - **BUG-076** 宝塔 shipin_APP "未启动" 误导 (S69 解释, 监控走 PM2)
 - **BUG-077** 宝塔 "项目" 找不到 shipin-APP 3 真相 (S70 已修, 12 维全过)
+
+### 🔍 "账单" / "billing" / "扣费" / "明细" / "充值" / "消费"
+- **BUG-005** 扣费实现重复 characterService
+- **BUG-017** VideoAgent 时长选 5s/10s 缺省 (跟 BUG-055 重复)
+- **BUG-055** VideoAgent 时长 UI 文案 2 端不一致
+- **BUG-072** Web 端扣费审计 5 BUG 全不一致 (A/B/C/E)
+- **BUG-078** Web 端账单明细缺消费记录 (基本消费数据缺失, S71 已修, 完整记录消费 + 免费)
 
 ---
 
@@ -144,6 +152,24 @@
   6. ❌ 写宝塔自定义 nodejsModel.py (免费版自带完整 112KB, 不用)
   7. ❌ 写 `shipin_app.pid` (大小写错, 必须是 `shipin_APP.pid` 跟 sites 表项目名一致)
   8. ❌ SQL 改 site.db 没生效 (宝塔 Sql 是内存只读 db, 短期不影响, 长期会丢)
+  9. ❌ **systemd unit 启 node 失败 `Cannot find module dist/index.js`** (BUG-078 S71 教训) — `ProtectSystem=full` + `ProtectHome=true` 在 systemd 211+ 创建 read-only namespace, 把 `/www/wwwroot/shipin-APP/dist` 设为**不可读** (不是写!). 修法: 删 `ProtectSystem` + `ProtectHome` 两行 (S70 shipin-app.service 复制时漏改), 或改成 `ProtectSystem=strict` (只保护 `/usr` `/boot` 不动 `/www`). **写入 `docs/deploy/shipin-app.service` 模板 + `BAOTA_NODE_PROJECT_DEPLOY.md` § 4 坑 10**
+
+### 🎬 S8. 加新扣费 / 改 billing 字段 (S71 BUG-078 新增 SOP)
+- **必读**: [`apps/mobile/BUGS.md` § BUG-078](../apps/mobile/BUGS.md#bug-078-s71-v3029-web-端账单明细-缺消费记录--只显示充值-消费和免费完全没记录-基础消费数据缺失)
+- **统一入口**: 所有扣费 (充值 / 消费 / 退费) 都走 `billingService.recordConsumption(userId, opts)` (S71) 或 `billingService.topUp(userId, amount, description)` (S69), **不要**直接 `INSERT INTO billing_logs`
+- **必填字段**:
+  - `refType`: `novel_analyze` / `episode` / `shot` / `comic` / `character_variant` / `image` / `video` / `prompt_optimize` / `recharge` / `refund`
+  - `refId`: 关联 entity id (novel_id / character_id / image_generation_id / video_generation_id / conversation_id)
+  - `refLabel`: 人类可读 ("小说分析《XXX》(N字)" / "角色三视图 4 张" / "图片生成 1:1")
+  - `amount`: 0 = 免费 (普通用户 30 张/天 / VIP 无限 / 活动赠送), >0 = 实际扣费
+- **免费也记 log** — `amount=0 + isFree=true`, 跟收费一样 INSERT billing_logs (统计日活 / 转化率才准)
+- **schema 加字段**: 改 `db.ts` 加 `ALTER TABLE billing_logs ADD COLUMN ...` (用 `try {} catch {}` 兼容老库), 加 `INDEX` (ref_type / user_id+created_at)
+- **前端必更新**:
+  - web `BillingPage.tsx`: 4 卡 summary + 3 tab (全部 / 消费 / 充值) + ref_type icon + 免费黄色 badge
+  - web `api.ts`: `getBillingTransactionsApi()` + `getBillingSummaryApi()`
+  - mobile: `BillingScreen` 同步显示 (跟 web 一致, TODO S72)
+- **新增 route**: `routes/billing.ts` + `app.use('/api/billing', billingRoutes)` (S71 模板, 复用)
+- **关联 BUG**: BUG-072 (前置, S69 扣费审计) + **BUG-078 (S71 修法)** + BUG-005 (扣费实现重复)
   9. ❌ git push schannel 失败 (CRL 检查阻塞, `-c http.schannelCheckRevocation=false` 跳过)
 - **紧急回滚 5 min**: `bash apps/server/deploy.sh --rollback` (自动恢复 `dist.bak.s<timestamp>` + systemd restart)
 - **关联 BUG**: BUG-076 (S69 解释) + **BUG-077 (S70 修法) + BUG-046/049 (双 nginx 实例) + BUG-008 (PM2 env reload, 历史教训) + BUG-070 (维护模式)**

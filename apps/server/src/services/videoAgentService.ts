@@ -595,7 +595,16 @@ export class VideoAgentService {
         if (status.status === 'completed' && status.videoUrl) {
           // 真扣费 (跟 confirm 守门一致, 但成功后才写 billing_logs)
           if (chargedAmount > 0) {
-            const chargeResult = await billingService.chargeVideo(conv.user_id, durationSecVal, isVip, conversationId);
+            // v3.0.32 BUG-078 S71: 直接调 recordConsumption (绕过 chargeVideo 包装, 传完整 refType/refId/refLabel)
+            const chargeResult = await billingService.recordConsumption(conv.user_id, {
+              refType: 'video',
+              refId: conversationId,    // processTurn 内未持有 video_generations row id, 用 conversationId 作 ref
+              refLabel: `视频生成 ${durationSecVal}s (${isVip ? 'VIP' : '普通'})`,
+              amount: chargedAmount,
+              description: `视频生成 ${durationSecVal}s`,
+            });
+            // recordConsumption 不返回 chargedAmount, 跟原来 chargeVideo 不同
+            const chargedAmountForLog = chargedAmount;
             if (!chargeResult) {
               // v3.0.31 (S69 BUG-072 E): 视频已生成但扣费失败 (余额被其他任务花完)
               // → 标记 billing_status='unsettled' (前端显示 "余额不足, 充值后解锁视频")
@@ -615,7 +624,7 @@ export class VideoAgentService {
             } else {
               logger.info('VideoAgent: S51 charged', {
                 conversationId, userId: conv.user_id, durationSecVal, isVip,
-                chargedAmount: chargeResult.chargedAmount, balanceAfter: chargeResult.balanceAfter,
+                chargedAmount: chargedAmountForLog, balanceAfter: chargeResult.balanceAfter,
               });
               // v3.0.31 (S69 BUG-072 E): 显式写 settled (跟默认 'settled' 一致, 但保险起见)
               await videoConversationModel.update(conversationId, {

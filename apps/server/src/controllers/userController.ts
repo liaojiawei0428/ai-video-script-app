@@ -329,10 +329,11 @@ export const userController = {
   async getBillingLogs(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).userId;
-      const logs = await billingService.getLogs(userId);
+      // v3.0.32 BUG-078 S71: 走新 getTransactions API (含 is_free/ref_type/ref_id/ref_label)
+      const result = await billingService.getTransactions(userId, { limit: 50 });
       res.json({
         success: true,
-        data: { logs },
+        data: { logs: result.items, total: result.total },
         meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
       });
     } catch (error) {

@@ -1,5 +1,5 @@
 [Unit]
-Description=shipin-APP Node Server (S69 + BUG-076)
+Description=shipin-APP Node Server (S71 + BUG-076 + BUG-077 + BUG-078)
 Documentation=https://github.com/liaojiawei0428/ai-video-script-app
 After=network.target
 Wants=network-online.target
@@ -13,6 +13,8 @@ EnvironmentFile=-/www/wwwroot/shipin-APP/.env
 Environment=NODE_ENV=production
 Environment=PORT=6000
 Environment=APP_VERSION=3.0.29
+# v3.0.32 BUG-078 S71: 宝塔 Node 项目 shipin_APP 依赖这个 env 找 node 进程 (get_project_state_by_cwd 遍历 psutil pids 时检查 process.environ['NODE_PROJECT_NAME'] == project_name)
+Environment=NODE_PROJECT_NAME=shipin_APP
 ExecStart=/usr/bin/node /www/wwwroot/shipin-APP/dist/index.js
 Restart=always
 RestartSec=10
@@ -22,9 +24,10 @@ StandardOutput=append:/www/wwwroot/shipin-APP/logs/systemd-stdout.log
 StandardError=append:/www/wwwroot/shipin-APP/logs/systemd-stderr.log
 LimitNOFILE=65535
 NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/www/wwwroot/shipin-APP/logs /www/wwwroot/shipin-APP/uploads /www/wwwroot/shipin-APP/public
+# v3.0.32 BUG-078 S71: 禁 ProtectSystem=full + ProtectHome=true (systemd 211+ 创建 read-only namespace, 把 /www/wwwroot/shipin-APP/dist 设为不可读, 启 node 报 "Cannot find module dist/index.js")
+# 改用 ProtectSystem=strict (只保护 /usr /boot /efi 不动 /www)
+ProtectSystem=strict
+ReadWritePaths=/www/wwwroot/shipin-APP/logs /www/wwwroot/shipin-APP/uploads /www/wwwroot/shipin-APP/public /www/wwwroot/shipin-APP/dist
 
 [Install]
 WantedBy=multi-user.target

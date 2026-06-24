@@ -120,6 +120,12 @@ export const createRechargeApi = (amount: number, method: string = 'wxpay') =>
   apiClient.post('/recharge/submit', { amount, method });
 export const getRechargeHistoryApi = () => apiClient.get('/recharge/my');
 
+// === Billing (v3.0.32 BUG-078 S71: 账单明细, 含充值 + 消费 + 免费) ===
+// 旧版只调 getRechargeHistoryApi (只显示充值, 没消费记录) — web 端"账单明细"页面 BUG-078 修法
+export const getBillingTransactionsApi = (params?: { limit?: number; offset?: number; type?: 'charge' | 'consumption' | 'refund'; refType?: string }) =>
+  apiClient.get('/billing/transactions', { params });
+export const getBillingSummaryApi = () => apiClient.get('/billing/summary');
+
 // === VIP (S52: 跟 Mobile 1:1 一致, 后端 POST /users/vip/buy ¥10/年) ===
 export const buyVipApi = () => apiClient.post('/users/vip/buy');
 

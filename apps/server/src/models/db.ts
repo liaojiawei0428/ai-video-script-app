@@ -219,7 +219,7 @@ async function initTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 计费记录表
+  // 计费记录表 (v3.0.32 BUG-078 S71: 加 is_free / ref_type / ref_id / ref_label, 免费生成也要记录)
   await db.execute(`
     CREATE TABLE IF NOT EXISTS billing_logs (
       id VARCHAR(36) PRIMARY KEY,
@@ -230,11 +230,25 @@ async function initTables(): Promise<void> {
       novel_id VARCHAR(36) DEFAULT '',
       description VARCHAR(500) DEFAULT '',
       word_count INT DEFAULT 0,
+      is_free TINYINT(1) DEFAULT 0 COMMENT '1=免费额度内(0元)/VIP免费/活动赠送;0=实际扣费',
+      ref_type VARCHAR(50) DEFAULT '' COMMENT 'novel_analyze/episode/shot/comic/character_variant/image/video/prompt_optimize/recharge/refund',
+      ref_id VARCHAR(100) DEFAULT '' COMMENT 'novel_id/episode_id/shot_id/character_id/image_generation_id/video_generation_id',
+      ref_label VARCHAR(200) DEFAULT '' COMMENT '人类可读标签: 小说分析《XXX》/分镜 #5/角色变体 4 张/图片生成/视频生成 10s',
       created_at BIGINT DEFAULT 0,
       INDEX idx_billing_user (user_id),
-      INDEX idx_billing_time (created_at)
+      INDEX idx_billing_time (created_at),
+      INDEX idx_billing_ref_type (ref_type),
+      INDEX idx_billing_user_time (user_id, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // v3.0.32 (BUG-078 S71): 已存在的 billing_logs 表加新字段 (兼容老库)
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0"); } catch {}
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_id VARCHAR(100) DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_label VARCHAR(200) DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_ref_type (ref_type)"); } catch {}
+  try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_user_time (user_id, created_at)"); } catch {}
 
   // ════════════════════════════════════════════════════════════
   //  v2.0.0 增量迁移（角色一致性 + 资产库 + 章节图谱 + 订单）

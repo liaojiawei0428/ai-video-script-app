@@ -239,6 +239,8 @@ export class ImageAgentService {
               IMG_PROMPT_LLM_COST,
               isStoryboard ? 'image prompt LLM 优化(分镜)' : 'image prompt LLM 优化',
               conversationId,
+              'prompt_optimize',
+              isStoryboard ? '图片 prompt LLM 优化(分镜)' : '图片 prompt LLM 优化'
             );
           } catch (chargeErr) {
             logger.warn('ImageAgent: prompt optimize charge failed (non-blocking)', {
@@ -591,6 +593,27 @@ export class ImageAgentService {
         result_url: result.url,
         charged_amount: amount,
       } as any);
+
+      // v3.0.32 BUG-078 S71: 主图生成完成, 走统一 recordConsumption 记录消费
+      // 免费 (VIP unlimited) 也记录, isFree=true
+      const imgAspectRatio = plan.aspectRatio || '1:1';
+      // v3.0.32 BUG-078: 重新查 conv 拿 user_id (避免 block scope)
+      const convForLog = await imageConversationModel.findById(conversationId);
+      if (convForLog) {
+        await billingService.recordConsumption(convForLog.user_id, {
+          refType: 'image',
+          refId: taskId,
+          refLabel: `图片生成 ${imgAspectRatio}`,
+          amount,
+          isFree: amount === 0,
+          description: `图片生成 ${imgAspectRatio}`,
+          wordCount: 0,
+        }).catch((e) => {
+          logger.warn('ImageAgent: recordConsumption failed (non-blocking)', {
+            conversationId, taskId, error: e?.message,
+          });
+        });
+      }
 
       logger.info('ImageAgent: background run done', {
         conversationId, taskId, resultUrl: result.url.slice(0, 80),

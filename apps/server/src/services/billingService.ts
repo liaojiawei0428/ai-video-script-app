@@ -159,29 +159,40 @@ export class BillingService {
 
     let amount: number;
     let desc: string;
+    let refType: string;
+    let refLabel: string;
     if (stage === 'shot') {
       amount = p.shot;
       desc = '分镜生成';
+      refType = 'shot';
+      refLabel = `分镜分析《${novel.title}》`;
     } else if (stage === 'comic') {
       amount = Math.round(p.comic * pageCount * 100) / 100;
       desc = `漫画生成 (${pageCount}页)`;
+      refType = 'comic';
+      refLabel = `漫画生成《${novel.title}》(${pageCount}页)`;
+    } else if (stage === 'analyze') {
+      amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
+      desc = '小说分析';
+      refType = 'novel_analyze';
+      refLabel = `小说分析《${novel.title}》(${wordCount}字)`;
     } else {
       amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
-      desc = stage === 'analyze' ? '分析阶段' : '剧本生成';
+      desc = '剧本生成';
+      refType = 'episode';
+      refLabel = `剧本生成《${novel.title}》`;
     }
 
     if (balance < amount) return false;
 
-    const logId = generateUUID();
-    const balanceAfter = Math.round((balance - amount) * 100) / 100;
-    await userModel.updateBalance(novel.userId, -amount);
-    await execute(
-      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
-       VALUES (?, ?, 'consumption', ?, ?, ?, ?, ?, ?)`,
-      [logId, novel.userId, amount, balanceAfter, novelId, desc, wordCount, Date.now()]
-    );
-    logger.info('Billing: charge', { novelId, userId: novel.userId, stage, amount, balanceAfter });
-    websocketService.broadcastBalanceUpdate(novelId, balanceAfter);
+    // v3.0.32 BUG-078 S71: 走统一 recordConsumption 入口 (含 is_free / ref_type / ref_id / ref_label)
+    const result = await this.recordConsumption(novel.userId, {
+      refType, refId: novelId, refLabel, amount,
+      description: desc, wordCount, pageCount, novelId,
+    });
+    if (!result) return false;
+    logger.info('Billing: charge', { novelId, userId: novel.userId, stage, amount, balanceAfter: result.balanceAfter });
+    websocketService.broadcastBalanceUpdate(novelId, result.balanceAfter);
     return true;
   }
 
@@ -190,25 +201,111 @@ export class BillingService {
     const user = await userModel.findById(userId);
     const balanceAfter = Math.round(((user?.balance || 0) + amount) * 100) / 100;
     await userModel.updateBalance(userId, amount);
+    // v3.0.32 BUG-078 S71: 充值也用统一入口
     await execute(
-      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
-       VALUES (?, ?, 'charge', ?, ?, '', ?, 0, ?)`,
+      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, is_free, ref_type, ref_id, ref_label, created_at)
+       VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', ?, ?)`,
       [logId, userId, amount, balanceAfter, description, Date.now()]
     );
     logger.info('Billing: top-up', { userId, amount, balanceAfter });
     return { balanceAfter, logId };
   }
 
-  async getLogs(userId: string, limit: number = 50): Promise<BillingLog[]> {
-    const rows = await poolQuery<any>(
-      'SELECT * FROM billing_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT ' + limit, [userId]
+  /**
+   * v3.0.32 BUG-078 S71: 统一记录消费/免费日志 (web 账单明细核心)
+   * 所有生成服务 (novel analyze / episode / shot / comic / character variant / image / video / prompt optimize) 都走这个入口
+   * - amount=0 时: 免费额度内 / VIP免费 / 活动赠送, is_free=1
+   * - amount>0 时: 实际扣费, is_free=0
+   * @returns { balanceAfter, logId, isFree } 或 null (余额不足)
+   */
+  async recordConsumption(userId: string, opts: {
+    refType: 'novel_analyze' | 'episode' | 'shot' | 'comic' | 'character_variant' | 'image' | 'video' | 'prompt_optimize' | 'recharge' | 'refund' | string;
+    refId: string;
+    refLabel: string;
+    amount: number;
+    isFree?: boolean;
+    description?: string;
+    wordCount?: number;
+    pageCount?: number;
+    novelId?: string;
+  }): Promise<{ balanceAfter: number; logId: string; isFree: boolean } | null> {
+    const { refType, refId, refLabel, amount } = opts;
+    const isFree = !!(opts.isFree || amount === 0);
+    if (amount < 0) throw new Error('amount must be >= 0');
+    const user = await userModel.findById(userId);
+    const balance = user?.balance || 0;
+    // 收费时才检查余额 (免费的不扣钱, 直接通过)
+    if (amount > 0 && balance < amount) return null;
+    const logId = generateUUID();
+    const balanceAfter = Math.round((balance - amount) * 100) / 100;
+    if (amount > 0) {
+      await userModel.updateBalance(userId, -amount);
+    }
+    await execute(
+      `INSERT INTO billing_logs
+        (id, user_id, type, amount, balance_after, novel_id, description, word_count,
+         is_free, ref_type, ref_id, ref_label, created_at)
+       VALUES (?, ?, 'consumption', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        logId, userId, amount, balanceAfter,
+        opts.novelId || '',
+        opts.description || refLabel,
+        opts.wordCount || 0,
+        isFree ? 1 : 0,
+        refType,
+        refId,
+        refLabel,
+        Date.now(),
+      ]
     );
-    return rows.map((r: any) => ({
-      id: r.id, userId: r.user_id, type: r.type,
-      amount: parseFloat(r.amount), balanceAfter: parseFloat(r.balance_after),
-      novelId: r.novel_id || '', description: r.description || '',
-      wordCount: r.word_count || 0, createdAt: r.created_at,
+    logger.info('Billing: recordConsumption', {
+      userId, refType, refId, refLabel, amount, isFree, balanceAfter,
+    });
+    if (opts.novelId || refId) {
+      try { websocketService.broadcastBalanceUpdate(opts.novelId || refId, balanceAfter); } catch {}
+    }
+    return { balanceAfter, logId, isFree };
+  }
+
+  /**
+   * v3.0.32 BUG-078 S71: web 端账单明细 API (含充值 + 消费 + 免费)
+   * @param userId 用户 ID
+   * @param opts { limit, offset, type?, refType? } 筛选
+   */
+  async getTransactions(userId: string, opts: { limit?: number; offset?: number; type?: string; refType?: string } = {}): Promise<{ items: BillingLog[]; total: number }> {
+    const limit = Math.min(opts.limit || 50, 200);
+    const offset = opts.offset || 0;
+    const where: string[] = ['user_id = ?'];
+    const params: any[] = [userId];
+    if (opts.type) { where.push('type = ?'); params.push(opts.type); }
+    if (opts.refType) { where.push('ref_type = ?'); params.push(opts.refType); }
+    const whereSql = where.join(' AND ');
+
+    const totalRow = await queryOne<any>(
+      `SELECT COUNT(*) AS cnt FROM billing_logs WHERE ${whereSql}`, params
+    );
+    const total = totalRow?.cnt || 0;
+
+    const rows = await poolQuery<any>(
+      `SELECT * FROM billing_logs WHERE ${whereSql} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    const items: BillingLog[] = rows.map((r: any) => ({
+      id: r.id,
+      userId: r.user_id,
+      type: r.type,
+      amount: parseFloat(r.amount),
+      balanceAfter: parseFloat(r.balance_after),
+      novelId: r.novel_id || '',
+      description: r.description || '',
+      wordCount: r.word_count || 0,
+      isFree: r.is_free || 0,
+      refType: r.ref_type || '',
+      refId: r.ref_id || '',
+      refLabel: r.ref_label || '',
+      createdAt: r.created_at,
     }));
+    return { items, total };
   }
 
   /**
@@ -272,46 +369,30 @@ export class BillingService {
    * v3.0.0.31 (S51): 生图扣费 (现在免费 amount=0, 仍写 audit log)
    * @returns balanceAfter
    */
-  async chargeImage(userId: string, amount: number, description: string, conversationId?: string): Promise<{ balanceAfter: number; logId: string } | null> {
-    if (amount < 0) throw new Error('amount must be >= 0');
-    const user = await userModel.findById(userId);
-    const balance = user?.balance || 0;
-    if (amount > 0 && balance < amount) return null;  // 余额不足
-    const logId = generateUUID();
-    const balanceAfter = Math.round((balance - amount) * 100) / 100;
-    await userModel.updateBalance(userId, -amount);
-    await execute(
-      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
-       VALUES (?, ?, 'consumption', ?, ?, ?, ?, 0, ?)`,
-      [logId, userId, amount, balanceAfter, conversationId || '', description, Date.now()]
-    );
-    logger.info('Billing: chargeImage', { userId, amount, balanceAfter, description });
-    if (conversationId) websocketService.broadcastBalanceUpdate(conversationId, balanceAfter);
-    return { balanceAfter, logId };
+  async chargeImage(userId: string, amount: number, description: string, conversationId?: string, refType: string = 'image', refLabel?: string): Promise<{ balanceAfter: number; logId: string } | null> {
+    const result = await this.recordConsumption(userId, {
+      refType, refId: conversationId || '',
+      refLabel: refLabel || description,
+      amount, description,
+    });
+    if (!result) return null;
+    return { balanceAfter: result.balanceAfter, logId: result.logId };
   }
 
   /**
    * v3.0.0.31 (S51): 视频扣费 (按 chargingForVideo 矩阵)
+   * v3.0.32 BUG-078 S71: 走统一 recordConsumption 入口
    * @returns balanceAfter 或 null (余额不足)
    */
   async chargeVideo(userId: string, durationSec: number, isVip: boolean, conversationId?: string): Promise<{ balanceAfter: number; chargedAmount: number; logId: string } | null> {
     const amount = chargingForVideo(isVip, durationSec);
-    if (amount < 0) throw new Error('amount must be >= 0');
-    const user = await userModel.findById(userId);
-    const balance = user?.balance || 0;
-    if (amount > 0 && balance < amount) return null;  // 余额不足
-    const logId = generateUUID();
-    const balanceAfter = Math.round((balance - amount) * 100) / 100;
-    const desc = `视频生成(${durationSec}s${isVip ? '/VIP' : '/普通'})`;
-    await userModel.updateBalance(userId, -amount);
-    await execute(
-      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at)
-       VALUES (?, ?, 'consumption', ?, ?, ?, ?, 0, ?)`,
-      [logId, userId, amount, balanceAfter, conversationId || '', desc, Date.now()]
-    );
-    logger.info('Billing: chargeVideo', { userId, durationSec, isVip, amount, balanceAfter });
-    if (conversationId) websocketService.broadcastBalanceUpdate(conversationId, balanceAfter);
-    return { balanceAfter, chargedAmount: amount, logId };
+    const refLabel = `视频生成 ${durationSec}s (${isVip ? 'VIP' : '普通'})`;
+    const result = await this.recordConsumption(userId, {
+      refType: 'video', refId: conversationId || '', refLabel, amount,
+      description: refLabel,
+    });
+    if (!result) return null;
+    return { balanceAfter: result.balanceAfter, chargedAmount: amount, logId: result.logId };
   }
 }
 

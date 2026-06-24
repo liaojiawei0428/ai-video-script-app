@@ -5,6 +5,24 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删",
   "entries": [
     {
+      "version": "3.0.29",
+      "buildDate": "2026-06-24",
+      "type": "patch",
+      "summary": "Web 端账单明细加完整消费 + 免费记录 (BUG-078)",
+      "highlights": [
+        "BUG-078 修: Web 端'账单明细' 缺消费记录, 只显示充值",
+        "billing_logs 表加 4 字段 (is_free/ref_type/ref_id/ref_label) + 2 索引",
+        "新加 billingService.recordConsumption() 统一入口 (含免费)",
+        "新加 /api/billing/transactions + /api/billing/summary 端点 (auth 内置)",
+        "新加 routes/billing.ts",
+        "Web BillingPage 重写: 4 卡 summary + 3 tab (全部/消费/充值) + ref_type icon (小说分析/分镜/角色三视图/图片/视频) + 区分收费/免费",
+        "imageAgentService 主图生成完成调 recordConsumption (免费也记)",
+        "videoAgentService 改走 recordConsumption (含免费)",
+        "characterService.generateImageVariants 加 refType/refLabel",
+        "novelService.analyze / scriptService.episode/shot 走统一 recordConsumption (有 ref_label)"
+      ]
+    },
+    {
       "version": "3.0.31",
       "buildDate": "2026-06-24",
       "type": "patch",

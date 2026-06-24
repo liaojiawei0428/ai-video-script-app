@@ -1661,4 +1661,211 @@ LISTEN 0 511 0.0.0.0:888   0.0.0.0:*    ← 宝塔 panel 888 可访问
 - [BUG-076 宝塔面板 "未启动" 误导](#bug-076-s69-收尾-v3029-宝塔面板显示-shipin-app-未启动--实际是宝塔-nginx-站点状态-跟-node-进程无关-server-真实跑着) — 解释问题, BUG-077 修法
 - [BUG-008 PM2 env reload 失败](#bug-008-s58-p4-server-启动后-pm2-env-没刷新)
 - [BUG-046 compileSdk = 34](#bug-046-s60-p2)
-- [BUG-049 shipin-APP port 6000 vs 3000](#bug-029-s59-shipin-app-server-实际在-port-6000-不是-3000)
+- [BUG-049 shipin-APP port 6000 vs 3000](#bug-029-s59-shipin-app-server-实际在-port-6000-不是-3000)---
+
+## BUG-078 (S71, v3.0.29): Web 端"账单明细" 缺消费记录 — 只显示充值, 消费和免费完全没记录, 基础消费数据缺失
+
+### 现象 (user 6/24 17:03 反馈)
+
+- Web 端 `BillingPage.tsx` (URL `/profile/billing`) **只显示充值记录** (recharge_requests table, 调 `/api/recharge/my`)
+- 没有任何消费记录 (novel 分析 / 分镜 / 角色变体 / 图片生成 / 视频生成)
+- 也没有免费生成记录 (普通用户 30 张/天免费 / VIP 无限免费)
+- user 反馈: "目前只有充值记录, 缺少消费记录, 生成的所有项目都要记录, 免费的生成也需要标记好, 不管是小说分析, 还是分镜头分析, 还是生成图片, 生成视频, 所有扣费项目, 不管是免费还是收费, 都必须要记录好, 这个是用户基础消费数据, 必须要有明确的记录."
+
+### 根因 (4 层)
+
+#### 根因 1: 没有 `/api/billing/transactions` 端点
+- server 端 `billingService` 有 `chargeImage / chargeVideo / chargeStep / topUp / getLogs` 等函数
+- `getLogs` 只返 type + amount + balanceAfter + description + wordCount, 没 **ref_type / ref_id / ref_label / is_free**
+- 没有 `/api/billing/transactions` 路由, web 端**没法查消费记录 API**
+
+#### 根因 2: billing_logs 表 schema 字段不够
+- 字段: `id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at` (8 字段)
+- **缺**:
+  - `is_free TINYINT(1)` — 区分免费额度内 (0 元) / VIP 免费 / 活动赠送
+  - `ref_type VARCHAR(50)` — 区分消费类型 (novel_analyze / episode / shot / comic / character_variant / image / video / prompt_optimize)
+  - `ref_id VARCHAR(100)` — 关联 entity id (novel_id / character_id / image_generation_id / video_generation_id)
+  - `ref_label VARCHAR(200)` — 人类可读标签 ("小说分析《XXX》" / "角色三视图 4 张")
+
+#### 根因 3: web 端 BillingPage.tsx 只调充值 API
+```typescript
+// v3.0.1 (S56) 旧版, BUG-078 之前
+const r = await getRechargeHistoryApi();  // 只查 /api/recharge/my
+setRecords(r.data?.data?.records || []);
+```
+- 没调任何 billing logs API
+- 没 4 卡 summary (总充值 / 总消费 / 总免费 / 当前余额)
+- 没 tab 切换 (全部 / 消费 / 充值)
+- 没 ref_type icon 区分
+
+#### 根因 4: 扣费服务没统一入口, 免费生成不写 log
+- `billingService.chargeImage` 写 log 但 description 字段是中文, 没 ref_type 区分
+- `chargeVideo` 同上
+- `chargeStep` 同上
+- **免费的 image 生成** (普通用户 30 张/天免费 / VIP 无限) **完全没写 log**, 只走 `imageDailyCount + checkImageQuota` 计数
+
+### 修法 (5 步完整)
+
+#### 步骤 1: db.ts billing_logs 加字段 (S71)
+```sql
+-- CREATE TABLE billing_logs 加 4 字段 + 2 索引
+is_free TINYINT(1) DEFAULT 0 COMMENT '1=免费额度内(0元)/VIP免费/活动赠送;0=实际扣费'
+ref_type VARCHAR(50) DEFAULT '' COMMENT 'novel_analyze/episode/shot/comic/character_variant/image/video/prompt_optimize/recharge/refund'
+ref_id VARCHAR(100) DEFAULT '' COMMENT 'novel_id/episode_id/character_id/image_generation_id/video_generation_id'
+ref_label VARCHAR(200) DEFAULT '' COMMENT '人类可读标签'
++ INDEX idx_billing_ref_type (ref_type)
++ INDEX idx_billing_user_time (user_id, created_at)
+
+-- ALTER TABLE 兼容老库 (try/catch 包裹, 列已存在则忽略)
+try { await db.execute("ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0"); } catch {}
+try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT ''"); } catch {}
+... (4 个 ALTER)
+```
+
+#### 步骤 2: billingService 统一 recordConsumption() (S71)
+```typescript
+/**
+ * v3.0.32 BUG-078 S71: 统一记录消费/免费日志
+ * @returns { balanceAfter, logId, isFree } 或 null (余额不足)
+ */
+async recordConsumption(userId, opts: {
+  refType: 'novel_analyze' | 'episode' | 'shot' | 'comic' | 'character_variant' | 'image' | 'video' | 'prompt_optimize' | string;
+  refId: string;
+  refLabel: string;       // 人类可读
+  amount: number;         // 0 = 免费
+  isFree?: boolean;       // true = 免费 (amount 必须 = 0)
+  description?: string;
+  wordCount?: number;
+  pageCount?: number;
+  novelId?: string;
+}): Promise<{ balanceAfter: number; logId: string; isFree: boolean } | null>
+```
+- 内部: 收费才检查余额 (免费直接通过) + updateBalance (免费不动) + INSERT billing_logs (含 is_free/ref_type/ref_id/ref_label)
+- 改 `chargeImage / chargeVideo / chargeStep / topUp` 都走这个统一入口
+- 加 `getTransactions(userId, opts)` 查完整字段
+
+#### 步骤 3: 所有生成服务调 recordConsumption (S71)
+| Service | 调点 | refType | refLabel |
+|---|---|---|---|
+| novelService.analyze | chargeStep('analyze') | novel_analyze | `小说分析《XXX》(N字)` |
+| scriptService.episode | chargeStep('episode') | episode | `剧本生成《XXX》` |
+| scriptService.shot | chargeStep('shot') | shot | `分镜分析《XXX》` |
+| scriptService.comic | chargeStep('comic') | comic | `漫画生成《XXX》(N页)` |
+| characterService.generateImageVariants | chargeImage(amount=0.1×N) | character_variant | `角色三视图《XXX》(N张)` |
+| imageAgentService.generateImage | recordConsumption (NEW) | image | `图片生成 W:H` |
+| imageAgentService.prompt_optimize | chargeImage | prompt_optimize | `图片 prompt LLM 优化` |
+| videoAgentService.processTurn | recordConsumption (NEW) | video | `视频生成 Ns (VIP/普通)` |
+| videoAgentService.prompt_optimize | chargeImage | prompt_optimize | `视频 prompt LLM 优化` |
+
+**免费也记**: amount=0 + isFree=true (普通用户 30 张/天 image gen / VIP unlimited). `recordConsumption` 自动处理.
+
+#### 步骤 4: 新建 /api/billing/* 路由 (S71)
+```typescript
+// apps/server/src/routes/billing.ts
+router.use(authMiddleware);  // 所有端点都要 auth
+
+router.get('/transactions', ...);  // 查交易记录 (含 is_free/ref_type/ref_id/ref_label)
+router.get('/summary', ...);        // 汇总 (总充值/总消费/总免费/余额/今日消费/今日免费)
+```
+- 在 `index.ts` 加 `app.use('/api/billing', billingRoutes)` (S70 部署时已加宝塔 nginx 反代, 不冲突)
+
+#### 步骤 5: web BillingPage.tsx 重写 (S71)
+- 4 卡 summary (总充值 / 总消费 / 总免费 / 当前余额) — 调 `/api/billing/summary`
+- 3 tab (全部 / 消费 / 充值) — 合并 transactions + recharges 按时间倒序
+- 区分显示:
+  - **充值** (type=charge): `+¥amount` + 绿色 + TrendingUp icon
+  - **消费** (type=consumption + isFree=0): `-¥amount` + 灰色 + refType icon (角色/分镜/图片/视频/小说)
+  - **免费** (type=consumption + isFree=1): `-¥0.00` + 灰色 + 黄色"免费"标签 + refType icon
+- REF_TYPE_META 映射:
+  - novel_analyze → 📖 BookOpen 蓝色
+  - episode → 📚 Layers 靛蓝
+  - shot → ✨ Wand2 紫色
+  - comic → 💫 Sparkles 粉色
+  - character_variant → 👤 UserCircle 橙色
+  - image → 🖼️ ImageIcon 绿色
+  - video → 🎬 VideoIcon 红色
+  - prompt_optimize → ✨ Wand2 青色
+
+### 验证证据 (S71 部署后实测)
+
+```bash
+# 12 维验证 (S71 v3.0.29 systemd unit 启 + db migration 自动跑)
+1. systemctl shipin-app: active
+2. ss 6000: 0.0.0.0:6000
+3. /health: HTTP/1.1 200 OK
+4. /api/version: 3.0.29
+5. characterVariant: 0.1
+6. /api/novels: HTTP/1.1 401 Unauthorized
+7. 宝塔 nginx 80: 0.0.0.0:80
+8. 宝塔 panel 888: 0.0.0.0:888
+9. ab.maque.uno HTTPS /api/version: 3.0.29
+10. APK HTTP/2 200
+11. 宝塔 Node 项目 shipin_APP run=True PID=14904  (BUG-077 验收, S70 重构后保持)
+12. /api/billing/transactions: 401 Unauthorized  (auth 工作)
+
+# billing_logs schema 12 字段验证
+SHOW COLUMNS FROM billing_logs;
+id, user_id, type, amount, balance_after, novel_id, description, word_count, created_at,
+is_free (tinyint(1)), ref_type (varchar(50)), ref_id (varchar(100)), ref_label (varchar(200))
+
+# billing_logs 现有记录 (S71 部署前生产已有数据)
+SELECT type, COUNT(*) FROM billing_logs GROUP BY type;
+consumption: 17 (旧记录, ref_type/ref_label 全空, 回填脚本会推断)
+charge: 2 (充值记录)
+
+# 总消耗
+SELECT SUM(amount), COUNT(*) FROM billing_logs WHERE type='consumption' AND is_free=0;
+¥11.33, 17 条
+```
+
+### 旧记录回填 (P3, 可选)
+
+旧 17 条 consumption 记录 ref_type/ref_label 全空, web 端会显示为通用 Receipt icon. 回填脚本 (推断 ref_type):
+```sql
+-- scripts/backfill_billing_logs_ref_type.sql (S71 P3 TODO)
+UPDATE billing_logs SET
+  ref_type = CASE
+    WHEN description LIKE '%VIP%' OR description LIKE '%会员%' THEN 'vip'
+    WHEN description LIKE '%剧本%' OR description LIKE '%episode%' THEN 'episode'
+    WHEN description LIKE '%分镜%' OR description LIKE '%shot%' THEN 'shot'
+    WHEN description LIKE '%角色%' OR description LIKE '%character%' THEN 'character_variant'
+    WHEN description LIKE '%图片%' OR description LIKE '%image%' THEN 'image'
+    WHEN description LIKE '%视频%' OR description LIKE '%video%' THEN 'video'
+    WHEN description LIKE '%分析%' OR description LIKE '%analyze%' THEN 'novel_analyze'
+    ELSE ''
+  END,
+  ref_label = description
+WHERE ref_type = '' OR ref_type IS NULL;
+```
+
+### 教训 (5 条, 跨项目通用, 用户基础消费数据规范)
+
+1. **基础消费数据必须有完整记录** — 不管是充值 / 消费 / 免费, 任何 amount 变动都要进 billing_logs, 这是用户**审计 + 客服 + 数据分析**的基础
+2. **统一扣费入口** — 所有扣费 (充值 / 消费 / 退费) 走一个 `recordConsumption/topUp/refund` 函数, 不要每个 service 自己 INSERT
+3. **schema 必须支持分类** — 至少 `ref_type` + `ref_id` + `ref_label` + `is_free` 4 字段, 没这 4 字段前端没法按类型分组 / 按免费过滤 / 关联 entity
+4. **免费也记 log** — 免费 (普通用户 30 张/天 / VIP 无限 / 活动赠送) 也要写 billing_logs (amount=0, is_free=1), 不要跳过, 这样统计日活 / 转化率才准
+5. **路由暴露必须 auth** — `/api/billing/*` 必须 auth (跟 `/api/recharge/my` 一致), 防止泄漏余额 / 消费记录
+
+### 跟 S69 BUG-072 区别
+
+- **BUG-072 (S69)**: 修 Web 端扣费审计 5 个不一致 (A/B/C/E), 加 `/api/pricing` 字段 + characterService 走标准接口 + video_conversations 加 billing_status unsettled
+- **BUG-078 (S71)**: 修 Web 端账单明细缺消费记录 (基本消费数据缺失), 加 billing_logs 字段 + recordConsumption 统一入口 + /api/billing/* API + BillingPage 重写 UI
+
+### 后续 TODO (P3)
+
+- [ ] 写 `scripts/backfill_billing_logs_ref_type.sql` 推断旧 17 条记录的 ref_type
+- [ ] 改 `docs/deploy/shipin-app.service` 删 `ProtectSystem=full` + `ProtectHome=true` (S70 shipin-app.service 复制时漏改, 启时 namespace 找不到 dist/index.js)
+- [ ] web 端 BillingPage 加分页 (offset + limit > 100 时分页, 当前没分页)
+- [ ] mobile 端 "钱包 / 账单" 页 同步显示 (跟 web 一致, 加 transactions + summary API)
+- [ ] docs/BAOTA_NODE_PROJECT_DEPLOY.md § 4 加"systemd unit namespace 坑" (跟 BUG-078 一起)
+
+### 引用 (跨文档)
+
+- [`docs/BUGS_INDEX.md` § 1 30 秒速览 + § 4.5 宝塔部署踩坑 Top 5](../docs/BUGS_INDEX.md) — BUG-078 加进 § 1 速览
+- [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](../docs/BAOTA_NODE_PROJECT_DEPLOY.md) — 部署 SOP, 跟 BUG-078 配套
+- [`apps/server/src/services/billingService.ts`](../../apps/server/src/services/billingService.ts) — recordConsumption 统一入口
+- [`apps/server/src/routes/billing.ts`](../../apps/server/src/routes/billing.ts) — 新建 /api/billing/* 路由
+- [`apps/server/src/models/db.ts`](../../apps/server/src/models/db.ts) — billing_logs 加 4 字段
+- [`apps/web/src/pages/BillingPage.tsx`](../../apps/web/src/pages/BillingPage.tsx) — 重写账单明细页
+- [`apps/web/src/lib/api.ts`](../../apps/web/src/lib/api.ts) — 加 getBillingTransactionsApi + getBillingSummaryApi
+- [BUG-072 扣费审计](../apps/mobile/BUGS.md#bug-072-s69-收尾-v3029-web-端扣费审计-5-个不一致全修-bug-072-abce) — 前置 (S69)

@@ -219,6 +219,10 @@ export interface BillingLog {
   novelId?: string;
   description: string;
   wordCount: number;
+  isFree?: number;          // v3.0.32 BUG-078: 1=免费额度内(0元); 0=实际扣费
+  refType?: string;        // v3.0.32 BUG-078: novel_analyze / episode / shot / comic / character_variant / image / video / prompt_optimize / recharge / refund
+  refId?: string;          // v3.0.32 BUG-078: 关联 entity id (novel/episode/character/image_generation/video_generation)
+  refLabel?: string;       // v3.0.32 BUG-078: 人类可读标签 "小说分析《XXX》" / "分镜 #5" / "角色变体 4 张" / "图片生成"
   createdAt: number;
 }
 

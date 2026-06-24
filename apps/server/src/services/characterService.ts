@@ -662,11 +662,14 @@ export async function generateImageVariants(
   // 扣费 (按成功张数, v3.0.31 S69 BUG-072 C: 走 billingService.chargeImage 标准接口)
   if (totalSucceeded > 0) {
     const chargedAmount = totalSucceeded * CHARACTER_VARIANT_PRICE;
+    // v3.0.32 BUG-078 S71: 加 refType + refLabel, 走统一 recordConsumption
     const chargeResult = await billingService.chargeImage(
       userId,
       chargedAmount,
       `角色图片生成(${totalSucceeded}张) - ${char.name}`,
-      char.novelId
+      char.novelId,
+      'character_variant',
+      `角色三视图《${char.name}》(${totalSucceeded}张)`
     );
     if (!chargeResult) {
       logger.error('characterService.generateImageVariants: chargeImage failed (should not happen, balance was prechecked)', {
