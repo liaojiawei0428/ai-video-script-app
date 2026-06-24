@@ -70,16 +70,26 @@
 | 13 | **[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md)** | 后端 worker 9 条实战约束 (改 server 代码前必读) |
 | 14 | **[`docs/standards/ADR/`](docs/standards/ADR/)** (S65 新建) | 架构决策追溯 (0001 server changelog 单一来源) |
 | 15 | **`DEV_PROGRESS.md`** | AI 会话追踪表 (开始工作前必读, § 5) |
-| 16 | **[`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md)** (S69 新建) | BUG 案例库 AI 快速查询索引 (30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑 + 完整 74 BUG 编号) |
+| 16 | **[`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md)** (S69 新建) | BUG 案例库 AI 快速查询索引 (30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑 + § 4.5 宝塔部署踩坑 Top 5 + 完整 75 BUG 编号) |
+| 17 | **[`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md)** (S70 新建, BUG-077 修法) | 🆕 **shipin-APP 部署到宝塔 panel Node 项目标准 SOP (5 步流程 + 12 维验证 + 9 坑 + 紧急回滚 5 min). 任何 server 部署前必读, **不要再走 PM2 路径**!** |
 
 **ADR 触发**: 任何架构级变更 (新模块 / 重构 / 跨端收口) 必写 ADR-NNN, 模板见 `docs/standards/ADR/0000-adr-template.md`.
 
-> **重要**: 必读第 16 项 `docs/BUGS_INDEX.md` 是 S69 总结的 AI 友好 BUG 快速查询索引, 含:
+> **重要**: 必读第 17 项 `docs/BAOTA_NODE_PROJECT_DEPLOY.md` 是 S70 新建的 **shipin-APP 宝塔 panel Node 项目部署 SOP** (BUG-077 修法):
+> - **§ 0 部署架构总览** (一图看懂 shipin-APP 走 systemd unit + 宝塔 panel Node 项目, 不再走 PM2)
+> - **§ 1 部署前 5 步必读** (5 个必读文档 + 5 个关键路径 + 6 维预检)
+> - **§ 2 部署 5 步标准流程** (本机编译 + scp 上传 + 服务器 systemd 部署 + 12 维验证 + 文档 commit)
+> - **§ 3 部署后 4 步交付** (user 报告 + commit message + 后续 TODO)
+> - **§ 4 9 个常见坑** (PM2 ❌ / db/default.db ❌ / NODE_PROJECT_NAME 必备 / apt nginx mask / server_name 错 / 自定义 nodejsModel.py 不需要 / shipin_app.pid ❌ / SQL 改 db 没生效 / git push schannel)
+> - **§ 5 紧急回滚 SOP** (dist 回滚 / systemd unit 回滚 / site.db config 回滚)
+>
+> **必读第 16 项 `docs/BUGS_INDEX.md` § 4.5 宝塔部署踩坑 Top 5 + § 4 Top 10**:
+> - § 4 Top 10 高频踩坑 (跟 BUG-008/024/068/069/070/071/072/073/074 9 个高频 BUG 直接关联)
+> - § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结: 真实 db 是 site.db / 内存只读 db / NODE_PROJECT_NAME 必备 / 双 nginx 实例 / server_name 别写项目内部名)
 > - **§ 1 30 秒速览表** (按编号倒序, 最近 BUG 优先)
-> - **§ 2 按关键字索引** (APK / 部署 / 扣费 / server / mobile / web / tsc compile / AGENTS.md / SSH)
+> - **§ 2 按关键字索引** (APK / 部署 / 扣费 / server / mobile / web / tsc compile / AGENTS.md / SSH / 宝塔)
 > - **§ 3 按场景 SOP** (S0 新 session / S1 改 src / S2 部署 server / S3 部署 APK / S4 改扣费 / S5 改规范 / S6 紧急故障)
-> - **§ 4 高频踩坑 Top 10** (PM2 delete+start / APP_VERSION 6 处 / 维护模式 / aapt2 验证 / 命名一致 / 三方同步 / 1-行 minified / 跨端收口 / 扣费三处 / SSH key)
-> - **§ 5 完整 BUG 列表** (按编号, 锚点链接到 `apps/mobile/BUGS.md` 完整 1146 行)
+> - **§ 5 完整 BUG 列表** (按编号, 锚点链接到 `apps/mobile/BUGS.md` 完整 BUG 库)
 > - **§ 6 维护 SOP** (新 BUG 必加索引 5 步)
 > - **§ 7 引用文档** (完整 BUG 库 + 跨端总入口 + 跨 session 交接 + 部署 SOP + 规范自迭代)
 
@@ -111,16 +121,19 @@
 - 改完必跑 `VERSION_MANAGEMENT.md § 7.2` 6 处 grep 自检
 - 详细 8 步发版 SOP → `VERSION_MANAGEMENT.md § 5`
 
-### 铁律 4: PM2 用 `delete + start` 不用 `restart` (S58 BUG-008 教训)
-- ❌ `pm2 restart` — 不重读 .env, 老 env 残留
-- ❌ `pm2 restart --update-env` — 部署时禁用, 会刷 PM2 持久 env
-- ✅ `pm2 delete ai-script-server && pm2 start ecosystem.config.js --env production`
-- 详细 10 条 PM2 命令 + 8 项 AI checklist → `docs/PM2_GUIDE.md`
+### 铁律 4: shipin-APP 部署走 **systemd unit** 不用 PM2 (S70 BUG-077 重构)
+- ❌ `pm2 restart` — **S70 起 shipin-APP 不用 PM2**, 走 systemd unit
+- ❌ `pm2 restart --update-env` — **shipin-APP 禁用**, 跟 systemd unit 双管会端口冲突
+- ✅ `systemctl daemon-reload && systemctl restart shipin-app` (跟宝塔 panel Node 项目 shipin_APP 同步)
+- 完整 9 步流程 → [`docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 2](docs/BAOTA_NODE_PROJECT_DEPLOY.md)
+- 历史 PM2 规范 → [`docs/PM2_GUIDE.md`](docs/PM2_GUIDE.md) (S70 deprecated, 仅供考古)
+- **S58 BUG-008 PM2 env reload 教训仍适用** — server 部署改 env 仍走 `delete + start`, 但 shipin-APP 走 systemd 后这套自动失效
 
-### 铁律 5: 部署后必跑 5/6 维验证 (S64 + S67 升级)
+### 铁律 5: 部署后必跑 5/6/12 维验证 (S64 + S67 + S70 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
-- **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (6 步: 查→公告→维护→等任务→部署→恢复)
+- **🆕 server 12 维** (S70 BUG-077): 6 维自身 + 3 维宝塔/nginx/反代/APK + **3 维宝塔 Node 项目 shipin_APP run=True (核心, BUG-077 验收)**
+- **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (9 步: 查→公告→维护→等任务→预检→备份→systemd restart + 宝塔同步→12 维验证→恢复)
 
 ### 铁律 6: commit message 必带版本号 + BUG 编号 (跨端统一规范)
 - 格式: `vX.Y.Z: <改动一句话> (BUG-NNN + 规范修订)`

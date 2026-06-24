@@ -127,6 +127,27 @@
 - 写 BUG-NNN 进 `apps/mobile/BUGS.md` (跨端共用)
 - 写本索引 § 1 速览行 (30 秒后 AI 能看到)
 
+### 🎬 S7. shipin-APP 部署到宝塔 panel "项目" 列表 (S70 BUG-077 新增 SOP)
+- **必读**: [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](BAOTA_NODE_PROJECT_DEPLOY.md) (S70 v1.0 完整 SOP)
+- **5 步标准流程**:
+  1. 本机编译 + 打包 (`tsc --noEmit` + `npm run build` + `cp changelog.json dist/` + `tar czf`)
+  2. 上传到服务器 (`ssh-agent` 加载 + scp 或 Matrix CDN URL)
+  3. 服务器 systemd 部署 (`bash apps/server/deploy.sh` 自动 9 步: 查任务→公告→维护→等→预检→备份→systemd restart + 宝塔同步→12 维验证→恢复)
+  4. **12 维验证** (6 维自身 + 3 维宝塔/nginx/反代/APK + **3 维宝塔 Node 项目 shipin_APP run=True**)
+  5. 文档更新 + commit + push (BUGS.md + BUGS_INDEX + changelog.json)
+- **9 个常见坑** (任何 AI 必看, 见 `docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 4):
+  1. ❌ 用 PM2 部署 (S70 起 shipin-APP **唯一**路径走 systemd)
+  2. ❌ 改 `db/default.db` (真实 db 是 `db/site.db`)
+  3. ❌ 缺 `NODE_PROJECT_NAME=shipin_APP` env (systemd unit 必须有)
+  4. ❌ apt nginx 没 mask (systemctl mask nginx + pkill -9)
+  5. ❌ 启 shipin_APP.conf (server_name 写项目内部名错, 用 ab.maque.uno 已配反代)
+  6. ❌ 写宝塔自定义 nodejsModel.py (免费版自带完整 112KB, 不用)
+  7. ❌ 写 `shipin_app.pid` (大小写错, 必须是 `shipin_APP.pid` 跟 sites 表项目名一致)
+  8. ❌ SQL 改 site.db 没生效 (宝塔 Sql 是内存只读 db, 短期不影响, 长期会丢)
+  9. ❌ git push schannel 失败 (CRL 检查阻塞, `-c http.schannelCheckRevocation=false` 跳过)
+- **紧急回滚 5 min**: `bash apps/server/deploy.sh --rollback` (自动恢复 `dist.bak.s<timestamp>` + systemd restart)
+- **关联 BUG**: BUG-076 (S69 解释) + **BUG-077 (S70 修法) + BUG-046/049 (双 nginx 实例) + BUG-008 (PM2 env reload, 历史教训) + BUG-070 (维护模式)**
+
 ---
 
 ## § 4. 高频踩坑 Top 10 (必读铁律, 任何 AI 必看)
@@ -195,21 +216,22 @@
 
 ## § 7. 引用文档
 
-- **完整 BUG 库**: `apps/mobile/BUGS.md` (1146 行 / 74 BUG + BUG-077 = 75 BUG)
-- **跨端总入口**: `AGENTS.md` (必读 15 项 + 第 16 项 = 本 BUGS_INDEX)
-- **跨 session 交接**: `HANDOVER.md` (S68 新建, § 0 速览 + § 5 坑点, S70 加 BUG-077 引用)
-- **部署 SOP**: `apps/server/deploy.sh` (维护模式 6 步) + `docs/DEPLOY.md` (11 节点)
+- **完整 BUG 库**: `apps/mobile/BUGS.md` (1538 行 / 75 BUG 含 BUG-077)
+- **跨端总入口**: `AGENTS.md` (必读 17 项 = 16 项 S69 + 第 17 项 `docs/BAOTA_NODE_PROJECT_DEPLOY.md` S70 新加)
+- **跨 session 交接**: `HANDOVER.md` (S68 新建, § 0 速览 + § 5 坑点, S70 v1.2 加 BUG-077 引用)
+- **🆕 宝塔 panel Node 项目部署 SOP**: `docs/BAOTA_NODE_PROJECT_DEPLOY.md` (S70 v1.0, 5 步流程 + 12 维验证 + 9 坑 + 紧急回滚)
+- **部署 SOP**: `apps/server/deploy.sh` v2.0 (S70 重写: 走 systemd + 宝塔同步 9 步) + `docs/DEPLOY.md` (11 节点)
 - **规范自迭代**: `docs/STANDARDS_EVOLUTION.md` (5 步 SOP)
 - **版本管理**: `docs/VERSION_MANAGEMENT.md` (跨端 6 处版本号同步)
 - **环境变量**: `docs/ENV_MANAGEMENT.md` + `apps/server/.env.example`
-- **PM2 + ecosystem**: `docs/PM2_GUIDE.md`
+- **PM2 + ecosystem** (历史, S70 deprecated): `docs/PM2_GUIDE.md`
 - **DB 迁移**: `docs/DB_MIGRATION.md`
 - **后端 worker 9 条**: `docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`
 - **API 跨端响应**: `HANDOVER.md` § 4.5 (S65 集成笔记)
-- **宝塔部署**: `apps/mobile/BUGS.md` BUG-077 (S70 v1.1) + § 4.5 宝塔部署踩坑 Top 5
+- **宝塔部署踩坑**: `apps/mobile/BUGS.md` BUG-077 (S70 v1.1) + 本索引 § 4.5 宝塔部署踩坑 Top 5
 
 ---
 
-**最后更新**: 2026-06-24 (S70 收尾, v1.1, 加 BUG-077 + § 4.5 宝塔部署踩坑 Top 5)
+**最后更新**: 2026-06-24 (S70 收尾 v1.1, 加 BUG-077 + § 4.5 宝塔部署踩坑 Top 5 + § 3 S7 宝塔部署 SOP)
 **下次 review**: S71 收尾时, 必查 Top 10 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)

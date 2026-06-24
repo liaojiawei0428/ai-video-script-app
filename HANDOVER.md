@@ -2,21 +2,23 @@
 
 > **本文件**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾时, AI 必追加一段 (按 § 6 模板).
-> **最后更新**: 2026-06-24 (S69 收尾, v1.1, 加 BUGS_INDEX 引用 + 修 BUG-072/073/074 总结)
+> **最后更新**: 2026-06-24 (S70 收尾, v1.2, BUG-077 宝塔 panel Node 项目部署 + systemd 重构 + BAOTA_NODE_PROJECT_DEPLOY.md SOP)
 
 ---
 
 ## § 0. 30 秒速览 (下个 session 必看)
 
 - **项目**: shipin-APP (`F:\QiTa\banmu\APP\ai-video-script-app`), AI 短剧剧本生成 Web+Mobile+Server
-- **当前版本**: v3.0.30 (server 端实际仍是 v3.0.29, v3.0.30 是规范号未实际部署)
-- **最近 5 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0)
-- **核心交付**: 跨端统一规范体系 (15 份文档), BUGS.md 22 个案例, 跨端 AGENTS.md 2 层结构 (根 v2.0 + mobile/server 瘦身)
+- **当前版本**: v3.0.29 (生产 server 实际版本, S70 部署)
+- **最近 6 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → **S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit)** → **S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构)** ← 新
+- **核心交付**: 跨端统一规范体系 (16 份文档), BUGS.md 75 个案例, 跨端 AGENTS.md 2 层结构 (根 v2.0 + mobile/server 瘦身 v2.0)
 - **生产环境**: `https://ab.maque.uno` (公网), 服务器本地路径 `/www/wwwroot/shipin-APP` (flat 结构, 非 monorepo)
-- **本机环境**: Windows Server 2022 + PowerShell 5.1, MinGit 2.47.1 portable 已装 (`C:\Tools\Git\`), winget 装不上 (InternetOpenUrl 0x80072efd)
-- **关键 5 教训** (从 S58-S68 11 个 session 沉淀): ①必读 AGENTS.md ②APP_VERSION 6 处同步 ③PM2 delete+start ④活跃任务必跑维护模式 ⑤commit message 必带版本号+BUG
+- **本机环境**: Windows Server 2022 + PowerShell 5.1, **PortableGit 2.43.0** 已装 (`C:\Tools\PortableGit\bin\git.exe`)
+- **🚨 S70 部署路径重大变化**: shipin-APP **不再走 PM2**, **走 systemd unit + 宝塔 panel Node 项目同步**. 任何新 session 接手, **必读** [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md) (S70 v1.0, 5 步部署 + 12 维验证 + 9 坑). 不要用 `pm2 restart`, 用 `systemctl restart shipin-app`.
+- **关键 5 教训** (从 S58-S70 12 个 session 沉淀): ①必读 AGENTS.md ②APP_VERSION 6 处同步 ③**systemd restart 不用 pm2** ④活跃任务必跑维护模式 ⑤commit message 必带版本号+BUG
 - **S69 收尾 (v1.1)**: 4 个 P0 BUG 全修 (BUG-071 跨端规范 + BUG-072 扣费审计 5 子 + BUG-073 S54 1-行 minified 部署 8h + BUG-074 APK 假下载) + **新建 [`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md) v1.0** (AI 友好 BUG 快速查询: 30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑) + AGENTS.md 必读 16 项
-- **🚨 必查 (避免重复踩坑)**: 任何新 session 开始, **必读** [`docs/BUGS_INDEX.md` § 4 Top 10 高频踩坑](docs/BUGS_INDEX.md#4-高频踩坑-top-10-必读铁律-任何-ai-必看), 跟 BUG-008/024/068/069/070/071/072/073/074 9 个高频 BUG 直接关联
+- **S70 收尾 (v1.2)**: **BUG-077 宝塔 panel Node 项目部署** + 重构 deploy.sh 走 systemd unit + 新建 [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md) v1.0 (5 步 SOP + 12 维验证 + 9 坑) + `apps/server/AGENTS.md` v2.0 (引用 BAOTA SOP) + `apps/server/deploy.sh` v2.0 (走 systemd + 宝塔同步) + **BUGS_INDEX.md v1.1** (加 § 4.5 宝塔部署踩坑 Top 5 + BUG-077 速览). Commit `7b11230` ✓
+- **🚨 必查 (避免重复踩坑)**: 任何新 session 开始, **必读** [`docs/BUGS_INDEX.md` § 4.5 宝塔部署踩坑 Top 5 + § 4 Top 10](docs/BUGS_INDEX.md#45-宝塔部署踩坑-top-5-s70-bug-077-总结-任何-ai-必看), 跟 BUG-008/024/068/069/070/071/072/073/074/**077** 10 个高频 BUG 直接关联
 
 ---
 
