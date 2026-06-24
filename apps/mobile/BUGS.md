@@ -8,6 +8,19 @@
 >
 > 写本文件的目的是: **下一个 AI 不要重复踩同一个坑, 改完没问题的功能改坏了**。
 
+## 0. 快速定位 (AI 30 秒入口)
+
+> **🆕 S69 新建 [`docs/BUGS_INDEX.md`](../../docs/BUGS_INDEX.md) v1.0** (项目根目录 `docs/BUGS_INDEX.md`):
+> - **§ 1 30 秒速览表** (按编号倒序, 最近修的 BUG 优先看)
+> - **§ 2 按关键字索引** (APK / 部署 / 扣费 / server / mobile / web / tsc compile / AGENTS.md / SSH)
+> - **§ 3 按场景 SOP** (S0 新 session / S1 改 src / S2 部署 server / S3 部署 APK / S4 改扣费 / S5 改规范 / S6 紧急故障)
+> - **§ 4 高频踩坑 Top 10** (PM2 delete+start / APP_VERSION 6 处 / 维护模式 / aapt2 验证 / 命名一致 / 三方同步 / 1-行 minified / 跨端收口 / 扣费三处 / SSH key)
+> - **§ 5 完整 BUG 列表** (按编号, 锚点链接到本文件)
+> - **§ 6 维护 SOP** (新 BUG 必加索引 5 步)
+> - **§ 7 引用文档** (完整 BUG 库 + 跨端总入口 + 跨 session 交接 + 部署 SOP + 规范自迭代)
+>
+> **任何 AI 接活前** 必读 BUGS_INDEX.md § 1 速览 + § 4 Top 10, 然后再翻本文件详细案例.
+
 ---
 
 ## v3.0.0 → v3.0.11 修复历史 (S58 期间)
@@ -1343,6 +1356,53 @@ v3.0.31 更新内容 (2026-06-24) ← 实际是 S69 server changelog, 不是 mob
 - [ ] **改 apps/mobile/DEPLOY.md** 加 "APK 三方版本同步 SOP" 章节
 - [ ] **清理 shipin-APP/public 14 个错位 APK** (跟 server 历史 APK 列表对照, 删错位 + 留真名)
 - [ ] **修 web DownloadPage 显示真实 APK 大小** (动态从 /api/version 或 shipin-APP/public ls 拿, 不写死 28.7MB)
+
+---
+
+
+
+---
+
+## BUG-075 (S69 收尾, v3.0.29): BUG 案例库缺 AI 友好索引, 74 个 BUG 散在 1146 行, 其他 AI 接活前难快速定位 (跨项目通用)
+
+### 现象
+
+- `apps/mobile/BUGS.md` 累计 **1146 行 / 74 BUG** (S58 ~ S69, 12 个 session 沉淀)
+- 完整 BUG 段按编号顺序, **无 Top 速览 / 无关键字索引 / 无场景 SOP**
+- 新 AI 接活前:
+  - 不知道哪些 BUG 必看 (高频踩坑)
+  - 不知道 BUG 之间关联 (部署踩 BUG-073 时不知道还要查 BUG-008/069/074)
+  - 不知道用什么关键字快速搜 (按 BUG 号还是按场景还是按关键字)
+- 必读 15 项无 BUG 索引, 跟"防重复踩坑"目标脱节
+- 跨 session 交接 (HANDOVER.md) 无 BUG 索引引用
+
+### 修法 (S69 v1.0 完整)
+
+1. **新建 [`docs/BUGS_INDEX.md`](../../docs/BUGS_INDEX.md) v1.0** (项目根目录, 跨端共用):
+   - § 1 30 秒速览表 (按编号倒序, 最近修的优先看)
+   - § 2 按关键字索引 (APK / 部署 / 扣费 / server / mobile / web / tsc compile / AGENTS.md / SSH)
+   - § 3 按场景 SOP (S0 新 session / S1 改 src / S2 部署 server / S3 部署 APK / S4 改扣费 / S5 改规范 / S6 紧急故障)
+   - § 4 高频踩坑 Top 10 (PM2 delete+start / APP_VERSION 6 处 / 维护模式 / aapt2 验证 / 命名一致 / 三方同步 / 1-行 minified / 跨端收口 / 扣费三处 / SSH key)
+   - § 5 完整 BUG 列表 (按编号, 锚点链接到 BUGS.md)
+   - § 6 维护 SOP (新 BUG 必加索引 5 步)
+   - § 7 引用文档 (完整 BUG 库 + 跨端总入口 + 跨 session 交接 + 部署 SOP + 规范自迭代)
+2. **更新 [`AGENTS.md`](../../AGENTS.md) 必读 15 项 → 16 项** (加 BUGS_INDEX)
+3. **更新 [`HANDOVER.md`](../../HANDOVER.md) § 0 30 秒速览** (加 BUGS_INDEX 引用 + S69 收尾总结)
+4. **更新 [`apps/mobile/BUGS.md`](./BUGS.md) 顶部** (加 § 0 快速定位 + BUGS_INDEX 引用)
+
+### 教训 (4 条, 跨项目通用)
+
+1. **AI 必读文档要"分层 + 索引"**: 完整 BUG 库 1000+ 行是必要的 (细节), 但 AI 接活前 30 秒只能看 1-2 屏. 必须配 BUGS_INDEX 速览/关键字/场景 3 维索引
+2. **新加 BUG 必同时加索引 (5 步 SOP)**: 修代码 + commit + 写 BUGS.md + 更新 BUGS_INDEX § 1/2/4 + 跑 6 维验证. 否则下次 AI 看不到, 还会重复踩
+3. **跨 session 交接 (HANDOVER.md) 必引用 BUG_INDEX**: § 0 30 秒速览是 AI 第一眼, 必给 BUG 索引链接 + Top 10 必读
+4. **必读列表 16 项而非 15**: S68 收口 15 项 (AGENTS/HANDOVER/VERSION/BUGS/CODING/...) 缺 BUG 索引, 任何 AI 接活时 30 秒看不到高频 BUG, 必加第 16 项
+
+### 引用 (跨文档)
+
+- [`docs/BUGS_INDEX.md`](../../docs/BUGS_INDEX.md) — BUG 快速查询索引 (跨端共用)
+- [`AGENTS.md`](../../AGENTS.md) 必读第 16 项
+- [`HANDOVER.md`](../../HANDOVER.md) § 0 30 秒速览
+- [`apps/mobile/BUGS.md`](./BUGS.md) § 0 快速定位
 
 ---
 

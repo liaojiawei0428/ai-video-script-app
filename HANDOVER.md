@@ -2,7 +2,7 @@
 
 > **本文件**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾时, AI 必追加一段 (按 § 6 模板).
-> **最后更新**: 2026-06-24 (S68 收口后, 上下文压缩交接 v1.0)
+> **最后更新**: 2026-06-24 (S69 收尾, v1.1, 加 BUGS_INDEX 引用 + 修 BUG-072/073/074 总结)
 
 ---
 
@@ -15,6 +15,8 @@
 - **生产环境**: `https://ab.maque.uno` (公网), 服务器本地路径 `/www/wwwroot/shipin-APP` (flat 结构, 非 monorepo)
 - **本机环境**: Windows Server 2022 + PowerShell 5.1, MinGit 2.47.1 portable 已装 (`C:\Tools\Git\`), winget 装不上 (InternetOpenUrl 0x80072efd)
 - **关键 5 教训** (从 S58-S68 11 个 session 沉淀): ①必读 AGENTS.md ②APP_VERSION 6 处同步 ③PM2 delete+start ④活跃任务必跑维护模式 ⑤commit message 必带版本号+BUG
+- **S69 收尾 (v1.1)**: 4 个 P0 BUG 全修 (BUG-071 跨端规范 + BUG-072 扣费审计 5 子 + BUG-073 S54 1-行 minified 部署 8h + BUG-074 APK 假下载) + **新建 [`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md) v1.0** (AI 友好 BUG 快速查询: 30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑) + AGENTS.md 必读 16 项
+- **🚨 必查 (避免重复踩坑)**: 任何新 session 开始, **必读** [`docs/BUGS_INDEX.md` § 4 Top 10 高频踩坑](docs/BUGS_INDEX.md#4-高频踩坑-top-10-必读铁律-任何-ai-必看), 跟 BUG-008/024/068/069/070/071/072/073/074 9 个高频 BUG 直接关联
 
 ---
 

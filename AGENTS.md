@@ -70,8 +70,18 @@
 | 13 | **[`docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md)** | 后端 worker 9 条实战约束 (改 server 代码前必读) |
 | 14 | **[`docs/standards/ADR/`](docs/standards/ADR/)** (S65 新建) | 架构决策追溯 (0001 server changelog 单一来源) |
 | 15 | **`DEV_PROGRESS.md`** | AI 会话追踪表 (开始工作前必读, § 5) |
+| 16 | **[`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md)** (S69 新建) | BUG 案例库 AI 快速查询索引 (30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑 + 完整 74 BUG 编号) |
 
 **ADR 触发**: 任何架构级变更 (新模块 / 重构 / 跨端收口) 必写 ADR-NNN, 模板见 `docs/standards/ADR/0000-adr-template.md`.
+
+> **重要**: 必读第 16 项 `docs/BUGS_INDEX.md` 是 S69 总结的 AI 友好 BUG 快速查询索引, 含:
+> - **§ 1 30 秒速览表** (按编号倒序, 最近 BUG 优先)
+> - **§ 2 按关键字索引** (APK / 部署 / 扣费 / server / mobile / web / tsc compile / AGENTS.md / SSH)
+> - **§ 3 按场景 SOP** (S0 新 session / S1 改 src / S2 部署 server / S3 部署 APK / S4 改扣费 / S5 改规范 / S6 紧急故障)
+> - **§ 4 高频踩坑 Top 10** (PM2 delete+start / APP_VERSION 6 处 / 维护模式 / aapt2 验证 / 命名一致 / 三方同步 / 1-行 minified / 跨端收口 / 扣费三处 / SSH key)
+> - **§ 5 完整 BUG 列表** (按编号, 锚点链接到 `apps/mobile/BUGS.md` 完整 1146 行)
+> - **§ 6 维护 SOP** (新 BUG 必加索引 5 步)
+> - **§ 7 引用文档** (完整 BUG 库 + 跨端总入口 + 跨 session 交接 + 部署 SOP + 规范自迭代)
 
 ---
 
