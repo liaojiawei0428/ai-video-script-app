@@ -215,11 +215,18 @@ export class NovelService {
     if (!novel) throw new AppError('NOVEL_NOT_FOUND', `Novel ${novelId} not found`, 404);
     if (!novel.filePath) throw new AppError('VALIDATION_ERROR', 'Novel file not available', 400);
 
-    if (taskQueue.isQueuedOrRunning(novelId)) {
-      const existingTaskId = taskQueue.getExistingTaskId(novelId);
-      if (existingTaskId) {
-        const existing = await taskJobModel.findById(existingTaskId);
-        if (existing) return existing;
+    // v2.5.37 P0 #1 修复 (S72 ADR-0002): 防止并发重复任务 + 重复扣费
+    // DB 检查替代 taskQueue 内存检查 (taskQueue 重启丢状态, DB 权威)
+    const { queryOne } = await import('../models/db');
+    const existingActive = await queryOne<{ id: string }>(
+      "SELECT id FROM task_jobs WHERE novel_id = ? AND status IN ('queued','running') ORDER BY created_at DESC LIMIT 1",
+      [novelId]
+    );
+    if (existingActive) {
+      const existing = await taskJobModel.findById(existingActive.id);
+      if (existing) {
+        logger.info('analyzeNovel: 已有 active 任务 (DB 检查), 返回现有防重复扣费', { novelId, taskId: existing.id, status: existing.status });
+        return existing;
       }
     }
 
@@ -610,11 +617,12 @@ export class NovelService {
         }
       }
 
-      // 5. 级联删除数据库记录
+      // 5. 级联删除数据库记录 (v2.5.37 P0 #4 修复 (S72 ADR-0002): 加 billing_logs 删除, 避免孤儿扣费记录)
       await execute('DELETE FROM shots WHERE episode_id IN (SELECT id FROM episodes WHERE novel_id = ?)', [novelId]);
       await execute('DELETE FROM episodes WHERE novel_id = ?', [novelId]);
       await execute('DELETE FROM characters WHERE novel_id = ?', [novelId]);
       await execute('DELETE FROM task_jobs WHERE novel_id = ?', [novelId]);
+      await execute('DELETE FROM billing_logs WHERE novel_id = ?', [novelId]);
       await execute('DELETE FROM novels WHERE id = ?', [novelId]);
 
       logger.info('Novel deleted with cascade', { novelId });
