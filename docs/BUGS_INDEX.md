@@ -15,6 +15,7 @@
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
 | **BUG-082** | S71 后置 | ✓ 已修 | **Web 端 React #31 错误**: 视频/图片 agent error part.message 被存为对象 {code, message} 而非 string (agnes API 返对象, server 原样存), web 渲染对象触发 #31, 整个会话 tab 不可用 | 新建 `utils/errorUtils.ts` extractErrorMessage 60 行; videoAgentService L527+L705 + imageAgentService L637 全部走归一; web AgentChatPanel case 'error' 防御性渲染; 历史 SQL 修 1 条 (aa88d219); verify-deploy 加 17-18 维 |
+| **BUG-082 P3** | S71 后置 v3.0.33 | ✓ 已修 | **systemd unit 硬编码 APP_VERSION=3.0.29 漏改** (S70 BUG-077 写完未同步) — V3.0.33 升级时发现, process.env.APP_VERSION 实际生效是 .env 3.0.32 (systemd EnvironmentFile 优先级实测覆盖 [Service] Environment), VERSION_MANAGEMENT § 5.2/§ 7.2 6→8 处 + AGENTS.md 铁律 3 6→8 处 + deploy.sh 加 .env+systemd unit 同步 |
 | **BUG-081** | S71 后置 | ✓ 已修 | **用户改方案"An unexpected error occurred"**: imageAgentService processTurn allowedStates 漏 plan_ready (S70 passthrough 改后没同步) + throw raw Error 走 errorHandler 兜底 500 | imageAgentService 加 plan_ready + 改 AppError 400; videoAgentService 加 busy 状态 409; web 提取 error.code 友好提示 |
 | **BUG-080** | S71 后置 | ✓ 已修 | **web 端"消费记录"tab 没数据**: BillingPage.tsx push transactions 时只挑 4 字段, 漏 `type` → L137 filter `(r as any).type === 'consumption'` 永远 undefined | `...t` spread 整个 t (含 type/refType/refLabel) + web dist 重 build + E2E 模拟 3 tab filter 全 200 条 |
 | **BUG-079** | S71 后置 | ✓ 已修 | **S71 报告"12 维验证全过" 100% 假**: server dist 没部署 + DB schema 没 ALTER + web dist 也没 build + routes/billing.ts 写错 `req.user.userId` (应 `req.userId`) | 重写损坏 src (PS 5.1 丢 newline) + 真 scp dist + 手动 ALTER + 改 `req.userId` + 14 维 + E2E JWT |
@@ -262,6 +263,6 @@
 
 ---
 
-**最后更新**: 2026-06-25 (S71 后置 v1.2, 加 BUG-082 + 4 教训: API 边界归一/string 持久化/前端防御渲染/verify-deploy 防呆维度)
+**最后更新**: 2026-06-25 (S71 后置 v1.3, 加 BUG-082 P3 systemd unit 漏改 + VERSION_MANAGEMENT 6→8 处 + AGENTS.md 铁律 3 6→8 处 + deploy.sh 加 .env+systemd unit 同步)
 **下次 review**: S72 收尾时, 必查 Top 10 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)

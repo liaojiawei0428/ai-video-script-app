@@ -326,11 +326,12 @@ ADMIN_TOKEN=xxx bash apps/server/deploy.sh
 
 按 § 1 定义判定, 列本次变更项 → 取最高类别 → 按进位规则算新版本号。
 
-### § 5.2 改 6 处版本号
+### § 5.2 改 8 处版本号 (🆕 v3.0.33 扩: .env + systemd unit)
 
 ```bash
-# 1. mobile src/config/version.ts (唯一来源)
 APP_VERSION='3.0.30'
+
+# 1. mobile src/config/version.ts (唯一来源)
 # 改: export const APP_VERSION = '$APP_VERSION';
 
 # 2. mobile build.gradle
@@ -339,11 +340,25 @@ APP_VERSION='3.0.30'
 # 3. server package.json
 # 改: "version": "$APP_VERSION"
 
-# 4. web src/config/version.ts (新建, S64 起)
-# 改: export const APP_VERSION = '$APP_VERSION';
+# 4. server src/index.ts fallback (L74 'X.Y.Z' 字符串)
+# 改: const currentVersion = process.env.APP_VERSION || '$APP_VERSION';
 
-# 5. changelog.json 加一条新条目 (§ 4)
-# 6. server dist 复制 (§ 4.3)
+# 5. server ecosystem.config.js (2 处: env + env_production, replaceAll)
+# 改: APP_VERSION: '$APP_VERSION',  (S66 BUG-069 教训)
+
+# 6. web src/config/version.ts (APP_VERSION + APP_VERSION_CODE)
+# 改: export const APP_VERSION = '$APP_VERSION'; export const APP_VERSION_CODE = N+1;
+
+# 7. 🆕 server .env APP_VERSION
+# 改: APP_VERSION=$APP_VERSION
+# S71 BUG-082 P3 教训: process.env.APP_VERSION 实际生效是 .env, 不改 systemd 启的服务读老版本
+
+# 8. 🆕 systemd unit /etc/systemd/system/shipin-app.service (Environment=APP_VERSION)
+# 改: sed -i "s/^Environment=APP_VERSION=.*/Environment=APP_VERSION=$APP_VERSION/" /etc/systemd/system/shipin-app.service
+# S71 BUG-082 P3 教训: S70 BUG-077 写完未同步, systemd 硬编码 3.0.29, .env 是 3.0.32, 实际 process.env 拿 3.0.32 (systemd EnvironmentFile 优先于 [Service] Environment, 但实际 systemd 文档说相反 — 这是隐藏 P3, 必须 2 处都改)
+
+# 9. changelog.json 加一条新条目 (§ 4)
+# 10. server dist 复制 (§ 4.3)
 ```
 
 ### § 5.3 git commit + push
@@ -379,20 +394,20 @@ cp changelog.json dist/changelog.json  # S64 加
 tar czf /tmp/dist.tar.gz dist/ package.json
 ```
 
-### § 5.7 部署
+### § 5.7 部署 (🆕 v3.0.33 走 systemd + 改 .env + 改 systemd unit)
 
 ```bash
-# 1. APK 上传
-scp app-release.apk root@159.75.16.110:/www/wwwroot/shipin-APP/public/DeepScript_v3.0.30.apk
+# 1. APK 上传 (历史 APK 不覆盖, BUG-017)
+scp app-release.apk root@159.75.16.110:/www/wwwroot/shipin-APP/public/DeepScript_v3.0.33.apk
 
 # 2. server dist 上传
 scp /tmp/dist.tar.gz root@159.75.16.110:/tmp/
 
-# 3. 远端执行 deploy.sh
-ssh root@159.75.16.110 "cd /www/wwwroot/shipin-APP && \
-  tar xzf /tmp/dist.tar.gz && \
-  sed -i 's/APP_VERSION=.3.0.29./APP_VERSION=\"3.0.30\"/g' ecosystem.config.js && \
-  pm2 delete 0 && pm2 start ecosystem.config.js --env production"
+# 3. 远端执行 deploy.sh (S70 v2.0 systemd 路径, 9 步走完)
+#   deploy.sh 自动: 维护模式 9 步流程 + 部署前 6 维预检 + 改 .env + 改 systemd unit + 宝塔同步
+#   详细: apps/server/deploy.sh + docs/BAOTA_NODE_PROJECT_DEPLOY.md § 2
+ssh root@159.75.16.110 "cd /www/wwwroot/shipin-APP && bash deploy.sh"
+# ⚠️ S70 BUG-077: 不要再用 'pm2 restart' / 'pm2 start', 走 systemd 路径
 
 # 4. web build + 部署 (vite build)
 cd apps/web && npm run build
@@ -436,7 +451,7 @@ ssh root@159.75.16.110 "ls -la /www/wwwroot/shipin-APP/public/DeepScript_v*.apk"
 | 症状 | 排查 |
 |---|---|
 | server 说有新版本, 客户端启动不弹窗 | `curl /api/version?version=${currentVersion}` 看 needUpdate |
-| APP_VERSION 没切 | `pm2 env 0 | grep APP_VERSION` (BUG-008) |
+| APP_VERSION 没切 | `systemctl show shipin-app -p Environment` + `cat /www/wwwroot/shipin-APP/.env | grep APP_VERSION` (S70 BUG-077 走 systemd, **不再是 PM2**) |
 | 客户端 network 错 | `adb logcat | grep "Updater"` |
 | 弹窗代码老 (老 APK 跑老代码) | 让用户卸老装新 |
 
@@ -444,8 +459,10 @@ ssh root@159.75.16.110 "ls -la /www/wwwroot/shipin-APP/public/DeepScript_v*.apk"
 
 | 症状 | 排查 |
 |---|---|
-| 已经 bump server 但 /api/version 还返老版本 | `pm2 env 0 | grep APP_VERSION` 是否真的切了 |
-| env 没刷 | `pm2 delete 0 && pm2 start ecosystem.config.js --env production` (BUG-008) |
+| 已经 bump server 但 /api/version 还返老版本 | `systemctl show shipin-app -p Environment` + `cat .env` (S71 BUG-082 P3: systemd unit 和 .env 都可能没改) |
+| 🆕 process.env.APP_VERSION 是老值 | `journalctl -u shipin-app | grep APP_VERSION` (systemd 启动时打的 env) — 看 systemd 实际喂的 env |
+| 🆕 process.env.APP_VERSION 是 3.0.29 (S70 残留) | `grep APP_VERSION /etc/systemd/system/shipin-app.service` — systemd unit 硬编码 3.0.29 没改 (S71 BUG-082 P3, S70 BUG-077 写完未同步) |
+| env 没刷 | `systemctl daemon-reload && systemctl restart shipin-app` (S70 BUG-077 systemd 路径) |
 
 ### 6.3 /download 页 changelog 是 "优化性能，修复已知问题" (通用文案)
 
@@ -504,16 +521,23 @@ ssh root@159.75.16.110 "ls -la /www/wwwroot/shipin-APP/public/DeepScript_v*.apk"
 
 ### § 7.1 读本规范 (§ 1 - § 6)
 
-### § 7.2 跑 § 5.2 6 处版本号同步自检
+### § 7.2 跑 § 5.2 8 处版本号同步自检 (🆕 v3.0.33 扩: ecosystem + .env + systemd unit)
 
 ```
 □ mobile src/config/version.ts APP_VERSION
 □ mobile build.gradle versionCode + versionName
 □ server package.json version
-□ server src/index.ts fallback
-□ web src/config/version.ts APP_VERSION
+□ server src/index.ts fallback 'X.Y.Z'
+□ server ecosystem.config.js env + env_production (2 处, replaceAll) ← S66 BUG-069
+□ web src/config/version.ts APP_VERSION + APP_VERSION_CODE
+□ 🆕 server .env APP_VERSION ← S71 BUG-082 P3
+□ 🆕 systemd unit /etc/systemd/system/shipin-app.service Environment=APP_VERSION ← S71 BUG-082 P3
 □ changelog.json 追加当前版本条目
 ```
+
+> 🆕 **S71 BUG-082 P3 教训**: S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码了 `Environment=APP_VERSION=3.0.29`, 但 `EnvironmentFile=-/www/wwwroot/shipin-APP/.env` 里的 `APP_VERSION=3.0.32` 实际生效 (systemd EnvironmentFile 优先级实测覆盖 [Service] Environment). 3 个月后才在 V3.0.33 升级时发现. **S71 后 8 处自检是底线, ecosystem.config.js 2 处 + .env + systemd unit 1 处都是隐藏 P3**
+> 
+> 🆕 **自检工具脚本**: `node tools/verify-version-8-points.js [NEW_VERSION]` — 自动跑 6 处本地 + 远程 .env + systemd unit (需 SSH key, 默认 C:\Users\Administrator\AppData\Local\Temp\shipin_app_key). 失败 exit 1.
 
 ### § 7.3 跑 § 5.8 5 维验证
 

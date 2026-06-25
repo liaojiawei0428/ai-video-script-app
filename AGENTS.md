@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.1 (2026-06-25 S71 后置 BUG-082, 加铁律 8 + 6 处版本号 3.0.32)
+> **版本**: v2.2 (2026-06-25 S71 后置 BUG-082 P3, 加铁律 3 6→8 处 + deploy.sh 加 .env+systemd unit 同步 + VERSION_MANAGEMENT § 5.2 扩 8 处)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
@@ -111,16 +111,19 @@
 - web 任务追加 `apps/web/DEPLOY.md` (优先级 9)
 - **必读**: 开始工作前必跑 `Read DEV_PROGRESS.md` (§ 5)
 
-### 铁律 3: APP_VERSION 改 1 处必同步 6 处 (跨端强约束, S66 BUG-069 教训)
-- **6 处位置** (S66 修正后):
+### 铁律 3: APP_VERSION 改 1 处必同步 **8 处** (跨端强约束, S66 BUG-069 + S71 BUG-082 P3 教训, v3.0.33 扩)
+- **8 处位置** (v3.0.33 扩 6→8: 加 .env + systemd unit):
   1. `apps/mobile/src/config/version.ts` (mobile 单一来源)
   2. `apps/mobile/android/app/build.gradle` (versionCode + versionName)
   3. `apps/server/package.json` (`"version"`)
   4. `apps/server/src/index.ts` (fallback `process.env.APP_VERSION || 'X.Y.Z'`)
-  5. `apps/server/ecosystem.config.js` (**2 处**: env + env_production)
+  5. `apps/server/ecosystem.config.js` (**2 处**: env + env_production, S66 BUG-069 教训)
   6. `apps/web/src/config/version.ts` (web 单一来源) + `apps/server/changelog.json`
-- 改完必跑 `VERSION_MANAGEMENT.md § 7.2` 6 处 grep 自检
-- 详细 8 步发版 SOP → `VERSION_MANAGEMENT.md § 5`
+  7. **🆕 `/www/wwwroot/shipin-APP/.env`** (APP_VERSION, S71 BUG-082 P3: process.env 实际生效是 .env)
+  8. **🆕 `/etc/systemd/system/shipin-app.service`** (Environment=APP_VERSION, S71 BUG-082 P3: S70 BUG-077 写完未同步)
+- 改完必跑 `VERSION_MANAGEMENT.md § 7.2` **8 处** grep 自检 (v3.0.33 扩)
+- 详细 8 步发版 SOP → `VERSION_MANAGEMENT.md § 5` (v3.0.33 同步扩 8 处)
+- **🆕 S71 BUG-082 P3 教训**: S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码 `Environment=APP_VERSION=3.0.29` 但 .env 实际生效 (systemd EnvironmentFile 优先级实测), 3 个月后 V3.0.33 升级才修复. **8 处是底线, ecosystem.config.js 2 处 + .env + systemd unit 1 处都是隐藏 P3**
 
 ### 铁律 4: shipin-APP 部署走 **systemd unit** 不用 PM2 (S70 BUG-077 重构)
 - ❌ `pm2 restart` — **S70 起 shipin-APP 不用 PM2**, 走 systemd unit

@@ -186,6 +186,37 @@ if ! head -1 ${DIST_DIR}/dist/index.js | grep -q "const appConfig"; then
   fi
 fi
 
+# ==================== 3.5 同步 8 处版本号 (🆕 v3.0.33 S71 BUG-082 P3) ====================
+# S71 BUG-082 P3 教训: S70 BUG-077 写完未同步 systemd unit + .env, 3 个月后 V3.0.33 升级时才修复
+# 必须 2 处都改:
+#   - .env APP_VERSION: process.env.APP_VERSION 实际生效
+#   - systemd unit Environment=APP_VERSION: systemd 硬编码, 覆盖 [Service] Environment
+# 详见 docs/VERSION_MANAGEMENT.md § 5.2 8 处自检
+
+# 从 package.json 读版本号 (单源)
+NEW_VERSION=$(python3 -c "import json; print(json.load(open('${DIST_DIR}/package.json'))['version'])" 2>/dev/null || echo "")
+if [ -z "$NEW_VERSION" ]; then
+  echo "⚠️ 读 package.json version 失败, 跳过 .env + systemd unit 同步 (S71 BUG-082 P3 风险)"
+else
+  echo ">>> [6.5/9] 同步 8 处版本号 (新版本 ${NEW_VERSION})..."
+
+  # 改 .env APP_VERSION
+  if grep -q "^APP_VERSION=" "${DIST_DIR}/.env" 2>/dev/null; then
+    sed -i "s/^APP_VERSION=.*/APP_VERSION=${NEW_VERSION}/" "${DIST_DIR}/.env"
+    echo "    ✓ .env APP_VERSION=${NEW_VERSION}"
+  else
+    echo "    ⚠️ .env 不存在或无 APP_VERSION 字段, 跳过"
+  fi
+
+  # 改 systemd unit Environment=APP_VERSION
+  if [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
+    sed -i "s/^Environment=APP_VERSION=.*/Environment=APP_VERSION=${NEW_VERSION}/" /etc/systemd/system/${SERVICE_NAME}.service
+    echo "    ✓ systemd unit Environment=APP_VERSION=${NEW_VERSION}"
+  else
+    echo "    ⚠️ /etc/systemd/system/${SERVICE_NAME}.service 不存在, 跳过"
+  fi
+fi
+
 # ==================== 4. 重启 systemd + 宝塔同步 ====================
 echo ">>> [7/9] 重启 systemd unit (走 systemd, 不是 PM2)..."
 systemctl daemon-reload
@@ -197,6 +228,17 @@ if ! systemctl is-active $SERVICE_NAME > /dev/null; then
   exit 1
 fi
 echo "    ✓ $SERVICE_NAME active"
+
+# 验证 /api/version 跟 package.json version 一致 (8 处同步的最终验证)
+DEPLOYED_VER=$(curl -sm 5 ${SERVER}/api/version 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["version"])' 2>/dev/null || echo "FAIL")
+if [ "${DEPLOYED_VER}" != "${NEW_VERSION}" ] && [ -n "${NEW_VERSION}" ]; then
+  echo "    ✗ /api/version 返 ${DEPLOYED_VER} 但 package.json 是 ${NEW_VERSION} (8 处同步失败!)"
+  echo "    排查: journalctl -u $SERVICE_NAME --no-pager -n 30 | grep -i version"
+  echo "    也查: cat /www/wwwroot/shipin-APP/.env | grep APP_VERSION"
+  echo "    也查: grep APP_VERSION /etc/systemd/system/${SERVICE_NAME}.service"
+  exit 1
+fi
+echo "    ✓ /api/version 验证: ${DEPLOYED_VER} (8 处同步成功)"
 
 # 同步 PID 文件 (宝塔 panel 读这个判断启停)
 MAIN_PID=$(systemctl show -p MainPID --value $SERVICE_NAME)

@@ -138,7 +138,7 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 1. **必读本文件 + `apps/server/deploy.sh` + `docs/BAOTA_NODE_PROJECT_DEPLOY.md`** — 任何 server 任务前必读
 2. **有活跃任务必跑 `deploy.sh` 维护模式流程** — S67 BUG-070 教训, 不能直接 restart
 3. **systemd 用 `restart`, 不用 `pm2 restart`** — S70 BUG-077 重构, shipin-APP **唯一**部署路径走 systemd unit (跟宝塔 panel Node 项目同步)
-4. **APP_VERSION 改 1 处必同步 6 处** — 含 ecosystem.config.js (env + env_production), S66 BUG-069 教训 (跨端铁律 3)
+4. **APP_VERSION 改 1 处必同步 8 处** (v3.0.33 扩 6→8) — 含 ecosystem.config.js (env + env_production) + **🆕 .env** + **🆕 systemd unit Environment=APP_VERSION**, S66 BUG-069 + S71 BUG-082 P3 教训 (跨端铁律 3)
 5. **必填 env 缺一不可** — JWT_SECRET / MYSQL_* / DEEPSEEK_API_KEYS / AGNES_API_KEY / PAY_KEY / **NODE_PROJECT_NAME=shipin_APP** (BUG-077 必备)
 6. **`>> .env` 追加, 不用 `> .env` 重写** — 覆盖会丢生产配置
 7. **不删字段, 用 `_deprecated_` 前缀** — S66 DB_MIGRATION § 2.5 规范
@@ -157,11 +157,11 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 
 ### 改后 5 步
 
-1. **改 6 处版本号** (跨端铁律 3) — mobile version.ts / mobile build.gradle / server package.json / server src/index.ts fallback / server ecosystem.config.js env + env_production / web src/config/version.ts / changelog.json
+1. **改 8 处版本号** (v3.0.33 扩 6→8, 跨端铁律 3) — mobile version.ts / mobile build.gradle / server package.json / server src/index.ts fallback / server ecosystem.config.js env + env_production / web src/config/version.ts / changelog.json / **🆕 .env APP_VERSION** / **🆕 systemd unit Environment=APP_VERSION**
 2. **本地 `tsc --noEmit` 0 错** (本机有 node, S66 起)
 3. **本地 `npm run build`** (tsc → dist/)
 4. **`cp changelog.json dist/changelog.json`** (S64 起必加, tsc 不复制 json)
-5. **跑维护模式流程** (按 `apps/server/deploy.sh`, § 2.2) — **走 systemd restart, 不要 pm2 restart** (S70 BUG-077)
+5. **跑维护模式流程** (按 `apps/server/deploy.sh`, § 2.2) — **走 systemd restart, 不要 pm2 restart** (S70 BUG-077, deploy.sh v3.0.33 自动同步 .env + systemd unit + 验证 /api/version)
 
 ## § 5. 常见 5 类任务必做 (server 端独有)
 
@@ -220,5 +220,5 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 
 **🆕 S68 收口 + S70 重构**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md). S70 BUG-077 重构 shipin-APP 部署路径 (PM2 → systemd + 宝塔 Node 项目), **未来 AI 必走 systemd 路径**, 详细 SOP 在 [`../../docs/BAOTA_NODE_PROJECT_DEPLOY.md`](../../docs/BAOTA_NODE_PROJECT_DEPLOY.md).
 
-> **最后更新**: 2026-06-24 (S70 重构 v2.0, systemd + 宝塔 Node 项目路径, BUG-077 配套)
+> **最后更新**: 2026-06-25 (S71 v2.1, deploy.sh 加 .env + systemd unit APP_VERSION 同步, 6→8 处自检, S71 BUG-082 P3 配套)
 > **下次 review**: server 端有架构变更 / 新流程 / 维护模式机制变化时
