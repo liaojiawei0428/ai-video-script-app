@@ -20,18 +20,47 @@ import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
 
 export class NovelService {
-  private static cancelledNovels = new Set<string>();
+  // S72 v3.0.33 P1 #5 修复 (ADR-0002): 取消状态内存 Set → DB 持久化, 重启不丢
+  // 双写: 内存 Map 快速路径 (sync boolean, 兼容 9 处调用点), DB fire-and-forget (持久化)
+  private static cancelledAtMap = new Map<string, number>();
+  // 启动时 fire-and-forget load (从 DB 恢复, 避免重启后 isCancelled 全 false)
+  private static loadPromise: Promise<void> | null = null;
+
+  static async startupLoadCancelled(): Promise<void> {
+    try {
+      const { queryAll } = await import('../models/db');
+      const rows = await queryAll<any>('SELECT id, cancelled_at FROM novels WHERE cancelled_at IS NOT NULL');
+      for (const r of rows as any[]) NovelService.cancelledAtMap.set(r.id, Number(r.cancelled_at));
+      logger.info('Cancelled novels loaded from DB', { count: (rows as any[]).length });
+    } catch (e) {
+      logger.warn('Failed to load cancelled novels (will retry on first mark)', { err: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  private static ensureLoaded(): void {
+    if (!NovelService.loadPromise) {
+      NovelService.loadPromise = NovelService.startupLoadCancelled();
+    }
+  }
 
   static markCancelled(novelId: string): void {
-    NovelService.cancelledNovels.add(novelId);
+    NovelService.ensureLoaded();
+    NovelService.cancelledAtMap.set(novelId, Date.now());
+    // fire-and-forget DB 持久化 (失败不影响内存快速路径, 下次 startup load 会修复)
+    import('../models/db').then(({ execute }) => execute('UPDATE novels SET cancelled_at = ? WHERE id = ?', [Date.now(), novelId]))
+      .catch(e => logger.warn('markCancelled DB write failed', { novelId, err: e instanceof Error ? e.message : String(e) }));
   }
 
   static isCancelled(novelId: string): boolean {
-    return NovelService.cancelledNovels.has(novelId);
+    NovelService.ensureLoaded();
+    return NovelService.cancelledAtMap.has(novelId);
   }
 
   static clearCancelled(novelId: string): void {
-    NovelService.cancelledNovels.delete(novelId);
+    NovelService.ensureLoaded();
+    NovelService.cancelledAtMap.delete(novelId);
+    import('../models/db').then(({ execute }) => execute('UPDATE novels SET cancelled_at = NULL WHERE id = ?', [novelId]))
+      .catch(e => logger.warn('clearCancelled DB write failed', { novelId, err: e instanceof Error ? e.message : String(e) }));
   }
 
   /**

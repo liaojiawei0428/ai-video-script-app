@@ -150,6 +150,9 @@ server.listen(config.port, '0.0.0.0', () => {
   logger.info(`Server running on port ${config.port} in ${config.nodeEnv} mode`);
   logger.info(`WebSocket server available at ws://0.0.0.0:${config.port}/ws`);
 
+  // S72 v3.0.33 P1 #5 修复 (ADR-0002): 启动时 load 已取消的 novels (DB → 内存 Map), 重启不丢
+  import('./services/novelService').then(m => m.NovelService.startupLoadCancelled()).catch(e => logger.warn('novelService startupLoad failed', { err: e instanceof Error ? e.message : String(e) }));
+
   import('./services/deepseekPool').then(({ deepseekPool }) => {
     logger.info(`Deepseek pool ready: ${deepseekPool.keyCount} key(s), ${deepseekPool.totalMaxConcurrent} total AI slots`);
   });

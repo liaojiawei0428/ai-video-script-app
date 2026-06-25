@@ -330,6 +330,14 @@ async function initTables(): Promise<void> {
   try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph_status VARCHAR(20) DEFAULT NULL COMMENT 'pending|generating|completed|failed'"); } catch (e) {
     logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN plot_graph_status' });
   }
+  // S72 v3.0.33 P1 #5 修复 (ADR-0002): 取消状态内存 Set → DB 持久化, 重启不丢
+  try { await db.execute("ALTER TABLE novels ADD COLUMN cancelled_at BIGINT DEFAULT NULL COMMENT '取消时间戳'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN cancelled_at' });
+  }
+  // S72 v3.0.33 P2 #9 修复 (ADR-0002): 加 auto_generate_episodes 配置 (默认 0=不自动), 用户手动触发
+  try { await db.execute("ALTER TABLE novels ADD COLUMN auto_generate_episodes TINYINT(1) DEFAULT 0 COMMENT '1=分析后自动触发剧集生成'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN auto_generate_episodes' });
+  }
 
   // ── episodes: 加 3 字段 ──
   try { await db.execute("ALTER TABLE episodes ADD COLUMN outline_text TEXT COMMENT '分集大纲'"); } catch (e) {

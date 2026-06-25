@@ -53,7 +53,9 @@ export class NovelModel {
   async updateFields(id: string, fields: Record<string, any>): Promise<void> {
     const keys = Object.keys(fields);
     if (keys.length === 0) return;
-    const setClause = keys.map(k => `${k} = ?`).join(', ');
+    // S72 v3.0.33 P2 #9 修复 (ADR-0002): 自动 camelCase → snake_case 转换 (修 P0 #3 bug: outlineStatus → outline_status)
+    const toCol = (k: string) => k.replace(/([A-Z])/g, '_$1').toLowerCase();
+    const setClause = keys.map(k => `${toCol(k)} = ?`).join(', ');
     const values = keys.map(k => fields[k]);
     await execute(
       `UPDATE novels SET ${setClause}, updated_at = ? WHERE id = ?`,

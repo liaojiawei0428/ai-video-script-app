@@ -46,6 +46,7 @@ export interface Novel {
   plotGraph?: string;                  // 事件图谱 JSON
   plotGraphGeneratedAt?: number;       // plotGraph 生成时间
   plotGraphStatus?: 'pending' | 'generating' | 'completed' | 'failed';  // S72 v3.0.33 P0 #3 修复 (ADR-0002)
+  autoGenerateEpisodes?: boolean;  // S72 v3.0.33 P2 #9 修复 (ADR-0002): 默认 0=不自动触发剧集生成, 用户手动触发
   createdAt: number;
   updatedAt: number;
 }
