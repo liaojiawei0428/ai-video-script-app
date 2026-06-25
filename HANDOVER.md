@@ -1,8 +1,8 @@
 # HANDOVER.md — shipin-APP 项目交接文档 (跨 AI 协作)
 
-> **本文件**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
-> **维护者**: 每次重要 session 收尾时, AI 必追加一段 (按 § 6 模板).
-> **最后更新**: 2026-06-24 (S70 收尾, v1.2, BUG-077 宝塔 panel Node 项目部署 + systemd 重构 + BAOTA_NODE_PROJECT_DEPLOY.md SOP)
+> **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
+> **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
+> **最后更新**: 2026-06-25 (S71 收尾, v1.3, 4 P0 BUG 全修 + 8 处版本号规范自迭代 + 4 教训沉淀 + BUG-081 铁律 4+)
 
 ---
 
@@ -81,10 +81,13 @@ shipin-APP/
 | Session | 触发 | 版本 | 核心交付 | BUG | Commit |
 |---|---|---|---|---|---|
 | **S64** | "版本号散落 6 处不一致" | v3.0.30 P2 | 跨端版本管理规范 + 6 处版本号自检 + 真实 changelog | BUG-066/067/068 | 990e0d5 + 19681aa |
-| **S65** | "部署流程是否有相关规范?" + "每次重大更新都要做好规范" | v3.0.30 P2 续 | STANDARDS_EVOLUTION SOP + ADR 实践 + web DEPLOY | (5 GAP 修) | abd20b6 + 59dd611 |
+| **S65** | "部署流程是否有相关规范?" + "每次重大更新都要做好规范" | v3.0.30 P2 ✅ | STANDARDS_EVOLUTION SOP + ADR 实践 + web DEPLOY | (5 GAP ✅) | abd20b6 + 59dd611 |
 | **S66** | "部署后端的相关流程和规范有吗?" | v3.0.30 P3 | ENV/PM2/DB 3 份新规范 + ecosystem APP_VERSION 6 处同步 | BUG-069 | 3b72a7b + 441f2c1 |
 | **S67** | (S66 自检发现活跃任务 GAP) | v3.0.30 P4 | server AGENTS.md + 活跃任务部署专项 (维护模式) | BUG-070 | 4ac7ac3 + d5d4425 |
 | **S68** | "统一收口 AGENTS.md" | v3.0.30 P5 | 根 AGENTS.md v2.0 + mobile/server 瘦身 + 跨端 6 铁律 | BUG-071 | 4553108 + 3349f37 + a4bcebc |
+| **S69** | "S69 收尾" | v3.0.30 P6 | BUGS_INDEX.md v1.0 + 4 P0 BUG (071/072/073/074) + 5 GAP 补 | BUG-071/072/073/074 | 多 commit |
+| **S70** | "宝塔部署踩坑" | v3.0.30 P7 | BUG-077 + 宝塔 Node 项目 + BAOTA_NODE_PROJECT_DEPLOY.md v1.0 + deploy.sh 走 systemd | BUG-077 | 7b11230 + db59d4d |
+| **S71** | "S71 后置 4 P0 BUG" | v3.0.32→3.0.33 P8 | BUG-079/080/081/082 4 P0 + BUG-082 P2 TODO + 8 处版本号规范自迭代 + 4 教训 + 铁律 4+/8 | BUG-079/080/081/082 + 082 P3 | d795675 / 6ea3484 / abca9d3 / 4381a7e / f92cc19 / 81f4972 / 084a148 / 1a402c3 |
 
 ### 2.2 22 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
@@ -196,9 +199,16 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 ### 5.3 跨 AI 协作
 12. **mavis communication send cap ~400 chars**, 大文件走 Matrix CDN HTTPS URL
 13. **mavis mcp call matrix matrix_upload_to_cdn --file args.json** (绕 PS 5.1 unicode escape)
-14. **Playwright 用 `--file args.json`** (绕 PS 5.1 unicode escape)
+14. **Playwright 走 `--file args.json`** (绕 PS 5.1 unicode escape)
 15. **AI 必读根 `AGENTS.md` + `DEV_PROGRESS.md`** (S64+ 强制)
 16. **commit message 必带版本号 + BUG 编号**: `vX.Y.Z: <改动> (BUG-NNN + 规范修订)`
+
+### 5.4 🆕 S71 后置坑点 (5 个新)
+17. **BUG-079 假报告坑** — S71 部署自报"12 维全过" 100% 假, 实际没真动 server dist / DB schema. **修法**: `verify-deploy.sh --strict` 21 维, 任何 1 失败 exit 1, 不再接受自报
+18. **BUG-081 状态机迁移必同步 4 处** — S70 v3.0.0.16 改 passthrough (跳过 plan_cn_ready) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞. **修法**: AGENTS.md 铁律 4+ 4 步同步 (allowlist grep + UI case grep + DB schema 兼容 + 一键自检)
+19. **BUG-082 React #31 错误对象渲染** — agnes API 返 `{error: {code, message}}` 对象, server 原样存进 messages JSON, web 渲染对象触发 #31. **修法**: AGENTS.md 铁律 8 持久化必 string 归一 + `utils/errorUtils.ts` `extractErrorMessage()` 5 种输入归一 + web 防御渲染 `typeof === 'string' ? : JSON.stringify()`
+20. **PowerShell 5.1 写 .ts/.js/.md/.sql 丢 newline 坑** — S71 BUG-079 真实案例: `src/index.ts` 6673 字节挤 3 行, tsc 编译出 11 行 dist, node 启动立即 exit 0. **修法**: 必走 Write 工具 (UTF-8 自动 newline) 或 PS 7+ `[System.IO.File]::WriteAllText` (无 BOM)
+21. **systemd unit 硬编码 APP_VERSION 漏改坑** — S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码 `Environment=APP_VERSION=3.0.29` 但 .env 实际生效 (systemd EnvironmentFile 优先级实测覆盖 [Service] Environment), 3 个月后 V3.0.33 升级才修复. **修法**: 8 处自检 (含 .env + systemd unit), 部署前 `node tools/verify-version-8-points.js` 一键跑 6 本地 + 2 远程
 
 ---
 
@@ -222,23 +232,28 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 
 ---
 
-## § 7. 下一步候选 (S68 收尾, 等用户拍)
+## § 7. 下一步候选 (S71 收尾, 等用户拍)
 
-### A. CI 守门 (S69 候选 A)
-- 写 `scripts/check-ai-readme.js` 自动跑: AGENTS.md 必读 + BUGS.md 必读 + VERSION_MANAGEMENT.md 必读 + 6 处版本号自检 + 跨端必读 15 项
-- 集成到 `.github/workflows/ci.yml` PR 阶段
-- 价值: 防止下个 AI 跳规范
+### A. BUG-082 剩 1 项: mobile 端防御渲染
+- 修 `apps/mobile/src/screens/.../AgentChatPanel` (有类似 case 'error' 吗?) 同步防御性渲染
+- 防 BUG-082 mobile 版, react-native fetch 也可能撞同类问题
+- user 主盯 web, 安卓暂不动; web 稳定后做
 
-### B. web 端 AGENTS.md (S69 候选 B)
-- 给 `apps/web/` 建独立 `AGENTS.md` (Vite/React 栈特有约束)
-- 跟 mobile + server 对称
-- 价值: web 端 AI 行为有明确入口
+### B. 21 个 untracked 临时文件清理
+- S63 蓝山测试遗留 (scripts/bs-* + lib/ + AI_TESTING_GUIDE.md) + BUG-079~082 调试 (apps/server/scripts/debug-*.js + NUL + version-fixed.ts)
+- mavis-trash 在 reparse point (F:\QiTa\banmu mount) 拒绝, PowerShell Remove-Item 被 permission rule 挡
+- 需要 user 手动 PowerShell 强删, 或后续 git stash -u 暂存
 
-### C. 新功能开发 (S70+)
+### C. 跨端 AGENTS.md § 5.A 活跃任务部署 (S67 BUG-070 跟进)
+- 现在 S70/S71 部署都直接 `systemctl restart` 没跑维护模式流程
+- 真正有活跃任务时会撞, 需要 S67 BUG-070 维护模式 + S70 systemd 重启 集成
+- 待 user 描述使用场景
+
+### D. 新功能开发 (S72+)
 - 用户指定新功能 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成)
 - 价值: 实际业务推进
 
-### D. 性能 / 安全 / 兼容性优化
+### E. 性能 / 安全 / 兼容性优化
 - server 性能分析 + DB 索引优化
 - APK 启动速度 / RN 7 旧设备兼容
 - server 端 xss/csrf/rate-limit 强化
@@ -246,10 +261,10 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 ---
 
 > **本文件维护规则**:
-> - 每次重要 session 收尾时, AI 必追加一段到 § 6
+> - 每次重要 session 收尾时, AI 必追加一段到 § 2.1 session 速览表 + § 5 坑点清单
 > - 跨端规范变更 (新文档/新 BUG/新 ADR) 时, 同步更新 § 1-5
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-24 (S68 收口 + 上下文压缩 v1.0)
+> **最后更新**: 2026-06-25 (S71 收口 + 4 P0 BUG + 8 处规范自迭代, v1.3)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6

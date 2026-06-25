@@ -2347,7 +2347,7 @@ POST /api/image-agent/chat { conversationId, parts: [{type:'text', text:'修改:
 - [ ] `apps/server/src/services/videoAgentService.ts` 其他 throw 同样改 AppError (L388/389/392/402 等)
 - [ ] `apps/web/src/components/AgentChatPanel.tsx` 错误显示加 toast 提示 (除了 setError 还用 toast.error('操作失败', { code }) — 更醒目)
 - [ ] verify-deploy.sh 加维度 17: E2E 模拟"创建 conv + 发 chat + 改方案再发 chat" 完整路径, 状态机回归测试
-- [ ] 跨端 AGENTS.md § 4 铁律 4 加"状态机迁移必同步 allowlist + response handler"
+- [x] 跨端 AGENTS.md § 4 铁律 4+ 加"状态机迁移必同步 allowlist + response handler" (S71 BUG-081 强约束) — **v3.0.33 (S71 后置, 2026-06-25 14:20) 加铁律 4+**: 4 步同步 (allowlist grep + UI case grep + DB schema 兼容 + 一键自检脚本), 含 S71 BUG-081 真实案例 + 跨项目通用 (订单/工作流/协议状态机). commit pending.
 
 ### 引用 (跨文档)
 

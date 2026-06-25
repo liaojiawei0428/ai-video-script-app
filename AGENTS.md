@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.2 (2026-06-25 S71 后置 BUG-082 P3, 加铁律 3 6→8 处 + deploy.sh 加 .env+systemd unit 同步 + VERSION_MANAGEMENT § 5.2 扩 8 处)
+> **版本**: v2.3 (2026-06-25 S71 后置 BUG-081, 加铁律 4+ 状态机迁移必同步 allowlist + response handler + HANDOVER.md S71 收尾 v1.3 + BUG-081 TODO 划掉)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
@@ -132,6 +132,19 @@
 - 完整 9 步流程 → [`docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 2](docs/BAOTA_NODE_PROJECT_DEPLOY.md)
 - 历史 PM2 规范 → [`docs/PM2_GUIDE.md`](docs/PM2_GUIDE.md) (S70 deprecated, 仅供考古)
 - **S58 BUG-008 PM2 env reload 教训仍适用** — server 部署改 env 仍走 `delete + start`, 但 shipin-APP 走 systemd 后这套自动失效
+
+### 铁律 4+: 🔄 状态机迁移必同步 allowlist + response handler (S71 BUG-081 强约束, 跨项目通用)
+- **🛑 严禁**: 改 status machine 转换 (`status: 'A' → 'B'` 或 `passthrough` 跳状态) 时, 只改一处 controller/handler, 不更新:
+  - 1️⃣ **allowedStates allowlist** (processTurn / processUserAction 哪些 status 允许执行, 例 `apps/server/src/services/imageAgentService.ts:processTurn` 头部 `const allowedStates = [...]`)
+  - 2️⃣ **response handler** (前端 web/mobile 根据 status 走不同 UI, 例 `apps/web/src/components/AgentChatPanel.tsx` case 'plan_ready' / 'plan_cn_ready' / 'tool_executing')
+  - 3️⃣ **DB 字段迁移脚本** (`apps/server/src/models/db.ts` initTables ALTER + 兼容老 status)
+- **✅ 必做**: 任何 status 字段迁移 (新增/删除/改名) 必跑以下 4 步同步:
+  1. `grep -rn "allowedStates" apps/server/src/services/` 列出所有 allowlist, 全部更新
+  2. `grep -rn "case 'old_status'" apps/web apps/mobile/src` 列出所有 UI 渲染, 全部更新
+  3. `grep -rn "status" apps/server/src/models/db.ts` 列出 DB schema, 跑 ALTER + 兼容
+  4. `apps/server/scripts/check-status-machine.sh` (待建) 一键自检 3 步
+- **真实案例 (S71 BUG-081)**: S70 v3.0.0.16 改 passthrough (跳过 `plan_cn_ready` → 直接 `plan_ready`) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞到 "无法改方案 / An unexpected error occurred". 配套 BUG-082: 状态机迁移必同步 4 处 (allowlist + response handler + DB schema + 错误归一)
+- **跨项目通用**: 任何 stateful 系统 (订单状态机 / 工作流引擎 / 协议状态机 / 编译器 AST 状态 / parser 状态) 改 status 字段必同步更新所有引用点. 常见踩坑: 改了 schema 没改 allowlist, 改了 allowlist 没改 UI, 改了 UI 没改 schema. **任意一处漏 = 9 天后用户撞 BUG**
 
 ### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
