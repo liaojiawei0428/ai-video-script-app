@@ -248,6 +248,62 @@ console.log(h+'.'+p+'.'+sg);
 fi
 
 # ──────────────────────────────────────
+# 维度 15-16: web 端源码静态分析 (BUG-080 防呆)
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ] && [ -d "$DEPLOY_DIR/../app.web/src" -o -d "/www/wwwroot/ab.maque.uno" ]; then
+  # 在本机跑 (verify-deploy.sh 在服务器跑) — 改成跑远端 web dist 路径下的 app source
+  # 但 verify-deploy 是跑在服务器, 服务器没 web src, 所以这个维度只在源端跑
+  # 这里用 check-react-spread.sh 思路 grep dist 里 as any).type === pattern
+  color blue "── 维度 15-16: web 端 dist 手挑字段静态分析 (BUG-080 防呆) ──"
+
+  WEB_DIST="/www/wwwroot/ab.maque.uno/dist"
+  if [ -d "$WEB_DIST/assets" ]; then
+    # 15. 找 `(as any).type ===` 或 `.type==='consumption'` 在 dist 中, 但缺少 `type: ` spread 配合
+    # 简化: 找 .type === 'consumption' 这类 filter, 配合 dist 是不是用 push hand-pick pattern
+    V15=$(grep -lE '\.type\s*===\s*["\x27](consumption|charge)["\x27]' "$WEB_DIST/assets"/*.js 2>/dev/null | wc -l)
+    if [ "$V15" -ge 1 ]; then
+      PASS=$((PASS+1))
+      color green "   ✓ 15. web dist 含 .type === filter pattern: $V15 个文件"
+    else
+      FAIL=$((FAIL+1))
+      FAIL_MSGS+=("15. web dist filter pattern 缺失")
+      color red "   ✗ 15. web dist 无 .type === filter (web 端可能没 tab filter 实现)"
+    fi
+
+    # 16. E2E 模拟: 3 tab filter 逻辑, 看 consumption tab 数据
+    if [ -n "$JWT_SECRET" ]; then
+      USER_ID=$(mysql -h "$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" 2>/dev/null -e "SELECT user_id FROM billing_logs WHERE type='consumption' GROUP BY user_id ORDER BY COUNT(*) DESC LIMIT 1;" --batch --skip-column-names | awk '{print $1}')
+      if [ -n "$USER_ID" ]; then
+        TOKEN=$(node -e "
+const c=require('crypto');
+const s='$JWT_SECRET';
+const h=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+const p=Buffer.from(JSON.stringify({userId:'$USER_ID',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+3600})).toString('base64url');
+const sg=c.createHmac('sha256',s).update(h+'.'+p).digest('base64url');
+console.log(h+'.'+p+'.'+sg);
+")
+        CONSUMPTION_COUNT=$(curl -sS -m 5 -H "Authorization: Bearer $TOKEN" "$API_BASE/api/billing/transactions?limit=200&type=consumption" 2>/dev/null | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get("data",{}).get("total",0))' 2>/dev/null || echo "0")
+        if [ -n "$CONSUMPTION_COUNT" ] && [ "$CONSUMPTION_COUNT" -gt 0 ]; then
+          PASS=$((PASS+1))
+          color green "   ✓ 16. /api/billing/transactions?type=consumption: $CONSUMPTION_COUNT 条 (web 消费 tab 数据源)"
+        else
+          FAIL=$((FAIL+1))
+          FAIL_MSGS+=("16. consumption 0 条")
+          color red "   ✗ 16. /api/billing/transactions?type=consumption 返 0 条 (web 消费 tab 必空)"
+        fi
+      else
+        skip "16. 无 consumption user"
+      fi
+    else
+      skip "16. 无 JWT_SECRET 跳过 E2E"
+    fi
+  else
+    skip "15-16. WEB_DIST ($WEB_DIST) 不存在"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"

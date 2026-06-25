@@ -97,8 +97,14 @@ export function BillingPage() {
           getBillingTransactionsApi({ limit: 100 }),
           getBillingSummaryApi(),
         ]);
+        const txItems = txRes.data?.data?.items || [];
+        // v3.0.32 (BUG-080 S71 后置): 验证 API 返回的 items 必带 type 字段 (前端 tab filter 依赖)
+        // 之前没 assert, 漏 type 时 filter 全空也 silent fail, 修了没 assert 也会重蹈
+        if (txItems.length > 0 && typeof txItems[0]?.type !== 'string') {
+          console.error('[BillingPage] /api/billing/transactions items 缺 type 字段, 消费/充值 tab filter 会全空 (BUG-080)');
+        }
         setRecharges(rcRes.data?.data?.records || []);
-        setTransactions(txRes.data?.data?.items || []);
+        setTransactions(txItems);
         setSummary(sumRes.data?.data || null);
       } catch (e: any) {
         setErr(e?.response?.data?.error?.message || '加载失败');
