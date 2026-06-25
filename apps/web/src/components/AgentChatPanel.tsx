@@ -426,8 +426,23 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       refreshHistory();
     } catch (e: any) {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
-      const msg = e?.response?.data?.error?.message || e?.message || '请求失败';
-      setError(`${msg}${elapsed > 0 ? ` (耗时 ${elapsed}s)` : ''}`);
+      // v3.0.32 (BUG-081 S71 后置): 提取 error.code, 给不同错误更友好提示
+      // - INVALID_CONVERSATION_STATE: 状态错 (用户改方案时 plan_ready 之外的拒绝), 引导"刷新页面"
+      // - AGENT_BUSY: AI 忙, 引导"稍候"
+      // - CONVERSATION_NOT_FOUND: 会话丢失, 引导"新建会话"
+      // - 其他: 通用错误
+      const errCode = e?.response?.data?.error?.code;
+      const errMsg = e?.response?.data?.error?.message || e?.message || '请求失败';
+      let userMsg = errMsg;
+      if (errCode === 'INVALID_CONVERSATION_STATE') {
+        userMsg = `${errMsg} (建议刷新页面或新建会话)`;
+      } else if (errCode === 'AGENT_BUSY') {
+        userMsg = `AI 还在处理上一条消息, 请稍候...`;
+      } else if (errCode === 'CONVERSATION_NOT_FOUND') {
+        userMsg = `会话已失效, 请新建会话`;
+      }
+      console.error('[AgentChat] send error', { code: errCode, message: errMsg, elapsed, stack: e?.stack });
+      setError(`${userMsg}${elapsed > 0 ? ` (耗时 ${elapsed}s)` : ''}`);
     } finally {
       setLoading(false);
     }

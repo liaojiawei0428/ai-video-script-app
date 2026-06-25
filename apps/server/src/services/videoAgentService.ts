@@ -16,6 +16,7 @@ import { userModel } from '../models/user';
 import { execute } from '../models/db';
 import { websocketService } from './websocket';
 import { logger } from '../utils/logger';
+import { AppError } from '../utils/errors';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
 import { parseAspectToDims } from '../prompts/imageAspectRatio';
@@ -178,8 +179,20 @@ export class VideoAgentService {
     durationSecFromClient?: number,
   ): Promise<{ conversationId: string; aiMessage: AgentMessage; status: AgentConversationStatus }> {
     const conv = await videoConversationModel.findById(conversationId);
-    if (!conv) throw new Error('会话不存在');
-    if (conv.user_id === undefined) throw new Error('会话无 user_id');
+    if (!conv) throw new AppError('CONVERSATION_NOT_FOUND', `会话不存在: ${conversationId}`, 404, { conversationId });
+    if (conv.user_id === undefined) throw new AppError('CONVERSATION_INVALID', '会话无 user_id', 400, { conversationId });
+
+    // v3.0.32 (BUG-081 S71 后置): 显式拒绝系统忙状态, 跟 image agent 行为对齐, 走 400 + code
+    // (之前 video agent 没状态检查, 任何状态都允许 processTurn, 跟 image agent 不一致)
+    const busyStates = ['tool_queued', 'tool_executing', 'ai_planning', 'ai_clarifying', 'plan_translating'];
+    if (busyStates.includes(conv.status)) {
+      throw new AppError(
+        'AGENT_BUSY',
+        `AI 还在处理上一条消息 (${conv.status}), 请稍候...`,
+        409,  // 409 Conflict 表示状态冲突
+        { currentStatus: conv.status }
+      );
+    }
 
     const messages = parseMessages(conv.messages);
     const userMessage: AgentMessage = { id: generateUUID(), role: 'user', parts: userInputParts, createdAt: Date.now() };

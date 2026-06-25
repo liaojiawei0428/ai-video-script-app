@@ -2195,3 +2195,167 @@ PASS: 16  /  FAIL: 0  /  SKIP: 0
 - [`apps/server/src/routes/billing.ts`](../../apps/server/src/routes/billing.ts) — /api/billing/transactions 路由
 - [BUG-078 Web 端账单明细缺消费记录](../apps/mobile/BUGS.md#bug-078-s71-v3029-web-端账单明细缺消费记录--只显示充值-消费和免费完全没记录-基础消费数据缺失) — 触发 (S71 写 BillingPage 漏 type 字段)
 - [BUG-079 S71 报告'12 维验证全过' 100% 假 → 真部署](../apps/mobile/BUGS.md#bug-079-s71-后置-v3029-2026-06-25-0911-s71-报告12-维验证全过-100-假--server-端-dist-没部署--db-schema-没-alter--web-端-dist-也没-build--routesbillingts-写错-requseruserid) — 配套 (verify-deploy.sh 14 维就是 BUG-079 写的)
+
+---
+
+## BUG-081 (S71 后置, v3.0.32, 2026-06-25 13:00): 用户改方案时"无法更改方案 / An unexpected error occurred" — imageAgentService 状态机漏 plan_ready, throw raw Error 走 errorHandler 兜底
+
+### 现象 (user 6/25 12:55 反馈 "生图助手")
+
+打开 `https://ab.maque.uno/image-agent` 后:
+1. 用户输入"陈国贡女, 十八九岁, 倾国倾城..." 方案描述
+2. AI 返中文方案 (cnDescription 显示, 状态: plan_cn_ready → 实际是 plan_ready, S70 v3.0.0.16+ passthrough 模式跳过 plan_cn_ready)
+3. 用户想改方案, 发"修改: 改为雪地场景" 文本
+4. ❌ **页面提示 "An unexpected error occurred"** (跟"无法更改方案" 是同一类)
+5. 刷新后再次重试, 还是同样错误
+
+### 根因 (2 层真相)
+
+#### 真相 1: imageAgentService.processTurn 状态白名单漏 plan_ready
+
+`apps/server/src/services/imageAgentService.ts` L181-185 (BUG-081 修前):
+
+```typescript
+// 状态检查: 允许 awaiting_clarification / plan_cn_ready / tool_completed
+const allowedStates = ['awaiting_clarification', 'plan_cn_ready', 'tool_completed'];
+if (!allowedStates.includes(conv.status)) {
+  throw new Error(`当前状态 ${conv.status} 不可对话, 需 awaiting_clarification / plan_cn_ready / tool_completed`);
+}
+```
+
+但 S70 v3.0.0.16+ 改 passthrough 模式后, `processTurn` 直接跳到 `plan_ready` 状态 (跳过 `plan_cn_ready`), 注释 L5 也写了:
+
+> 状态机: idle → awaiting_clarification (欢迎语) → plan_ready (processTurn 直接出) → tool_queued → tool_executing → tool_completed
+
+**白名单没更新**, 仍是 v3.0.0.13 时代 (有 plan_cn_ready 阶段) 的代码. 用户在 plan_ready 状态再发消息, throw "当前状态 plan_ready 不可对话".
+
+#### 真相 2: throw raw Error → errorHandler 兜底返 500 "An unexpected error occurred"
+
+L184 `throw new Error(...)` 是普通 Error, 不是 `AppError`. 看 `apps/server/src/middleware/errorHandler.ts`:
+
+```typescript
+if (err instanceof AppError) {
+  res.status(err.statusCode).json({ success: false, error: { code: err.code, message: err.message, ... } });
+  return;
+}
+logger.error('Unexpected error', { ... });
+res.status(500).json({
+  success: false,
+  error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+  ...
+});
+```
+
+raw Error 走兜底, 返 500 + 通用 message. 客户端 (`apps/web/src/components/AgentChatPanel.tsx` L429) `e?.response?.data?.error?.message` 拿到的就是 "An unexpected error occurred", 根本看不到 "当前状态 plan_ready 不可对话" 这个真实原因.
+
+**这给用户的错觉是"系统有 bug 改不了", 实际是状态机脱节**.
+
+### 修法 (3 处)
+
+#### 修法 1: imageAgentService.processTurn 加 plan_ready + 改 AppError
+
+```typescript
+// v3.0.32 (BUG-081 S71 后置): 加 plan_ready. 之前 S70 v3.0.0.16+ 改 passthrough 模式后, processTurn
+// 直接跳 plan_ready (跳过 plan_cn_ready), 但 allowedStates 没更新 → 用户改方案时 throw
+const allowedStates = ['awaiting_clarification', 'plan_cn_ready', 'plan_ready', 'tool_completed'];
+if (!allowedStates.includes(conv.status)) {
+  throw new AppError(
+    'INVALID_CONVERSATION_STATE',
+    `当前状态 ${conv.status} 不可对话, 需 awaiting_clarification / plan_cn_ready / plan_ready / tool_completed`,
+    400,  // 不是 500, 是用户状态错
+    { currentStatus: conv.status, allowedStates }
+  );
+}
+```
+
+#### 修法 2: videoAgentService.processTurn 加 busy 状态拒绝 + 改 AppError
+
+video agent 之前**没**任何状态检查, 跟 image agent 行为不一致. 加 5 个 busy 状态拒绝:
+
+```typescript
+const busyStates = ['tool_queued', 'tool_executing', 'ai_planning', 'ai_clarifying', 'plan_translating'];
+if (busyStates.includes(conv.status)) {
+  throw new AppError(
+    'AGENT_BUSY',
+    `AI 还在处理上一条消息 (${conv.status}), 请稍候...`,
+    409,  // 409 Conflict 状态冲突
+    { currentStatus: conv.status }
+  );
+}
+```
+
+(前端的 `AgentChatPanel.tsx` L377-380 已经有这 5 个 busy 状态的前端检查, 后端这次只是双保险, 不会破坏现有流程)
+
+#### 修法 3: web AgentChatPanel.tsx 错误处理提取 code
+
+```typescript
+// v3.0.32 (BUG-081 S71 后置): 提取 error.code 给不同错误更友好提示
+const errCode = e?.response?.data?.error?.code;
+const errMsg = e?.response?.data?.error?.message || e?.message || '请求失败';
+let userMsg = errMsg;
+if (errCode === 'INVALID_CONVERSATION_STATE') {
+  userMsg = `${errMsg} (建议刷新页面或新建会话)`;
+} else if (errCode === 'AGENT_BUSY') {
+  userMsg = `AI 还在处理上一条消息, 请稍候...`;
+} else if (errCode === 'CONVERSATION_NOT_FOUND') {
+  userMsg = `会话已失效, 请新建会话`;
+}
+console.error('[AgentChat] send error', { code: errCode, message: errMsg, elapsed, stack: e?.stack });
+setError(`${userMsg}${elapsed > 0 ? ` (耗时 ${elapsed}s)` : ''}`);
+```
+
+### 验证 (E2E 模拟用户路径 + 18 维 verify-deploy)
+
+#### E2E 模拟: 完整复现用户路径
+
+```bash
+# 1. 创建 image conversation
+POST /api/image-agent/conversations → conversationId
+
+# 2. 第一次发: 方案描述
+POST /api/image-agent/chat { conversationId, parts: [{type:'text', text:'陈国贡女...'}] }
+→ status: plan_ready, 返中文方案 cnDescription (200 ✓)
+
+# 3. 用户改方案: 第二次发
+POST /api/image-agent/chat { conversationId, parts: [{type:'text', text:'修改: 雪地场景'}] }
+→ 修前: throw raw Error → 500 'An unexpected error occurred' (BUG)
+→ 修后: 200 ✓ 状态 plan_ready 仍可改 → AI 重新生成方案
+```
+
+#### 18 维 verify-deploy.sh --strict (PASS=18 FAIL=0)
+
+```
+✓ 维度 1-6: server 端自身 (systemd / port / health / version / novels 401 / 进程 PID=54854 新)
+✓ 维度 7-9: server dist grep (/api/billing 2 命中 / recordConsumption 7 命中 / ALTER 10 命中)
+✓ 维度 10-12: DB schema + 数据 (4 字段 / 2 索引 / 1740 条)
+✓ 维度 13-14: 公开 HTTPS + web JS hash (index-BcD13Lwk.js 新)
+✓ E2E.1 /api/billing/transactions: 1156 条 (含 BUG-080 回填 prompt_optimize 2 条)
+✓ E2E.2 /api/billing/summary: balance=219.02
+✓ 维度 15-16: web 端 dist 手挑字段静态分析 (1 文件含 .type === filter, 1148 条 consumption)
+```
+
+### 教训 (4 条, 跨项目通用)
+
+1. **状态机迁移要同步允许名单** — S70 v3.0.0.16 改 passthrough (跳过 plan_cn_ready → 直接 plan_ready) 时, processTurn allowedStates 没同步更新, 9 天后用户才撞到这个 BUG. **任何状态机迁移, 必同步检查 allowlist / transition / response handler**
+2. **throw raw Error 必换成 AppError** — 普通 Error 走 errorHandler 兜底返 500 + 通用 message, 客户端看不到真实原因. **业务逻辑抛错必用 AppError + code + statusCode + details**, 至少 statusCode 400 (用户错) 区分 500 (系统错)
+3. **后端 4xx 必用 status code 表语义** — 400 用户操作错 (状态错 / 参数错), 409 状态冲突 (AGENT_BUSY, 当前状态忙), 404 资源不存在 (会话丢失). 客户端能根据 status code 做不同 UI 处理
+4. **前端 error handler 必提取 error.code** — 不光取 message, 还取 code, 给不同 code 不同 user-friendly 文案. `INVALID_CONVERSATION_STATE` 引导刷新页面, `AGENT_BUSY` 引导稍候, `CONVERSATION_NOT_FOUND` 引导新建会话
+
+### 待办 TODO (P2)
+
+- [ ] `apps/server/src/services/imageAgentService.ts` 其他 `throw new Error(...)` 全部改 AppError (L178 conv 不存在, L179 conv.user_id undefined, L205-209 各种 LLM 失败等) — 全部应走具体 code
+- [ ] `apps/server/src/services/videoAgentService.ts` 其他 throw 同样改 AppError (L388/389/392/402 等)
+- [ ] `apps/web/src/components/AgentChatPanel.tsx` 错误显示加 toast 提示 (除了 setError 还用 toast.error('操作失败', { code }) — 更醒目)
+- [ ] verify-deploy.sh 加维度 17: E2E 模拟"创建 conv + 发 chat + 改方案再发 chat" 完整路径, 状态机回归测试
+- [ ] 跨端 AGENTS.md § 4 铁律 4 加"状态机迁移必同步 allowlist + response handler"
+
+### 引用 (跨文档)
+
+- [`apps/server/src/services/imageAgentService.ts`](../../apps/server/src/services/imageAgentService.ts) — L181-191 修法 1 (加 plan_ready + AppError)
+- [`apps/server/src/services/videoAgentService.ts`](../../apps/server/src/services/videoAgentService.ts) — L180-194 修法 2 (加 busy 状态拒绝 + AppError)
+- [`apps/web/src/components/AgentChatPanel.tsx`](../../apps/web/src/components/AgentChatPanel.tsx) — L427-446 修法 3 (提取 error.code 友好提示)
+- [`apps/server/src/utils/errors.ts`](../../apps/server/src/utils/errors.ts) — AppError 类定义
+- [`apps/server/src/middleware/errorHandler.ts`](../../apps/server/src/middleware/errorHandler.ts) — 兜底 'An unexpected error occurred' 返 500
+- [`apps/web/dist/index-BcD13Lwk.js`](../../apps/web/dist/) — BUG-081 修法 web 部署, 477489 字节
+- [BUG-073 1 行 minified 静默 ReferenceError](../apps/mobile/BUGS.md#bug-073-s69-1-行-minified-src--tsc-593--node-22-静默忽略-esm) — 前置 (同类 PS 5.1 写入坑)
+- [BUG-080 web 端消费记录 tab 没数据](../apps/mobile/BUGS.md#bug-080-s71-后置-v3029-2026-06-25-1048-web-端消费记录tab-没数据--billingpagetsx-push-transactions-时漏了-type-字段) — 配套 (S71 后置 web 端防呆)

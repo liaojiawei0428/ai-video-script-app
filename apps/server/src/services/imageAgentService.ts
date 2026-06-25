@@ -12,6 +12,7 @@ import { imageConversationModel, imageGenerationModel } from '../models/imageCon
 import { billingService, isVipActive, IMAGE_DAILY_QUOTA_STANDARD, IMAGE_DAILY_QUOTA_VIP } from './billingService';
 import { userModel } from '../models/user';
 import { logger } from '../utils/logger';
+import { AppError } from '../utils/errors';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
 import { parseAspectRatioFromText, parseAspectToDims } from '../prompts/imageAspectRatio';
@@ -178,10 +179,19 @@ export class ImageAgentService {
     if (!conv) throw new Error(`会话不存在: ${conversationId}`);
     if (conv.user_id === undefined) throw new Error('会话无 user_id');
 
-    // 状态检查: 允许 awaiting_clarification / plan_cn_ready / tool_completed
-    const allowedStates = ['awaiting_clarification', 'plan_cn_ready', 'tool_completed'];
+    // 状态检查: 允许 awaiting_clarification / plan_cn_ready / plan_ready / tool_completed
+    // v3.0.32 (BUG-081 S71 后置): 加 plan_ready. 之前 S70 v3.0.0.16+ 改 passthrough 模式后, processTurn
+    // 直接跳 plan_ready (跳过 plan_cn_ready), 但 allowedStates 没更新 → 用户改方案时 throw
+    // raw Error → errorHandler 兜底 'An unexpected error occurred' 500 → 客户端 '无法更改方案'
+    // 实际: plan_ready 是正常可改方案状态, 必允许
+    const allowedStates = ['awaiting_clarification', 'plan_cn_ready', 'plan_ready', 'tool_completed'];
     if (!allowedStates.includes(conv.status)) {
-      throw new Error(`当前状态 ${conv.status} 不可对话, 需 awaiting_clarification / plan_cn_ready / tool_completed`);
+      throw new AppError(
+        'INVALID_CONVERSATION_STATE',
+        `当前状态 ${conv.status} 不可对话, 需 awaiting_clarification / plan_cn_ready / plan_ready / tool_completed`,
+        400,
+        { currentStatus: conv.status, allowedStates }
+      );
     }
 
     const messages = parseMessages(conv.messages);
