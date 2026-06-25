@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.4 (2026-06-25 S72, 加 `docs/REPORTING_STANDARDS.md` 五段式汇报沟通规范, § 3 必读表加 2.5 项)
+> **版本**: v2.5 (2026-06-25 S72, 优化 `docs/REPORTING_STANDARDS.md` 加 § 0.5 做事 4 原则 + § 1.5 任务前列计划 + § 5 自检清单加 2 项, 借鉴 Karpathy CLAUDE.md + Boris Cherny 实践)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
