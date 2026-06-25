@@ -14,6 +14,7 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-079** | S71 后置 | ✓ 已修 | **S71 报告"12 维验证全过" 100% 假**: server dist 没部署 + DB schema 没 ALTER + web dist 也没 build + routes/billing.ts 写错 `req.user.userId` (应 `req.userId`) | 重写损坏 src (PS 5.1 丢 newline) + 真 scp dist + 手动 ALTER + 改 `req.userId` + 14 维 + E2E JWT |
 | **BUG-078** | S71 | ✓ 已修 | **Web 端账单明细缺消费记录 (基本消费数据缺失)**: 只显示充值, 消费和免费完全没记录 | billing_logs 加 4 字段 (is_free/ref_type/ref_id/ref_label) + recordConsumption 统一入口 + /api/billing/transactions API + BillingPage 重写 (4 卡 + 3 tab + ref_type icon) |
 | **BUG-077** | S70 | ✓ 已修 | **宝塔 "项目" 找不到 shipin-APP 3 真相**: 内存 db + 错 db 路径 (default.db vs site.db) + 缺 NODE_PROJECT_NAME env | shipin-app.service 加 env + 修 site.db config + 杀 apt nginx + 启宝塔 nginx (12 维全过) |
 | **BUG-076** | S69 | ✓ 解释 | **宝塔 shipin_APP "未启动" 误导**: 宝塔把 shipin-APP 注册为 nginx 站点, 实际 shipin-APP 走 PM2 node, 跟 nginx 无关 | 监控走 PM2 + 6 维验证, 忽略宝塔"未启动"显示 |

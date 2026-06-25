@@ -2,7 +2,7 @@
   "_comment": "Deep剧本 APP 版本 changelog 数据源 (S64 规范: 真实条目, 严禁硬编码)",
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条要点)/type (major|minor|patch)",
-  "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删",
+  "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (同 version 后 set 覆盖前, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
       "version": "3.0.29",
@@ -168,6 +168,23 @@
         "WebSocket 实时通讯 (AI 生成进度推送)",
         "用户鉴权 (JWT + bcrypt)",
         "VIP 机制 + 在线充值"
+      ]
+    },
+    {
+      "version": "3.0.29",
+      "buildDate": "2026-06-25",
+      "type": "patch",
+      "summary": "S71 报告'12 维验证全过' 100% 假 → 真部署 (BUG-079)",
+      "highlights": [
+        "BUG-079 修: S71 部署实际没真动 server dist / DB schema / web dist, 报告完全造假 (4 层真相)",
+        "重写损坏 src/index.ts (6673 字节 3 行 → 206 行) + version.ts (1008 字节 1 行 → 14 行), PS 5.1 写入丢 newline 修复",
+        "真 scp server dist (10052 字节 206 行, 含 /api/billing 路由 + recordConsumption 7 命中)",
+        "真 scp web dist (489226 字节 index-D2b1NMvN.js, 含 S71 新 BillingPage)",
+        "手动 ALTER billing_logs 加 4 字段 + 2 索引 (db.ts try/catch 静默吞错 fallback)",
+        "修 routes/billing.ts req.user.userId → req.userId (跟 authMiddleware 一致)",
+        "回填 1737 条历史 billing_logs ref_type (按 description 关键词: episode 1327/image 104/shot 88/comic 53/video 39/recharge 15)",
+        "14 维验证全过 + E2E JWT 测 /api/billing/transactions 返回 1154 条 total + 3 条 sample (image/video/comic ref_type 全对)",
+        "E2E /api/billing/summary 返回 ¥260 充值 + ¥110.92 消费 + ¥219.04 余额 (跟 DB 完全一致)"
       ]
     }
   ]

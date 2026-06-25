@@ -1869,3 +1869,221 @@ WHERE ref_type = '' OR ref_type IS NULL;
 - [`apps/web/src/pages/BillingPage.tsx`](../../apps/web/src/pages/BillingPage.tsx) — 重写账单明细页
 - [`apps/web/src/lib/api.ts`](../../apps/web/src/lib/api.ts) — 加 getBillingTransactionsApi + getBillingSummaryApi
 - [BUG-072 扣费审计](../apps/mobile/BUGS.md#bug-072-s69-收尾-v3029-web-端扣费审计-5-个不一致全修-bug-072-abce) — 前置 (S69)
+
+---
+
+## BUG-079 (S71 后置, v3.0.29, 2026-06-25 09:11): S71 报告"12 维验证全过" 100% 假 — 实际 server 端 dist 没部署 + DB schema 没 ALTER + web 端 dist 也没 build + routes/billing.ts 写错 `req.user.userId` (应该是 `req.userId`)
+
+### 现象 (user 6/25 09:11 反馈)
+
+部署 S71 BUG-078 后, user 在 web 端 `/profile/billing` 看不到任何新的"账单明细" UI. 仍然是 S70 那版老界面 (无 4 卡 summary / 无 3 tab / 无 ref_type icon).
+
+S71 报告"12 维验证全过", 包含:
+- `/api/billing/transactions: 401 (auth 工作)` — **完全错**: 401 来自 outline 全局 authMiddleware, 不是 billing route 真存在
+- `web 端 build 0 错` — **没 build**: 实际本地 web/dist 还是 S70 那次 10:03 的旧版
+- `DB 4 字段 + 2 索引` — **没真应用**: db.ts try/catch ALTER 静默吞了错误
+- `宝塔 shipin_APP run=True` — **跟 S71 部署无关**: 是 S70 BUG-077 修法保留状态
+
+### 根因 (4 层真相, 比 BUG-073 更严重 — 报告完全造假)
+
+#### 真相 1: src/index.ts 整个文件 6673 字节挤 3 行, 1008 字节 version.ts 全 1 行 (PS 5.1 写入丢 newline)
+
+S71 部署时, coder 用 PowerShell 5.1 (Windows 默认 shell) 通过 mcp/CLI 写入 src/index.ts + src/config/version.ts, **写入过程中所有换行符被吞掉**.
+
+```bash
+$ python3 -c "data = open('apps/server/src/index.ts', 'rb').read(); print('size:', len(data), 'newline:', data.count(b'\n'))"
+size: 6673 newline: 2  # 整个文件就 3 行!
+```
+
+tsc 编译这种损坏文件, 输出 dist/index.js 也是 11 行 (6577 字节), 完全没有 `require('./middleware/errorHandler')` 等关键依赖, node 启动立即 exit 0 (0 字节输出).
+
+web/src/config/version.ts 同样 1008 字节 1 行 (整个文件挤一行), 报错 `error TS2306: File '...version.ts' is not a module`. 任何 `tsc -b` 都会挂.
+
+#### 真相 2: S71 报告的"scp dist" 实际没真更新 server 端 dist
+
+S71 coder 报告 "14 文件改动 + 1 新建 routes/billing.ts" 全部进了 git commit `d35c0ea`, 本地 build 也跑了 (本地 dist 是 17:38 时间戳). 但**部署阶段 scp 失败或者根本没真 scp**到 `/www/wwwroot/shipin-APP/dist/`.
+
+**生产 server 端 dist 实际是 S70 那次 (2026-06-24 10:04) 的旧版**:
+```bash
+$ ls -la /www/wwwroot/shipin-APP/dist/index.js
+-rw-r--r-- 1 root root 8862 Jun 24 10:04 /www/wwwroot/shipin-APP/dist/index.js  # S70 那次!
+
+$ grep -c '/api/billing' /www/wwwroot/shipin-APP/dist/index.js
+0  # 完全没有 S71 新加的 /api/billing 路由!
+
+$ grep -c 'recordConsumption' /www/wwwroot/shipin-APP/dist/services/billingService.js
+0  # 完全没有 recordConsumption 函数!
+```
+
+S71 报告时 shipin-app 进程 PID 41780 启动时间是 2026-06-24 18:00:07, 但实际跑的 dist 跟 S70 (10:04) 一字不差. 说明 S71 的 `systemctl restart` 把 systemd 重启了, 但启动的进程用了 S70 老 dist.
+
+#### 真相 3: db.ts ALTER TABLE try/catch 静默吞错, 4 字段 + 2 索引都没真应用
+
+`apps/server/src/models/db.ts` 里 billing_logs 4 字段 + 2 索引的 ALTER 全部包在 `try { } catch {}` 里, **catch 块为空, 任何 ALTER 错误 (例如权限/锁) 都被静默吞掉**.
+
+```javascript
+try { await db.execute("ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0"); } catch {}
+try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT ''"); } catch {}
+try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_id VARCHAR(100) DEFAULT ''"); } catch {}
+try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_label VARCHAR(200) DEFAULT ''"); } catch {}
+try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_ref_type (ref_type)"); } catch {}
+try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_user_time (user_id, created_at)"); } catch {}
+```
+
+**生产 SHOW COLUMNS**:
+```
+Field            Type          Null  Key  Default
+id               varchar(36)   NO    PRI
+user_id          varchar(36)   NO    MUL
+type             enum(...)     NO
+amount           decimal(10,2) NO
+balance_after    decimal(10,2) NO
+novel_id         varchar(36)   YES
+description      varchar(500)  YES
+word_count       int(11)       YES        0
+created_at       bigint(20)    YES   MUL  0
+# 4 字段全没! 2 索引全没!
+```
+
+导致 server 端即使运行新代码, `INSERT INTO billing_logs (... is_free, ref_type, ref_id, ref_label)` 也会因 "Unknown column" 报错, 但被 try/catch 吞了. 1737 条历史数据 ref_type/ref_label 全是空字符串默认值.
+
+#### 真相 4: routes/billing.ts 写错 `req.user.userId` (应该是 `req.userId`)
+
+S71 写的 `apps/server/src/routes/billing.ts` 跟现有 `authMiddleware` 不一致:
+
+```typescript
+// authMiddleware 实际设的 (src/middleware/auth.ts:39):
+(req as any).userId = decoded.userId;
+
+// billing.ts S71 写的 (错误!):
+router.get('/transactions', async (req: any, res) => {
+  const userId = req.user.userId;  // ❌ req.user 是 undefined
+```
+
+`/api/billing/transactions` 即使部署, 调用时会抛 `Cannot read properties of undefined (reading 'userId')`, web 端永远收不到 200.
+
+### 修法 (4 步真部署)
+
+#### 修法 1: 修损坏的 src 文件 (Write 工具强写干净版)
+
+```bash
+# 用 Write/Edit 工具强写干净版 (不依赖 PS 5.1 写入)
+# - src/index.ts 206 行 (每个 import 一行)
+# - src/config/version.ts 14 行
+```
+
+#### 修法 2: 本地 build + tar 部署 (不走 PM2, 走 systemd)
+
+```bash
+# 本机
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+npm run build  # tsc 0 错
+Compress-Archive dist/* server-dist-s71-bug079-v4.zip  # 318KB
+scp server-dist-s71-bug079-v4.zip root@ab.maque.uno:/tmp/
+
+# 服务器 (走 systemd 不用 PM2, BUG-077 修法)
+unzip -oq /tmp/server-dist-s71-bug079-v4.zip -d /www/wwwroot/shipin-APP/dist/
+systemctl reset-failed shipin-app  # ⚠️ 必加, 短时间 restart > 5 次会 start-limit-hit
+systemctl start shipin-app
+```
+
+#### 修法 3: 手动 ALTER TABLE 4 字段 + 2 索引 (db.ts try/catch 不能依赖)
+
+```sql
+ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0 COMMENT '1=免费额度 0=实际扣费';
+ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT '';
+ALTER TABLE billing_logs ADD COLUMN ref_id VARCHAR(100) DEFAULT '';
+ALTER TABLE billing_logs ADD COLUMN ref_label VARCHAR(200) DEFAULT '';
+ALTER TABLE billing_logs ADD INDEX idx_billing_ref_type (ref_type);
+ALTER TABLE billing_logs ADD INDEX idx_billing_user_time (user_id, created_at);
+```
+
+#### 修法 4: 修 routes/billing.ts `req.user.userId` → `req.userId` (跟 authMiddleware 一致)
+
+```typescript
+router.get('/transactions', async (req: any, res) => {
+  const userId = req.userId;  // ✅ 跟 authMiddleware 配套
+```
+
+#### 修法 5: 历史 1737 条 billing_logs 回填 ref_type/ref_label (P3)
+
+按 description 关键词推断:
+```sql
+UPDATE billing_logs SET
+  ref_type = CASE
+    WHEN description LIKE '%小说分析%' THEN 'novel_analyze'
+    WHEN description LIKE '%剧本生成%' OR description LIKE '%episode%' THEN 'episode'
+    WHEN description LIKE '%分镜%' OR description LIKE '%shot%' THEN 'shot'
+    WHEN description LIKE '%漫画%' OR description LIKE '%comic%' THEN 'comic'
+    WHEN description LIKE '%图片%' OR description LIKE '%生图%' THEN 'image'
+    WHEN description LIKE '%视频%' OR description LIKE '%生视频%' THEN 'video'
+    WHEN type='charge' THEN 'recharge'
+    ELSE ref_type
+  END,
+  ref_label = COALESCE(NULLIF(ref_label, ''), description);
+-- 回填后: episode 1327 / image 104 / shot 88 / comic 53 / video 39 / recharge 15 / (空) 112
+```
+
+### 验证 (14 维全过 + E2E JWT 测试全过)
+
+```
+1.  systemctl shipin-app: active
+2.  ss 6000: 0.0.0.0:6000
+3.  /health: 200
+4.  /api/version: 3.0.29 (S71 真实版本)
+5.  进程启动时间: 09:32:14 (新, S71 部署后)
+6.  dist/index.js: 206 行 10052 字节 (健康版, vs S70 损坏版 11 行 6577 字节)
+7.  /api/billing/transactions (无 auth): 401 (from billing route auth, 不是 outline 全局)
+8.  /api/billing/summary (无 auth): 401
+9.  DB 4 字段: is_free/ref_type/ref_id/ref_label 全有
+10. DB 2 索引: idx_billing_ref_type + idx_billing_user_time
+11. DB 数据: 1738 条 (15 charge + 1723 consumption, 19 users)
+12. ref_type 分布: episode 1327 / image 104 / shot 88 / comic 53 / video 39 / recharge 15
+13. 公开 HTTPS ab.maque.uno: 200
+14. web 实际加载 JS: index-D2b1NMvN.js (S71 新版, 489226 字节)
+
+E2E JWT 测试 (user_id=6b5f6dc1-...):
+  GET /api/billing/transactions?limit=3
+  → {"success":true, "items":[{refType:"image", refLabel:"角色图片生成(1张) - 陆婕妤", amount:0.1},
+                                {refType:"video", refLabel:"视频生成(15s/VIP)", amount:0.1},
+                                {refType:"comic", refLabel:"漫画生成 (1页)", amount:0.08}],
+     "total":1154}
+  GET /api/billing/summary
+  → {"totalCharge":260, "totalConsumption":110.92, "totalFree":0, "balance":219.04,
+     "todayConsumption":0.2, "todayFree":0}
+```
+
+### 教训 (5 条, 跨项目通用 + shipin-APP 必读)
+
+1. **PS 5.1 写入中文/特殊字符文件必丢 newline** — 任何用 PS 5.1 + mcp/CLI 写入 .ts/.js/.md/.sql 文件后, **必跑 `python3 -c "data=open('f','rb').read(); print(data.count(b'\\n'))"` 验证换行数**. shipin-APP 损坏文件 1008 字节 1 行 / 6673 字节 3 行. 改用 Write/Edit 工具 (UTF-8 + 自动 newline)
+2. **"12 维验证全过" 报告必含 grep 服务器 dist 实际字符串** — 不能光看 HTTP 200 (S71 /api/billing/transactions 401 来自 outline 全局 auth, 不是 billing route 真存在). **必跑**:
+   ```bash
+   ssh server "grep -c '/api/billing' /www/wwwroot/shipin-APP/dist/index.js"
+   ssh server "grep -c 'recordConsumption' /www/wwwroot/shipin-APP/dist/services/billingService.js"
+   ssh server "mysql -e 'SHOW COLUMNS FROM billing_logs' | grep -E 'is_free|ref_type'"
+   ```
+3. **db.ts ALTER TABLE 必去掉 try/catch 静默吞** — 任何 schema 迁移的 try/catch 至少 `logger.warn` 错误. 否则 12 维验证"健康"但实际 DB 字段没加, 写日志会一直写空值
+4. **新加 routes 必跟 authMiddleware 字段对齐** — 看现有 `(req as any).userId` 还是 `req.user.userId`, 别臆造. E2E JWT 必测, 不能光 401 就说 "auth 工作"
+5. **systemd restart 多次失败必 `systemctl reset-failed`** — 短时间内 (5s 内) restart > 5 次会触发 start-limit-hit, 必须 `systemctl reset-failed shipin-app` 才能再启
+
+### 待办 TODO (P0)
+
+- [ ] 写 `scripts/verify-deploy.sh` 部署后必跑: `grep -c` 关键 dist 字符串 + `mysql SHOW COLUMNS` 关键表 + E2E JWT 调核心 API 3 个. 任何 1 失败必 abort 报告
+- [ ] db.ts 所有 ALTER TABLE 的 try/catch 加 `logger.warn({err, sql})` 至少 1 行日志, 防静默吞
+- [ ] 所有 routes/ 写新端点必先 `grep -E 'req.user' src/middleware/auth.ts` 看实际 set 字段名, 跟现有 route 风格一致
+- [ ] 写 .ts/.js/.md/.sql 文件**禁止**用 PS 5.1 + Out-File, 必用 Write/Edit 工具 (UTF-8 自动 newline)
+- [ ] 跨端 AGENTS.md § 5 工作流加"部署后 14 维验证": 5 维自身 + 3 维宝塔/nginx/APK + 3 维 server dist 字符串 grep + 3 维 DB schema + E2E JWT 至少 1 个核心 API
+
+### 引用 (跨文档)
+
+- [`docs/BUGS_INDEX.md` § 1 30 秒速览 + § 3 S9 部署验证 SOP](../docs/BUGS_INDEX.md) — BUG-079 加进 § 1 速览 + § 4 Top 10 高频踩坑
+- [`docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 4 9 坑](../docs/BAOTA_NODE_PROJECT_DEPLOY.md) — 配套 deploy SOP
+- [`apps/server/src/index.ts`](../../apps/server/src/index.ts) — S71 后置重写 206 行健康版
+- [`apps/server/src/routes/billing.ts`](../../apps/server/src/routes/billing.ts) — S71 后置改 `req.userId`
+- [`apps/server/src/models/db.ts`](../../apps/server/src/models/db.ts) — billing_logs ALTER 7 命中 (S71 BUG-078 + S71 BUG-079 加 logger.warn)
+- [`apps/web/src/config/version.ts`](../../apps/web/src/config/version.ts) — S71 后置重写 14 行干净版
+- [`apps/web/src/pages/BillingPage.tsx`](../../apps/web/src/pages/BillingPage.tsx) — S71 BUG-078 重写账单明细
+- [`apps/web/dist/index-D2b1NMvN.js`](../../apps/web/dist/) — S71 BUG-078 新 build, 489226 字节
+- [BUG-073 1 行 minified 静默 ReferenceError](../apps/mobile/BUGS.md#bug-073-s69-1-行-minified-src--tsc-593--node-22-静默忽略-esm) — 前置 (S69, 同类 PS 5.1 写入坑)
+- [BUG-078 Web 端账单明细缺消费记录](../apps/mobile/BUGS.md#bug-078-s71-v3029-web-端账单明细缺消费记录--只显示充值-消费和免费完全没记录-基础消费数据缺失) — 触发 (S71 写 src + 部署步骤)
+- [BUG-077 宝塔 shipin-APP 找不见 3 真相](../apps/mobile/BUGS.md#bug-077-s70-宝塔-项目-找不见-shipin-app-3-真相-s70-硬要求-100-修) — S70 部署路径 (systemd + 宝塔同步)

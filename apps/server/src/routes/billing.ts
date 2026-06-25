@@ -22,7 +22,9 @@ router.use(authMiddleware);
  */
 router.get('/transactions', async (req: any, res) => {
   try {
-    const userId = req.user.userId;
+    // v3.0.32 (BUG-079 S71 后置): authMiddleware 设的是 req.userId, 不是 req.user.userId
+    // S71 BUG-078 初版用 req.user.userId 写错, E2E 测试才发现
+    const userId = req.userId;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
     const type = (req.query.type as string) || undefined;
@@ -46,7 +48,8 @@ router.get('/transactions', async (req: any, res) => {
  */
 router.get('/summary', async (req: any, res) => {
   try {
-    const userId = req.user.userId;
+    // v3.0.32 (BUG-079 S71 后置): 跟 transactions 一致
+    const userId = req.userId;
     const { queryOne } = await import('../models/db');
     const start = (() => {
       const d = new Date();
