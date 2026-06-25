@@ -378,6 +378,14 @@ export class NovelService {
       await taskJobModel.fail(taskId, errorMsg);
       await novelModel.updateStatus(novelId, 'error');
 
+      // S72 v3.0.33 P0 #2 修复 (ADR-0002): 异常时回滚扣费
+      // 退费金额按 wordCount 算, 跟之前 chargeStep 一致
+      try {
+        await billingService.refundStep(novelId, 'analyze', content.length);
+      } catch (refundErr) {
+        logger.warn('Refund failed (non-blocking)', { novelId, error: refundErr instanceof Error ? refundErr.message : String(refundErr) });
+      }
+
       // v2.5.15: 创建系统通知
       try {
         const novel = await novelModel.findById(novelId);

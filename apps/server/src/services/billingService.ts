@@ -394,6 +394,54 @@ export class BillingService {
     if (!result) return null;
     return { balanceAfter: result.balanceAfter, chargedAmount: amount, logId: result.logId };
   }
+
+  /**
+   * S72 v3.0.33 P0 #2 修复 (ADR-0002): 异常时回滚扣费
+   * 退费 = 加钱到 user_balance + 写 billing_logs (type='refund', schema enum 已支持)
+   * 注意: 只在最外层 catch 调用, 避免嵌套退费双倍
+   * @returns true=成功退费 / false=无 novel.userId 跳过
+   */
+  async refundStep(novelId: string, stage: 'analyze' | 'episode' | 'shot' | 'comic', wordCount: number = 0, pageCount: number = 1): Promise<boolean> {
+    const novel = await novelModel.findById(novelId);
+    if (!novel?.userId) return false;
+    const user = await userModel.findById(novel.userId);
+    const vip = isVipActive(user);
+    const p = vip ? PRICING.vip : PRICING.standard;
+
+    let amount: number;
+    let desc: string;
+    let refType: string;
+    if (stage === 'shot') {
+      amount = p.shot;
+      desc = '分镜生成退款';
+      refType = 'shot';
+    } else if (stage === 'comic') {
+      amount = Math.round(p.comic * pageCount * 100) / 100;
+      desc = `漫画生成退款 (${pageCount}页)`;
+      refType = 'comic';
+    } else if (stage === 'analyze') {
+      amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
+      desc = '小说分析退款';
+      refType = 'novel_analyze';
+    } else {
+      amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
+      desc = '剧本生成退款';
+      refType = 'episode';
+    }
+
+    // 退费: 加钱到 user_balance + 写 billing_logs (type='refund')
+    const logId = generateUUID();
+    const balanceAfter = Math.round(((user?.balance || 0) + amount) * 100) / 100;
+    await userModel.updateBalance(novel.userId, amount);
+    await execute(
+      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, is_free, ref_type, ref_id, ref_label, created_at)
+       VALUES (?, ?, 'refund', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+      [logId, novel.userId, amount, balanceAfter, novelId, desc, wordCount, refType, novelId, `退款: ${desc}`, Date.now()]
+    );
+    logger.info('Billing: refund', { novelId, userId: novel.userId, stage, amount, balanceAfter });
+    try { websocketService.broadcastBalanceUpdate(novelId, balanceAfter); } catch {}
+    return true;
+  }
 }
 
 export const billingService = new BillingService();
