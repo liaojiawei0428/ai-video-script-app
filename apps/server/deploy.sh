@@ -193,12 +193,22 @@ fi
 #   - systemd unit Environment=APP_VERSION: systemd 硬编码, 覆盖 [Service] Environment
 # 详见 docs/VERSION_MANAGEMENT.md § 5.2 8 处自检
 
-# 从 package.json 读版本号 (单源)
-NEW_VERSION=$(python3 -c "import json; print(json.load(open('${DIST_DIR}/package.json'))['version'])" 2>/dev/null || echo "")
+# S72 v3.0.33 修复: 从源 /tmp/package.json 读版本号, 不读生产 ${DIST_DIR}/package.json (旧版本风险)
+# BUG 案例: 之前 deploy.sh 读到生产 3.0.32 而不是源 3.0.33, 导致 .env + systemd unit 同步错位
+# 修法: 部署 SOP 加 1 步 scp 源 package.json 到 /tmp/package.json, deploy.sh 读 /tmp/package.json
+if [ ! -f /tmp/package.json ]; then
+  echo "✗ /tmp/package.json 不存在 (S72 修复必要文件)"
+  echo "  修法: scp -i <key> apps/server/package.json root@<host>:/tmp/package.json"
+  echo "  原因: 不能读生产 ${DIST_DIR}/package.json, 可能是旧版本"
+  exit 1
+fi
+NEW_VERSION=$(python3 -c "import json; print(json.load(open('/tmp/package.json'))['version'])" 2>/dev/null || echo "")
 if [ -z "$NEW_VERSION" ]; then
-  echo "⚠️ 读 package.json version 失败, 跳过 .env + systemd unit 同步 (S71 BUG-082 P3 风险)"
+  echo "⚠️ 读 /tmp/package.json version 失败, 跳过 .env + systemd unit 同步 (S71 BUG-082 P3 风险)"
 else
-  echo ">>> [6.5/9] 同步 8 处版本号 (新版本 ${NEW_VERSION})..."
+  echo ">>> [6.5/9] 同步 8 处版本号 (新版本 ${NEW_VERSION}, 来自源 /tmp/package.json)..."
+
+  # 改 .env APP_VERSION"
 
   # 改 .env APP_VERSION
   if grep -q "^APP_VERSION=" "${DIST_DIR}/.env" 2>/dev/null; then
