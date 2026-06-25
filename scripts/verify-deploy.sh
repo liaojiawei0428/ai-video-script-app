@@ -381,6 +381,43 @@ if [ "$SERVER_ONLY" != "true" ]; then
 fi
 
 # ──────────────────────────────────────
+# 维度 21: BUG-083 防呆 — 生产 dist/changelog.json UTF-8 Chinese 完整性 (防 PowerShell scp ANSI 转码丢中文字符)
+# ──────────────────────────────────────
+# 历史: S72 batch 4 部署后, 生产 /api/version 返回 invalid JSON, 400 个中文字符全被替换成 `?` (单字节 0x3F)
+#   根因: scp 或 systemd 容器环境 charset 转换把 UTF-8 Chinese → ASCII `?` 占位符
+# 修法: 1) deploy.sh 加 cp -f changelog.json dist/changelog.json (commit 310098e 已加)
+#       2) verify-deploy.sh 加维度 21 强制检查 dist/changelog.json 的 UTF-8 完整性 (non-ASCII char 计数 + JSON parse)
+# 防呆: 任何未来部署后, 维度 21 失败 = dist/changelog.json 字符编码坏, 必须重新跑部署
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 21: BUG-083 dist/changelog.json UTF-8 完整性 (防 Chinese → `?` 损坏) ──"
+
+  # 21. server dist/changelog.json UTF-8 OK: 1) JSON 能 parse 2) 含 non-ASCII 字符 (Chinese 完整性)
+  V21_RESULT=$(python3 -c "
+import json, sys
+try:
+    d = open('/www/wwwroot/shipin-APP/dist/changelog.json', 'rb').read().decode('utf-8')
+    j = json.loads(d)
+    non_ascii = sum(1 for c in d if ord(c) > 127)
+    latest = j['entries'][-1]
+    print(f'OK non_ascii={non_ascii} latest_version={latest[\"version\"]} highlights={len(latest[\"highlights\"])}')
+except json.JSONDecodeError as e:
+    print(f'FAIL json_decode pos={e.pos} msg={e.msg}')
+except Exception as e:
+    print(f'FAIL {type(e).__name__}: {e}')
+" 2>&1)
+  if echo "$V21_RESULT" | grep -q "^OK"; then
+    PASS=$((PASS+1))
+    color green "   ✓ 21. dist/changelog.json UTF-8 完整: $V21_RESULT"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("21. dist/changelog.json UTF-8 损坏")
+    color red "   ✗ 21. dist/changelog.json 损坏: $V21_RESULT (BUG-083 必修)"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"

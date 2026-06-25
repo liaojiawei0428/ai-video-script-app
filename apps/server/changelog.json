@@ -212,7 +212,12 @@
         "修法 7: scripts/verify-deploy.sh 加维度 19 — grep dist/services/agnesVideoProvider.js 含 extractErrorMessage, 0 命中即 FAIL (防未来 AI 误删 import, BUG-082 重蹈).",
         "修法 8: BUGS.md BUG-082 TODO 列表 4/5 划掉 (修法 6 修法 7 + agnesImageProvider 已确认不适用 + 铁律 8 已加). 剩 1 项 mobile 端防御渲染 (user 主盯 web, 安卓暂不动).",
         "P2 累计到 P0 一起升: 3.0.32→3.0.33, 6 处同步 (mobile version.ts + android build.gradle versionCode 37→38 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 36→37)",
-        "不升 hybrid 路径: user 部署完用 verify-deploy.sh --strict 跑 21 维 (含新维度 19) + E2E 验证"
+        "不升 hybrid 路径: user 部署完用 verify-deploy.sh --strict 跑 21 维 (含新维度 19) + E2E 验证",
+        "S72 batch 4 ADR-0002 P0 (4 项): #1 analyzeNovel 入口 DB 查 task_jobs 防重复扣费 + #2 billingService.refundStep 扣费回滚 (executeAnalysis catch 调用) + #3 outline/plotGraph 拆独立 status 字段 (ALTER TABLE + ALTER TABLE + updateFields 通用方法) + #4 deleteNovel 级联 DELETE FROM billing_logs (孤儿清理)",
+        "S72 batch 4 P1 (4 项): #5 cancelledAtMap 双写 (内存 Map 快速路径 + DB fire-and-forget + startupLoad 重启恢复) + #6 角色解析 0 字符 websocket 推 fallback 提示 + #7 createNovel 末尾 fs.unlink 清理 multer 临时文件 + #8 extractDescriptions catch 加 websocket 推失败详情",
+        "S72 batch 4 P2 (3 项): #9 auto_generate_episodes 配置项 (默认 0=不自动, 顺手修 P0 #3 updateFields camelCase→snake_case 自动转换 bug) + #10 analyze 路由 userId 校验 (防越权 403) + #11 chunk 失败 broadcast 显示具体段号 (旧版只报 count)",
+        "S72 batch 4 deploy.sh 3 修: #5 读 /tmp/package.json (源) 而非生产 (S71 BUG-082 P3) + #6 tar 解压到 dist/ 子目录 (systemd mount namespace 226/NAMESPACE 修复) + #7 backup if [ -d ] 检查 (dist 缺失跳过)",
+        "ADR-0002 11 问题全部修完: 7 commit 推到 main (d3c5ca8 P0 #3 / b6fddcf P0 #2 / 5c49e68 deploy fix / 0b626ce P0 #1+#4 / dda46a2 P1 #6+#7+#8 / 0c6b77f P1 #5+P2 #9 / 6ac0fe3 P2 #10+#11)"
       ]
     }
   ]

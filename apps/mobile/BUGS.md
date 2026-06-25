@@ -2586,3 +2586,100 @@ GET /api/video-agent/conversations/aa88d219-686d-4459-b01b-09e31a7b4159
 - [`scripts/verify-deploy.sh`](../../scripts/verify-deploy.sh) — 维度 17-18 (BUG-082 防呆) + 维度 19 (BUG-082 TODO P2 agnesVideoProvider 归一防呆)
 - [BUG-080 web 端消费记录 tab 没数据](../apps/mobile/BUGS.md#bug-080-s71-后置-v3029-2026-06-25-1048-web-端消费记录tab-没数据--billingpagetsx-push-transactions-时漏了-type-字段) — 配套 (S71 后置 web 端防呆)
 - [BUG-081 image agent 状态机漏 plan_ready](../apps/mobile/BUGS.md#bug-081-s71-后置-v3032-2026-06-25-1300-用户改方案时无法改方案--an-unexpected-error-occurred--imageagentservice-状态机漏-plan_ready-throw-raw-error-走-errorhandler-兜底) — 配套 (同源: 边界处 schema 归一)
+
+## BUG-083 (S72 后置, v3.0.33, 2026-06-25 17:40): 生产 `/api/version` 返 invalid JSON — S72 batch 4 部署时 dist/changelog.json 400 个 Chinese 全部被替换成 `?` 字符, 前端拿不到 changelog 数据
+
+### 现象 (S72 后置自检)
+
+部署 S72 batch 4 (v3.0.33 P0 #1+#2+#3+#4 + P1 #5-#8 + P2 #9-#11 + deploy.sh 3 修, 13 commit 推 main) 后, 跑 verify-deploy 发现生产 `/api/version` 返回 2223 字节 JSON, 但 `json.loads()` 失败:
+
+```
+PRODUCTION: JSON INVALID - error at pos 1574 msg: Expecting ',' delimiter
+Total len: 2223
+Non-ASCII char count: 0          ← 0 个中文字符!
+Literal ? count: 400              ← 400 个 ? 占位符
+```
+
+- HTTP 状态: 200 OK (宝塔 nginx 透传)
+- 响应内容: 长度正确 (2223B), 但 400 个中文字符全部被 `?` (单字节 0x3F) 替换
+- 前端影响: web/mobile 拿到 invalid JSON, APP 升级提示失效, changelog 数据全丢
+- 服务本身: 正常 (其他 API 端点不受影响, 因为 changelog.json 是独立文件)
+
+### 真实根因 (3 层链)
+
+**第 1 层: S72 batch 4 部署时, dist/changelog.json 含 10 条 highlights (5 原始 + 5 S72 batch 4 新增) 全是 Chinese**
+
+部署 SOP (`docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 2 步骤 1) 跑:
+
+```bash
+tar czf dist.tar.gz --exclude='dist.bak*' server/dist server/changelog.json ...
+# 本地 changelog.json 10 条 highlights, Chinese UTF-8 OK
+```
+
+**第 2 层: scp 到远端 / 写 dist/changelog.json 时, 编码在某个环节被破坏**
+
+可能性 3 种 (按概率):
+
+1. **PowerShell `scp` + 后台脚本写入** 时, 默认按系统 ANSI 编码 (Windows GBK / CP1252), 写 server-side 落盘后 Chinese → `?`
+2. **`tar xzf` 后 mv 操作** 触发了 systemd 容器环境的 charset 转换 (类似 BUG-078 systemd ProtectSystem 路径)
+3. **本地 changelog.json 本身就是错的** (PS 5.1 写入丢 newline 链入字符错位) — 但本机 Read 工具读出来 10 条 Chinese OK, 排除
+
+**第 3 层: v3.0.32 → v3.0.33 部署路径里, deploy.sh 没强制 `cp changelog.json dist/changelog.json`**
+
+S72 batch 4 之前 (S71 / S70), `apps/server/deploy.sh` 第 [6/9] 步解压到 dist/ 后, **没** `cp changelog.json dist/changelog.json`. 但 server 端 `readChangelog` 优先读 `dist/changelog.json` (S72 修 readChangelog 优先级), 找不到就 fallback 到根 changelog.json. 根 changelog.json 是上次部署留下的, 那个版本可能是错的或者 stale.
+
+**S72 batch 4 commit `310098e` 才补上** `cp -f changelog.json dist/changelog.json` (修法 1), 但**只对之后的新部署生效**, 不会自动修复已损坏的生产 dist/changelog.json.
+
+### 修法 (3 步, S72 后置实施)
+
+**修法 1: deploy.sh 强制 `cp -f changelog.json dist/changelog.json`** (S72 commit 310098e, 已合入 main)
+
+```bash
+# apps/server/deploy.sh L186-191
+if [ -f "${DIST_DIR}/changelog.json" ]; then
+  cp -f ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json
+  echo "    ✓ changelog.json -> dist/changelog.json (S72 batch 4 修)"
+fi
+```
+
+**修法 2: verify-deploy.sh 加维度 20: 生产 dist/changelog.json 字符编码验证** (本 session 加)
+
+```bash
+# 维度 20 (S72 后置, BUG-083 防呆):
+echo "20. dist/changelog.json UTF-8 OK: $(curl -sm 5 https://ab.maque.uno/api/version | python3 -c "
+import sys, json
+d = sys.stdin.read()
+try:
+    j = json.loads(d)
+    non_ascii = sum(1 for c in d if ord(c) > 127)
+    print(f'OK (non-ASCII={non_ascii})')
+except json.JSONDecodeError as e:
+    print(f'FAIL (err at {e.pos}, msg: {e.msg})')
+")"
+```
+
+**修法 3: 重新部署, 让修法 1 覆盖损坏的 dist/changelog.json** (本 session 实施)
+
+走 `apps/server/deploy.sh` 重新跑一次:
+- 本地 `cp changelog.json dist/changelog.json` 10 条 highlights UTF-8 OK
+- 重新 `tar czf dist.tar.gz`
+- scp 到远端 `/tmp/dist.tar.gz` + `/tmp/package.json`
+- `bash deploy.sh` 走 9 步流程, 第 [6/9] 步 `cp -f changelog.json dist/changelog.json` 覆盖损坏版
+- 验证: `/api/version` 200 OK + json.loads OK + 10 条 highlights Chinese 正常
+
+### 教训 (4 条, 跨项目通用)
+
+1. **scp / 写远端 JSON 文件, 必走 UTF-8 explicit 编码** — PowerShell 默认用系统 ANSI (GBK / CP1252) 写文件会丢 Unicode. 修法: `Get-Content` + `[System.IO.File]::WriteAllText` 显式 UTF8 (无 BOM), 或走 `cat > file <<EOF` 走 bash heredoc (避免 PS 5.1 ANSI 转换)
+2. **部署脚本对 json / 文本文件必显式 `cp` 一次到 dist/** — 不要假设 `tar` 解压能保留原 charset / encoding. deploy.sh 第 [6/9] 步加 `cp -f` 是 5 维必查项
+3. **verify-deploy.sh 必加 JSON parse 维度** — `python3 -c "import json; json.loads(open('/tmp/dist/changelog.json').read())"` + 中文 non-ASCII char 计数. 任何 P0 BUG 必加 grep / parse 维度, **未来 AI 部署时必查** (跟 BUG-079/080/082 21 维一致)
+4. **readChangelog fallback 链要稳健** — `dist/changelog.json` 优先 > 根 `changelog.json` fallback > 内存 hardcoded (S72 batch 4 修过 readChangelog 优先级). 但 fallback 链是"藏污纳垢"的入口: dist 坏就静默读根, 根坏就静默读 hardcoded. 修法: 加 verify-deploy 维度 20 强制检查 dist 字符编码
+
+### 参考 (跨文档)
+
+- [`apps/server/deploy.sh`](../../apps/server/deploy.sh) — L186-191 修法 1 (S72 commit 310098e)
+- [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](../../docs/BAOTA_NODE_PROJECT_DEPLOY.md) — § 2 步骤 1 部署 SOP + § 4 坑 9 git push schannel
+- [`AGENTS.md`](../../AGENTS.md) — § 4 铁律 5 部署后必跑 N 维验证 (S71 BUG-079/080/082 升级到 21 维, S72 BUG-083 升级到 22 维)
+- [`HANDOVER.md`](../../HANDOVER.md) — § 5.4 后置坑点 17-24 + S72 段 (本 session 同步追加)
+- [BUG-078 systemd ProtectSystem 启动失败](../apps/mobile/BUGS.md#bug-078) — 前置 (同类 systemd 容器环境 charset 坑)
+- [BUG-079 S71 假报告 12 维](../apps/mobile/BUGS.md#bug-079) — 前置 (S71 升级 verify-deploy 14→21 维教训, BUG-083 续到 22 维)
+- [BUG-082 React #31 错误对象渲染](../apps/mobile/BUGS.md#bug-082) — 配套 (S71 后置, 同为持久化边界处 schema 归一类 BUG)

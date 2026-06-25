@@ -9,8 +9,8 @@
 ## § 0. 30 秒速览 (下个 session 必看)
 
 - **项目**: shipin-APP (`F:\QiTa\banmu\APP\ai-video-script-app`), AI 短剧剧本生成 Web+Mobile+Server
-- **当前版本**: v3.0.29 (生产 server 实际版本, S70 部署)
-- **最近 6 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → **S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit)** → **S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构)** ← 新
+- **当前版本**: v3.0.33 (生产 server 实际版本, S72 batch 4 部署)
+- **最近 7 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → **S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit)** → **S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构)** → **S71 (BUG-079/080/081/082 4 P0 + 铁律 4+/8 + 8 处版本号)** → **S72 (汇报规范 7 文件 + REPORTING_STANDARDS.md)** → **S72 batch 4 (ADR-0002 8 问题全修 + BUG-083 修生产 dist/changelog.json 损坏)** ← 本 session
 - **核心交付**: 跨端统一规范体系 (16 份文档), BUGS.md 75 个案例, 跨端 AGENTS.md 2 层结构 (根 v2.0 + mobile/server 瘦身 v2.0)
 - **生产环境**: `https://ab.maque.uno` (公网), 服务器本地路径 `/www/wwwroot/shipin-APP` (flat 结构, 非 monorepo)
 - **本机环境**: Windows Server 2022 + PowerShell 5.1, **PortableGit 2.43.0** 已装 (`C:\Tools\PortableGit\bin\git.exe`)
@@ -89,13 +89,16 @@ shipin-APP/
 | **S70** | "宝塔部署踩坑" | v3.0.30 P7 | BUG-077 + 宝塔 Node 项目 + BAOTA_NODE_PROJECT_DEPLOY.md v1.0 + deploy.sh 走 systemd | BUG-077 | 7b11230 + db59d4d |
 | **S71** | "S71 后置 4 P0 BUG" | v3.0.32→3.0.33 P8 | BUG-079/080/081/082 4 P0 + BUG-082 P2 TODO + 8 处版本号规范自迭代 + 4 教训 + 铁律 4+/8 | BUG-079/080/081/082 + 082 P3 | d795675 / 6ea3484 / abca9d3 / 4381a7e / f92cc19 / 81f4972 / 084a148 / 1a402c3 |
 | **S72** | "汇报沟通规范从无到有" | v3.0.33 P9 | 新建 `docs/REPORTING_STANDARDS.md` 7 文件体系 (主索引 59 行 + 6 topic files 各 < 100 行) + 加做事 4 原则 / 任务前列计划 / 自我改进循环 (A/B/C) + 跨端跨工具借鉴 (Karpathy CLAUDE.md + Boris Cherny + 灵犀 Claw + BerriAI) | (规范自迭代, 无 BUG) | b176ee9 / 02c496b / 58e69fd / f5e2a48 / bfa9ea9 |
+| **S72 batch 4** (本 session) | "S72 batch 4 P0/P1/P2 部署 + 修生产 dist/changelog.json 损坏" | v3.0.33 P10 | ADR-0002 8 问题全修 (P0 #1-#4 并发扣费/异常回滚/状态机/billing_logs 孤儿 + P1 #5-#8 取消状态/解析 fallback/upload 清理/extract 失败 + P2 #9-#11 自动剧集配置/analyze 鉴权/chunk 段号) + deploy.sh 3 修 (NEW_VERSION 路径/解压 dist 子目录/backup if 检查) + **BUG-083 (本 session 发现)**: 生产 dist/changelog.json 400 Chinese 损坏成 `?` 修复 + verify-deploy.sh 维度 21 防呆 | BUG-083 (新) | 0b626ce / 5c49e68 / b6fddcf / d3c5ca8 / dda46a2 / 0c6b77f / 6ac0fe3 / 36392aa / 1244bea / d0babad / d7e7d00 / f543562 / 310098e + 后续 BUG-083 修法 commit |
 
-### 2.2 22 个 BUG 分布
+### 2.2 23 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
 - **S60** 4 个: BUG-056 等 (server type 错)
 - **S64** 3 个: BUG-066/067/068 (跨端版本 6 处)
 - **S65-S66** 1 个: BUG-069 (ecosystem 漏修, S64 教训应用)
 - **S67-S68** 2 个: BUG-070/071 (活跃任务 + AGENTS.md 收口)
+- **S69-S71** 5 个: BUG-072/073/074/075/076/077/078/079/080/081/082 (P0 跨端收尾 + 宝塔重构)
+- **S72 batch 4** 1 个: BUG-083 (本 session, dist/changelog.json 字符编码损坏)
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口
@@ -214,6 +217,10 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 23. **汇报沟通自我改进循环无验证坑** — v2.2 加 A (主动自查) + B (改前提案) + C (规模警告) 后, 没有自动验证机制, AI 可能自我感觉"已改好"实际没生效. **修法**: v2.2 A 主动自查 + newline 验证 (`python3 -c "data=open(f,'rb').read(); print(data.count(b'\n'))"`) 必跑, 写后必报"newline 数 + 行数"给用户看
 24. **Boris Cherny "用户反馈后自动更新 lessons.md" 不适用 shipin-APP 坑** — Claude Code 工具链的 lessons.md 是会话级临时文件, shipin-APP 跨会话靠 HANDOVER.md § 2.1 + DEV_PROGRESS.md, 不要混淆. **修法**: AI 汇报 "已修" 前必跑 `git log -1 --format='%H'` 拿到 commit hash + 确认改动文件确实进了 commit (用 `git show --stat <hash>`)
 
+### 5.5 🆕 S72 batch 4 后置坑点 (1 个新, BUG-083)
+
+25. **BUG-083 dist/changelog.json 字符编码损坏坑** — S72 batch 4 部署时, 生产 dist/changelog.json 400 个 Chinese 全部被替换成 `?` (单字节 0x3F), `/api/version` 返回 invalid JSON. 根因 3 层链: 1) 本地 10 条 highlights 含大量 Chinese 2) scp 或 systemd 容器环境 charset 转换 3) deploy.sh 没强制 `cp -f changelog.json dist/changelog.json` (S72 commit 310098e 补上但对已损坏生产无效). **修法**: 1) deploy.sh 加 `cp -f changelog.json dist/changelog.json` (commit 310098e) 2) verify-deploy.sh 加维度 21 检查 dist/changelog.json UTF-8 完整性 (non-ASCII char 计数 + JSON parse) 3) 重新部署让修法 1 覆盖损坏版. 跨项目通用: **scp / 写远端 JSON 文件必显式 UTF-8 编码, deploy.sh 对文本文件必 `cp` 一次到 dist/**
+
 ---
 
 ## § 6. 交接模板 (下次 session 收尾时, AI 必追加一段)
@@ -236,7 +243,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 
 ---
 
-## § 7. 下一步候选 (S71 收尾, 等用户拍)
+## § 7. 下一步候选 (S72 batch 4 收尾, BUG-083 修完, 等用户拍)
 
 ### A. BUG-082 剩 1 项: mobile 端防御渲染
 - 修 `apps/mobile/src/screens/.../AgentChatPanel` (有类似 case 'error' 吗?) 同步防御性渲染
@@ -253,7 +260,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - 真正有活跃任务时会撞, 需要 S67 BUG-070 维护模式 + S70 systemd 重启 集成
 - 待 user 描述使用场景
 
-### D. 新功能开发 (S72+)
+### D. 新功能开发 (S72 batch 4 收尾后)
 - 用户指定新功能 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成)
 - 价值: 实际业务推进
 
@@ -269,6 +276,11 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - 根目录 `CLAUDE.md` (S72 新建) 待 Claude Code CLI 用户验证配置
 - 跨项目模板沉淀: 把 REPORTING_STANDARDS.md 7 文件复制一份到 `~/.mavis/agents/` 做通用 AI 沟通规范模板
 
+### G. (本 session 新加) BUG-083 修法全链路验证
+- 服务器端跑 `bash scripts/verify-deploy.sh --strict` 跑 21 维 (含新维度 21) 确认全过
+- 监控 /api/version 返 valid JSON 持续 24h, 确认 BUG-083 不复发
+- S72 batch 4 ADR-0002 11 问题沉淀写进 `docs/standards/ADR/0002-novel-analyze-cancellation-and-error-handling.md` (目前是 git commit 散落, 没正式 ADR)
+
 ---
 
 > **本文件维护规则**:
@@ -277,5 +289,5 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-25 (S71 收口 + 4 P0 BUG + 8 处规范自迭代, v1.3)
+> **最后更新**: 2026-06-25 (S72 batch 4 收口 + BUG-083 修 + verify-deploy 维度 21 防呆 + 23 BUG 总数, v1.4)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
