@@ -181,6 +181,15 @@ mkdir -p ${DIST_DIR}/dist
 tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist
 echo "    ✓ 解压完成到 ${DIST_DIR}/dist"
 
+# S72 v3.0.33 batch 4 修复: cp changelog.json dist/changelog.json (S64 起必加, tsc 不复制 json)
+# 之前漏加, shipin-app 读 dist/changelog.json (readChangelog 优先级, S72 修) 找不到, fallback 到根 changelog.json (老版本)
+if [ -f "${DIST_DIR}/changelog.json" ]; then
+  cp -f ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json
+  echo "    ✓ changelog.json -> dist/changelog.json (S72 batch 4 修)"
+else
+  echo "    ⚠️ changelog.json 不在 ${DIST_DIR}/, 跳过 (本地先 scp)"
+fi
+
 # 验证 tsc 输出完整 (BUG-073 教训)
 head -1 ${DIST_DIR}/dist/index.js | head -c 200
 echo ""
