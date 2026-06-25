@@ -170,8 +170,11 @@ if [ ! -f /tmp/dist.tar.gz ]; then
   exit 1
 fi
 rm -rf ${DIST_DIR}/dist
-tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/
-echo "    ✓ 解压完成"
+# S72 v3.0.33 batch 4 修复: tar 解压到 dist/ 子目录 (systemd unit mount namespacing 期望 /www/wwwroot/shipin-APP/dist)
+# 之前解压到 ${DIST_DIR}/ 根, systemd unit 找不到 dist/index.js → 226/NAMESPACE failed
+mkdir -p ${DIST_DIR}/dist
+tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist
+echo "    ✓ 解压完成到 ${DIST_DIR}/dist"
 
 # 验证 tsc 输出完整 (BUG-073 教训)
 head -1 ${DIST_DIR}/dist/index.js | head -c 200
