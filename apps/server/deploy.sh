@@ -161,8 +161,13 @@ fi
 # ==================== 3. 备份 + 解压 ====================
 echo ">>> [5/9] 备份当前 dist..."
 BACKUP_NAME="dist.bak.s$(date +%Y%m%d_%H%M%S)"
-cp -r ${DIST_DIR}/dist ${DIST_DIR}/${BACKUP_NAME}
-echo "    ✓ 备份到 ${BACKUP_NAME}"
+# S72 v3.0.33 batch 4 修复: dist 不存在时跳过备份 (避免 cp fail exit 1)
+if [ -d "${DIST_DIR}/dist" ]; then
+  cp -r ${DIST_DIR}/dist ${DIST_DIR}/${BACKUP_NAME}
+  echo "    ✓ 备份到 ${BACKUP_NAME}"
+else
+  echo "    ⚠️ dist 不存在, 跳过备份 (S72 部署路径 bug 后状态)"
+fi
 
 echo ">>> [6/9] 解压新 dist..."
 if [ ! -f /tmp/dist.tar.gz ]; then
