@@ -2683,3 +2683,186 @@ except json.JSONDecodeError as e:
 - [BUG-078 systemd ProtectSystem 启动失败](../apps/mobile/BUGS.md#bug-078) — 前置 (同类 systemd 容器环境 charset 坑)
 - [BUG-079 S71 假报告 12 维](../apps/mobile/BUGS.md#bug-079) — 前置 (S71 升级 verify-deploy 14→21 维教训, BUG-083 续到 22 维)
 - [BUG-082 React #31 错误对象渲染](../apps/mobile/BUGS.md#bug-082) — 配套 (S71 后置, 同为持久化边界处 schema 归一类 BUG)
+## BUG-087 (S72 batch 5 后置, v3.0.35, 2026-06-26 00:22): APP 内"无限发现新版本" — version.ts 1 行注释 tsc 报 `is not a module` → APP_VERSION=undefined
+
+### 现象
+- 用户反馈: **"APP 内为什么会出现无限发现新版本的问题?"**
+- 不管用户装的是 v3.0.29 还是新装的 v3.0.34 APK, 每次冷启动都弹"发现新版本 v3.0.34"弹窗
+- 用户点"取消" → 下次冷启动又弹 → "无限"循环
+- 严重影响首屏体验, 用户怀疑 APP 卡 bug
+
+### 真凶 (3 个并发缺陷叠加)
+
+#### 主犯: `apps/mobile/src/config/version.ts` 文件损坏 (1 行注释 + 0 newline)
+
+**文件状态 (损坏前)**:
+- 总字节: **1445 chars** (Python byte verify)
+- LF newline count: **0**
+- CR count: **0**
+- 整个文件是 1 行 `//` 注释 + `export const ...` 在同一行
+
+**TypeScript 编译报错** (关键诊断):
+```
+src/utils/updater.tsx(8,29): error TS2306: File '.../config/version.ts' is not a module.
+src/screens/AboutScreen.tsx(4,29): error TS2306: ...
+src/screens/AdminLoginScreen.tsx(18,34): error TS2306: ...
+```
+
+**为什么 tsc 没在 build 时 fail?**
+- TypeScript 默认配置 (`tsc --noEmit`) 在 import 失败时**警告但不 fail**
+- 编译产出 JS bundle 时, `version.ts` 编译成空 module, export undefined
+- 移动端 `import { APP_VERSION } from '../config/version'` 拿到 `undefined`
+
+**运行时灾难链**:
+1. mobile JS bundle 加载, `APP_VERSION = undefined`
+2. `App.tsx:178` useEffect 触发 `checkForUpdate()`
+3. `checkForUpdate` 内部 fetch: ``${API_BASE_URL}/version?version=${APP_VERSION}``
+4. 实际 URL: `http://159.75.16.110:6000/api/version?version=undefined`
+5. server (`apps/server/src/index.ts:75`): `const clientVersion = req.query.version as string || '0.0.0';`
+6. **坑**: 字符串 `'undefined'` 是 truthy, 所以 `||` 不会 fallback 到 `'0.0.0'`, `clientVersion = 'undefined'`
+7. `compareVersions('3.0.34', 'undefined')` 解析:
+   - `'3.0.34'.split('.') = [3, 0, 34]`
+   - `'undefined'.split('.') = ['undefined']` → `Number('undefined') = NaN` → `(NaN || 0) = 0`
+   - `3 > 0` → return 1
+8. `needUpdate = 1 > 0 = true` → `forceUpdate = true` → `showUpdateDialog` 弹窗
+9. 用户点"取消" → `DialogStore.close()` → 无任何记忆
+10. 下次冷启动 (杀进程/退出登录) → useEffect 再次触发 → 重新 fetch → **再次弹窗**
+
+#### 次要 1: `showUpdateDialog` 取消按钮无副作用
+
+`apps/mobile/src/utils/updater.tsx:49-53` (修前):
+```tsx
+<TouchableOpacity
+  onPress={() => DialogStore.close()}  // ← 没有任何持久化
+>
+  <Text>取消</Text>
+</TouchableOpacity>
+```
+
+**坑**: 取消按钮只关弹窗, 没记录"这个版本我已看过了", 下次冷启动会重新弹。
+
+#### 次要 2: `apps/web/src/config/version-fixed.ts` 历史残留
+
+S69 BUG-074 临时回退时备份的 `version-fixed.ts` 还留在仓库, 内容 `APP_VERSION = '3.0.29'`。
+- 0 个引用 (grep 验证), 不会触发 BUG
+- 但留着会让人误用
+
+### 修复 (v3.0.35)
+
+#### Fix 1: `apps/mobile/src/config/version.ts` 重写为多行 (主修)
+
+重写整个文件, 用 Write 工具强制带 LF newline:
+```ts
+// APP 版本统一管理
+// ... 注释 ...
+export const APP_VERSION = '3.0.35';
+export const APP_NAME = 'Deep剧本';
+export const APP_DISPLAY_NAME = `${APP_NAME} v${APP_VERSION}`;
+```
+
+**验证** (Python byte):
+- Total bytes: 1476 (含 LF)
+- LF count: **24** ✓
+- CR count: 0 ✓
+- 末尾有 LF ✓
+
+**tsc 验证**:
+- `version.ts` 不再报 `TS2306: is not a module` ✓
+- 其它 pre-existing 错误 (AdminDashboard 等) 不在本次 BUG 范围, 不影响 build
+
+#### Fix 2: 新建 `apps/mobile/src/db/updateMemory.ts` (24h 抑制, 防御性)
+
+用 RNFS (跟 `tokenStorage.ts` 同款, 不引入新依赖):
+```ts
+export interface UpdateMemory {
+  lastDismissedVersion: string;
+  lastDismissedAt: number;
+}
+
+export async function shouldSuppressUpdateDialog(
+  serverVersion: string,
+  forceUpdate: boolean
+): Promise<boolean> {
+  if (forceUpdate) return false;  // 强制升级不抑制
+  const memory = await getUpdateMemory();
+  if (!memory) return false;
+  const sameVersion = memory.lastDismissedVersion === serverVersion;
+  const withinWindow = Date.now() - memory.lastDismissedAt < 24 * 60 * 60 * 1000;
+  return sameVersion && withinWindow;
+}
+```
+
+#### Fix 3: `apps/mobile/src/utils/updater.tsx` showUpdateDialog 异步化 + 加 24h 抑制
+
+- 签名改 `async showUpdateDialog(...)` (原来 sync void)
+- 进入时检查 `shouldSuppressUpdateDialog` → 抑制则直接 return
+- "取消" 按钮 (forceUpdate=false 时才显示) → 写 `.update_memory`
+- "APP 内下载" / "浏览器下载" → 不写抑制 (让用户真去下载)
+- forceUpdate=true 时文案改 "紧急升级", 隐藏"取消"按钮
+
+#### Fix 4: `apps/mobile/App.tsx` useEffect 加日志
+
+```tsx
+useEffect(() => {
+  const checkUpdate = async () => {
+    try {
+      const updateInfo = await checkForUpdate();
+      if (updateInfo) {
+        console.log('[App] update available', { version: updateInfo.version, forceUpdate: updateInfo.forceUpdate });
+        await showUpdateDialog(updateInfo);
+      } else {
+        console.log('[App] no update needed (clientVersion >= serverVersion)');
+      }
+    } catch (e) {
+      console.warn('[App] checkUpdate failed', e);
+    }
+  };
+  checkUpdate();
+}, []);
+```
+
+#### Fix 5: 删 `apps/web/src/config/version-fixed.ts`
+
+mavis-trash (0 个引用, 安全删)。
+
+### 怎么验证修好 (4 步)
+
+1. **TypeScript 编译**: `cd apps/mobile && npx tsc --noEmit`
+   - 期望: `version.ts` 不再报 `TS2306: is not a module`
+   - 实测: ✓ 通过
+
+2. **APK metadata**: `aapt2 dump badging app-release.apk`
+   - 期望: `versionCode='40' versionName='3.0.35'`
+   - 实测: ✓
+
+3. **8 处版本号同步**: `node tools/verify-version-8-points.js 3.0.35`
+   - 期望: 8 处本地 + 2 处远程全过 (`.env` + `systemd unit` deploy.sh 自动同步)
+   - 实测: ✓ 本地 8 处全过, 远程 2 处部署后同步
+
+4. **3 个 E2E 场景** (`/api/version?version=...`):
+   | 场景 | clientVer | server | needUpdate | 期望 |
+   |---|---|---|---|---|
+   | 老用户 v3.0.34 APK | 3.0.34 | 3.0.35 | true | 弹"发现新版本" ✓ |
+   | 新用户 v3.0.35 APK | 3.0.35 | 3.0.35 | **false** | **不弹** ✓ |
+   | 无 clientVer | 0.0.0 | 3.0.35 | true | 弹 ✓ |
+   - 实测: ✓ 3 个全过
+
+### 怎么避免再犯 (教训沉淀)
+
+1. **mobile `config/version.ts` 是 critical 文件** — 任何写入操作必须用 Write 工具 + 验证 byte
+2. **每次 commit 后必跑 `node tools/verify-version-8-points.js`** — 跨端铁律 3 自检
+3. **mobile `tsc --noEmit` 0 错是底线** — 不能因为 build 通过就跳过类型检查 (TS 默认 `noEmitOnError: false` 会继续 build)
+4. **update dialog 取消/已看必须持久化** — 跨项目通用 UX 原则 (任何弹窗都要考虑"用户已经看过了"的状态)
+5. **query param `||` fallback 有坑** — `'undefined' || '0.0.0'` 不会 fallback, 因为 `'undefined'` 是 truthy. 改用 `??` 或显式 `=== 'undefined'`
+
+### Refs
+- AGENTS.md § 4 铁律 3 (8 处版本号同步)
+- VERSION_MANAGEMENT.md § 3 单一来源原则
+- CODING_STANDARDS.md § 38 (mobile 硬性规范, BUG 记录强制流程)
+- BUG-079 (S71 web version.ts PS 5.1 写入丢 newline) — **同类问题前置, 没防住 mobile**
+- BUG-066 (S71 server package.json version 残留) — **同类问题前置, 教训没传承到 mobile**
+
+### 前置 BUG (本 batch 4 后置 5 同类)
+- [BUG-079 S71 web version.ts PS 5.1 丢 newline](../apps/mobile/BUGS.md#bug-079) — 同一个坑, 两次犯 (web 修后 mobile 没防)
+- [BUG-066 S71 server package.json version 残留](../apps/mobile/BUGS.md#bug-066) — 升级链路版本号同步 6→8 处自检前
+

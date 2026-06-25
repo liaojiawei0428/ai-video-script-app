@@ -178,6 +178,7 @@
 - **损坏特征**: 大文件 (>500B) newline < 3 → 必重新用 Write 工具写干净版
 - **pre-commit 防呆** (可选): `.husky/pre-commit` 自动跑 `bash tools/check-ps51-newline.sh --staged`, 任何损坏文件 commit 必失败
 - **真实案例 (S71 BUG-079)**: `src/index.ts` 6673 字节挤 3 行 (newline=2), `web/version.ts` 1008 字节挤 1 行 (newline=0), tsc 编译出 11 行 dist, node 启动立即 exit 0
+- **真实案例 (S72 batch 5 BUG-087)**: `apps/mobile/src/config/version.ts` 1445 字节挤 1 行 (newline=0, 整个文件是 `//` 注释 + `export const ...` 在同一行). tsc 报 `TS2306: File .../version.ts is not a module`, 运行时 `APP_VERSION = undefined`, fetch 发 `?version=undefined`, server `compareVersions` 返 1 → 无限发现新版本弹窗. 同 S71 BUG-079 一模一样的坑, web 修后 mobile 又犯
 - **跨项目通用**: PowerShell 5.1 是 Windows Server 2016/2019 默认, 任何 AI 用 ssh 写远端文件必走 Write 工具或 `cat > file <<EOF` 避免 PS 5.1 写入
 
 ### 铁律 8: 🔌 server 写持久化 JSON 必 string 归一 (S71 BUG-082 强约束, 跨项目通用)
