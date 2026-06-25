@@ -207,6 +207,9 @@ export class NovelService {
       styleId: novel.styleId, styleBibleVersion: styleBible.version,
     });
 
+    // S72 v3.0.33 P1 #7 修复 (ADR-0002): 删 multer 写入的原上传文件, 避免磁盘日积月累泄漏
+    try { await fs.unlink(filePath); } catch (e) { logger.warn('清理原上传文件失败', { filePath, err: e instanceof Error ? e.message : String(e) }); }
+
     return novel;
   }
 
@@ -468,6 +471,7 @@ export class NovelService {
     await novelModel.updateAnalysisReport(novelId, fullContent);
     logger.info('Analysis report saved', { novelId, reportLength: fullContent.length });
 
+    // S72 v3.0.33 P1 #6 修复 (ADR-0002): 角色解析 0 字符时, websocket 推送 fallback 提示
     if (parsedChars.length > 0) {
       const characters = parsedChars.map(char => ({
         id: generateUUID(), novelId,
@@ -482,6 +486,12 @@ export class NovelService {
       logger.info('Characters saved', { novelId, count: characters.length, descFields: Object.keys(characters[0]?.description ? JSON.parse(characters[0].description as any) : {}).length });
     } else {
       logger.warn('No characters parsed from analysis report (regex missed)', { novelId, contentLength: fullContent.length });
+      // S72 v3.0.33 P1 #6 fallback: 显式提示用户, 避免 silently failed
+      websocketService.broadcastLlmUpdate(novelId, {
+        phase: 'character_extracting', step: 'output',
+        content: '⚠️ 角色描述未从分析报告解析 (LLM 输出格式可能变了), 可手动调 POST /api/novels/<id>/backfill-characters 重试',
+        stream: false,
+      });
     }
 
     // ========== Phase 4: 角色描述补充 (v2.5.14 — 仅当分析报告未生成详细描述时才调用) ==========
@@ -519,6 +529,12 @@ export class NovelService {
         logger.info('Character descriptions supplemented', { novelId, ...descResult });
       } catch (err) {
         logger.warn('Character description supplementation failed', { novelId, error: err instanceof Error ? err.message : String(err) });
+        // S72 v3.0.33 P1 #8 修复 (ADR-0002): 显式推送失败, 避免 silently failed
+        websocketService.broadcastLlmUpdate(novelId, {
+          phase: 'character_extracting', step: 'output',
+          content: `⚠️ 角色详细描述补充失败 (${err instanceof Error ? err.message : String(err)}), 角色可在角色库手动补`,
+          stream: false,
+        });
       }
     } else {
       logger.info('Characters already have detailed descriptions from analysis, skipping extractDescriptions', { novelId });
