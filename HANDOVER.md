@@ -2,7 +2,7 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-06-25 (S71 收尾, v1.3, 4 P0 BUG 全修 + 8 处版本号规范自迭代 + 4 教训沉淀 + BUG-081 铁律 4+)
+> **最后更新**: 2026-06-25 (S72 batch 4 收口 v1.5, BUG-083 修 + 铁律 9 思考链 visible + 跨端 6→9 铁律 + 23 BUG + 26 坑点)
 
 ---
 
@@ -89,7 +89,7 @@ shipin-APP/
 | **S70** | "宝塔部署踩坑" | v3.0.30 P7 | BUG-077 + 宝塔 Node 项目 + BAOTA_NODE_PROJECT_DEPLOY.md v1.0 + deploy.sh 走 systemd | BUG-077 | 7b11230 + db59d4d |
 | **S71** | "S71 后置 4 P0 BUG" | v3.0.32→3.0.33 P8 | BUG-079/080/081/082 4 P0 + BUG-082 P2 TODO + 8 处版本号规范自迭代 + 4 教训 + 铁律 4+/8 | BUG-079/080/081/082 + 082 P3 | d795675 / 6ea3484 / abca9d3 / 4381a7e / f92cc19 / 81f4972 / 084a148 / 1a402c3 |
 | **S72** | "汇报沟通规范从无到有" | v3.0.33 P9 | 新建 `docs/REPORTING_STANDARDS.md` 7 文件体系 (主索引 59 行 + 6 topic files 各 < 100 行) + 加做事 4 原则 / 任务前列计划 / 自我改进循环 (A/B/C) + 跨端跨工具借鉴 (Karpathy CLAUDE.md + Boris Cherny + 灵犀 Claw + BerriAI) | (规范自迭代, 无 BUG) | b176ee9 / 02c496b / 58e69fd / f5e2a48 / bfa9ea9 |
-| **S72 batch 4** (本 session) | "S72 batch 4 P0/P1/P2 部署 + 修生产 dist/changelog.json 损坏" | v3.0.33 P10 | ADR-0002 8 问题全修 (P0 #1-#4 并发扣费/异常回滚/状态机/billing_logs 孤儿 + P1 #5-#8 取消状态/解析 fallback/upload 清理/extract 失败 + P2 #9-#11 自动剧集配置/analyze 鉴权/chunk 段号) + deploy.sh 3 修 (NEW_VERSION 路径/解压 dist 子目录/backup if 检查) + **BUG-083 (本 session 发现)**: 生产 dist/changelog.json 400 Chinese 损坏成 `?` 修复 + verify-deploy.sh 维度 21 防呆 | BUG-083 (新) | 0b626ce / 5c49e68 / b6fddcf / d3c5ca8 / dda46a2 / 0c6b77f / 6ac0fe3 / 36392aa / 1244bea / d0babad / d7e7d00 / f543562 / 310098e + 后续 BUG-083 修法 commit |
+| **S72 batch 4** (本 session) | "S72 batch 4 P0/P1/P2 部署 + 修生产 dist/changelog.json 损坏 + 铁律 9 思考链 visible" | v3.0.33 P10 + **AGENTS.md v2.9** | ADR-0002 8 问题全修 (P0 #1-#4 并发扣费/异常回滚/状态机/billing_logs 孤儿 + P1 #5-#8 取消状态/解析 fallback/upload 清理/extract 失败 + P2 #9-#11 自动剧集配置/analyze 鉴权/chunk 段号) + deploy.sh 3 修 (NEW_VERSION 路径/解压 dist 子目录/backup if 检查) + **BUG-083 (本 session 发现)**: 生产 dist/changelog.json 400 Chinese 损坏成 `?` 修复 + verify-deploy.sh 维度 21 防呆 + **🆕 铁律 9 (S72 batch 4 收口 user 硬要求)**: 思考链 + 工具调用流必须 visible, 跨端 6→9 铁律, 配 REPORTING_STANDARDS.md v2.4 同步 | BUG-083 (新) | 0b626ce / 5c49e68 / b6fddcf / d3c5ca8 / dda46a2 / 0c6b77f / 6ac0fe3 / 36392aa / 1244bea / d0babad / d7e7d00 / f543562 / 310098e + 后续 BUG-083 修法 + 铁律 9 commit |
 
 ### 2.2 23 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
@@ -221,6 +221,10 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 
 25. **BUG-083 dist/changelog.json 字符编码损坏坑** — S72 batch 4 部署时, 生产 dist/changelog.json 400 个 Chinese 全部被替换成 `?` (单字节 0x3F), `/api/version` 返回 invalid JSON. 根因 3 层链: 1) 本地 10 条 highlights 含大量 Chinese 2) scp 或 systemd 容器环境 charset 转换 3) deploy.sh 没强制 `cp -f changelog.json dist/changelog.json` (S72 commit 310098e 补上但对已损坏生产无效). **修法**: 1) deploy.sh 加 `cp -f changelog.json dist/changelog.json` (commit 310098e) 2) verify-deploy.sh 加维度 21 检查 dist/changelog.json UTF-8 完整性 (non-ASCII char 计数 + JSON parse) 3) 重新部署让修法 1 覆盖损坏版. 跨项目通用: **scp / 写远端 JSON 文件必显式 UTF-8 编码, deploy.sh 对文本文件必 `cp` 一次到 dist/**
 
+### 5.6 🆕 S72 batch 4 后置规范坑 (1 个新, 铁律 9)
+
+26. **silent 执行坑 (跨项目通用, 铁律 9 配套)** — AI 接到任务 silent 推理 5-10 步 + 直接出结果, user 中途无法介入, 跑偏 30+ min 才发现. 根因: AI 内部 thinking 块不暴露 + 工具调用结果不报 + 失败/判断点不主动说. **修法 (铁律 9, S72 batch 4 收口 user 硬要求)**: 1) 思考过程显式写到回复 (📋 思考: ...) 2) 工具调用流必报 (做什么+为什么+结果) 3) 失败/重试主动报 (⚠️ 撞墙: 错 X, 试 Y) 4) 自主判断点列选项 (2+ 候选必显式) 5) 测试/验证贴原始输出 (前 5+后 5+关键中间). 跨项目通用: **任何 AI session 默认 full D 模式, silent 执行 = 浪费 10 倍时间**
+
 ---
 
 ## § 6. 交接模板 (下次 session 收尾时, AI 必追加一段)
@@ -289,5 +293,5 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-25 (S72 batch 4 收口 + BUG-083 修 + verify-deploy 维度 21 防呆 + 23 BUG 总数, v1.4)
+> **最后更新**: 2026-06-25 (S72 batch 4 收口 + BUG-083 修 + verify-deploy 维度 21 防呆 + 铁律 9 思考链 visible 跨端 6→9 铁律 + 23 BUG + 26 坑点, v1.5)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6

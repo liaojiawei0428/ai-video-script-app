@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.8 (2026-06-25 S72, 在 v2.7 基础上拆分 REPORTING_STANDARDS.md: 主文件从 348 行降至 ~50 行, 拆出 3 topic files 到 docs/reporting/ 目录, 按 v2.2 C 规模警告硬性要求执行)
+> **版本**: v2.9 (2026-06-25 S72 batch 4 收口, 加 铁律 9 🔍 思考链 + 工具调用流必 visible, 跨端 6→9 铁律)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
@@ -103,7 +103,7 @@
 
 ---
 
-## § 4. 跨端 6 条铁律 (S68 综合 mobile 4 + server 8 + 根 4 去重)
+## § 4. 跨端 9 条铁律 (S68 综合 mobile 4 + server 8 + 根 4 去重, S72 batch 4 收口扩 8→9)
 
 > **任何 AI 必遵守, 跨端通用, 跟各 app 独有铁律互补**:
 
@@ -187,6 +187,26 @@
 - **前端兜底**: 即使 server 修对了, web 渲染 user-supplied data 必 `typeof === 'string' ? : JSON.stringify()` 防御, 防历史脏数据
 - **真实案例 (S71 BUG-082)**: agnes API 返 `{error: {code, message}}`, videoAgentService L705 原样存进 DB, web 渲染对象 → React #31, 整个会话 tab 卡死
 - **跨项目通用**: 任何 API 边界 (前端 form 后端 / 第三方 API 后端 / WebSocket / MessageQueue) 写持久化时, schema 必归一, 不能透传上游结构
+
+### 铁律 9: 🔍 思考链 + 工具调用流必须 visible (S72 batch 4 收口 user 硬要求, 跨端统一)
+- **🛑 严禁**: AI silent 执行 5-10 步突然报错 — user 无法介入, 跑偏 30+ min 才发现, 浪费巨大
+- **✅ 必做 (5 场景全覆盖, full D 模式硬要求)**:
+  1. **思考过程必报**: 关键推理 (判断依据 / 方案对比 / 风险评估) 必以 `📋 思考: ...` 段显式写到回复, 不允许 silent 推理
+  2. **工具调用流必报**: 每个 Bash / Read / Write / Edit / Glob / Grep 工具调用, 必简要说明 `做什么 + 为什么 + 结果` (尤其命令成功也报, 不只报错才报)
+  3. **失败/重试必主动报**: 撞墙 → 必发 `⚠️ 撞墙: 错 X, 试 Y` 一条, 不等 user 追问
+  4. **自主判断点必列选项**: 有 2+ 候选方案 → 必显式列选项 + 我的推荐 + 理由, 不直接干
+  5. **测试/验证必贴原始输出**: tsc / 6 维验证 / grep / curl 这种 5+ 行输出必贴前 5 + 后 5 + 关键中间, 不只报"全过"或"0 ERROR"
+- **限制 (防止字数膨胀)**:
+  - 重复 5+ 次的 stdout 贴前 5 + 后 5 + 关键中间
+  - 短任务 (<3 步) 简报即可
+  - 紧急 / 隐私 / 密码 / SSH 密钥 / secret: 简化
+- **配套文档** (跟本铁律配套, S72 体系):
+  - [`docs/REPORTING_STANDARDS.md`](docs/REPORTING_STANDARDS.md) — 汇报沟通规范主索引 (v2.3, 7 文件)
+  - [`docs/reporting/模板-任务计划.md`](docs/reporting/模板-任务计划.md) — 任务前先列计划 (3 步以上)
+  - [`docs/reporting/自检.md`](docs/reporting/自检.md) — 自检清单 15 项
+  - [`docs/reporting/原则.md § D 规模警告`](docs/reporting/原则.md) — C 规模警告硬要求
+- **真实案例 (S72 batch 4 收口)**: user profile "full D 模式" 跨端统一成铁律 9, 5 场景全覆盖, 副作用是字数膨胀由 AI 主动控制 (重复 stdout 截断 / 短任务简报 / 紧急简化)
+- **违反代价**: silent 执行 → user 无法介入 → 跑偏 5-10 步才发现 → 浪费 30+ min → 比多打 100 字成本高 10 倍
 
 ---
 
@@ -342,5 +362,5 @@
 ---
 
 > **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参与 shipin-APP 项目时必须遵守.
-> **最后更新**: 2026-06-24 (S68 收口升级 v2.0)
+> **最后更新**: 2026-06-25 (S72 batch 4 收口 v2.9, 加 铁律 9 思考链 + 工具调用流必 visible + 跨端 6→9 铁律 + BUG-083 修法配套)
 > **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时
