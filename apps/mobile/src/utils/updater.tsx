@@ -9,6 +9,9 @@ import { APP_VERSION } from '../config/version';
 import { colors, spacing, radii, typography, shadows } from '../theme';
 import { Dialog } from '../components/Dialog';
 import { DialogStore, useDialog } from '../hooks/useDialog';
+// v3.0.35 (S72 batch 5): BUG-087 修法 - 24h 抑制"无限发现新版本"
+// 用 RNFS 持久化"用户取消过哪个版本", 同一版本 24h 内不再弹
+import { shouldSuppressUpdateDialog, setUpdateDismissed } from '../db/updateMemory';
 
 interface VersionInfo {
   version: string;
@@ -31,31 +34,51 @@ export async function checkForUpdate(): Promise<VersionInfo | null> {
   }
 }
 
-export function showUpdateDialog(versionInfo: VersionInfo, onDismiss?: () => void): void {
-  const { version, changelog, downloadUrl } = versionInfo;
+export async function showUpdateDialog(versionInfo: VersionInfo, onDismiss?: () => void): Promise<void> {
+  const { version, changelog, downloadUrl, forceUpdate } = versionInfo;
+
+  // v3.0.35 (S72 batch 5): BUG-087 修法 - 24h 抑制"无限发现新版本"
+  // forceUpdate=true → 强制弹 (安全/关键修复, 不可抑制)
+  // 否则: 同版本 + 24h 内已取消 → 跳过弹窗
+  const suppress = await shouldSuppressUpdateDialog(version, !!forceUpdate);
+  if (suppress) {
+    console.log('[Updater] dialog suppressed by 24h memory', { version, forceUpdate });
+    onDismiss?.();
+    return;
+  }
 
   // v3.0.24 (S60 P1): 改用 Dialog 组件 + 自定义内容 (3 按钮), 不再用 Alert.alert
+  // v3.0.35 (S72 batch 5): BUG-087 修法 - 取消按钮调 setUpdateDismissed 写入 .update_memory
+  //                          下载按钮不写入 (用户真的要更新就让他更新, 不要写抑制)
   DialogStore.show({
     type: 'custom',
     options: {
-      title: '发现新版本 v' + version,
+      title: (forceUpdate ? '紧急升级 v' : '发现新版本 v') + version,
       content: (
         <View>
           <Text style={updateDialogStyles.body}>
-            请更新到最新版本后使用{'\n\n'}<Text style={{ color: colors.text.accent }}>{changelog}</Text>{'\n\n'}推荐用浏览器下载 (下载快 + 自带进度 + 失败可重试)
+            {forceUpdate ? '本次升级为强制更新 (安全/关键修复), 升级后才能继续使用' : '请更新到最新版本后使用'}{'\n\n'}<Text style={{ color: colors.text.accent }}>{changelog}</Text>{'\n\n'}推荐用浏览器下载 (下载快 + 自带进度 + 失败可重试)
           </Text>
           <View style={updateDialogStyles.btnGroup}>
-            <TouchableOpacity
-              style={[updateDialogStyles.btn, updateDialogStyles.btnSecondary]}
-              onPress={() => DialogStore.close()}
-              activeOpacity={0.7}
-            >
-              <Text style={updateDialogStyles.btnSecondaryText}>取消</Text>
-            </TouchableOpacity>
+            {forceUpdate ? null : (
+              <TouchableOpacity
+                style={[updateDialogStyles.btn, updateDialogStyles.btnSecondary]}
+                onPress={() => {
+                  DialogStore.close();
+                  // BUG-087: 取消 → 写 24h 抑制, 下次冷启动不再弹
+                  setUpdateDismissed(version);
+                  onDismiss?.();
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={updateDialogStyles.btnSecondaryText}>取消 (24h 不再提醒)</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[updateDialogStyles.btn, updateDialogStyles.btnSecondary]}
               onPress={() => {
                 DialogStore.close();
+                // 不写抑制 (用户真要下载, 让他下载)
                 Updater.start(downloadUrl, version);
               }}
               activeOpacity={0.7}
@@ -66,6 +89,7 @@ export function showUpdateDialog(versionInfo: VersionInfo, onDismiss?: () => voi
               style={[updateDialogStyles.btn, updateDialogStyles.btnPrimary]}
               onPress={() => {
                 DialogStore.close();
+                // 不写抑制 (用户真要去浏览器, 让他去)
                 Linking.openURL(downloadUrl).catch(() =>
                   useDialog().showAlert({ title: '打开失败', message: '请手动访问 ' + downloadUrl, variant: 'error' })
                 );

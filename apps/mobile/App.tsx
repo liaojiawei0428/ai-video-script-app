@@ -175,14 +175,23 @@ function App(): React.JSX.Element {
   // 删 setNeedUpdate/setUpdateVersion/setUpdateUrl 3 个 state + 强制更新页 (App.tsx:140-142, 191-209)
   // 删 updateStyles 样式 (App.tsx:305)
   // 修 BUG-014 (S58 P7): 删全屏"立即更新"页, 让 React 渲染继续走, showUpdateDialog 弹窗能正常显示
+  // v3.0.35 (S72 batch 5): BUG-087 修法 - showUpdateDialog 内部 24h 抑制 (避免"无限发现新版本")
+  //   - 取消按钮 → 写 .update_memory (24h 不再弹同版本)
+  //   - forceUpdate=true → 强制弹, 不抑制
+  //   - 下载按钮 (APP 内/浏览器) → 不抑制 (让用户真去下载)
   useEffect(() => {
     const checkUpdate = async () => {
       try {
         const updateInfo = await checkForUpdate();
         if (updateInfo) {
-          showUpdateDialog(updateInfo);
+          console.log('[App] update available', { version: updateInfo.version, forceUpdate: updateInfo.forceUpdate });
+          await showUpdateDialog(updateInfo);
+        } else {
+          console.log('[App] no update needed (clientVersion >= serverVersion)');
         }
-      } catch {}
+      } catch (e) {
+        console.warn('[App] checkUpdate failed', e);
+      }
     };
     checkUpdate();
   }, []);

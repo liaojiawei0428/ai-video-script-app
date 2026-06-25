@@ -5,129 +5,16 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (同 version 后 set 覆盖前, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
-      "version": "3.0.29",
-      "buildDate": "2026-06-24",
-      "type": "patch",
-      "summary": "Web 端账单明细加完整消费 + 免费记录 (BUG-078)",
-      "highlights": [
-        "BUG-078 修: Web 端'账单明细' 缺消费记录, 只显示充值",
-        "billing_logs 表加 4 字段 (is_free/ref_type/ref_id/ref_label) + 2 索引",
-        "新加 billingService.recordConsumption() 统一入口 (含免费)",
-        "新加 /api/billing/transactions + /api/billing/summary 端点 (auth 内置)",
-        "新加 routes/billing.ts",
-        "Web BillingPage 重写: 4 卡 summary + 3 tab (全部/消费/充值) + ref_type icon (小说分析/分镜/角色三视图/图片/视频) + 区分收费/免费",
-        "imageAgentService 主图生成完成调 recordConsumption (免费也记)",
-        "videoAgentService 改走 recordConsumption (含免费)",
-        "characterService.generateImageVariants 加 refType/refLabel",
-        "novelService.analyze / scriptService.episode/shot 走统一 recordConsumption (有 ref_label)"
-      ]
-    },
-    {
-      "version": "3.0.31",
-      "buildDate": "2026-06-24",
-      "type": "patch",
-      "summary": "Web 端扣费审计 5 个不一致全修 (BUG-072 A/B/C/E)",
-      "highlights": [
-        "BUG-072 A 修: 角色三视图 + 镜头图 ¥0.1/张 显式列入 /api/pricing + VipCenter UI 文案 (跟生图免费标准对齐)",
-        "BUG-072 B 修: 普通用户生图日限额 30 张 UNION 3 表生效 (image_conversations + characters + shots)",
-        "BUG-072 C 修: characterService 改走 billingService.chargeImage 标准接口, 删 IMAGE_VARIANT_PRICE 硬编码",
-        "BUG-072 E 修: video_conversations 加 billing_status 字段, 视频生成完成扣费失败时设 unsettled, billing_logs 写 consumption_pending 占位, 前端显示'余额不足, 充值后解锁' banner",
-        "新加 billingService.checkImageQuota() 配额检查方法 (供 characterService 调)"
-      ]
-    },
-    {
-      "version": "3.0.29",
-      "buildDate": "2026-06-24",
-      "type": "minor",
-      "summary": "角色库 UI 商业化重设计 + 5 BUG 修复",
-      "highlights": [
-        "角色库三屏全面商业化重设计 (Notion/Linear dark theme 风格)",
-        "新建 theme/character.ts (191 行) + 4 个商业化组件 (CharacterAvatar/Chip/EmptyState/LinearGradient)",
-        "BUG-061 修 WCAG 11.6:1 对比度 (text.body 替代 text.tertiary)",
-        "BUG-062 替换 emoji icon → Ionicons 矢量图标 (跨 OS 一致)",
-        "BUG-063 chip alpha 12.5% 隐形 → 改用不透明 bg"
-      ]
-    },
-    {
-      "version": "3.0.28",
-      "buildDate": "2026-06-22",
-      "type": "minor",
-      "summary": "角色库跟 Web 端 1:1 对齐",
-      "highlights": [
-        "CharacterDetailScreen 加编辑模式 + 确认 + 生成三视图",
-        "CharacterListScreen 加重新分析角色按钮 + sheet 单图预览",
-        "CharacterDescriptionReviewScreen 删 11 维字段编辑, 改 2 个 textarea",
-        "AssetLibraryScreen 单图 sheet 预览 (替代 3 张变体图网格)"
-      ]
-    },
-    {
-      "version": "3.0.25",
-      "buildDate": "2026-06-19",
-      "type": "minor",
-      "summary": "LLM prompt 优化 + 分镜模式 + Web VipCenterPage 文案",
-      "highlights": [
-        "server 端 LLM prompt 优化",
-        "分镜模式支持",
-        "Web VipCenterPage 文案补 15s 提醒",
-        "BUG-055 修 mobile 时长 chip 按 isVip 动态显示"
-      ]
-    },
-    {
-      "version": "3.0.22",
-      "buildDate": "2026-06-15",
-      "type": "patch",
-      "summary": "修 BUG-026 authorities 让 blob-util 内部匹配",
-      "highlights": [
-        "BUG-026 修 FileProvider authorities 路径匹配",
-        "blob-util 内部 file:// URI 解析修复"
-      ]
-    },
-    {
-      "version": "3.0.21",
-      "buildDate": "2026-06-14",
-      "type": "patch",
-      "summary": "Android 7+ StrictMode FileProvider 修",
-      "highlights": [
-        "BUG-025 修 actionViewIntent 路径用 _state.destPath 不用 res.path()",
-        "Android 7+ StrictMode 禁用 file:// URI, 改 content://"
-      ]
-    },
-    {
-      "version": "3.0.13",
-      "buildDate": "2026-06-13",
+      "version": "1.0.0",
+      "buildDate": "2026-05-21",
       "type": "major",
-      "summary": "生图 Agent 极简 passthrough 模式",
+      "summary": "初始发布 - AI 剧本生成 + 书架 + WebSocket 实时通讯",
       "highlights": [
-        "删除所有 LLM 干预 (字段提取 / SDXL 模板 / 智能选模板)",
-        "用户原文 + 末尾 quality tags = 发给 agens",
-        "imagePromptLibrary.ts 整文件删除",
-        "imageAgentService processTurn/translatePlan 简化为无 LLM 直发"
-      ]
-    },
-    {
-      "version": "3.0.0",
-      "buildDate": "2026-06-09",
-      "type": "major",
-      "summary": "v3.0.0 整体升级 - Agent 矩阵 + 状态机重构",
-      "highlights": [
-        "v3.0.0 Phase A: agnesImageProvider 重构 (extra_body.image + response_format)",
-        "v3.0.0 Phase B: 生图 Agent 后端 (9 态状态机 + LLM 自适应)",
-        "v3.0.0 Phase C: 视频 Agent 后端 (setInterval 5s 轮询 + 失败重试)",
-        "v3.0.0 Phase D: web Layout 加 ImageIcon/VideoIcon nav 项 + v3.0.0-alpha 标",
-        "v3.0.0 Phase E: mobile ImageAgentScreen/VideoAgentScreen",
-        "v3.0.0 Phase F: 版本号同步 (server package.json + src/index.ts + ecosystem)"
-      ]
-    },
-    {
-      "version": "2.5.36",
-      "buildDate": "2026-06-09",
-      "type": "major",
-      "summary": "BUG 集中修复 + web deploy 脚本 + 版本号同步",
-      "highlights": [
-        "10 个 BUG 修复 (episodes/tasks 鉴权 / character double-JSON / WS 进度重置 / 通知路由)",
-        "apps/web/scripts/deploy.sh 新建",
-        "apps/server/package.json 1.0.0 → 2.5.36",
-        "/api/version 默认值 1.0.0 → 2.5.36"
+        "AI 剧本生成 (基于上传小说分析 → 剧本生成 → 分镜)",
+        "书架管理 (本地缓存, 离线浏览)",
+        "WebSocket 实时通讯 (AI 生成进度推送)",
+        "用户鉴权 (JWT + bcrypt)",
+        "VIP 机制 + 在线充值"
       ]
     },
     {
@@ -158,16 +45,98 @@
       ]
     },
     {
-      "version": "1.0.0",
-      "buildDate": "2026-05-21",
+      "version": "2.5.36",
+      "buildDate": "2026-06-09",
       "type": "major",
-      "summary": "初始发布 - AI 剧本生成 + 书架 + WebSocket 实时通讯",
+      "summary": "BUG 集中修复 + web deploy 脚本 + 版本号同步",
       "highlights": [
-        "AI 剧本生成 (基于上传小说分析 → 剧本生成 → 分镜)",
-        "书架管理 (本地缓存, 离线浏览)",
-        "WebSocket 实时通讯 (AI 生成进度推送)",
-        "用户鉴权 (JWT + bcrypt)",
-        "VIP 机制 + 在线充值"
+        "10 个 BUG 修复 (episodes/tasks 鉴权 / character double-JSON / WS 进度重置 / 通知路由)",
+        "apps/web/scripts/deploy.sh 新建",
+        "apps/server/package.json 1.0.0 → 2.5.36",
+        "/api/version 默认值 1.0.0 → 2.5.36"
+      ]
+    },
+    {
+      "version": "3.0.0",
+      "buildDate": "2026-06-09",
+      "type": "major",
+      "summary": "v3.0.0 整体升级 - Agent 矩阵 + 状态机重构",
+      "highlights": [
+        "v3.0.0 Phase A: agnesImageProvider 重构 (extra_body.image + response_format)",
+        "v3.0.0 Phase B: 生图 Agent 后端 (9 态状态机 + LLM 自适应)",
+        "v3.0.0 Phase C: 视频 Agent 后端 (setInterval 5s 轮询 + 失败重试)",
+        "v3.0.0 Phase D: web Layout 加 ImageIcon/VideoIcon nav 项 + v3.0.0-alpha 标",
+        "v3.0.0 Phase E: mobile ImageAgentScreen/VideoAgentScreen",
+        "v3.0.0 Phase F: 版本号同步 (server package.json + src/index.ts + ecosystem)"
+      ]
+    },
+    {
+      "version": "3.0.13",
+      "buildDate": "2026-06-13",
+      "type": "major",
+      "summary": "生图 Agent 极简 passthrough 模式",
+      "highlights": [
+        "删除所有 LLM 干预 (字段提取 / SDXL 模板 / 智能选模板)",
+        "用户原文 + 末尾 quality tags = 发给 agens",
+        "imagePromptLibrary.ts 整文件删除",
+        "imageAgentService processTurn/translatePlan 简化为无 LLM 直发"
+      ]
+    },
+    {
+      "version": "3.0.21",
+      "buildDate": "2026-06-14",
+      "type": "patch",
+      "summary": "Android 7+ StrictMode FileProvider 修",
+      "highlights": [
+        "BUG-025 修 actionViewIntent 路径用 _state.destPath 不用 res.path()",
+        "Android 7+ StrictMode 禁用 file:// URI, 改 content://"
+      ]
+    },
+    {
+      "version": "3.0.22",
+      "buildDate": "2026-06-15",
+      "type": "patch",
+      "summary": "修 BUG-026 authorities 让 blob-util 内部匹配",
+      "highlights": [
+        "BUG-026 修 FileProvider authorities 路径匹配",
+        "blob-util 内部 file:// URI 解析修复"
+      ]
+    },
+    {
+      "version": "3.0.25",
+      "buildDate": "2026-06-19",
+      "type": "minor",
+      "summary": "LLM prompt 优化 + 分镜模式 + Web VipCenterPage 文案",
+      "highlights": [
+        "server 端 LLM prompt 优化",
+        "分镜模式支持",
+        "Web VipCenterPage 文案补 15s 提醒",
+        "BUG-055 修 mobile 时长 chip 按 isVip 动态显示"
+      ]
+    },
+    {
+      "version": "3.0.28",
+      "buildDate": "2026-06-22",
+      "type": "minor",
+      "summary": "角色库跟 Web 端 1:1 对齐",
+      "highlights": [
+        "CharacterDetailScreen 加编辑模式 + 确认 + 生成三视图",
+        "CharacterListScreen 加重新分析角色按钮 + sheet 单图预览",
+        "CharacterDescriptionReviewScreen 删 11 维字段编辑, 改 2 个 textarea",
+        "AssetLibraryScreen 单图 sheet 预览 (替代 3 张变体图网格)"
+      ]
+    },
+    {
+      "version": "3.0.31",
+      "buildDate": "2026-06-24",
+      "type": "patch",
+      "summary": "Web 端扣费审计 5 个不一致全修 (BUG-072 A/B/C/E)",
+      "highlights": [
+        "BUG-072 A 修: 角色三视图 + 镜头图 ¥0.1/张 显式列入 /api/pricing + VipCenter UI 文案 (跟生图免费标准对齐)",
+        "BUG-072 B 修: 普通用户生图日限额 30 张 UNION 3 表生效 (image_conversations + characters + shots)",
+        "BUG-072 C 修: characterService 改走 billingService.chargeImage 标准接口, 删 IMAGE_VARIANT_PRICE 硬编码",
+        "BUG-072 E 修: video_conversations 加 billing_status 字段, 视频生成完成扣费失败时设 unsettled, billing_logs 写 consumption_pending 占位, 前端显示'余额不足, 充值后解锁' banner",
+        "新加 billingService.checkImageQuota() 配额检查方法 (供 characterService 调)"
       ]
     },
     {
@@ -232,6 +201,23 @@
         "E2E 验证 (6-25 23:00): 生图完整流程成功 (28s 生成 1.1MB 真图 https://platform-outputs.agnes-ai.space/images/t2i/98acd580e8d54f7a8e4235b59709994c.png). 生视频撞 agnes 上游 OpenAI 繁忙 (timeout 60s × 2 retry = 120s 仍失败, BUG-085 retry 加重覆盖此场景)",
         "版本号 8 处同步 3.0.33→3.0.34 (mobile version.ts + android build.gradle versionCode 38→39 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 37→38 + .env + systemd unit) — 铁律 3 8 处全自检",
         "🆕 APK rebuild: mobile gradlew assembleRelease 重打 v3.0.34 (versionCode 39) 上传 ab.maque.uno/app/DeepScript_v3.0.34.apk — 修下载页 APK 404 (S70-S72 期间没 rebuild 过, 老 v3.0.29 APK 已过期)"
+      ]
+    },
+    {
+      "version": "3.0.35",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "APP内“无限发现新版本” BUG 修 (BUG-087) + web 历史残留文件清理",
+      "highlights": [
+        "BUG-087 修: apps/mobile/src/config/version.ts 重写多行 (S72 batch 5 发现文件均在 1 行, tsc 报 TS2306 is not a module, 运行时 APP_VERSION=undefined, fetch 发 ?version=undefined, server compareVersions 返 1 → needUpdate=true → 每次冷启动都弹)",
+        "BUG-087 修: 新建 apps/mobile/src/db/updateMemory.ts (RNFS 跟 tokenStorage.ts 同款, .update_memory 文件记录 {lastDismissedVersion, lastDismissedAt})",
+        "BUG-087 修: apps/mobile/src/utils/updater.tsx showUpdateDialog 加 24h 抑制逻辑 (forceUpdate=true 优先弹, 同版本 + 24h 内已取消 → 跳过)",
+        "BUG-087 修: 取消按钮写入 .update_memory (下次冷启动不再弹); 下载按钮不写入 (让用户真去下载)",
+        "BUG-087 修: apps/mobile/App.tsx useEffect(checkUpdate) 加日志 ([App] update available / no update needed)",
+        "清理: 删 apps/web/src/config/version-fixed.ts (S69 BUG-074 历史残留文件, 0 个引用, 安全删)",
+        "粘合纠正: web src/config/version.ts APP_VERSION_CODE 38→39 (3.0.34=39 跟 mobile build.gradle versionCode 40 同步)",
+        "版本号 8 处同步 3.0.34→3.0.35 (跨端铁律 3): mobile version.ts + android build.gradle (versionCode 39→40) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE + changelog.json (本条目) + .env + systemd unit",
+        "E2E 验证 (待部署): mobile v3.0.34 APK 装载后冷启动 → 服务器 → needUpdate=false (不再弹) → 老用户选择取消后 24h 内 → 不再弹"
       ]
     }
   ]
