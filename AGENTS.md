@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.3 (2026-06-25 S71 后置 BUG-081, 加铁律 4+ 状态机迁移必同步 allowlist + response handler + HANDOVER.md S71 收尾 v1.3 + BUG-081 TODO 划掉)
+> **版本**: v2.4 (2026-06-25 S72, 加 `docs/REPORTING_STANDARDS.md` 五段式汇报沟通规范, § 3 必读表加 2.5 项)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
@@ -57,6 +57,7 @@
 | 0 | **本文件 `AGENTS.md`** | 跨端统一总入口 (中文/Persistence/铁律/工作流) |
 | 1 | **[`docs/STANDARDS_EVOLUTION.md`](docs/STANDARDS_EVOLUTION.md)** (S65 新建) | 规范自迭代 SOP (修订流程 5 步 + ADR 实践 + 责任矩阵) |
 | 2 | **[`docs/VERSION_MANAGEMENT.md`](docs/VERSION_MANAGEMENT.md)** (S64 新建) | 跨端版本管理 (6 处版本号 + § 5 发版 SOP + § 5.0 活跃任务部署) |
+| 2.5 | **[`docs/REPORTING_STANDARDS.md`](docs/REPORTING_STANDARDS.md)** (S72 新建) | 汇报沟通规范 (五段式大白话 + 禁用清单 + 改前改后对照, AI 跟用户沟通的唯一标准) |
 | 3 | **[`apps/mobile/BUGS.md`](apps/mobile/BUGS.md)** (跨端共用) | 历史 BUG 案例库 (BUG-001 ~ BUG-071, 21 个) |
 | 4 | **[`apps/mobile/CODING_STANDARDS.md`](apps/mobile/CODING_STANDARDS.md)** | 38 条硬性规范 + BUG 记录强制流程 |
 | 5 | **[`apps/mobile/AGENTS.md`](apps/mobile/AGENTS.md)** (S68 瘦身) | mobile 端独有 (RN 栈 + 升级 7 铁律 + 改 mobile 代码前后 5 步) |
