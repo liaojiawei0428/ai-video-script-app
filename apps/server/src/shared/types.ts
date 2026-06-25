@@ -42,8 +42,10 @@ export interface Novel {
   outlineText?: string;                // 分集大纲 JSON
   outlineConfirmed?: boolean;          // 大纲是否已确认
   outlineConfirmedAt?: number;        // 大纲确认时间
+  outlineStatus?: 'pending' | 'generating' | 'completed' | 'failed';  // S72 v3.0.33 P0 #3 修复 (ADR-0002)
   plotGraph?: string;                  // 事件图谱 JSON
   plotGraphGeneratedAt?: number;       // plotGraph 生成时间
+  plotGraphStatus?: 'pending' | 'generating' | 'completed' | 'failed';  // S72 v3.0.33 P0 #3 修复 (ADR-0002)
   createdAt: number;
   updatedAt: number;
 }

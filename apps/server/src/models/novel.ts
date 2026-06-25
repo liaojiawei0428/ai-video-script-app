@@ -46,6 +46,21 @@ export class NovelModel {
     );
   }
 
+  /**
+   * S72 v3.0.33 通用部分字段更新 (P0 #3 outlineStatus/plotGraphStatus + P2 #9 autoGenerateEpisodes 配置用)
+   * @param fields 字段名 → 值, 例 { outlineStatus: 'failed', plotGraphStatus: 'completed' }
+   */
+  async updateFields(id: string, fields: Record<string, any>): Promise<void> {
+    const keys = Object.keys(fields);
+    if (keys.length === 0) return;
+    const setClause = keys.map(k => `${k} = ?`).join(', ');
+    const values = keys.map(k => fields[k]);
+    await execute(
+      `UPDATE novels SET ${setClause}, updated_at = ? WHERE id = ?`,
+      [...values, Date.now(), id]
+    );
+  }
+
   async updateAnalysis(id: string, analysis: Partial<Novel>): Promise<void> {
     await execute(
       `UPDATE novels SET genre = ?, theme = ?, style = ?, tone = ?,

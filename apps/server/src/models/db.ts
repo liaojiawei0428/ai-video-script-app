@@ -323,6 +323,13 @@ async function initTables(): Promise<void> {
   try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph_generated_at BIGINT DEFAULT NULL"); } catch (e) {
     logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN plot_graph_generated_at BIGINT DEFAULT NULL' });
   }
+  // S72 v3.0.33 P0 #3 修复 (ADR-0002): 拆 outline/plotGraph 状态字段, 失败标 status='failed'
+  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_status VARCHAR(20) DEFAULT NULL COMMENT 'pending|generating|completed|failed'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN outline_status' });
+  }
+  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph_status VARCHAR(20) DEFAULT NULL COMMENT 'pending|generating|completed|failed'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN plot_graph_status' });
+  }
 
   // ── episodes: 加 3 字段 ──
   try { await db.execute("ALTER TABLE episodes ADD COLUMN outline_text TEXT COMMENT '分集大纲'"); } catch (e) {
