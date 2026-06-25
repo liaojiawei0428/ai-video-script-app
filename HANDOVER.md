@@ -88,6 +88,7 @@ shipin-APP/
 | **S69** | "S69 收尾" | v3.0.30 P6 | BUGS_INDEX.md v1.0 + 4 P0 BUG (071/072/073/074) + 5 GAP 补 | BUG-071/072/073/074 | 多 commit |
 | **S70** | "宝塔部署踩坑" | v3.0.30 P7 | BUG-077 + 宝塔 Node 项目 + BAOTA_NODE_PROJECT_DEPLOY.md v1.0 + deploy.sh 走 systemd | BUG-077 | 7b11230 + db59d4d |
 | **S71** | "S71 后置 4 P0 BUG" | v3.0.32→3.0.33 P8 | BUG-079/080/081/082 4 P0 + BUG-082 P2 TODO + 8 处版本号规范自迭代 + 4 教训 + 铁律 4+/8 | BUG-079/080/081/082 + 082 P3 | d795675 / 6ea3484 / abca9d3 / 4381a7e / f92cc19 / 81f4972 / 084a148 / 1a402c3 |
+| **S72** | "汇报沟通规范从无到有" | v3.0.33 P9 | 新建 `docs/REPORTING_STANDARDS.md` 7 文件体系 (主索引 59 行 + 6 topic files 各 < 100 行) + 加做事 4 原则 / 任务前列计划 / 自我改进循环 (A/B/C) + 跨端跨工具借鉴 (Karpathy CLAUDE.md + Boris Cherny + 灵犀 Claw + BerriAI) | (规范自迭代, 无 BUG) | b176ee9 / 02c496b / 58e69fd / f5e2a48 / bfa9ea9 |
 
 ### 2.2 22 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
@@ -203,12 +204,15 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 15. **AI 必读根 `AGENTS.md` + `DEV_PROGRESS.md`** (S64+ 强制)
 16. **commit message 必带版本号 + BUG 编号**: `vX.Y.Z: <改动> (BUG-NNN + 规范修订)`
 
-### 5.4 🆕 S71 后置坑点 (5 个新)
+### 5.4 🆕 S71-S72 后置坑点 (5 + 3 = 8 个新)
 17. **BUG-079 假报告坑** — S71 部署自报"12 维全过" 100% 假, 实际没真动 server dist / DB schema. **修法**: `verify-deploy.sh --strict` 21 维, 任何 1 失败 exit 1, 不再接受自报
 18. **BUG-081 状态机迁移必同步 4 处** — S70 v3.0.0.16 改 passthrough (跳过 plan_cn_ready) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞. **修法**: AGENTS.md 铁律 4+ 4 步同步 (allowlist grep + UI case grep + DB schema 兼容 + 一键自检)
 19. **BUG-082 React #31 错误对象渲染** — agnes API 返 `{error: {code, message}}` 对象, server 原样存进 messages JSON, web 渲染对象触发 #31. **修法**: AGENTS.md 铁律 8 持久化必 string 归一 + `utils/errorUtils.ts` `extractErrorMessage()` 5 种输入归一 + web 防御渲染 `typeof === 'string' ? : JSON.stringify()`
 20. **PowerShell 5.1 写 .ts/.js/.md/.sql 丢 newline 坑** — S71 BUG-079 真实案例: `src/index.ts` 6673 字节挤 3 行, tsc 编译出 11 行 dist, node 启动立即 exit 0. **修法**: 必走 Write 工具 (UTF-8 自动 newline) 或 PS 7+ `[System.IO.File]::WriteAllText` (无 BOM)
 21. **systemd unit 硬编码 APP_VERSION 漏改坑** — S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码 `Environment=APP_VERSION=3.0.29` 但 .env 实际生效 (systemd EnvironmentFile 优先级实测覆盖 [Service] Environment), 3 个月后 V3.0.33 升级才修复. **修法**: 8 处自检 (含 .env + systemd unit), 部署前 `node tools/verify-version-8-points.js` 一键跑 6 本地 + 2 远程
+22. **REPORTING 拆分后跨文件引用断裂坑** — v2.3.1 拆分 `模板.md` 到 4 文件后, 自检.md / 原则.md / 主文件 3 处都有跨文件引用, 漏改 1 处断链. **修法**: v2.3 拆分时 grep 验证所有跨文件引用锚点, 提交前必跑 `python3 -c "import pathlib; print(sum(p.read_text().count('模板.md') for p in pathlib.Path('docs/reporting').rglob('*.md')))"` 必为 0 (除已删旧文件)
+23. **汇报沟通自我改进循环无验证坑** — v2.2 加 A (主动自查) + B (改前提案) + C (规模警告) 后, 没有自动验证机制, AI 可能自我感觉"已改好"实际没生效. **修法**: v2.2 A 主动自查 + newline 验证 (`python3 -c "data=open(f,'rb').read(); print(data.count(b'\n'))"`) 必跑, 写后必报"newline 数 + 行数"给用户看
+24. **Boris Cherny "用户反馈后自动更新 lessons.md" 不适用 shipin-APP 坑** — Claude Code 工具链的 lessons.md 是会话级临时文件, shipin-APP 跨会话靠 HANDOVER.md § 2.1 + DEV_PROGRESS.md, 不要混淆. **修法**: AI 汇报 "已修" 前必跑 `git log -1 --format='%H'` 拿到 commit hash + 确认改动文件确实进了 commit (用 `git show --stat <hash>`)
 
 ---
 
@@ -257,6 +261,13 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - server 性能分析 + DB 索引优化
 - APK 启动速度 / RN 7 旧设备兼容
 - server 端 xss/csrf/rate-limit 强化
+
+### F. 汇报规范继续优化 (S72 后置)
+- `docs/REPORTING_STANDARDS.md` 主索引可再瘦 (~59 行 → ~30 行), 把 § 7 跨项目通用性表 + 维护规则挪到 `docs/reporting/原则.md`
+- `docs/reporting/原则.md` 当前 53 行, 可加 "AI 跟用户协作的 5 个角色" 段 (执行者/审阅者/挑战者/学习者/记录者)
+- `apps/web/AGENTS.md` v1.0 (S72 新建) 待实战验证, 未来加 web 端独有的 React 状态管理 / 路由守卫细节
+- 根目录 `CLAUDE.md` (S72 新建) 待 Claude Code CLI 用户验证配置
+- 跨项目模板沉淀: 把 REPORTING_STANDARDS.md 7 文件复制一份到 `~/.mavis/agents/` 做通用 AI 沟通规范模板
 
 ---
 
