@@ -116,15 +116,15 @@ export function BillingPage() {
       all.push({ ...r, kind: 'recharge_pending' });
     });
     // 交易记录 (billing_logs)
+    // v3.0.32 (BUG-080 S71 后置): 必须 push t.type 字段, 否则 L137 'consumption' / L138 'recharge' tab filter
+    // 里 (r as any).type 永远是 undefined, 消费记录 tab 会全空 (用户反馈)
+    // 修法: spread 整个 t (含 type/refType/refLabel/balanceAfter/wordCount/isFree/novelId/description),
+    // 同时保留上层 status 字段 (RechargeRecord 类型要求 status, 旧逻辑用 'approved'/'settled' 占位)
     transactions.forEach((t) => {
       all.push({
-        ...({
-          id: t.id,
-          amount: t.amount,
-          status: t.type === 'charge' ? 'approved' : 'settled',
-          ip: '',
-          createdAt: t.createdAt,
-        }),
+        ...t,
+        status: t.type === 'charge' ? 'approved' : 'settled',
+        ip: '',
         kind: 'billing_tx',
       } as any);
     });

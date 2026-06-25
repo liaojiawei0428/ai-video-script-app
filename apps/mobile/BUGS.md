@@ -2087,3 +2087,111 @@ E2E JWT 测试 (user_id=6b5f6dc1-...):
 - [BUG-073 1 行 minified 静默 ReferenceError](../apps/mobile/BUGS.md#bug-073-s69-1-行-minified-src--tsc-593--node-22-静默忽略-esm) — 前置 (S69, 同类 PS 5.1 写入坑)
 - [BUG-078 Web 端账单明细缺消费记录](../apps/mobile/BUGS.md#bug-078-s71-v3029-web-端账单明细缺消费记录--只显示充值-消费和免费完全没记录-基础消费数据缺失) — 触发 (S71 写 src + 部署步骤)
 - [BUG-077 宝塔 shipin-APP 找不见 3 真相](../apps/mobile/BUGS.md#bug-077-s70-宝塔-项目-找不见-shipin-app-3-真相-s70-硬要求-100-修) — S70 部署路径 (systemd + 宝塔同步)
+
+---
+
+## BUG-080 (S71 后置, v3.0.29, 2026-06-25 10:48): web 端"消费记录"tab 没数据 — BillingPage.tsx push transactions 时漏了 `type` 字段
+
+### 现象 (user 6/25 10:47 反馈)
+
+打开 `https://ab.maque.uno/profile/billing` 后:
+- ✅ "全部" tab 数据显示正常 (200 条)
+- ❌ **"消费记录" tab 显示"暂无消费记录"** (空)
+- ✅ "充值记录" tab 数据显示正常 (走 recharge_requests 表的)
+
+### 根因 (1 行 bug, 12 字段漏 1 个)
+
+`apps/web/src/pages/BillingPage.tsx` 第 118-130 行, 把 `transactions` 数组 push 到 `mergedRecords` 时**只挑了 4 个字段**, 漏了 `type`:
+
+```typescript
+// v3.0.32 S71 BUG-078 写错 (漏 type 字段)
+transactions.forEach((t) => {
+  all.push({
+    ...({
+      id: t.id,
+      amount: t.amount,
+      status: t.type === 'charge' ? 'approved' : 'settled',  // ← 用了 t.type 但没存到对象里
+      ip: '',
+      createdAt: t.createdAt,
+    }),
+    kind: 'billing_tx',  // ← kind 存了
+  } as any);
+  // 缺: type 字段没存到对象里!
+});
+```
+
+而 L137 行 tab filter 用 `(r as any).type === 'consumption'`:
+
+```typescript
+if (tab === 'consumption') return mergedRecords.filter((r) =>
+  (r as any).kind === 'billing_tx' && (r as any).type === 'consumption'  // ← 永远是 undefined, filter 全空
+);
+```
+
+**逻辑链**:
+1. API `/api/billing/transactions` 返回 1154 条 items, 每条都带 `type: 'consumption' | 'charge'`
+2. web 端 `setTransactions(items)` 把这些 items 存到 state, type 字段也在
+3. **但** `mergedRecords` push 时**只挑 4 个字段**, `type` 被丢弃
+4. tab filter 用 `(r as any).type === 'consumption'` → 永远 undefined
+5. "消费记录" tab 永远空
+6. "充值记录" tab 走的是 `kind === 'recharge_pending'` (走 recharge_requests 表) 或 `kind === 'billing_tx' && type === 'charge'` (走 billing_logs charge 记录) — 但这个 user 没 charge 记录, 所以"充值记录"全靠 recharges, **碰巧能显示** (但 BUG 同样存在, 假如这个 user 有 charge 记录也显示不出来)
+7. "全部" tab 不 filter, 所以正常
+
+### 修法 (1 行 spread 修)
+
+```typescript
+// v3.0.32 (BUG-080 S71 后置): 改 spread 整个 t (含 type/refType/refLabel/balanceAfter/wordCount/isFree 等全部)
+transactions.forEach((t) => {
+  all.push({
+    ...t,  // ← 一行修: 含 type + refType + refLabel + balanceAfter + wordCount + isFree + novelId + description
+    status: t.type === 'charge' ? 'approved' : 'settled',  // 兼容 RechargeRecord 类型要求的 status 字段
+    ip: '',
+    kind: 'billing_tx',
+  } as any);
+});
+```
+
+### 验证 (E2E + 14 维 + 用户浏览器刷新)
+
+#### E2E 模拟 web 端 3 tab filter 逻辑 (server 端)
+```
+GET /api/billing/transactions?limit=200 (user_id=6b5f6dc1-...)
+  → total: 1154
+  → items.length: 200
+  → 全部 tab: 200 条 (limit 截断)
+  → 消费记录 tab filter type=consumption: 200 条 ✓ (修后能匹配)
+  → 充值记录 tab filter type=charge: 0 条 (这个 user 没 charge 记录, BUG 同样修了, 别的 user 触发)
+  → sample consumption[0]: {id, type:"consumption", amount:0.1, refType:"image", refLabel:"角色图片生成(1张) - 陆婕妤", ...}
+```
+
+#### 14 维 verify-deploy.sh --strict
+```
+PASS: 16  /  FAIL: 0  /  SKIP: 0
+✓ 维度 14: web 实际加载 JS: index-4tluy4vN.js (新 BUG-080 修法, 489185 字节)
+```
+
+#### 用户浏览器 (刷新后)
+- ✅ "全部" tab 200 条
+- ✅ **"消费记录" tab 200 条 (新显示, 修法前是 0 条)**
+- ✅ "充值记录" tab 走 recharge_requests
+
+### 教训 (3 条, 跨项目通用)
+
+1. **web 端 spread 整个对象, 别手挑字段** — 用 `...t` 而非 `{ id: t.id, amount: t.amount, ... }`, 字段会随 API 演进 (加 refType/refLabel 等) 自动透传, **手挑必漏**
+2. **filter 用 type 字段前必验证对象有这字段** — TypeScript `as any` 救不了 runtime, type field 缺失 filter 全空. 修法: 在 push 块 spread 完整 + 加 console.assert 调试时验证
+3. **E2E 必模拟前端 tab filter 逻辑** — API 返回对了不代表前端显示对 (本 BUG 是 web 端 bug, API 一直对的). server verify-deploy.sh 加 E2E 模拟前端 filter 的脚本可避免这类 BUG
+
+### 待办 TODO (P2)
+
+- [ ] web 端所有 `setXxx()` 后用 console.assert 验证 (e.g. `console.assert(transactions[0]?.type, 'type field missing')`)
+- [ ] verify-deploy.sh 加 web 端静态分析: 解析 dist/index-*.js 找 `as any).type ===` 这种 pattern, 配合 BillingPage.tsx 看 source 是不是 spread 完整
+- [ ] 写 `tools/check-react-spread.sh` 检测 `forEach((t) => { all.push({ id: t.id, ...` 这种手挑字段 pattern, 报错建议 spread 整个 t
+
+### 引用 (跨文档)
+
+- [`apps/web/src/pages/BillingPage.tsx`](../../apps/web/src/pages/BillingPage.tsx) — S71 后置改 `...t` (含 type)
+- [`apps/web/dist/index-4tluy4vN.js`](../../apps/web/dist/) — BUG-080 修法 web 部署, 489185 字节
+- [`apps/server/src/services/billingService.ts`](../../apps/server/src/services/billingService.ts) — /api/billing/transactions 返回 items (含 type, BUG-079 已修)
+- [`apps/server/src/routes/billing.ts`](../../apps/server/src/routes/billing.ts) — /api/billing/transactions 路由
+- [BUG-078 Web 端账单明细缺消费记录](../apps/mobile/BUGS.md#bug-078-s71-v3029-web-端账单明细缺消费记录--只显示充值-消费和免费完全没记录-基础消费数据缺失) — 触发 (S71 写 BillingPage 漏 type 字段)
+- [BUG-079 S71 报告'12 维验证全过' 100% 假 → 真部署](../apps/mobile/BUGS.md#bug-079-s71-后置-v3029-2026-06-25-0911-s71-报告12-维验证全过-100-假--server-端-dist-没部署--db-schema-没-alter--web-端-dist-也没-build--routesbillingts-写错-requseruserid) — 配套 (verify-deploy.sh 14 维就是 BUG-079 写的)

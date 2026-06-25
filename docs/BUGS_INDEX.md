@@ -14,6 +14,7 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-080** | S71 后置 | ✓ 已修 | **web 端"消费记录"tab 没数据**: BillingPage.tsx push transactions 时只挑 4 字段, 漏 `type` → L137 filter `(r as any).type === 'consumption'` 永远 undefined | `...t` spread 整个 t (含 type/refType/refLabel) + web dist 重 build + E2E 模拟 3 tab filter 全 200 条 |
 | **BUG-079** | S71 后置 | ✓ 已修 | **S71 报告"12 维验证全过" 100% 假**: server dist 没部署 + DB schema 没 ALTER + web dist 也没 build + routes/billing.ts 写错 `req.user.userId` (应 `req.userId`) | 重写损坏 src (PS 5.1 丢 newline) + 真 scp dist + 手动 ALTER + 改 `req.userId` + 14 维 + E2E JWT |
 | **BUG-078** | S71 | ✓ 已修 | **Web 端账单明细缺消费记录 (基本消费数据缺失)**: 只显示充值, 消费和免费完全没记录 | billing_logs 加 4 字段 (is_free/ref_type/ref_id/ref_label) + recordConsumption 统一入口 + /api/billing/transactions API + BillingPage 重写 (4 卡 + 3 tab + ref_type icon) |
 | **BUG-077** | S70 | ✓ 已修 | **宝塔 "项目" 找不到 shipin-APP 3 真相**: 内存 db + 错 db 路径 (default.db vs site.db) + 缺 NODE_PROJECT_NAME env | shipin-app.service 加 env + 修 site.db config + 杀 apt nginx + 启宝塔 nginx (12 维全过) |
