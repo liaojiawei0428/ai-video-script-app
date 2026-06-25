@@ -334,6 +334,30 @@ if [ "$SERVER_ONLY" != "true" ]; then
 fi
 
 # ──────────────────────────────────────
+# 维度 19: BUG-082 TODO P2 修法 — agnesVideoProvider provider 层归一 (BUG-082 TODO #1)
+# ──────────────────────────────────────
+# 历史: v3.0.32 修法只在 videoAgentService L705 走 extractErrorMessage 兜底, 调用方要记得归一
+#   真实踩坑: 任何新调用 videoAgentService.queryStatus 的代码都可能忘记归一, 走老路存对象
+# 修法: agnesVideoProvider.queryStatus L302 直接 extractErrorMessage(data.error, '') 归一
+# 防呆: server dist agnesVideoProvider.js 必须含 extractErrorMessage, 未来 AI 误删 import 即失败
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 19: BUG-082 TODO P2 agnesVideoProvider provider 层归一 ──"
+
+  # 19. server dist agnesVideoProvider.js 含 extractErrorMessage (新加的 import + L302 调用)
+  V19=$(grep -c 'extractErrorMessage' /www/wwwroot/shipin-APP/dist/services/agnesVideoProvider.js 2>/dev/null || echo 0)
+  if [ "$V19" -ge 1 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 19. server dist agnesVideoProvider 含 extractErrorMessage: $V19 命中 (provider 层已归一)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("19. agnesVideoProvider 归一缺失")
+    color red "   ✗ 19. server dist agnesVideoProvider.js 命中 0 (期望 ≥1, BUG-082 TODO P2 修法未部署)"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"

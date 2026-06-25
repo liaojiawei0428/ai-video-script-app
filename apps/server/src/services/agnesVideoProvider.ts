@@ -4,6 +4,7 @@
 
 import { logger } from '../utils/logger';
 import { extractFirstFrameAsPngBase64 } from '../utils/ffmpegHelper';
+import { extractErrorMessage } from '../utils/errorUtils';
 
 const AGNES_VIDEO_CREATE_URL = 'https://apihub.agnes-ai.com/v1/videos';
 const AGNES_VIDEO_QUERY_URL = 'https://apihub.agnes-ai.com/agnesapi';
@@ -38,6 +39,11 @@ export interface AgnesVideoStatusResult {
   progress: number;
   /** 视频 URL 字段, 注意: agnes 在 completed 时把 URL 放在 remixed_from_video_id 字段 (反人类) */
   videoUrl?: string;
+  /**
+   * 错误消息, 已归一为 string
+   * v3.0.32 BUG-082: agnes API 返 {error: {code, message}} 对象, provider 层就过 extractErrorMessage 归一,
+   *   避免调用方 (videoAgentService) 忘记归一直接存进 messages JSON, web 渲染对象触发 React #31
+   */
   error?: string;
 }
 
@@ -299,7 +305,10 @@ export class AgnesVideoProvider {
         videoId: data.video_id || videoId,
         status,
         progress: data.progress || 0,
-        error: data.error,
+        // v3.0.32 BUG-082: provider 层就归一为 string, 防 agnes 返 {code, message} 对象
+        //   (历史: server 原样存进 messages JSON, web 渲染对象触发 React #31)
+        //   调用方 videoAgentService 就不用再记 extractErrorMessage
+        error: extractErrorMessage(data.error, ''),
       };
       if (status === 'completed' && data.remixed_from_video_id) {
         result.videoUrl = data.remixed_from_video_id;

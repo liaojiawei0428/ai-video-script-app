@@ -2569,19 +2569,20 @@ GET /api/video-agent/conversations/aa88d219-686d-4459-b01b-09e31a7b4159
 
 ### 待办 TODO (P2)
 
-- [ ] `apps/server/src/services/agnesVideoProvider.ts` L302 `error: data.error` 同步归一 (现在 L705 修了, 但 queryStatus 返回值还是对象, 调用方要记得 extractErrorMessage, 不直观. 建议 provider 层就归一)
-- [ ] `apps/server/src/services/agnesImageProvider.ts` 类似 queryStatus 错误也归一 (同 BUG-082 风险, 预防性)
-- [ ] 跨端 AGENTS.md § 4 铁律 4 加"server 写持久化 JSON 必 string 归一"
-- [ ] verify-deploy.sh 加维度 19: E2E 模拟"创建 conv + 触发 error + GET conv + 检查 message 是 string"
-- [ ] mobile 端 AgentChatPanel.tsx (有类似 case 'error' 渲染吗?) 同步防御性渲染 (防 BUG-082 mobile 版)
+- [x] `apps/server/src/services/agnesVideoProvider.ts` L302 `error: data.error` 同步归一 (现在 L705 修了, 但 queryStatus 返回值还是对象, 调用方要记得 extractErrorMessage, 不直观. 建议 provider 层就归一) — **v3.0.32.1 (S71 P2, 2026-06-25 14:00) 修法 6**: agnesVideoProvider L302 `error: extractErrorMessage(data.error, '')`, 加 import + interface 注释, 调用方 videoAgentService L705 仍保留 extractErrorMessage 兜底 (双保险, 不依赖单点归一)
+- [x] `apps/server/src/services/agnesImageProvider.ts` 类似 queryStatus 错误也归一 (同 BUG-082 风险, 预防性) — **已确认不适用**: agnesImageProvider 同步返回 image URL (3 次重试), 错误走 `throw new Error('Agnes API 错误 (${status}): ${text}')` 已是 string, 没 queryStatus 状态轮询路径, BUG-082 风险不存在
+- [x] 跨端 AGENTS.md § 4 铁律 8 加"server 写持久化 JSON 必 string 归一" — **已在 f92cc19 (S71 BUG-082 commit) 加**: § 4 铁律 8 🔌 server 写持久化 JSON 必 string 归一, 含 5 种输入归一
+- [x] verify-deploy.sh 加维度 19: BUG-082 TODO P2 agnesVideoProvider provider 层归一防呆 — **已加**: grep `dist/services/agnesVideoProvider.js` 含 `extractErrorMessage`, 0 命中即 FAIL (未来 AI 误删 import 即失败)
+- [ ] mobile 端 AgentChatPanel.tsx (有类似 case 'error' 渲染吗?) 同步防御性渲染 (防 BUG-082 mobile 版) — **保留 TODO**: user 主盯 web 端, 安卓端暂不动; 移动端 react-native fetch 也可能撞同类问题, 等 web 端稳定后做
 
 ### 引用 (跨文档)
 
 - [`apps/server/src/utils/errorUtils.ts`](../../apps/server/src/utils/errorUtils.ts) — 新建, extractErrorMessage 60 行
 - [`apps/server/src/services/videoAgentService.ts`](../../apps/server/src/services/videoAgentService.ts) — L527-535 + L705-708 修法 2 (2 处走 extractErrorMessage)
 - [`apps/server/src/services/imageAgentService.ts`](../../apps/server/src/services/imageAgentService.ts) — L637-651 修法 3 (1 处走 extractErrorMessage)
+- [`apps/server/src/services/agnesVideoProvider.ts`](../../apps/server/src/services/agnesVideoProvider.ts) — L302 修法 6 (provider 层归一, S71 P2, 2026-06-25)
 - [`apps/web/src/components/AgentChatPanel.tsx`](../../apps/web/src/components/AgentChatPanel.tsx) — L1292-1310 修法 4 (防御性渲染)
 - [`apps/server/scripts/fix-bug-082-error-message-prod.js`](../../apps/server/scripts/fix-bug-082-error-message-prod.js) — 修法 5 (历史脏数据 SQL 修复)
-- [`scripts/verify-deploy.sh`](../../scripts/verify-deploy.sh) — 维度 17-18 (BUG-082 防呆)
+- [`scripts/verify-deploy.sh`](../../scripts/verify-deploy.sh) — 维度 17-18 (BUG-082 防呆) + 维度 19 (BUG-082 TODO P2 agnesVideoProvider 归一防呆)
 - [BUG-080 web 端消费记录 tab 没数据](../apps/mobile/BUGS.md#bug-080-s71-后置-v3029-2026-06-25-1048-web-端消费记录tab-没数据--billingpagetsx-push-transactions-时漏了-type-字段) — 配套 (S71 后置 web 端防呆)
 - [BUG-081 image agent 状态机漏 plan_ready](../apps/mobile/BUGS.md#bug-081-s71-后置-v3032-2026-06-25-1300-用户改方案时无法改方案--an-unexpected-error-occurred--imageagentservice-状态机漏-plan_ready-throw-raw-error-走-errorhandler-兜底) — 配套 (同源: 边界处 schema 归一)
