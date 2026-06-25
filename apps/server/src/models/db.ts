@@ -169,11 +169,17 @@ async function initTables(): Promise<void> {
   `);
 
   // 兼容迁移：添加 INDEX
-  try { await db.execute('ALTER TABLE task_jobs ADD INDEX idx_tasks_status (status)'); } catch {}
-  try { await db.execute('ALTER TABLE task_jobs ADD INDEX idx_tasks_novel (novel_id)'); } catch {}
+  try { await db.execute('ALTER TABLE task_jobs ADD INDEX idx_tasks_status (status)'); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE task_jobs ADD INDEX idx_tasks_status (status)' });
+  }
+  try { await db.execute('ALTER TABLE task_jobs ADD INDEX idx_tasks_novel (novel_id)'); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE task_jobs ADD INDEX idx_tasks_novel (novel_id)' });
+  }
 
   // ======== 用户角色 ========
-  try { await db.execute("ALTER TABLE users ADD COLUMN role VARCHAR(10) DEFAULT 'user'"); } catch {}
+  try { await db.execute("ALTER TABLE users ADD COLUMN role VARCHAR(10) DEFAULT 'user'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE users ADD COLUMN role VARCHAR(10) DEFAULT' });
+  }
 
   // ======== 充值申请记录 ========
   await db.execute(`
@@ -196,13 +202,21 @@ async function initTables(): Promise<void> {
   // ======== 计费系统 ========
 
   // 添加 vip_level 列（套餐用户标记：0=普通，1=套餐）
-  try { await db.execute("ALTER TABLE users ADD COLUMN vip_level TINYINT DEFAULT 0"); } catch {}
+  try { await db.execute("ALTER TABLE users ADD COLUMN vip_level TINYINT DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE users ADD COLUMN vip_level TINYINT DEFAULT 0' });
+  }
   // 添加 vip_expires_at 列（VIP 到期时间戳，毫秒）
-  try { await db.execute("ALTER TABLE users ADD COLUMN vip_expires_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE users ADD COLUMN vip_expires_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE users ADD COLUMN vip_expires_at BIGINT DEFAULT NULL' });
+  }
   // 添加 last_ip 列（最近登录IP）
-  try { await db.execute("ALTER TABLE users ADD COLUMN last_ip VARCHAR(45) DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE users ADD COLUMN last_ip VARCHAR(45) DEFAULT ''"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE users ADD COLUMN last_ip VARCHAR(45) DEFAULT' });
+  }
   // 添加 ip_location 列（IP归属地）
-  try { await db.execute("ALTER TABLE users ADD COLUMN ip_location VARCHAR(100) DEFAULT ''"); } catch {}
+  try { await db.execute("ALTER TABLE users ADD COLUMN ip_location VARCHAR(100) DEFAULT ''"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE users ADD COLUMN ip_location VARCHAR(100) DEFAULT' });
+  }
 
   // 通知/消息表
   await db.execute(`
@@ -243,12 +257,24 @@ async function initTables(): Promise<void> {
   `);
 
   // v3.0.32 (BUG-078 S71): 已存在的 billing_logs 表加新字段 (兼容老库)
-  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0"); } catch {}
-  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT ''"); } catch {}
-  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_id VARCHAR(100) DEFAULT ''"); } catch {}
-  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_label VARCHAR(200) DEFAULT ''"); } catch {}
-  try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_ref_type (ref_type)"); } catch {}
-  try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_user_time (user_id, created_at)"); } catch {}
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE billing_logs ADD COLUMN is_free TINYINT(1) DEFAULT 0' });
+  }
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT ''"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE billing_logs ADD COLUMN ref_type VARCHAR(50) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_id VARCHAR(100) DEFAULT ''"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE billing_logs ADD COLUMN ref_id VARCHAR(100) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE billing_logs ADD COLUMN ref_label VARCHAR(200) DEFAULT ''"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE billing_logs ADD COLUMN ref_label VARCHAR(200) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_ref_type (ref_type)"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE billing_logs ADD INDEX idx_billing_ref_type (ref_type)' });
+  }
+  try { await db.execute("ALTER TABLE billing_logs ADD INDEX idx_billing_user_time (user_id, created_at)"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE billing_logs ADD INDEX idx_billing_user_time (user_id, created_at)' });
+  }
 
   // ════════════════════════════════════════════════════════════
   //  v2.0.0 增量迁移（角色一致性 + 资产库 + 章节图谱 + 订单）
@@ -256,37 +282,83 @@ async function initTables(): Promise<void> {
   // ════════════════════════════════════════════════════════════
 
   // ── characters: 加 8 字段 ──
-  try { await db.execute("ALTER TABLE characters ADD COLUMN description JSON DEFAULT NULL COMMENT '11维度结构化描述'"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN extra_description JSON DEFAULT NULL COMMENT '4维度补充描述'"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '画风ID'"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN confirmed TINYINT(1) DEFAULT 0 COMMENT '用户是否已确认描述'"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN image_variants JSON DEFAULT NULL COMMENT '3张变体图'"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN image_gen_status VARCHAR(20) DEFAULT 'none' COMMENT 'none/generating/partial/completed/failed'"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN confirmed_at BIGINT DEFAULT NULL"); } catch {}
-  try { await db.execute("ALTER TABLE characters ADD COLUMN image_generated_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE characters ADD COLUMN description JSON DEFAULT NULL COMMENT '11维度结构化描述'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN description JSON DEFAULT NULL COMMENT' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN extra_description JSON DEFAULT NULL COMMENT '4维度补充描述'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN extra_description JSON DEFAULT NULL COMMENT' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '画风ID'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN style_id VARCHAR(36) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN confirmed TINYINT(1) DEFAULT 0 COMMENT '用户是否已确认描述'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN confirmed TINYINT(1) DEFAULT 0 COMMENT' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN image_variants JSON DEFAULT NULL COMMENT '3张变体图'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN image_variants JSON DEFAULT NULL COMMENT' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN image_gen_status VARCHAR(20) DEFAULT 'none' COMMENT 'none/generating/partial/completed/failed'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN image_gen_status VARCHAR(20) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN confirmed_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN confirmed_at BIGINT DEFAULT NULL' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN image_generated_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN image_generated_at BIGINT DEFAULT NULL' });
+  }
 
   // ── novels: 加 5 字段 ──
-  try { await db.execute("ALTER TABLE novels ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '小说统一画风'"); } catch {}
-  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph JSON DEFAULT NULL COMMENT '章节事件图谱'"); } catch {}
-  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_confirmed TINYINT(1) DEFAULT 0"); } catch {}
-  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_confirmed_at BIGINT DEFAULT NULL"); } catch {}
-  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph_generated_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE novels ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '小说统一画风'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN style_id VARCHAR(36) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph JSON DEFAULT NULL COMMENT '章节事件图谱'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN plot_graph JSON DEFAULT NULL COMMENT' });
+  }
+  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_confirmed TINYINT(1) DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN outline_confirmed TINYINT(1) DEFAULT 0' });
+  }
+  try { await db.execute("ALTER TABLE novels ADD COLUMN outline_confirmed_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN outline_confirmed_at BIGINT DEFAULT NULL' });
+  }
+  try { await db.execute("ALTER TABLE novels ADD COLUMN plot_graph_generated_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN plot_graph_generated_at BIGINT DEFAULT NULL' });
+  }
 
   // ── episodes: 加 3 字段 ──
-  try { await db.execute("ALTER TABLE episodes ADD COLUMN outline_text TEXT COMMENT '分集大纲'"); } catch {}
-  try { await db.execute("ALTER TABLE episodes ADD COLUMN confirmed TINYINT(1) DEFAULT 0"); } catch {}
-  try { await db.execute("ALTER TABLE episodes ADD COLUMN character_descriptions JSON DEFAULT NULL COMMENT '生成时角色描述快照'"); } catch {}
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN outline_text TEXT COMMENT '分集大纲'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE episodes ADD COLUMN outline_text TEXT COMMENT' });
+  }
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN confirmed TINYINT(1) DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE episodes ADD COLUMN confirmed TINYINT(1) DEFAULT 0' });
+  }
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN character_descriptions JSON DEFAULT NULL COMMENT '生成时角色描述快照'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE episodes ADD COLUMN character_descriptions JSON DEFAULT NULL COMMENT' });
+  }
 
   // ── shots: 加 5 字段 ──
-  try { await db.execute("ALTER TABLE shots ADD COLUMN image_url VARCHAR(500) DEFAULT ''"); } catch {}
-  try { await db.execute("ALTER TABLE shots ADD COLUMN character_ids JSON DEFAULT NULL"); } catch {}
-  try { await db.execute("ALTER TABLE shots ADD COLUMN style_id VARCHAR(36) DEFAULT NULL"); } catch {}
-  try { await db.execute("ALTER TABLE shots ADD COLUMN image_prompt TEXT"); } catch {}
-  try { await db.execute("ALTER TABLE shots ADD COLUMN image_generated_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE shots ADD COLUMN image_url VARCHAR(500) DEFAULT ''"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD COLUMN image_url VARCHAR(500) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE shots ADD COLUMN character_ids JSON DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD COLUMN character_ids JSON DEFAULT NULL' });
+  }
+  try { await db.execute("ALTER TABLE shots ADD COLUMN style_id VARCHAR(36) DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD COLUMN style_id VARCHAR(36) DEFAULT NULL' });
+  }
+  try { await db.execute("ALTER TABLE shots ADD COLUMN image_prompt TEXT"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD COLUMN image_prompt TEXT' });
+  }
+  try { await db.execute("ALTER TABLE shots ADD COLUMN image_generated_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD COLUMN image_generated_at BIGINT DEFAULT NULL' });
+  }
 
   // ── notifications: 加 2 字段 ──
-  try { await db.execute("ALTER TABLE notifications ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"); } catch {}
-  try { await db.execute("ALTER TABLE notifications ADD COLUMN expires_at BIGINT DEFAULT NULL"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN priority VARCHAR(10) DEFAULT 'normal'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE notifications ADD COLUMN priority VARCHAR(10) DEFAULT' });
+  }
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN expires_at BIGINT DEFAULT NULL"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE notifications ADD COLUMN expires_at BIGINT DEFAULT NULL' });
+  }
 
   // ── 新表: assets 资产库 ──
   await db.execute(`
@@ -439,7 +511,9 @@ async function initTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   // v3.0.31 (S69 BUG-072 E) 兼容迁移: 老库 video_conversations 可能没 billing_status
-  try { await db.execute("ALTER TABLE video_conversations ADD COLUMN billing_status VARCHAR(20) DEFAULT 'settled'"); } catch {}
+  try { await db.execute("ALTER TABLE video_conversations ADD COLUMN billing_status VARCHAR(20) DEFAULT 'settled'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE video_conversations ADD COLUMN billing_status VARCHAR(20) DEFAULT' });
+  }
 
   // ── 视频 Agent: 单次生成记录 (审计) ──
   await db.execute(`

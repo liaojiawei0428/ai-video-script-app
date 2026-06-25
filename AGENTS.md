@@ -72,6 +72,7 @@
 | 15 | **`DEV_PROGRESS.md`** | AI 会话追踪表 (开始工作前必读, § 5) |
 | 16 | **[`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md)** (S69 新建) | BUG 案例库 AI 快速查询索引 (30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑 + § 4.5 宝塔部署踩坑 Top 5 + 完整 75 BUG 编号) |
 | 17 | **[`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md)** (S70 新建, BUG-077 修法) | 🆕 **shipin-APP 部署到宝塔 panel Node 项目标准 SOP (5 步流程 + 12 维验证 + 9 坑 + 紧急回滚 5 min). 任何 server 部署前必读, **不要再走 PM2 路径**!** |
+| 18 | **[`scripts/verify-deploy.sh`](scripts/verify-deploy.sh)** (S71 后置, BUG-079 修法) | 🆕 **部署后必跑 14 维验证 + E2E JWT** (含 grep dist 关键字符串 + DB schema + ALTER 应用 + web JS hash). 任何部署完成后必跑, **取代"自报 12 维全过"假报告**. 服务器端 `bash scripts/verify-deploy.sh --strict` (CI 用) |
 
 **ADR 触发**: 任何架构级变更 (新模块 / 重构 / 跨端收口) 必写 ADR-NNN, 模板见 `docs/standards/ADR/0000-adr-template.md`.
 
@@ -129,10 +130,14 @@
 - 历史 PM2 规范 → [`docs/PM2_GUIDE.md`](docs/PM2_GUIDE.md) (S70 deprecated, 仅供考古)
 - **S58 BUG-008 PM2 env reload 教训仍适用** — server 部署改 env 仍走 `delete + start`, 但 shipin-APP 走 systemd 后这套自动失效
 
-### 铁律 5: 部署后必跑 5/6/12 维验证 (S64 + S67 + S70 升级)
+### 铁律 5: 部署后必跑 5/6/12/14 维验证 (S64 + S67 + S70 + **S71 BUG-079** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
 - **🆕 server 12 维** (S70 BUG-077): 6 维自身 + 3 维宝塔/nginx/反代/APK + **3 维宝塔 Node 项目 shipin_APP run=True (核心, BUG-077 验收)**
+- **🆕🆕 server 14 维** (S71 BUG-079 修法): 6 维自身 + **3 维 server dist 关键字符串 grep (`/api/billing` + `recordConsumption` + `ALTER TABLE`)** + **3 维 DB schema (4 字段 + 2 索引 + 数据)** + 2 维公开 HTTPS/web JS + **E2E JWT 测 /api/billing/transactions + /api/billing/summary 真实数据**
+  - **🛑 不再接受"自报 12 维全过"假报告** (S71 BUG-079 教训: 报告 100% 假, 4 层真相)
+  - 一键脚本: 服务器端 `bash scripts/verify-deploy.sh --strict` (CI 用, 任何 1 失败 exit 1)
+  - 配套规范: BUGS.md BUG-079 + `scripts/verify-deploy.sh` 注释
 - **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (9 步: 查→公告→维护→等任务→预检→备份→systemd restart + 宝塔同步→12 维验证→恢复)
 
 ### 铁律 6: commit message 必带版本号 + BUG 编号 (跨端统一规范)
@@ -140,6 +145,15 @@
 - 例: `v3.0.30 P4: server 端 AI 部署入口 (BUG-070 + apps/server/AGENTS.md + 活跃任务部署专项)`
 - docs 类提交: `docs(scope): <文档改动> (BUG-NNN)`
 - 配套: `DEV_PROGRESS.md` AI 会话追踪表必追加一行 (用单独 commit, 规范修订 commit 跟 docs commit 分离, S66/S67 实践)
+
+### 铁律 7: 🛑 禁止用 PowerShell 5.1 + Out-File 写 .ts/.js/.md/.sql (S71 BUG-079 强约束, 跨项目通用)
+- **🛑 严禁**: PowerShell 5.1 (`Out-File -Encoding utf8` / `Set-Content`) 写 .ts/.js/.md/.sql 文件 — 100% 丢 newline, 大文件 1008+ 字节挤 1 行
+- **✅ 必用**: Write/Edit 工具 (UTF-8 自动 newline, 工具底层保证 LF) 或 PowerShell 7+ `[System.IO.File]::WriteAllText(path, content, [Text.UTF8Encoding]::new($false))` (无 BOM)
+- **验证**: 写后必跑 `python3 -c "data=open('f','rb').read(); print(data.count(b'\n'))"` 或 `bash tools/check-ps51-newline.sh <files>`
+- **损坏特征**: 大文件 (>500B) newline < 3 → 必重新用 Write 工具写干净版
+- **pre-commit 防呆** (可选): `.husky/pre-commit` 自动跑 `bash tools/check-ps51-newline.sh --staged`, 任何损坏文件 commit 必失败
+- **真实案例 (S71 BUG-079)**: `src/index.ts` 6673 字节挤 3 行 (newline=2), `web/version.ts` 1008 字节挤 1 行 (newline=0), tsc 编译出 11 行 dist, node 启动立即 exit 0
+- **跨项目通用**: PowerShell 5.1 是 Windows Server 2016/2019 默认, 任何 AI 用 ssh 写远端文件必走 Write 工具或 `cat > file <<EOF` 避免 PS 5.1 写入
 
 ---
 
@@ -165,7 +179,8 @@
   └─ 实施编码 (按子 AGENTS.md 的任务 SOP 跑)
 
 完成后:
-  ├─ 验证 (lint / typecheck / 5/6 维验证 / 6 处版本号自检)
+  ├─ 验证 (lint / typecheck / **14 维验证 `bash scripts/verify-deploy.sh --strict`** / 6 处版本号自检)
+  ├─ **写 .ts/.js/.md/.sql 文件后必跑 `bash tools/check-ps51-newline.sh <files>`** 验证 newline 正常 (S71 BUG-079 教训, 防 PS 5.1 写入损坏)
   ├─ 将 DEV_PROGRESS.md 该任务状态改为 [已验收]
   ├─ DEV_PROGRESS.md 底部 "AI 会话追踪" 表追加一行
   └─ 中文报告用户完成情况 + 指出下一个任务
