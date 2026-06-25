@@ -128,7 +128,7 @@ export class AgnesVideoProvider {
     return url;
   }
 
-  /** 创建视频任务 — 自动重试 503/429/5xx 错误 (backoff 1s → 2s → 4s, 最多 3 次) */
+  /** 创建视频任务 — 自动重试 timeout / 503 / 429 / 5xx 错误 (S72 batch 4 加重 retry, 5s backoff × 2) */
   async createTask(opts: AgnesVideoCreateOptions): Promise<AgnesVideoCreateResult> {
     if (!this.apiKey) throw new Error('Agnes API Key 未配置');
 
@@ -167,14 +167,15 @@ export class AgnesVideoProvider {
       promptLen: body.prompt.length,
     });
 
-    // v3.0.0.25 (S44): retry 策略
+    // v3.0.0.25 (S44): retry 策略 + S72 batch 4 后置 BUG-085 修
     //  - 单次 timeout 60s: i2v 模式 (大图 base64 + 15s 视频) agens 端写 file 慢, 30s 不够
-    //  - 1 次 retry: 上游繁忙时 3 次重试浪费 4.7 min 没意义, user 早该看到错误主动 5-10 min 后重试
-    //  - 30s backoff: 第一次失败后等 30s 给上游恢复时间
-    //  - 总耗时: 60 + 30 + 60 = 150s = 2.5 min 后 throw (vs 老的 90s × 3 + 7s = 4.5 min)
-    const MAX_RETRIES = 2;  // 1 retry (attempt 0 + attempt 1)
+    //  - 2 次 retry: 6-25 视频实测 agnes 上游 OpenAI 视频生成服务繁忙, 60s timeout 经常撞, 1 retry 不够 (S44 时代偶尔 1 retry 够)
+    //  - 5s backoff: 短 backoff 让 retry 更快, 总耗时仍可控
+    //  - 总耗时: 60 + 5 + 60 + 5 + 60 = 190s = 3.17 min 后 throw (vs S44 老 60 + 30 + 60 = 150s = 2.5 min)
+    //  - 修法: 加重 retry 给上游多次恢复机会, BUG-085 (4+ 次连续失败) 修
+    const MAX_RETRIES = 3;  // 2 retries (attempt 0 + attempt 1 + attempt 2)
     const PER_TIMEOUT_MS = 60 * 1000;
-    const RETRY_BACKOFF_MS = [30000];  // 30s — 给上游恢复时间
+    const RETRY_BACKOFF_MS = [5000, 5000];  // 5s, 5s — 短 backoff 让 retry 更快
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

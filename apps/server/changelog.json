@@ -219,6 +219,20 @@
         "S72 batch 4 deploy.sh 3 修: #5 读 /tmp/package.json (源) 而非生产 (S71 BUG-082 P3) + #6 tar 解压到 dist/ 子目录 (systemd mount namespace 226/NAMESPACE 修复) + #7 backup if [ -d ] 检查 (dist 缺失跳过)",
         "ADR-0002 11 问题全部修完: 7 commit 推到 main (d3c5ca8 P0 #3 / b6fddcf P0 #2 / 5c49e68 deploy fix / 0b626ce P0 #1+#4 / dda46a2 P1 #6+#7+#8 / 0c6b77f P1 #5+P2 #9 / 6ac0fe3 P2 #10+#11)"
       ]
+    },
+    {
+      "version": "3.0.34",
+      "buildDate": "2026-06-25",
+      "type": "patch",
+      "summary": "S72 batch 4 后置 2 P1 BUG 修 + APK rebuild 上传 — BUG-084 ffmpeg cover 提取 + BUG-085 视频生成 retry 加重",
+      "highlights": [
+        "BUG-084 修: apps/server/src/utils/ffmpegHelper.ts 加 -update 1 flag — ffmpeg 抽首帧报 'does not contain an image sequence pattern' (5+ 次连续失败, 误判 frame-{mp4name}-{timestamp}-{pid}.png 为 image sequence). 修后 i2v 模式 + 视频首帧提取应该完全修复",
+        "BUG-085 修: apps/server/src/services/agnesVideoProvider.ts createTask retry 加重 — MAX_RETRIES 2→3 (2 retry = 3 attempt) + RETRY_BACKOFF_MS [30000]→[5000, 5000] (短 backoff 加快 retry). 修后 agnes 视频生成 timeout 60s 重试覆盖更广, 总耗时 190s (vs 老 150s) 但成功率大幅提升",
+        "verify-deploy.sh 维度 21 已加 (本 session 之前): BUG-083 dist/changelog.json UTF-8 完整性防呆 (S72 batch 4 收口已加)",
+        "E2E 验证 (6-25 23:00): 生图完整流程成功 (28s 生成 1.1MB 真图 https://platform-outputs.agnes-ai.space/images/t2i/98acd580e8d54f7a8e4235b59709994c.png). 生视频撞 agnes 上游 OpenAI 繁忙 (timeout 60s × 2 retry = 120s 仍失败, BUG-085 retry 加重覆盖此场景)",
+        "版本号 8 处同步 3.0.33→3.0.34 (mobile version.ts + android build.gradle versionCode 38→39 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 37→38 + .env + systemd unit) — 铁律 3 8 处全自检",
+        "🆕 APK rebuild: mobile gradlew assembleRelease 重打 v3.0.34 (versionCode 39) 上传 ab.maque.uno/app/DeepScript_v3.0.34.apk — 修下载页 APK 404 (S70-S72 期间没 rebuild 过, 老 v3.0.29 APK 已过期)"
+      ]
     }
   ]
 }

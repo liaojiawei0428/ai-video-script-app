@@ -8,6 +8,10 @@
  * 被当 filter separator, 报 "No such filter: 'iw):-2'". 之后试 `scale=min(1152\,iw):-2`
  * 仍错 (反斜杠逗号 ffmpeg 也不接受). 最终正确: `scale='min(1152,iw)':-2`
  * (单引号包裹整个 vf 表达式, 避免 `,` 被 split).
+ *
+ * 🆕 BUG-084 (S72 batch 4 后置): ffmpeg 抽首帧报 "does not contain an image sequence pattern"
+ * 根因: 输出文件名 `frame-{mp4name}-{timestamp}-{pid}.png` 含数字 + `.mp4` 子串, ffmpeg image2 muxer 误判为 image sequence
+ * 修法: 加 `-update 1` flag 告诉 ffmpeg 写单图 (无 sequence 模式). 5+ 次失败已记录, 修后预计完全修复.
  */
 
 import { execFileSync } from 'child_process';
@@ -70,9 +74,12 @@ export function extractFirstFrameAsPngBase64(
   );
 
   try {
+    // BUG-084 (S72 batch 4 后置): ffmpeg 抽首帧报 "does not contain an image sequence pattern or a pattern is invalid"
+    // 根因: ffmpeg 的 image2 muxer 看输出文件名 `frame-{mp4name}-{timestamp}-{pid}.png` 里含数字 + .mp4 子串, 误判为 image sequence pattern
+    // 修法: 加 `-update 1` 告诉 ffmpeg 这是单图输出 (无 image sequence 模式), 防 muxer 拒绝写入
     execFileSync(
       ffmpegBin,
-      ['-y', '-i', mp4Path, '-vframes', '1', '-ss', '0', '-vf', vfExpr, tmpPng],
+      ['-y', '-i', mp4Path, '-vframes', '1', '-ss', '0', '-vf', vfExpr, '-update', '1', tmpPng],
       { timeout: timeoutMs, stdio: ['ignore', 'ignore', 'pipe'] }
     );
 
