@@ -358,6 +358,29 @@ if [ "$SERVER_ONLY" != "true" ]; then
 fi
 
 # ──────────────────────────────────────
+# 维度 20: BUG-081 防呆 — 状态机迁移 4 处同步 (allowlist + response + DB + UI case)
+# ──────────────────────────────────────
+# 历史: S70 v3.0.0.16 改 passthrough (跳过 plan_cn_ready) 时, imageAgentService.processTurn allowedStates 没同步, 9 天后用户撞 BUG-081.
+# 修法: apps/server/scripts/check-status-machine.sh (铁律 4+ 配套) + 跨端 AGENTS.md 铁律 4+
+# 防呆: 部署后必查 server dist 含 allowedStates 字段 (processTurn 等 service 入口), 未来 AI 改 status 字段必同步 4 处
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 20: BUG-081 状态机迁移 4 处同步 (防 allowedStates 漏改) ──"
+
+  # 20. server dist 至少 1 个 service 含 allowedStates 字段 (processTurn / processUserAction 等)
+  V20=$(grep -lE 'allowedStates|allowed_states' /www/wwwroot/shipin-APP/dist/services/*.js 2>/dev/null | wc -l)
+  if [ "$V20" -ge 1 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 20. server dist services 含 allowedStates: $V20 个文件 (状态机 allowlist 已编译)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("20. allowedStates 缺失")
+    color red "   ✗ 20. server dist services 无 allowedStates 字段 (期望 ≥1, BUG-081 状态机迁移必同步 4 处防线)"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"

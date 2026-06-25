@@ -71,12 +71,35 @@
 
 ---
 
+## § 6. 跨端铁律 4+ / 8 / 3-8 处 (mobile 视角, S71 后置, 跟根 AGENTS.md 一致)
+
+> **跨端规范全在根 `AGENTS.md` § 4 铁律 4+ / 8 / 3, 本节只列 mobile 视角引用, 详细必看根 AGENTS.md**:
+
+1. **铁律 4+** 🔄 状态机迁移必同步 allowlist + response handler (S71 BUG-081 强约束, 跨项目通用)
+   - mobile 端必查 `apps/mobile/src/screens/` + `apps/mobile/src/api/client.ts` 跟 server status 字段同步
+   - 例: server 加新 status `plan_review`, mobile case 必加 `'plan_review'` 分支, 不加 UI 空白
+   - 4 步同步: server allowedStates grep → web/mobile case grep → DB schema 兼容 → 一键自检 `apps/server/scripts/check-status-machine.sh`
+2. **铁律 8** 🔌 持久化必 string 归一 (S71 BUG-082 强约束, 跨项目通用)
+   - mobile 端 axios POST 必 `typeof payload.message === 'string'` 校验, 防 server 返对象 React #31
+   - 防御渲染: `{typeof part.message === 'string' ? part.message : JSON.stringify(part.message)}`
+3. **铁律 3 (v3.0.33 扩 6→8)** APP_VERSION 改 1 处必同步 8 处
+   - mobile 视角: `version.ts` + `build.gradle` (versionCode + versionName) + 6 处其他 (server package.json / index.ts / ecosystem / web version.ts / .env / systemd unit)
+   - 必跑 `node tools/verify-version-8-points.js` (本地 6 + 远程 2)
+
+## § 7. 跨端铁律 4 (升级链路 mobile 独有, 跟 server 视角区分)
+
+> **跨端铁律 4 在 server 端 = "走 systemd 不用 PM2" (S70 BUG-077), mobile 端不适用**.
+> mobile 视角铁律 4 = 升级链路 7 条铁律, 见 § 4 (上面).
+> **不冲突**: 跨端铁律是数字共享, 但内容按端类型分场景.
+
+---
+
 **详细 5 步流程 + 7 类失败诊断 + 完整命令模板** → [`./DEPLOY.md`](./DEPLOY.md)
 **跨端版本管理 9 节完整规范** → [`../../docs/VERSION_MANAGEMENT.md`](../../docs/VERSION_MANAGEMENT.md)
 **mobile 硬性规范 38 条** → [`./CODING_STANDARDS.md`](./CODING_STANDARDS.md)
 **跨端统一规范 (S68 收口核心)** → [`../../AGENTS.md`](../../AGENTS.md)
 
-**🆕 S68 收口**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md), 本文件只保留 mobile 独有 5 节. 收口设计 → BUG-071 (跨端规范重复 GAP, S68 自检发现) + 看根 AGENTS.md § 9.
+**🆕 S68 收口 + S71 后置**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md). S71 后加铁律 4+ / 8 / 3-8 处, **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律, 跟 server 视角统一**.
 
-> **最后更新**: 2026-06-24 (S68 收口, v1.1 瘦身版)
+> **最后更新**: 2026-06-25 (S71 后置 v1.2, 加铁律 4+ / 8 / 3-8 处, 跟根 AGENTS.md 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时

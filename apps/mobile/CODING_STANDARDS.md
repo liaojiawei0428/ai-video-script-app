@@ -533,6 +533,90 @@
 - ✅ **部署后必跑 6 维验证** (跟第 35 条 § 4 配套)
 - 配套文档: `docs/VERSION_MANAGEMENT.md § 5.0 / § 5.A` (S67 新增), `docs/DEPLOY.md § 0 节点 0`
 
+## 39. 状态机迁移必同步 4 处 (源自 BUG-081, S71)
+- 🛑 **严禁**: 改 status machine 转换 (`status: 'A' → 'B'` 或 passthrough 跳状态) 时, 只改一处 controller/handler
+- ✅ **必同步 4 处**:
+  1. **server allowedStates allowlist** (`apps/server/src/services/*Service.ts:processTurn` 头部 `const allowedStates = [...]`)
+  2. **server response handler** (`apps/server/src/controllers/*.ts` 返 status 给前端)
+  3. **DB schema 兼容** (`apps/server/src/models/db.ts` initTables ALTER + 老 status 兼容)
+  4. **web/mobile UI case** (`apps/web/src/components/AgentChatPanel.tsx` + `apps/mobile/src/screens/.../AgentChatPanel.tsx` case 'old_status' → 'new_status')
+- 🛑 **必跑 4 步自检** (部署前):
+  ```bash
+  # 1. server allowedStates
+  grep -rn "allowedStates" apps/server/src/services/
+  # 2. server response
+  grep -rn "case 'old_status'" apps/server/src/controllers/
+  # 3. web UI
+  grep -rn "case 'old_status'" apps/web/src/
+  # 4. mobile UI
+  grep -rn "case 'old_status'" apps/mobile/src/
+  ```
+- ✅ **一键自检脚本**: `bash apps/server/scripts/check-status-machine.sh` (生产 server 端跑, 含 server 端 3 步, web/mobile 端在开发机手跑)
+- 📊 **真实案例 (S71 BUG-081)**: S70 v3.0.0.16 改 passthrough (跳过 `plan_cn_ready` → 直接 `plan_ready`) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞 "无法改方案 / An unexpected error occurred"
+- 跨项目通用: 任何 stateful 系统 (订单状态机 / 工作流引擎 / 协议状态机 / parser 状态) 改 status 字段必同步所有引用点
+
+## 40. 持久化必 string 归一 (源自 BUG-082, S71)
+- 🛑 **严禁**: 写 messages / logs / DB 字段时, 直接传整个 Error / API 错误对象 (如 `{code, message}`) — 下游渲染 / 解析必炸
+- ✅ **server 端必用**: `extractErrorMessage()` (apps/server/src/utils/errorUtils.ts) 归一, 永远返 string
+- ✅ **支持 5 种输入**: string / number/boolean / Error / `{code, message}` 对象 / 嵌套 axios error
+- ✅ **web 端防御渲染** (防历史脏数据):
+  ```tsx
+  // 必加 typeof 检查
+  {typeof part.message === 'string' ? part.message : JSON.stringify(part.message)}
+  ```
+- ✅ **mobile 端 axios POST 必校验**:
+  ```ts
+  if (typeof payload.message === 'string') {
+    setError(payload.message);
+  } else {
+    setError(JSON.stringify(payload.message));  // 兜底, 不裸传对象
+  }
+  ```
+- 📊 **真实案例 (S71 BUG-082)**: agnes API 返 `{error: {code, message}}`, videoAgentService L705 原样存进 messages JSON, web 渲染对象 → React #31 "object with keys {code, message}", 整个视频/图片会话 tab 卡死
+- 跨项目通用: 任何 API 边界 (前端 form 后端 / 第三方 API 后端 / WebSocket / MessageQueue) 写持久化时, schema 必归一, 不能透传上游结构
+
+## 41. APP_VERSION 6→8 处同步 + 隐藏 systemd unit / .env (源自 BUG-082 P3, S71)
+- ✅ **改 server 版本必同步 8 处** (v3.0.33 扩 6→8, S66 BUG-069 + S71 BUG-082 P3 教训):
+  ```
+  1. apps/mobile/src/config/version.ts APP_VERSION
+  2. apps/mobile/android/app/build.gradle versionCode + versionName
+  3. apps/server/package.json "version"
+  4. apps/server/src/index.ts fallback (L74 'X.Y.Z')
+  5. apps/server/ecosystem.config.js env + env_production (2 处, replaceAll)
+  6. apps/web/src/config/version.ts APP_VERSION + APP_VERSION_CODE
+  7. 🆕 apps/server/.env APP_VERSION
+  8. 🆕 /etc/systemd/system/shipin-app.service Environment=APP_VERSION
+  ```
+- 🛑 **禁止漏改 systemd unit / .env**: S70 BUG-077 重构时 systemd unit 硬编码 `Environment=APP_VERSION=3.0.29`, 3 个月后 V3.0.33 升级才发现
+- ✅ **一键自检**: `node tools/verify-version-8-points.js` (本地 6 + 远程 2, 失败 exit 1)
+- ✅ **部署后必跑**: 远程 7-8 处 (.env + systemd unit) 自动查, 不用手 grep
+- 配套: `docs/VERSION_MANAGEMENT.md` § 5.2 8 处 + § 7.2 8 项 + `apps/server/deploy.sh` 3.5 段 (自动同步 .env + systemd unit)
+
+## 42. 写 .ts/.js/.md/.sql 必用 Write 工具, 严禁 PowerShell 5.1 (源自 BUG-079, S71)
+- 🛑 **严禁**: PowerShell 5.1 (`Out-File -Encoding utf8` / `Set-Content`) 写 .ts/.js/.md/.sql 文件 — **100% 丢 newline, 大文件 1008+ 字节挤 1 行**
+- ✅ **必用**: Write / Edit 工具 (UTF-8 自动 newline, 工具底层保证 LF) 或 PS 7+ `[System.IO.File]::WriteAllText(path, content, [Text.UTF8Encoding]::new($false))` (无 BOM)
+- ✅ **写后必跑验证**:
+  ```bash
+  python3 -c "data=open('f','rb').read(); print(data.count(b'\n'))"
+  # 或
+  bash tools/check-ps51-newline.sh <files>
+  ```
+- 📊 **真实案例 (S71 BUG-079)**: `src/index.ts` 6673 字节挤 3 行 (newline=2), `web/version.ts` 1008 字节挤 1 行 (newline=0), tsc 编译出 11 行 dist, node 启动立即 exit 0
+- 跨项目通用: PowerShell 5.1 是 Windows Server 2016/2019 默认, 任何 AI 用 ssh 写远端文件必走 Write 工具或 `cat > file <<EOF` 避免 PS 5.1 写入
+- 🆕 **pre-commit 防呆** (可选): `.husky/pre-commit` 自动跑 `bash tools/check-ps51-newline.sh --staged`, 任何损坏文件 commit 必失败
+
+## 43. verify-deploy.sh 防呆维度必同步 BUG (源自 BUG-079/080/082, S71)
+- 🛑 **不再接受"自报 N 维全过"假报告**: S71 BUG-079 真实案例, "12 维全过" 100% 假, 实际没真动 server dist / DB schema
+- ✅ **每修一个 P0 BUG, 必加一个"以后不能再犯"的 grep 维度到 `scripts/verify-deploy.sh`**:
+  - BUG-079 P0 → 14→16 维 (server dist grep `/api/billing` + `recordConsumption` + `ALTER TABLE`)
+  - BUG-080 P2 → 16→18 维 (web dist 静态分析 `.type === 'consumption'` filter pattern + E2E 1152 条)
+  - BUG-082 P0 → 18→20 维 (server dist `extractErrorMessage` 3 文件命中 + web dist `JSON.stringify(part.message)` 1 文件命中)
+  - BUG-082 P2 → 20→21 维 (server dist agnesVideoProvider 含 `extractErrorMessage` 2 命中)
+  - 未来 BUG → 21+N 维
+- ✅ **强制未来 AI 部署时检测**: `bash scripts/verify-deploy.sh --strict` 任何 1 失败 exit 1
+- ✅ **CI 集成** (可选): `.github/workflows/ci.yml` 跑 `verify-deploy.sh --strict` PR 阶段
+- 配套: `scripts/verify-deploy.sh` 注释 (维度 17-18 / 19 / 20 等) + `apps/mobile/BUGS.md` BUG-079/080/082 教训段
+
 ---
 
 # 第二部分: BUG 记录强制流程 (硬性流程)
@@ -619,7 +703,7 @@
 
 ---
 
-# 当前生效规则 (2026-06-24 v3.0.30)
+# 当前生效规则 (2026-06-25 v3.0.33, S71 后置扩到 43 条)
 
 | 类别 | 规范数 | 触发 BUG |
 |---|---|---|
@@ -660,7 +744,12 @@
 | **server DB 迁移 SOP (兼容 + 不删字段)** | 1 条 (新, S66) | (S66 GAP 修复) |
 | **PM2 + ecosystem.config.js 完整规范** | 1 条 (新, S66) | (S66 GAP 修复) |
 | **server 部署必先检查活跃任务 + 跑维护模式** | 1 条 (新, S67) | BUG-070 |
-| **合计** | **38 条** | **21 个 BUG** |
+| **状态机迁移必同步 4 处 (allowlist + response + DB + UI case)** | 1 条 (新, S71, BUG-081) | BUG-081 |
+| **持久化必 string 归一 (extractErrorMessage + 防御渲染)** | 1 条 (新, S71, BUG-082) | BUG-082 |
+| **APP_VERSION 6→8 处 (含 .env + systemd unit 隐藏 P3)** | 1 条 (新, S71, BUG-082 P3) | BUG-082 P3 |
+| **写代码必用 Write 工具, 严禁 PowerShell 5.1 (丢 newline)** | 1 条 (新, S71, BUG-079) | BUG-079 |
+| **verify-deploy.sh 防呆维度必同步 BUG** | 1 条 (新, S71, BUG-079/080/082) | BUG-079/080/082 |
+| **合计** | **43 条** | **25 个 BUG** (BUG-001~082) |
 
 下次新 BUG 修完, 必:
 1. 追加 BUGS.md BUG-NNN 条目
