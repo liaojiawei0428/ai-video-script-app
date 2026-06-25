@@ -14,6 +14,9 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-089** | S72 batch 6 v3.0.36 | ✓ 已修 | **生图/视频生成成功不立刻显示, 必须切走 Tab 再切回才显示**: polling 完成 setMessages(prev) 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (userInitiated race / server 写入 race), UI 回到 streaming 加载圈 | ImageAgentScreen + VideoAgentScreen 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages); polling 完成 alert 后 setTimeout scrollToEnd 200ms |
+| **BUG-088** | S72 batch 6 v3.0.36 | ✓ 已修 | **删除会话弹窗被历史侧栏 Modal 完全遮挡, 用户看不到 confirm → 无法删除历史会话**: Dialog.tsx 用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡 (Android Dialog / iOS UIViewController 永远在 React 视图树最上层) | Dialog.tsx 改用 RN <Modal transparent animationType="none" statusBarTranslucent> 包装 (走 native 层); ImageAgentScreen + VideoAgentScreen 历史侧栏删除按钮先 setShowHistory(false) + setTimeout 300ms 再弹 confirm (防两个 RN Modal z-order race) |
+| **BUG-087** | S72 batch 5 v3.0.35 | ✓ 已修 | **APP 内"无限发现新版本"**: mobile config/version.ts 1 行注释 tsc 报 `is not a module` → APP_VERSION=undefined → fetch /api/version?version=undefined → server compareVersions(3.0.34, 'undefined')=1 → needUpdate=true 每次冷启动弹窗 | version.ts 改多行 (Write 工具强制 LF); 新增 db/updateMemory.ts (RNFS 24h 抑制); updater.tsx showUpdateDialog 异步化 (取消按钮写 memory + 下载按钮不写); App.tsx useEffect 加日志; 删 web version-fixed.ts |
 | **BUG-082** | S71 后置 | ✓ 已修 | **Web 端 React #31 错误**: 视频/图片 agent error part.message 被存为对象 {code, message} 而非 string (agnes API 返对象, server 原样存), web 渲染对象触发 #31, 整个会话 tab 不可用 | 新建 `utils/errorUtils.ts` extractErrorMessage 60 行; videoAgentService L527+L705 + imageAgentService L637 全部走归一; web AgentChatPanel case 'error' 防御性渲染; 历史 SQL 修 1 条 (aa88d219); verify-deploy 加 17-18 维 |
 | **BUG-082 P3** | S71 后置 v3.0.33 | ✓ 已修 | **systemd unit 硬编码 APP_VERSION=3.0.29 漏改** (S70 BUG-077 写完未同步) — V3.0.33 升级时发现, process.env.APP_VERSION 实际生效是 .env 3.0.32 (systemd EnvironmentFile 优先级实测覆盖 [Service] Environment), VERSION_MANAGEMENT § 5.2/§ 7.2 6→8 处 + AGENTS.md 铁律 3 6→8 处 + deploy.sh 加 .env+systemd unit 同步 |
 | **BUG-081** | S71 后置 | ✓ 已修 | **用户改方案"An unexpected error occurred"**: imageAgentService processTurn allowedStates 漏 plan_ready (S70 passthrough 改后没同步) + throw raw Error 走 errorHandler 兜底 500 | imageAgentService 加 plan_ready + 改 AppError 400; videoAgentService 加 busy 状态 409; web 提取 error.code 友好提示 |
@@ -67,7 +70,10 @@
 - BUG-008 / 028 / 029 / 045 / 046 / 048 / 069 / 070 / 073
 
 ### 🔍 "mobile" / "RN" / "Android" / "APK" / "Hermes"
-- BUG-001 / 002 / 003 / 004 / 005 / 006 / 007 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 035 / 036 / 037 / 039 / 040 / 042 / 043 / 044 / 061 / 062 / 063 / 066 / 067 / 068 / 074
+- BUG-001 / 002 / 003 / 004 / 005 / 006 / 007 / 013 / 014 / 015 / 016 / 017 / 018 / 019 / 020 / 021 / 022 / 023 / 024 / 025 / 026 / 027 / 035 / 036 / 037 / 039 / 040 / 042 / 043 / 044 / 061 / 062 / 063 / 066 / 067 / 068 / 074 / 087 / 088 / 089
+
+### 🔍 "弹窗" / "Modal" / "Dialog" / "Confirm" / "遮挡"
+- **BUG-088** 删除会话弹窗被历史侧栏 RN Modal 遮挡 (Dialog 改用 RN Modal 包装 + 先关 Modal 再弹 confirm)
 
 ### 🔍 "web" / "React" / "Vite" / "shadcn"
 - BUG-066 / 067 / 072
@@ -263,6 +269,6 @@
 
 ---
 
-**最后更新**: 2026-06-25 (S71 后置 v1.3, 加 BUG-082 P3 systemd unit 漏改 + VERSION_MANAGEMENT 6→8 处 + AGENTS.md 铁律 3 6→8 处 + deploy.sh 加 .env+systemd unit 同步)
+**最后更新**: 2026-06-26 (S72 batch 6 v1.4, 加 BUG-087/088/089: APP 无限弹窗 + Dialog Modal 遮挡 + 生成成功 race condition)
 **下次 review**: S72 收尾时, 必查 Top 10 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)

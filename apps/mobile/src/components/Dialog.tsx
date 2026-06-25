@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import {
+  Modal,
   View,
   Text,
   StyleSheet,
@@ -94,6 +95,13 @@ export function Dialog({
     }
   }, [visible, fadeAnim, scaleAnim]);
 
+  // v3.0.36 (S72 batch 6 BUG-088): 改用 RN 原生 <Modal> 包装 — 之前用普通 View + absoluteFillObject
+  //   被 RN 原生 Modal (历史侧栏) 遮挡, 用户看不到 confirm 弹窗, 导致"删除不生效"
+  //   RN Modal 走 native 层 (Android Dialog / iOS UIViewController), 永远在 React 树之上
+  //   statusBarTranslucent: Android 上避免 status bar 高度覆盖
+  //   onRequestClose: Android 硬件返回键关闭
+  // visible 由外部控制 (DialogStore), 这里 visible=false 时 return null 不渲染
+
   if (!visible) return null;
 
   const v = VARIANT_COLORS[variant];
@@ -111,87 +119,95 @@ export function Dialog({
   };
 
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-      {/* 背景遮罩 */}
-      <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleBackdrop} />
-      </Animated.View>
-
-      {/* 居中卡片 */}
-      <View style={styles.center} pointerEvents="box-none">
-        <Animated.View
-          style={[
-            styles.card,
-            contentStyle,
-            {
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            },
-          ]}
-        >
-          {/* variant 图标 */}
-          {variant !== 'default' && (
-            <View style={[styles.iconWrap, { backgroundColor: v.accent + '20' }]}>
-              <Text style={[styles.icon, { color: v.accent }]}>{v.icon}</Text>
-            </View>
-          )}
-
-          {/* 标题 */}
-          {title && <Text style={styles.title}>{title}</Text>}
-
-          {/* 内容 */}
-          {type === 'custom' ? (
-            <ScrollView
-              style={styles.customBody}
-              contentContainerStyle={styles.customBodyContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {children}
-            </ScrollView>
-          ) : (
-            message && (
-              <Text style={styles.message}>
-                {message.split('\n').map((line, i, arr) => (
-                  <Text key={i}>
-                    {line}
-                    {i < arr.length - 1 ? '\n' : ''}
-                  </Text>
-                ))}
-              </Text>
-            )
-          )}
-
-          {/* 按钮组 */}
-          {type !== 'custom' || onConfirm || onCancel ? (
-            <View style={styles.btnRow}>
-              {showCancel && (
-                <TouchableOpacity
-                  style={[styles.btn, styles.btnCancel]}
-                  onPress={handleCancel}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.btnCancelText}>{cancelText}</Text>
-                </TouchableOpacity>
-              )}
-              {type !== 'custom' || onConfirm ? (
-                <TouchableOpacity
-                  style={[
-                    styles.btn,
-                    styles.btnConfirm,
-                    { backgroundColor: v.accent },
-                    showCancel && { marginLeft: spacing.sm },
-                  ]}
-                  onPress={handleConfirm}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.btnConfirmText}>{confirmText}</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          ) : null}
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={handleBackdrop}
+    >
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+        {/* 背景遮罩 */}
+        <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleBackdrop} />
         </Animated.View>
+
+        {/* 居中卡片 */}
+        <View style={styles.center} pointerEvents="box-none">
+          <Animated.View
+            style={[
+              styles.card,
+              contentStyle,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: scaleAnim }],
+              },
+            ]}
+          >
+            {/* variant 图标 */}
+            {variant !== 'default' && (
+              <View style={[styles.iconWrap, { backgroundColor: v.accent + '20' }]}>
+                <Text style={[styles.icon, { color: v.accent }]}>{v.icon}</Text>
+              </View>
+            )}
+
+            {/* 标题 */}
+            {title && <Text style={styles.title}>{title}</Text>}
+
+            {/* 内容 */}
+            {type === 'custom' ? (
+              <ScrollView
+                style={styles.customBody}
+                contentContainerStyle={styles.customBodyContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {children}
+              </ScrollView>
+            ) : (
+              message && (
+                <Text style={styles.message}>
+                  {message.split('\n').map((line, i, arr) => (
+                    <Text key={i}>
+                      {line}
+                      {i < arr.length - 1 ? '\n' : ''}
+                    </Text>
+                  ))}
+                </Text>
+              )
+            )}
+
+            {/* 按钮组 */}
+            {type !== 'custom' || onConfirm || onCancel ? (
+              <View style={styles.btnRow}>
+                {showCancel && (
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnCancel]}
+                    onPress={handleCancel}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.btnCancelText}>{cancelText}</Text>
+                  </TouchableOpacity>
+                )}
+                {type !== 'custom' || onConfirm ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.btn,
+                      styles.btnConfirm,
+                      { backgroundColor: v.accent },
+                      showCancel && { marginLeft: spacing.sm },
+                    ]}
+                    onPress={handleConfirm}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.btnConfirmText}>{confirmText}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+          </Animated.View>
+        </View>
       </View>
-    </View>
+    </Modal>
   );
 }
 

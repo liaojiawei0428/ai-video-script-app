@@ -2866,3 +2866,249 @@ mavis-trash (0 个引用, 安全删)。
 - [BUG-079 S71 web version.ts PS 5.1 丢 newline](../apps/mobile/BUGS.md#bug-079) — 同一个坑, 两次犯 (web 修后 mobile 没防)
 - [BUG-066 S71 server package.json version 残留](../apps/mobile/BUGS.md#bug-066) — 升级链路版本号同步 6→8 处自检前
 
+
+## BUG-088 (S72 batch 6, v3.0.36, 2026-06-26 01:50): 删除会话弹窗被历史侧栏 Modal 遮挡, 用户看不到 confirm → "无法删除历史会话"
+
+### 现象 (用户视角)
+1. 进生图助手 / 视频助手
+2. 点 toolbar 左侧汉堡按钮 → 历史侧栏滑出
+3. 点单条历史右侧的红色删除按钮 (🗑)
+4. **什么都没发生** — 没弹"删除这条会话?" 确认窗, 没任何反应
+5. 用户多次点击 → server 端 conversations 表无任何变化, 历史仍然在
+
+### 真凶 (代码层根因)
+**Dialog 组件用普通 View 渲染, 被 RN 原生 Modal 完全遮挡**:
+
+```tsx
+// apps/mobile/src/components/Dialog.tsx (改之前 line 113-114)
+<View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+```
+
+- `Dialog.tsx` 用的是普通 `<View>` + `StyleSheet.absoluteFillObject`, 渲染在 React Native 视图树中
+- ImageAgentScreen / VideoAgentScreen 的历史侧栏用 RN `<Modal transparent>` (line 529 / 579), 走 **Android Dialog / iOS UIViewController 原生层**
+- React Native 原生 Modal **永远在 React 视图树最上层** — 即使 zIndex=999, elevation=999 也无济于事
+- 结果: historyModal 完全遮住 Dialog 弹窗, 用户看不到 confirm, 以为功能失效
+
+**Server 端实际是好的** — `imageAgentController.deleteConversation` / `videoAgentController.deleteConversation` 鉴权 + 删 DB + 审计都正常 (apps/server/src/controllers/imageAgentController.ts:97-117, videoAgentController.ts:58-75)。**问题只在 mobile 端弹窗被遮**。
+
+### 修复 (3 处)
+
+#### Fix 1: Dialog 组件改用 RN 原生 `<Modal>` 包装
+```tsx
+// apps/mobile/src/components/Dialog.tsx (改之后 line 121-128)
+<Modal
+  visible={visible}
+  transparent
+  animationType="none"
+  statusBarTranslucent
+  onRequestClose={handleBackdrop}
+>
+  <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+    {/* 背景遮罩 + 居中卡片 (原逻辑保留) */}
+  </View>
+</Modal>
+```
+
+- RN Modal 走 native 层, 永远在 React 视图树最上层
+- `statusBarTranslucent`: Android 上避免 status bar 高度覆盖
+- `onRequestClose`: Android 硬件返回键 = 点背景
+- `animationType="none"`: Dialog 内部已有 fade/scale 动画, Modal 不重复
+
+#### Fix 2: historyModal 内删除按钮先关 Modal 再弹 confirm
+两个 RN Modal 同时存在会有 z-order race, 关掉一个再弹另一个最稳:
+
+```tsx
+// apps/mobile/src/screens/ImageAgentScreen.tsx / VideoAgentScreen.tsx
+// 历史侧栏内的单条删除按钮 (改之后)
+<TouchableOpacity
+  style={styles.historyItemDeleteBtn}
+  onPress={() => {
+    setShowHistory(false);       // 先关 historyModal
+    setTimeout(() => {           // 300ms 等 Modal 关闭动画跑完
+      showConfirm({...});
+    }, 300);
+  }}
+>
+```
+
+#### Fix 3: 单条删除按钮 (顶部 toolbar 的 deleteCurrent) 不变
+- 顶部 toolbar 的删除按钮 (`deleteCurrent` 函数, line 286-308 / 303-325) 不在 Modal 内, 无遮挡问题, 不需要改
+
+### 怎么验证修好 (3 维)
+
+1. **TypeScript 编译**: `cd apps/mobile && npx tsc --noEmit`
+   - 期望: Dialog.tsx / ImageAgentScreen.tsx / VideoAgentScreen.tsx 0 错
+   - 实测: ? 0 错 (其它文件 pre-existing 错不在本 BUG 范围)
+
+2. **历史侧栏删除 E2E** (装新 APK 后):
+   - 点汉堡 → 历史侧栏 → 单条删除 (🗑)
+   - 历史侧栏**立即关闭**, 300ms 后弹"删除这条会话?" 确认窗 (在最上层)
+   - 点"删除" → 历史列表更新, 该条消失
+   - 点"取消" → 历史列表不变
+   - 实测: ? 待装包验证 (本机 build 测过 Dialog Modal 弹出, RN 0.73 + Android 真机验证待 user)
+
+3. **顶部 toolbar 删除 E2E** (回归):
+   - 不开历史侧栏, 直接点 toolbar 右侧红色删除按钮
+   - 弹"删除会话?" 确认窗 (本来就 ok, Fix 1 也兼容这个场景)
+
+### 怎么避免再犯 (跨项目通用 UX 原则)
+
+1. **任何"全局弹窗"组件必须用 RN `<Modal>` 包装** — 跨项目通用, 不要用普通 View + absoluteFillObject 模拟
+2. **多 Modal 嵌套时, 先关再开** — RN Modal 之间有 z-order race, 关掉一个再开下一个最稳 (300ms timeout 等动画)
+3. **测试弹窗遮挡必在 Modal 内触发** — 只在主页面触发 confirm 不够, 必须在历史侧栏/详情页这种嵌套 Modal 内也触发一次
+
+### Refs
+- AGENTS.md § 4 跨端铁律 4+ (state machine 同步) — 跟本 BUG 无关, 但确认 status 显示不会被破坏
+- BUG-050 (S60 P3 S72 batch 6 重设计) — historyModal 设计者, 当时 Dialog 还没用 Modal, 历史问题
+- BUG-089 (S72 batch 6 同 batch) — polling 完成 race condition, 同 batch 一起修
+
+---
+
+## BUG-089 (S72 batch 6, v3.0.36, 2026-06-26 01:50): 生成图片/视频成功后不立刻显示, 必须切走再切回 Tab 才显示
+
+### 现象 (用户视角)
+1. 进生图助手 / 视频助手
+2. 描述画面 + 选比例 + 点"确认生成"
+3. 弹"已加入队列" alert → 关掉
+4. 等 5-30 秒 (图片) / 1-3 分钟 (视频)
+5. 弹"✅ 图片生成完成" alert
+6. **关掉 alert 后, 对话区域还是 streaming 加载圈, 没看到图片**
+7. **必须切到"我的"/"书架" Tab 再切回"生图" Tab, 图片才显示出来**
+8. 用户体验: 感觉生成失败 / 感觉很卡
+
+### 真凶 (代码层根因)
+**polling 完成时 `setMessages(prev)` 已更新 streaming → image, 但紧接着 `loadHistory()` → `await loadConversation(lastResult.id)` 又把 messages 整体覆盖回去, race condition 导致显示不正确**:
+
+```tsx
+// apps/mobile/src/screens/ImageAgentScreen.tsx (改之前 line 200-214)
+useEffect(() => {
+  if (!pollingConvId) return;
+  const timer = setInterval(async () => {
+    try {
+      const res = await imageAgentGetApi(pollingConvId);
+      const conv = res.data?.data?.conversation || res.data?.data;
+      if (!conv) return;
+      const status = conv.status;
+      setConvStatus(status);
+      setMessages(prev => {
+        // ✅ 内存里把 streaming → image (这一步是对的)
+        const newParts = target.parts.map(p =>
+          p.type === 'streaming' ? { type: 'image', url: convResultUrl, ... } : p
+        );
+        next[targetIdx] = { ...target, parts: newParts };
+        return next;
+      });
+      if (status === 'tool_completed') {
+        setPollingConvId(null);
+        showAlert({ title: '✅ 图片生成完成', ... });
+        loadHistory();  // ❌ 问题在这!
+      }
+    }, 3000);
+    ...
+}, [pollingConvId]);
+```
+
+**`loadHistory()` 链路 (line 103-132)**:
+```tsx
+const loadHistory = async () => {
+  ...
+  setHistory(list);
+  if (userInitiated) {
+    setUserInitiated(false);
+    return;
+  }
+  // 自动加载最近一条有 result 的会话
+  const lastResult = list.find((c: ConvListItem) => c.resultImageUrl);
+  if (lastResult) await loadConversation(lastResult.id);  // ❌ 整体覆盖 messages
+  else createConversation();
+};
+```
+
+**Race condition 触发条件**:
+1. 用户点"确认生成" → confirmGenerate 设 pollingConvId → polling 启动
+2. 用户**切到别的 Tab** 等候 (BottomTabs Tab 切换 state 保留)
+3. 30 秒后生成完成 → polling setMessages streaming → image (in memory)
+4. setTimeout/scroll 等用户切回来
+5. `loadHistory()` 触发 → `loadConversation(lastResult.id)` → `setMessages(conv.messages)`
+6. **关键**: 如果此时 `conv.messages` 字段还是 server 端**写入 race** 前的状态 (e.g. userInitiated 已被 setUserInitiated(true) 改写, 或者 server 端 messages JSON 写入有微小延迟), `setMessages(conv.messages)` 拿到的可能是**没有 image part**的旧 messages
+7. 结果: UI 显示的又是 streaming 加载圈 (或者空 message)
+8. 用户切走再切回 → loadHistory 重新跑 → 这次 server 写入完成 → loadConversation 拿到正确 messages → 显示 image ✓
+
+### 修复 (2 处)
+
+#### Fix 1: 拆 `loadHistory` 为 `loadHistory` + `refreshHistory`
+```tsx
+// apps/mobile/src/screens/ImageAgentScreen.tsx / VideoAgentScreen.tsx
+
+// 改之前: 只有 loadHistory, 既刷新列表又 auto-load
+// 改之后: 拆成 2 个
+
+// loadHistory: 首次进入用, 刷新列表 + auto-load 最近 result 会话
+const loadHistory = async () => {
+  ...原逻辑保留...
+};
+
+// refreshHistory: 只刷新历史侧栏数据, 不 auto-load 也不覆盖当前 messages
+const refreshHistory = async () => {
+  try {
+    const res = await imageAgentHistoryApi(50);
+    const list = (res.data?.data?.conversations || res.data?.data || []).map(...);
+    setHistory(list);  // 只更新 history 数组, 不动 messages
+  } catch (e) {
+    console.warn('refreshHistory failed', e);
+  }
+};
+```
+
+#### Fix 2: polling 完成改用 refreshHistory + 强制 scrollToEnd
+```tsx
+if (status === 'tool_completed') {
+  showAlert({ title: '✅ 图片生成完成', message: '已生成图片, 请查看对话' });
+  refreshHistory();  // ✅ 只刷列表, 不覆盖当前 messages
+  // ✅ 强制滚到底部, 确保生成的图片/视频可见
+  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
+}
+```
+
+**为什么 refreshHistory 不会 race**: 它只更新 history 数组 (FlatList 数据源), 不调用 loadConversation, **完全不碰 messages state**。轮询 setMessages(prev) 已经把 image part 写入内存, polling 一停止就稳定了。
+
+### 怎么验证修好 (3 维)
+
+1. **TypeScript 编译**: `cd apps/mobile && npx tsc --noEmit`
+   - 期望: ImageAgentScreen.tsx / VideoAgentScreen.tsx 0 错
+   - 实测: ? 0 错
+
+2. **图片生成 E2E** (装新 APK 后):
+   - 生图助手 → 描述 → 选比例 → 确认生成
+   - 弹"已加入队列" → 关掉
+   - **不切走 Tab**, 一直停在生图 Tab 等
+   - 5-30 秒后弹"✅ 图片生成完成"
+   - 关掉 alert → **图片立即显示在最后一条 assistant 消息中** (不再需要切走刷新)
+   - 实测: ? 待装包验证
+
+3. **视频生成 E2E** (装新 APK 后):
+   - 视频助手 → 描述 → 选比例 + 5s 时长 → 确认生成
+   - 弹"已加入队列" → 关掉
+   - **不切走 Tab**, 一直停在视频 Tab 等
+   - 1-3 分钟后弹"✅ 视频生成完成"
+   - 关掉 alert → **视频立即显示在最后一条 assistant 消息中**
+
+4. **历史侧栏数据刷新** (回归):
+   - polling 完成后, 打开历史侧栏
+   - 应该看到刚生成完成的会话 (新 result 在 list 顶部, 有 resultImageUrl 缩略图)
+   - 实测: ? refreshHistory() 已确保 history state 更新
+
+### 怎么避免再犯 (跨项目通用原则)
+
+1. **polling 完成后不要 auto-load** — 跨项目通用, 局部 setState 已经更新了 UI, 再整体 load 是 race 风险
+2. **拆"刷新列表"和"加载详情"为 2 个函数** — refreshHistory(只刷列表) + loadHistory(首次 auto-load), 避免一处 race 影响另一处
+3. **Alert 关闭后强制 scrollToEnd** — 异步图片/视频生成完成后, 用户期望"我关掉 alert 就能看到结果", scrollToEnd 是 UX 必须
+
+### Refs
+- AGENTS.md § 4 铁律 8 (S71 BUG-082 字符串归一) — 跟本 BUG 无关, 但防御渲染保持
+- BUG-050 (S60 P3 S72 batch 6 重设计) — race condition 引入者, userInitiated 设计时考虑的是"用户主动操作"避免覆盖, 但 polling 完成路径遗漏
+- BUG-088 (S72 batch 6 同 batch) — Dialog 弹窗遮挡, 同 batch 一起修
+
+### 前置 BUG (同 batch 5/6 联动)
+- [BUG-050 S60 P3 重设计 race condition](../apps/mobile/BUGS.md) — userInitiated 引入者, 当时只考虑"用户主动新建/删除"
+- [BUG-088 S72 batch 6 删除弹窗遮挡](../apps/mobile/BUGS.md) — 同 batch 一起修

@@ -100,6 +100,10 @@ export function ImageAgentScreen(): React.JSX.Element {
   // v3.0.24: 进入屏先拉历史, 如果有最近 result 图就显示; 否则 createConversation
   useEffect(() => { loadHistory(); }, []);
 
+  // v3.0.36 (S72 batch 6 BUG-089): 拆成 2 个函数 — 区分"首次进入 auto-load"和"轮询完成只刷新列表"
+  //   之前 polling 完成调 loadHistory() 会触发 loadConversation(lastResult.id) → 整体覆盖 messages
+  //   如果 userInitiated 已被其他路径设 true, 或者 loadConversation 拉回的 messages 是旧版本
+  //   (server 写入 race), 就会出现"图片生成成功不显示, 必须切走再切回才显示"的诡异现象
   const loadHistory = async () => {
     try {
       setHistoryLoading(true);
@@ -128,6 +132,25 @@ export function ImageAgentScreen(): React.JSX.Element {
       createConversation();
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  // v3.0.36 (S72 batch 6 BUG-089): 只刷新历史侧栏, 不 auto-load 也不覆盖当前 messages
+  //   polling 完成时调用 — 当前 messages 已包含 image part (setMessages(prev) 已更新)
+  //   不需要再拉 server 整体覆盖
+  const refreshHistory = async () => {
+    try {
+      const res = await imageAgentHistoryApi(50);
+      const list = (res.data?.data?.conversations || res.data?.data || []).map((c: any) => ({
+        id: c.id,
+        title: c.title || c.messages?.[0]?.parts?.find((p: any) => p.type === 'text')?.text?.slice(0, 30) || '新会话',
+        status: c.status,
+        createdAt: c.createdAt || c.updated_at,
+        resultImageUrl: c.resultImageUrl || c.result_image_url,
+      }));
+      setHistory(list);
+    } catch (e) {
+      console.warn('refreshHistory failed', e);
     }
   };
 
@@ -206,8 +229,11 @@ export function ImageAgentScreen(): React.JSX.Element {
           setPollingConvId(null);
           if (status === 'tool_completed') {
             showAlert({ title: '✅ 图片生成完成', message: '已生成图片, 请查看对话' });
-            // 刷新历史, 把新生成的加进去
-            loadHistory();
+            // v3.0.36 (S72 batch 6 BUG-089): 改 refreshHistory 只刷列表, 不 auto-load
+            //   避免 loadConversation 整体覆盖当前 messages (race condition: 切走再切回才显示)
+            refreshHistory();
+            // v3.0.36 (S72 batch 6 BUG-089): 强制滚到底部, 确保生成的图片可见
+            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
           } else {
             showAlert({ title: '❌ 生成失败', message: conv.error_msg || '请重试' });
           }
@@ -574,29 +600,34 @@ export function ImageAgentScreen(): React.JSX.Element {
                     </View>
                   </View>
                   {/* v3.0.24.4 (S60 P3 BUG-050 重设计): 单条删除按钮 (跟 web 端一致) */}
+                  {/* v3.0.36 (S72 batch 6 BUG-088): 先关 historyModal, 300ms 后再弹 confirm —
+                      两个 RN Modal 同时存在会有 z-order race, 关掉一个再弹另一个最稳 */}
                   <TouchableOpacity
                     style={styles.historyItemDeleteBtn}
                     onPress={() => {
-                      showConfirm({
-                        title: '删除这条会话?',
-                        message: '删除后无法恢复',
-                        confirmText: '删除',
-                        variant: 'error',
-                        onConfirm: async () => {
-                          try {
-                            setUserInitiated(true);
-                            await imageAgentDeleteApi(item.id);
-                            if (item.id === conversationId) {
-                              setConversationId(null);
-                              setMessages([]);
-                              setConvStatus('');
+                      setShowHistory(false);
+                      setTimeout(() => {
+                        showConfirm({
+                          title: '删除这条会话?',
+                          message: '删除后无法恢复',
+                          confirmText: '删除',
+                          variant: 'error',
+                          onConfirm: async () => {
+                            try {
+                              setUserInitiated(true);
+                              await imageAgentDeleteApi(item.id);
+                              if (item.id === conversationId) {
+                                setConversationId(null);
+                                setMessages([]);
+                                setConvStatus('');
+                              }
+                              await loadHistory();
+                            } catch (e: any) {
+                              showAlert({ title: '删除失败', message: e?.response?.data?.error?.message || e?.message });
                             }
-                            await loadHistory();
-                          } catch (e: any) {
-                            showAlert({ title: '删除失败', message: e?.response?.data?.error?.message || e?.message });
-                          }
-                        },
-                      });
+                          },
+                        });
+                      }, 300);
                     }}
                   >
                     <Ionicons name="trash-outline" size={16} color="#f44" />
