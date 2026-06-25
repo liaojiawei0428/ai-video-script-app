@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.7 (2026-06-25 S72, 在 v2.6 基础上补强 REPORTING_STANDARDS.md 自我改进循环: § 0.5 加 A (AI 主动自查) + B (改前提案) + § 7 加 C (规模上限警告), 借鉴灵犀 Claw + BerriAI + CLAUDE.md 不是规则手册)
+> **版本**: v2.8 (2026-06-25 S72, 在 v2.7 基础上拆分 REPORTING_STANDARDS.md: 主文件从 348 行降至 ~50 行, 拆出 3 topic files 到 docs/reporting/ 目录, 按 v2.2 C 规模警告硬性要求执行)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
@@ -57,7 +57,13 @@
 | 0 | **本文件 `AGENTS.md`** | 跨端统一总入口 (中文/Persistence/铁律/工作流) |
 | 1 | **[`docs/STANDARDS_EVOLUTION.md`](docs/STANDARDS_EVOLUTION.md)** (S65 新建) | 规范自迭代 SOP (修订流程 5 步 + ADR 实践 + 责任矩阵) |
 | 2 | **[`docs/VERSION_MANAGEMENT.md`](docs/VERSION_MANAGEMENT.md)** (S64 新建) | 跨端版本管理 (6 处版本号 + § 5 发版 SOP + § 5.0 活跃任务部署) |
-| 2.5 | **[`docs/REPORTING_STANDARDS.md`](docs/REPORTING_STANDARDS.md)** (S72 新建) | 汇报沟通规范 (五段式大白话 + 禁用清单 + 改前改后对照, AI 跟用户沟通的唯一标准) |
+| 2.5 | **[`docs/REPORTING_STANDARDS.md`](docs/REPORTING_STANDARDS.md)** (S72 v2.3 拆分) | 汇报沟通规范主索引 (元信息 + 跨规范关系 + 维护规则, 主文件 ~50 行) |
+| 2.5.1 | **[`docs/reporting/原则.md`](docs/reporting/原则.md)** (S72 v2.3 新建) | 汇报 6 原则 + 做事 4 原则 + C 规模警告 |
+| 2.5.2 | **[`docs/reporting/模板-五段式.md`](docs/reporting/模板-五段式.md)** (S72 v2.3.1 拆分) | 五段式模板 (段 1-5) |
+| 2.5.2.1 | **[`docs/reporting/模板-任务计划.md`](docs/reporting/模板-任务计划.md)** (S72 v2.3.1 新建) | 任务前先列计划 (3 步以上) |
+| 2.5.2.2 | **[`docs/reporting/模板-场景微调.md`](docs/reporting/模板-场景微调.md)** (S72 v2.3.1 新建) | 5 场景微调 (A/B/C/D/E) |
+| 2.5.2.3 | **[`docs/reporting/模板-禁用清单.md`](docs/reporting/模板-禁用清单.md)** (S72 v2.3.1 新建) | 禁用清单 + 保留特殊名词 |
+| 2.5.3 | **[`docs/reporting/自检.md`](docs/reporting/自检.md)** (S72 v2.3 新建) | 自检清单 15 项 + 改前改后真实案例对照 |
 | 3 | **[`apps/mobile/BUGS.md`](apps/mobile/BUGS.md)** (跨端共用) | 历史 BUG 案例库 (BUG-001 ~ BUG-071, 21 个) |
 | 4 | **[`apps/mobile/CODING_STANDARDS.md`](apps/mobile/CODING_STANDARDS.md)** | 38 条硬性规范 + BUG 记录强制流程 |
 | 5 | **[`apps/mobile/AGENTS.md`](apps/mobile/AGENTS.md)** (S68 瘦身) | mobile 端独有 (RN 栈 + 升级 7 铁律 + 改 mobile 代码前后 5 步) |
