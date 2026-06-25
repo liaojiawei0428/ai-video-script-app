@@ -201,6 +201,19 @@
         "历史脏数据 SQL 修复: 1 条 (conv aa88d219-686d-4459-b01b-09e31a7b4159 video, message='Invalid image: Incorrect padding (400)')",
         "版本号 6 处同步 3.0.29→3.0.32 (mobile version.ts + android build.gradle versionCode 36→37 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts)"
       ]
+    },
+    {
+      "version": "3.0.33",
+      "buildDate": "2026-06-25",
+      "type": "patch",
+      "summary": "BUG-082 P2 TODO 修法 6/7/8 — agnesVideoProvider provider 层归一 + verify-deploy 加维度 19 + BUGS.md TODO 划掉",
+      "highlights": [
+        "修法 6: agnesVideoProvider.ts L302 error: extractErrorMessage(data.error, '') 归一 — provider 层就 string, 调用方 videoAgentService L705 仍保留 extractErrorMessage 兜底 (双保险, 不依赖单点归一). 加 import + interface 注释.",
+        "修法 7: scripts/verify-deploy.sh 加维度 19 — grep dist/services/agnesVideoProvider.js 含 extractErrorMessage, 0 命中即 FAIL (防未来 AI 误删 import, BUG-082 重蹈).",
+        "修法 8: BUGS.md BUG-082 TODO 列表 4/5 划掉 (修法 6 修法 7 + agnesImageProvider 已确认不适用 + 铁律 8 已加). 剩 1 项 mobile 端防御渲染 (user 主盯 web, 安卓暂不动).",
+        "P2 累计到 P0 一起升: 3.0.32→3.0.33, 6 处同步 (mobile version.ts + android build.gradle versionCode 37→38 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 36→37)",
+        "不升 hybrid 路径: user 部署完用 verify-deploy.sh --strict 跑 21 维 (含新维度 19) + E2E 验证"
+      ]
     }
   ]
 }
