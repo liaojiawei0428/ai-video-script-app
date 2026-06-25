@@ -88,7 +88,12 @@ export const novelController = {
         return res.status(503).json({ success: false, error: { code: 'MAINTENANCE', message: '系统维护中，请稍候再试' } });
       }
       const { novelId } = req.params;
-      logger.info('Starting analysis', { novelId });
+      const userId = (req as any).userId;
+      // S72 v3.0.33 P2 #10 修复 (ADR-0002): 加 userId 校验, 防止用户 A analyze 用户 B 的 novel
+      const novel = await novelModel.findById(novelId);
+      if (!novel) return res.status(404).json({ success: false, error: { code: 'NOVEL_NOT_FOUND', message: '小说不存在' } });
+      if (novel.userId !== userId) return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问该小说' } });
+      logger.info('Starting analysis', { novelId, userId });
       const task = await novelService.analyzeNovel(novelId);
       res.json({
         success: true,

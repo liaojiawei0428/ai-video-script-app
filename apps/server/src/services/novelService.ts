@@ -338,12 +338,13 @@ export class NovelService {
         styleBibleBlock,
       );
 
-      const failedCount = summaries.filter(s => s.failed).length;
-      if (failedCount > 0) {
-        logger.warn('Some chunks failed', { novelId, failedCount, total: chunks.length });
+      // S72 v3.0.33 P2 #11 修复 (ADR-0002): broadcast 加上 failedChunks 具体段号 (旧版只报 count, 用户不知道哪段失败)
+      const failedChunks = summaries.filter(s => s.failed).map(s => s.index);
+      if (failedChunks.length > 0) {
+        logger.warn('Some chunks failed', { novelId, failedChunks, total: chunks.length });
         websocketService.broadcastLlmUpdate(novelId, {
           phase: 'analyzing', step: 'reasoning',
-          content: `⚠️ 有 ${failedCount} 段分析失败（已跳过，不影响整体结果）`,
+          content: `⚠️ 第 ${failedChunks.join('、')} 段分析失败 (共 ${failedChunks.length} 段, 已跳过, 不影响整体结果)`,
         });
       }
 
