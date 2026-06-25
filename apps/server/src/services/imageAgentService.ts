@@ -13,6 +13,7 @@ import { billingService, isVipActive, IMAGE_DAILY_QUOTA_STANDARD, IMAGE_DAILY_QU
 import { userModel } from '../models/user';
 import { logger } from '../utils/logger';
 import { AppError } from '../utils/errors';
+import { extractErrorMessage } from '../utils/errorUtils';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
 import { parseAspectRatioFromText, parseAspectToDims } from '../prompts/imageAspectRatio';
@@ -640,6 +641,8 @@ export class ImageAgentService {
       } else if (errMsg.includes('429')) {
         friendlyMsg = 'agnes 图像 API 限流中, 请稍后重试';
       }
+      // v3.0.32 BUG-082: 强制归一为 string, 防历史: agnes API error 形如 {code, message} 被原样存进 messages JSON, web 渲染对象触发 React #31
+      const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '图片生成失败');
       // 写失败状态
       // v3.0.0.27 (S47): mutate streaming → error, refresh 也能看到失败信息
       try {
@@ -647,16 +650,16 @@ export class ImageAgentService {
           (await imageConversationModel.findById(conversationId))?.messages,
         );
         const failMessages = replaceStreamingPart(prevMessages, {
-          type: 'error', message: friendlyMsg,
+          type: 'error', message: safeFriendlyMsg,
         } as unknown as AgentPart);
         await imageConversationModel.update(conversationId, {
           status: 'tool_failed' as AgentConversationStatus,
-          error_msg: friendlyMsg,
+          error_msg: safeFriendlyMsg,
           messages: failMessages as any,
         } as any);
         await imageGenerationModel.update(taskId, {
           status: 'failed',
-          error_msg: friendlyMsg,
+          error_msg: safeFriendlyMsg,
         } as any);
       } catch {}
     }

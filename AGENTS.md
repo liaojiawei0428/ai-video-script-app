@@ -1,7 +1,7 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.0 (2026-06-24 S68 收口升级, 跟 mobile + server AGENTS.md 对称)
+> **版本**: v2.1 (2026-06-25 S71 后置 BUG-082, 加铁律 8 + 6 处版本号 3.0.32)
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
@@ -130,14 +130,16 @@
 - 历史 PM2 规范 → [`docs/PM2_GUIDE.md`](docs/PM2_GUIDE.md) (S70 deprecated, 仅供考古)
 - **S58 BUG-008 PM2 env reload 教训仍适用** — server 部署改 env 仍走 `delete + start`, 但 shipin-APP 走 systemd 后这套自动失效
 
-### 铁律 5: 部署后必跑 5/6/12/14 维验证 (S64 + S67 + S70 + **S71 BUG-079** 升级)
+### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
 - **🆕 server 12 维** (S70 BUG-077): 6 维自身 + 3 维宝塔/nginx/反代/APK + **3 维宝塔 Node 项目 shipin_APP run=True (核心, BUG-077 验收)**
 - **🆕🆕 server 14 维** (S71 BUG-079 修法): 6 维自身 + **3 维 server dist 关键字符串 grep (`/api/billing` + `recordConsumption` + `ALTER TABLE`)** + **3 维 DB schema (4 字段 + 2 索引 + 数据)** + 2 维公开 HTTPS/web JS + **E2E JWT 测 /api/billing/transactions + /api/billing/summary 真实数据**
   - **🛑 不再接受"自报 12 维全过"假报告** (S71 BUG-079 教训: 报告 100% 假, 4 层真相)
+- **🆕🆕🆕 server 16 维** (S71 BUG-080 P2 修法): 14 维 + **2 维 web 端 dist 手挑字段静态分析 (`.type === 'consumption'` filter pattern + `/api/billing/transactions?type=consumption` E2E 1152 条)**
+- **🆕🆕🆕🆕 server 20 维** (S71 BUG-082 修法): 16 维 + **2 维 BUG-082 防呆 (server dist `extractErrorMessage` 3 文件命中 + web dist `JSON.stringify(part.message)` 防御渲染 1 文件命中)** + 2 维 E2E (DB 层 + API 层都验证 error part.message 是 string 不是 object)
   - 一键脚本: 服务器端 `bash scripts/verify-deploy.sh --strict` (CI 用, 任何 1 失败 exit 1)
-  - 配套规范: BUGS.md BUG-079 + `scripts/verify-deploy.sh` 注释
+  - 配套规范: BUGS.md BUG-079/080/082 + `scripts/verify-deploy.sh` 注释
 - **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (9 步: 查→公告→维护→等任务→预检→备份→systemd restart + 宝塔同步→12 维验证→恢复)
 
 ### 铁律 6: commit message 必带版本号 + BUG 编号 (跨端统一规范)
@@ -154,6 +156,14 @@
 - **pre-commit 防呆** (可选): `.husky/pre-commit` 自动跑 `bash tools/check-ps51-newline.sh --staged`, 任何损坏文件 commit 必失败
 - **真实案例 (S71 BUG-079)**: `src/index.ts` 6673 字节挤 3 行 (newline=2), `web/version.ts` 1008 字节挤 1 行 (newline=0), tsc 编译出 11 行 dist, node 启动立即 exit 0
 - **跨项目通用**: PowerShell 5.1 是 Windows Server 2016/2019 默认, 任何 AI 用 ssh 写远端文件必走 Write 工具或 `cat > file <<EOF` 避免 PS 5.1 写入
+
+### 铁律 8: 🔌 server 写持久化 JSON 必 string 归一 (S71 BUG-082 强约束, 跨项目通用)
+- **🛑 严禁**: 写 messages / logs / DB 字段时, 直接传整个 Error / API 错误对象 (如 `{code, message}`) — 下游渲染 / 解析必炸
+- **✅ 必用**: 写之前必过 `extractErrorMessage()` (apps/server/src/utils/errorUtils.ts) 归一, 永远返 string
+- **支持 5 种输入**: string / number/boolean / Error / {code, message} 对象 / 嵌套 axios error
+- **前端兜底**: 即使 server 修对了, web 渲染 user-supplied data 必 `typeof === 'string' ? : JSON.stringify()` 防御, 防历史脏数据
+- **真实案例 (S71 BUG-082)**: agnes API 返 `{error: {code, message}}`, videoAgentService L705 原样存进 DB, web 渲染对象 → React #31, 整个会话 tab 卡死
+- **跨项目通用**: 任何 API 边界 (前端 form 后端 / 第三方 API 后端 / WebSocket / MessageQueue) 写持久化时, schema 必归一, 不能透传上游结构
 
 ---
 

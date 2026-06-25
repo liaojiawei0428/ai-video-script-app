@@ -2359,3 +2359,229 @@ POST /api/image-agent/chat { conversationId, parts: [{type:'text', text:'修改:
 - [`apps/web/dist/index-BcD13Lwk.js`](../../apps/web/dist/) — BUG-081 修法 web 部署, 477489 字节
 - [BUG-073 1 行 minified 静默 ReferenceError](../apps/mobile/BUGS.md#bug-073-s69-1-行-minified-src--tsc-593--node-22-静默忽略-esm) — 前置 (同类 PS 5.1 写入坑)
 - [BUG-080 web 端消费记录 tab 没数据](../apps/mobile/BUGS.md#bug-080-s71-后置-v3029-2026-06-25-1048-web-端消费记录tab-没数据--billingpagetsx-push-transactions-时漏了-type-字段) — 配套 (S71 后置 web 端防呆)
+
+## BUG-082 (S71 后置, v3.0.32, 2026-06-25 13:30): Web 端点击视频/图片会话报 React #31 "object with keys {code, message}" — server 把 agnes API 返的 {code, message} 对象原样存进 messages JSON, web 渲染对象触发 React
+
+### 现象 (用户反馈)
+
+点击视频/图片会话 "aa88d219-686d-4459-b01b-09e31a7b4159" 时, web 端 console 抛 React error #31:
+
+> Objects are not valid as a React child (found: object with keys {code, message})
+
+页面卡死 + 错误条堆栈指向 `H2` → `V2` → `B2` (B2 = Card 内 H2 组件), 视频/图片会话整个 tab 不可用.
+
+### 真实根因 (3 层链)
+
+**第 1 层: agnes API 返的错误形如对象**
+
+```json
+{ "status": "failed", "error": { "code": "400", "message": "Invalid image: Incorrect padding" } }
+```
+
+这是 agnes API (OpenAI 兼容) 的标准错误格式.
+
+**第 2 层: agnesVideoProvider.queryStatus 原样存到 result.error**
+
+```typescript
+// apps/server/src/services/agnesVideoProvider.ts L298-303 (BUG-082 修前)
+const result: AgnesVideoStatusResult = {
+  taskId: data.id || '',
+  videoId: data.video_id || videoId,
+  status,
+  progress: data.progress || 0,
+  error: data.error,  // ← 整个 {code, message} 对象存进去
+};
+```
+
+**第 3 层: videoAgentService L705 直接把 failMsg 写进 messages JSON**
+
+```typescript
+// apps/server/src/services/videoAgentService.ts L705-707 (BUG-082 修前)
+const failMsg = status.error || '视频生成失败';
+const messages = replaceStreamingPart(parseMessages(conv.messages), {
+  type: 'error', message: failMsg,  // ← failMsg 是对象 {code, message}, 存进 DB
+});
+```
+
+DB 实际存的脏数据:
+```json
+{"type": "error", "message": {"code": "400", "message": "Invalid image: Incorrect padding"}}
+```
+
+**第 4 层 (web 渲染): AgentChatPanel.tsx L1299 直接渲染**
+
+```typescript
+// apps/web/src/components/AgentChatPanel.tsx L1299 (BUG-082 修前)
+<div className="opacity-80">{part.message || '未知错误'}</div>
+// React 看到 part.message 是对象, 不是 ReactText → React #31
+```
+
+### 修法 (4 处 + 1 SQL 修复)
+
+#### 修法 1: 新建 utils/errorUtils.ts 通用归一工具 (新文件, 60 行)
+
+```typescript
+// apps/server/src/utils/errorUtils.ts
+export function extractErrorMessage(err: unknown, fallback: string = '未知错误'): string {
+  if (err == null) return fallback;
+  if (typeof err === 'string') return err;
+  if (typeof err === 'number' || typeof err === 'boolean') return String(err);
+  if (err instanceof Error) return err.message || fallback;
+  if (typeof err === 'object') {
+    const obj = err as Record<string, unknown>;
+    // 优先级 1: 标准 { code, message } 格式 (AppError / agnes / OpenAI 兼容)
+    if (typeof obj.message === 'string' && obj.message.trim()) {
+      if (typeof obj.code === 'string' && obj.code && obj.code !== 'INTERNAL_ERROR') {
+        return `${obj.message} (${obj.code})`;
+      }
+      return obj.message;
+    }
+    // 优先级 2: { msg } / { error: string } / { detail: string }
+    if (typeof obj.msg === 'string' && obj.msg.trim()) return obj.msg;
+    if (typeof obj.error === 'string' && obj.error.trim()) return obj.error;
+    if (typeof obj.detail === 'string' && obj.detail.trim()) return obj.detail;
+    // 优先级 3: 嵌套 { error: { code, message } } (axios 风格)
+    if (typeof obj.error === 'object' && obj.error !== null) {
+      const nested = extractErrorMessage(obj.error, '');
+      if (nested) return nested;
+    }
+    // 兜底: JSON.stringify (避免 React #31 渲染对象)
+    try {
+      const json = JSON.stringify(err);
+      return json.length > 200 ? json.slice(0, 200) + '...' : json;
+    } catch { return fallback; }
+  }
+  return fallback;
+}
+```
+
+支持 5 种输入: string / number/boolean / Error / {code, message} 对象 / 嵌套 axios error / 未知对象. **永远返 string, 不会返 object**.
+
+#### 修法 2: videoAgentService.ts L527 + L705 走 extractErrorMessage (2 处)
+
+```typescript
+// L527-535 (createTask 失败路径)
+const errMsg = (err as Error).message;
+let friendlyMsg = errMsg;
+if (errMsg.includes('timeout') || errMsg.includes('fetch failed') || ...) {
+  friendlyMsg = 'agns 视频服务暂时不可用 (上游 OpenAI 繁忙或服务维护), 请 5-10 分钟后重试';
+} else if (errMsg.includes('429')) {
+  friendlyMsg = 'agns 视频 API 限流中, 请稍后重试';
+}
+// v3.0.32 BUG-082: 强制归一为 string, 防上游返 {code, message} 对象
+const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '视频生成失败');
+
+// L544-545 (写入 error_msg + messages)
+error_msg: safeFriendlyMsg,
+messages: failMessages  // part.message: safeFriendlyMsg
+
+// L705-707 (polling 失败路径 — 主嫌疑)
+const failMsg = extractErrorMessage(status.error, '视频生成失败');
+// status.error 是 agens API 返的 {code, message} 对象, 必走归一
+const messages = replaceStreamingPart(parseMessages(conv.messages), {
+  type: 'error', message: failMsg,  // ← 现在是 string
+});
+```
+
+#### 修法 3: imageAgentService.ts L637 同样修 (1 处, 预防)
+
+```typescript
+// L637-651 (background run 失败路径)
+let friendlyMsg = errMsg;
+if (errMsg.includes('timeout') || ...) { friendlyMsg = '...'; }
+// v3.0.32 BUG-082: 强制归一
+const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '图片生成失败');
+const failMessages = replaceStreamingPart(prevMessages, {
+  type: 'error', message: safeFriendlyMsg,
+});
+```
+
+#### 修法 4: web AgentChatPanel.tsx L1292-1302 防御性渲染 (前端兜底, 防历史脏数据)
+
+```typescript
+case 'error':
+  // v3.0.32 BUG-082: 防御性渲染 — part.message 历史上可能是对象 {code, message} (server 没归一)
+  const errorMsgText = typeof part.message === 'string'
+    ? part.message
+    : (part.message && typeof part.message === 'object' && typeof (part.message as any).message === 'string')
+      ? (part.message as any).message
+      : (typeof part.message === 'object' ? JSON.stringify(part.message) : String(part.message ?? ''));
+  return (
+    <div className="mt-1 p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2">
+      <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 text-xs text-red-200">
+        <div className="font-medium mb-0.5">生成失败</div>
+        <div className="opacity-80">{errorMsgText || '未知错误'}</div>
+      </div>
+    </div>
+  );
+```
+
+#### 修法 5: 历史脏数据 SQL 修复 (1 条)
+
+写了 `scripts/fix-bug-082-error-message-prod.js` 跑一遍:
+- video_conversations: 扫 3 条 (含 type:error in parts), 修 1 条 (aa88d219)
+- image_conversations: 扫 2 条, 修 0 条 (其他 2 条 message 已经是 string)
+
+修后:
+```json
+{"type": "error", "message": "Invalid image: Incorrect padding (400)"}
+```
+
+(把 code 拼到 message 末尾, 跟前端 `(${code})` 模式一致, 可读性 + 信息完整)
+
+### 验证 (20 维 verify-deploy.sh --strict + E2E 模拟用户路径)
+
+#### 20 维 verify-deploy.sh --strict (PASS=20 FAIL=0 SKIP=0)
+
+```
+✓ 维度 1-6: server 端自身 (systemd active / port 6000 / health 200 / version 3.0.32 / novels 401 / PID 1564 新)
+✓ 维度 7-9: server dist 关键字符串 grep (/api/billing 2 命中 / recordConsumption 7 命中 / ALTER 10 命中)
+✓ 维度 10-12: DB schema + 数据 (4 字段 / 2 索引 / 1744 条)
+✓ 维度 13-14: 公开 HTTPS + web JS hash (index-BXGaeeDt.js 新)
+✓ E2E.1 /api/billing/transactions: 1160 条
+✓ E2E.2 /api/billing/summary: balance=219.01
+✓ 维度 15-16: web 端 dist 手挑字段静态分析 (1 文件含 .type === filter, 1152 条 consumption)
+✓ 维度 17-18: BUG-082 防呆
+   ✓ 17. server dist extractErrorMessage: 3 个文件 (videoAgent + imageAgent + errorUtils)
+   ✓ 18. web dist 防御渲染 (JSON.stringify(part.message)): 1 个文件
+```
+
+#### E2E 模拟用户路径 (DB + API 双层)
+
+```bash
+# 1. DB 层 (mysql 直接查)
+mysql> SELECT id, messages FROM video_conversations WHERE id='aa88d219-...';
+# 修前: messages[4].parts[2].message = {"code": "400", "message": "Invalid image: Incorrect padding"}
+# 修后: messages[4].parts[2].message = "Invalid image: Incorrect padding (400)"  (string)
+
+# 2. API 层 (JWT auth + GET /api/video-agent/conversations/aa88d219-...)
+GET /api/video-agent/conversations/aa88d219-686d-4459-b01b-09e31a7b4159
+→ 200 OK, data.messages[4].parts[2].message 是 string ✓
+```
+
+### 教训 (4 条, 跨项目通用)
+
+1. **API 边界处必归一错误格式** — 上游 API 返的错误结构 (如 {code, message}) 跟持久化结构 (string) 不同时, **边界必归一**, 不能直接透传. 这次是 agnes API 返 object, server 原样存进 DB, web 渲染 object 触发 React #31. 跨项目通用: **写边界代码先问"schema 一致吗"**
+2. **写 messages / logs / DB 必用 string 字段, 不能直接传整个 Error 对象** — 跟 BUG-081 throw raw Error → AppError 同源: **边界处强制 schema 归一**. React 渲染对象触发 #31, log 记录对象读取需序列化, 任何下游消费方都可能炸
+3. **前端展示字段必防御性渲染** — server 修复了不代表前端可以裸 `{part.message}` 渲染, 历史脏数据 + 跨端 schema drift 永远可能. **前端渲染 user-supplied data 必 typeof + JSON.stringify 兜底**, React 不会替你兜
+4. **写 verify-deploy.sh 防呆维度必同步 BUG** — BUG-079 P0 加 14→16 维 (server dist grep), BUG-080 P2 加 16→18 维 (web dist 静态分析), BUG-082 P0 加 18→20 维 (extractErrorMessage + 防御渲染). **每修一个 P0 BUG, 必加一个"以后不能再犯"的 grep 维度到 verify-deploy.sh**, 强制未来 AI 部署时检测
+
+### 待办 TODO (P2)
+
+- [ ] `apps/server/src/services/agnesVideoProvider.ts` L302 `error: data.error` 同步归一 (现在 L705 修了, 但 queryStatus 返回值还是对象, 调用方要记得 extractErrorMessage, 不直观. 建议 provider 层就归一)
+- [ ] `apps/server/src/services/agnesImageProvider.ts` 类似 queryStatus 错误也归一 (同 BUG-082 风险, 预防性)
+- [ ] 跨端 AGENTS.md § 4 铁律 4 加"server 写持久化 JSON 必 string 归一"
+- [ ] verify-deploy.sh 加维度 19: E2E 模拟"创建 conv + 触发 error + GET conv + 检查 message 是 string"
+- [ ] mobile 端 AgentChatPanel.tsx (有类似 case 'error' 渲染吗?) 同步防御性渲染 (防 BUG-082 mobile 版)
+
+### 引用 (跨文档)
+
+- [`apps/server/src/utils/errorUtils.ts`](../../apps/server/src/utils/errorUtils.ts) — 新建, extractErrorMessage 60 行
+- [`apps/server/src/services/videoAgentService.ts`](../../apps/server/src/services/videoAgentService.ts) — L527-535 + L705-708 修法 2 (2 处走 extractErrorMessage)
+- [`apps/server/src/services/imageAgentService.ts`](../../apps/server/src/services/imageAgentService.ts) — L637-651 修法 3 (1 处走 extractErrorMessage)
+- [`apps/web/src/components/AgentChatPanel.tsx`](../../apps/web/src/components/AgentChatPanel.tsx) — L1292-1310 修法 4 (防御性渲染)
+- [`apps/server/scripts/fix-bug-082-error-message-prod.js`](../../apps/server/scripts/fix-bug-082-error-message-prod.js) — 修法 5 (历史脏数据 SQL 修复)
+- [`scripts/verify-deploy.sh`](../../scripts/verify-deploy.sh) — 维度 17-18 (BUG-082 防呆)
+- [BUG-080 web 端消费记录 tab 没数据](../apps/mobile/BUGS.md#bug-080-s71-后置-v3029-2026-06-25-1048-web-端消费记录tab-没数据--billingpagetsx-push-transactions-时漏了-type-字段) — 配套 (S71 后置 web 端防呆)
+- [BUG-081 image agent 状态机漏 plan_ready](../apps/mobile/BUGS.md#bug-081-s71-后置-v3032-2026-06-25-1300-用户改方案时无法改方案--an-unexpected-error-occurred--imageagentservice-状态机漏-plan_ready-throw-raw-error-走-errorhandler-兜底) — 配套 (同源: 边界处 schema 归一)

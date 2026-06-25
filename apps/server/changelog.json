@@ -186,6 +186,21 @@
         "14 维验证全过 + E2E JWT 测 /api/billing/transactions 返回 1154 条 total + 3 条 sample (image/video/comic ref_type 全对)",
         "E2E /api/billing/summary 返回 ¥260 充值 + ¥110.92 消费 + ¥219.04 余额 (跟 DB 完全一致)"
       ]
+    },
+    {
+      "version": "3.0.32",
+      "buildDate": "2026-06-25",
+      "type": "patch",
+      "summary": "Web 端 React #31 错误 — 视频/图片 agent error part.message 存对象而非 string (BUG-082)",
+      "highlights": [
+        "BUG-082 修: Web 端点击视频/图片会话 'aa88d219' 报 React #31 (object with keys {code, message})",
+        "根因: agnes API 返 {error: {code, message}}, videoAgentService L707 failMsg = status.error 原样存进 messages JSON, web 渲染对象触发 #31",
+        "新建 utils/errorUtils.ts extractErrorMessage() 通用归一工具 (string/{code,message}/Error/嵌套 → string + fallback)",
+        "videoAgentService L527 + L705 + imageAgentService L637 全部走 extractErrorMessage 防御性归一",
+        "Web AgentChatPanel.tsx case 'error' 加防御性渲染: typeof part.message==='string' ? : 提取 .message : JSON.stringify()",
+        "历史脏数据 SQL 修复: 1 条 (conv aa88d219-686d-4459-b01b-09e31a7b4159 video, message='Invalid image: Incorrect padding (400)')",
+        "版本号 6 处同步 3.0.29→3.0.32 (mobile version.ts + android build.gradle versionCode 36→37 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts)"
+      ]
     }
   ]
 }

@@ -72,7 +72,7 @@ skip() {
 }
 
 color cyan "═══════════════════════════════════════════════════════════════"
-color cyan "  shipin-APP 部署后 14 维验证 (BUG-079 P0 TODO 配套)"
+color cyan "  shipin-APP 部署后 20 维验证 (BUG-079 P0 + BUG-080 P2 + BUG-082)"
 color cyan "═══════════════════════════════════════════════════════════════"
 echo "  DEPLOY_DIR: $DEPLOY_DIR"
 echo "  API_BASE:   $API_BASE"
@@ -299,6 +299,36 @@ console.log(h+'.'+p+'.'+sg);
     fi
   else
     skip "15-16. WEB_DIST ($WEB_DIST) 不存在"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
+# 维度 17-18: BUG-082 防呆 (error part.message 强制归一为 string)
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 17-18: BUG-082 error part.message 归一 (防 React #31) ──"
+
+  # 17. server dist 含 extractErrorMessage (videoAgentService L527/L705 + imageAgentService L637, 至少 3 命中)
+  V17=$(grep -l 'extractErrorMessage' /www/wwwroot/shipin-APP/dist/services/videoAgentService.js /www/wwwroot/shipin-APP/dist/services/imageAgentService.js /www/wwwroot/shipin-APP/dist/utils/errorUtils.js 2>/dev/null | wc -l)
+  if [ "$V17" -ge 3 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 17. server dist extractErrorMessage: $V17 个文件 (videoAgent + imageAgent + errorUtils)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("17. extractErrorMessage 缺失")
+    color red "   ✗ 17. server dist extractErrorMessage 命中仅 $V17 个文件 (期望 ≥3)"
+  fi
+
+  # 18. web dist 含 BUG-082 防御渲染 pattern
+  V18=$(grep -lE 'JSON\.stringify\(e\.message\)|JSON\.stringify\(part\.message\)' /www/wwwroot/ab.maque.uno/dist/assets/*.js 2>/dev/null | wc -l)
+  if [ "$V18" -ge 1 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 18. web dist 防御渲染 (JSON.stringify(part.message)): $V18 个文件"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("18. web 防御渲染缺失")
+    color red "   ✗ 18. web dist 无 JSON.stringify(part.message) 防御渲染 (BUG-082 历史脏数据会触发 React #31)"
   fi
   echo
 fi

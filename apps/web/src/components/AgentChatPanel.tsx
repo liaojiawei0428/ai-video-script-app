@@ -1291,12 +1291,18 @@ function PartView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPi
         );
     case 'error':
       // v3.0.0.17: 增强错误卡片 (用户 #6 需求: 失败也要卡片形式提醒)
+      // v3.0.32 BUG-082: 防御性渲染 — part.message 历史上可能是对象 {code, message} (server 没归一), 直接渲染对象会触发 React #31
+      const errorMsgText = typeof part.message === 'string'
+        ? part.message
+        : (part.message && typeof part.message === 'object' && typeof (part.message as any).message === 'string')
+          ? (part.message as any).message
+          : (typeof part.message === 'object' ? JSON.stringify(part.message) : String(part.message ?? ''));
       return (
         <div className="mt-1 p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2">
           <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1 text-xs text-red-200">
             <div className="font-medium mb-0.5">生成失败</div>
-            <div className="opacity-80">{part.message || '未知错误'}</div>
+            <div className="opacity-80">{errorMsgText || '未知错误'}</div>
           </div>
         </div>
       );
