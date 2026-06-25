@@ -42,11 +42,14 @@ let _cache: Map<string, ChangelogEntry> | null = null;
 function loadChangelog(): Map<string, ChangelogEntry> {
   if (_cache) return _cache;
 
-  // 兼容两种路径: ts 源码 (src/) + tsc 编译后 (dist/)
+  // 兼容 4 种路径: dist root (deploy.sh SOP, S72 batch 4 修) + dist/shared + src/shared + cwd
+  // S72 batch 4 修: 加 dist/changelog.json 优先, 避免部署后还要 scp 根 changelog.json
+  // 之前只读 dist/../changelog.json = /www/wwwroot/shipin-APP/changelog.json (根), 部署漏更新
   const candidates = [
-    join(__dirname, '../../changelog.json'), // dist/shared/changelog.js → dist/changelog.json
-    join(__dirname, '../changelog.json'),    // src/shared/changelog.ts → src/changelog.json (tsx 跑)
-    join(process.cwd(), 'changelog.json'),   // pm2 启动时 cwd=/www/wwwroot/shipin-APP
+    join(__dirname, '../changelog.json'),    // dist/shared/changelog.js → dist/changelog.json (deploy.sh SOP)
+    join(__dirname, '../../changelog.json'), // src/shared/changelog.ts → src/changelog.json (tsx 跑, dev)
+    join(__dirname, '../../dist/changelog.json'), // src/... 跑时 dist root (罕见)
+    join(process.cwd(), 'changelog.json'),   // pm2 / systemd 启动时 cwd=/www/wwwroot/shipin-APP
   ];
 
   for (const path of candidates) {
