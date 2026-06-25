@@ -174,11 +174,12 @@ tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/
 echo "    ✓ 解压完成"
 
 # 验证 tsc 输出完整 (BUG-073 教训)
-head -1 ${DIST_DIR}/dist/index.js | head -c 200
+# S72 v3.0.33 batch 4 修复: tar 包结构是 ./index.js (arcname='.'), 解压后 index.js 在 ${DIST_DIR}/index.js (不是 ${DIST_DIR}/dist/index.js)
+head -1 ${DIST_DIR}/index.js | head -c 200
 echo ""
-if ! head -1 ${DIST_DIR}/dist/index.js | grep -q "const appConfig"; then
+if ! head -1 ${DIST_DIR}/index.js | grep -q "const appConfig"; then
   echo "⚠️ tsc 输出可能不完整 (BUG-073), 验证 head 是否 201 行..."
-  DIST_LINES=$(wc -l < ${DIST_DIR}/dist/index.js)
+  DIST_LINES=$(wc -l < ${DIST_DIR}/index.js)
   if [ "$DIST_LINES" -lt 100 ]; then
     echo "✗ dist/index.js 只有 ${DIST_LINES} 行, tsc 编译坏, 回滚!"
     cp -r ${DIST_DIR}/${BACKUP_NAME} ${DIST_DIR}/dist
