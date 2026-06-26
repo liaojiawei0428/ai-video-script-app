@@ -219,6 +219,19 @@
         "版本号 8 处同步 3.0.34→3.0.35 (跨端铁律 3): mobile version.ts + android build.gradle (versionCode 39→40) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE + changelog.json (本条目) + .env + systemd unit",
         "E2E 验证 (待部署): mobile v3.0.34 APK 装载后冷启动 → 服务器 → needUpdate=false (不再弹) → 老用户选择取消后 24h 内 → 不再弹"
       ]
+    },
+    {
+      "version": "3.0.36",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-088 + BUG-089 修法 (删除会话弹窗遮挡 + 生成成功 race condition)",
+      "highlights": [
+        "BUG-088 修: Dialog 组件改用 RN Modal 包装 (DialogHost 普通 View 被 RN 原生 Modal 遮挡, 用户看不到 confirm)",
+        "BUG-088 修: historyModal 内删除按钮先关再弹 (300ms timeout, 防两个 RN Modal z-order race)",
+        "BUG-089 修: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages)",
+        "BUG-089 修: polling 完成 alert 关闭后 setTimeout scrollToEnd 200ms (确保生成的图片/视频可见)",
+        "铁律 8 强化: 跨项目通用 UX 原则 - 多 Modal 嵌套先关再开, polling 完成不要 auto-load"
+      ]
     }
   ]
 }

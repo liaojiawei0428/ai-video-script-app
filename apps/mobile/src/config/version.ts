@@ -12,8 +12,12 @@
 //   4. commit message 必带版本号 (铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验证 (BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.35';
+export const APP_VERSION = '3.0.36';
 
+// v3.0.36 (S72 batch 6): BUG-088 + BUG-089 修法
+//   - BUG-088: Dialog 组件改用 RN Modal 包装 (历史侧栏遮挡 + 删除不生效)
+//   - BUG-089: 拆 loadHistory 为 refreshHistory (生成成功不立刻显示 race condition)
+//   - polling 完成 alert 关闭后强制 scrollToEnd 200ms
 // v3.0.35 (S72 batch 5 BUG-087): APP 内"无限发现新版本"修法
 //   - 修 version.ts 多行 (之前 1 行 comment + exports on same line, tsc 报 'is not a module',
 //     运行时 APP_VERSION = undefined, fetch 发 ?version=undefined, server compareVersions 返 1
