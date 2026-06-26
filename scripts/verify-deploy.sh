@@ -473,6 +473,49 @@ except Exception as e:
 fi
 
 # ──────────────────────────────────────
+# 维度 23: BUG-096 React {0} 渲染陷阱防呆 (web dist 0 字符串防御)
+# ──────────────────────────────────────
+# 历史: v3.0.37 BUG-094 修法 admin 端点 + AdminDashboardPage 5 tab + userNotifiedAt 条件, 写成
+#   `o.userNotifiedAt && o.userNotifiedAt > 0 && o.status === 'user_notified' && (...)`
+#   老 approved 订单 userNotifiedAt=0 (DB DEFAULT) 走 `0 && ...` 短路返 0, React JSX `{0}` 渲染 "0" 字符串
+#   5 条历史 "已通过" 订单全部后面渲染 "0" (user 截图反馈 2026-06-26 13:22)
+# 修法: 删 `o.userNotifiedAt &&` 第一个短路条件, 改 `&& (...)` 为 `? (...) : null` 显式三目
+# 防呆: web dist 必须含 `userNotifiedAt>0` (修法在) 且不能含 `userNotifiedAt&&` (老修法 0 渲染陷阱)
+# 配套 mavis memory: "JSX `{0}` 渲染陷阱" (跟 BUG-082 铁律 8 配套, 跨项目通用 UX 原则)
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 23: BUG-096 React {0} 渲染陷阱防呆 (web dist userNotifiedAt 条件检查) ──"
+
+  WEB_DIST_DIR="/www/wwwroot/ab.maque.uno/dist/assets"
+  if [ -d "$WEB_DIST_DIR" ]; then
+    # 23a. web dist 必须含 `userNotifiedAt>0` (修法在, 用 >0 不用 &&, 防 0 渲染陷阱)
+    V23A=$(grep -c 'userNotifiedAt>0' "$WEB_DIST_DIR"/*.js 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
+    if [ "$V23A" -ge 1 ]; then
+      PASS=$((PASS+1))
+      color green "   ✓ 23a. web dist 含 'userNotifiedAt>0' 修法: $V23A 命中 (BUG-096 修法在)"
+    else
+      FAIL=$((FAIL+1))
+      FAIL_MSGS+=("23a. userNotifiedAt>0 缺失")
+      color red "   ✗ 23a. web dist 无 'userNotifiedAt>0' 修法 (期望 ≥1 命中, BUG-096 修法未部署)"
+    fi
+
+    # 23b. web dist 不能含 `userNotifiedAt&&` (老修法 0 渲染陷阱, 未来 AI 误加 && 立即 catch)
+    V23B=$(grep -c 'userNotifiedAt&&' "$WEB_DIST_DIR"/*.js 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
+    if [ "$V23B" = "0" ]; then
+      PASS=$((PASS+1))
+      color green "   ✓ 23b. web dist 无 'userNotifiedAt&&' 反模式: 0 命中 (0 渲染陷阱已清)"
+    else
+      FAIL=$((FAIL+1))
+      FAIL_MSGS+=("23b. userNotifiedAt&& 反模式")
+      color red "   ✗ 23b. web dist 含 'userNotifiedAt&&' 反模式: $V23B 命中 (BUG-096 重蹈, 老 approved 订单渲染 \"0\")"
+    fi
+  else
+    skip "23. WEB_DIST_DIR ($WEB_DIST_DIR) 不存在"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"

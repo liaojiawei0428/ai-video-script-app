@@ -103,7 +103,7 @@ shipin-APP/
 - **S72 batch 4** 1 个: BUG-083 (dist/changelog.json 字符编码损坏)
 - **S72 batch 5** 1 个: BUG-087 (APP 无限弹窗 + web APP_VERSION_CODE 同步)
 - **S72 batch 6** 4 个: BUG-088 (Dialog Modal 遮挡) + BUG-089 (polling race) + BUG-090 (deploy.sh cp 源错) + BUG-091 (commit a5ae183 缺 BUG 编号, 违反铁律 6)
-- **S72 batch 7** 3 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现) + BUG-093 (commit `659025d`+`7e823ac` 缺 BUG 编号, 跟 BUG-091 同款违规) + BUG-094 (admin 看板默认查 'pending' 错, markUserNotified 漏改 status, 14 条累积后台, 跟 BUG-081/092 配套)
+- **S72 batch 7** 5 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现) + BUG-093 (commit `659025d`+`7e823ac` 缺 BUG 编号, 跟 BUG-091 同款违规) + BUG-094 (admin 看板默认查 'pending' 错, markUserNotified 漏改 status, 14 条累积后台) + BUG-095 (BUG-094 修法 markUserNotified 写 status='user_notified' 但 DB schema enum 不含, 状态机迁移漏第 5 处) + BUG-096 (AdminDashboardPage "已通过" 历史订单渲染 "0" 字符串, React `{0}` 渲染陷阱, 跟 BUG-082 配套前端侧)
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口
@@ -314,7 +314,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-26 (S72 batch 7 v1.8, BUG-092/093/094 收 + verify-deploy.sh 22 维 + 9 项版本号同步 + Top 12→16 + 32 坑点, 7 commit push origin main: 182033f/9cb8537/659025d/7e823ac/5c6c1a8/8ceb284/7528dc2/ef0ab60)
+> **最后更新**: 2026-06-26 (S72 batch 7 v1.9, BUG-092/093/094/095/096 收 + verify-deploy.sh 22 维 + 9 项版本号同步 + Top 12→18 + 35 坑点, 10 commit push origin main: 182033f/9cb8537/659025d/7e823ac/5c6c1a8/8ceb284/7528dc2/ef0ab60/aaaf3eb/1276e19/b6908cb/b1aa275)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
 
 ---

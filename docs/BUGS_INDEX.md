@@ -14,6 +14,8 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-096** | S72 batch 7 v3.0.37 | ✓ 已修 | **AdminDashboardPage "已通过" 历史订单后面渲染 "0" 字符串**: `{o.userNotifiedAt && o.userNotifiedAt > 0 && ...}` 当 userNotifiedAt=0 时短路返 0, React JSX `{0}` 渲染 "0" (跟 null/undefined/false 不渲染不同) | 删 `o.userNotifiedAt &&` 第一个短路 + 改 `&& (...)` 为 `? (...) : null` 显式三目; 跟 BUG-082 铁律 8 配套 (持久化 JSON 必 string 归一) |
+| **BUG-095** | S72 batch 7 v3.0.37 | ✓ 已修 | **BUG-094 修法 markUserNotified 写 status='user_notified' 但 DB schema `status ENUM('pending','approved','rejected')` 不含 'user_notified'**: MySQL 静默截断 + server 抛 500 + web alert "通知失败" + admin 没订单 | ALTER TABLE MODIFY status enum 加 'user_notified' (立即 SQL + db.ts CREATE 同步 + ALTER 兼容老库 logger.warn + server restart pool reload) |
 | **BUG-094** | S72 batch 7 v3.0.37 | ✓ 已修 | **admin 看板默认查 'pending' 状态订单, BUG-092 修法 markUserNotified 漏改 status, user 点 1 次"我已付款" 后台出 3 条待审核 (DB 实际 14 条 pending 累积)**: admin 端点 default 'pending' + markUserNotified 只改 user_notified_at 不改 status + BUG-092 漏同步 1 处 (admin 端点 4 态机迁移) | markUserNotified 同时 `status='user_notified'` (状态机迁移, 4 态 UI 1:1 对齐); admin GET /orders default 'user_notified' + 'all' 强制 IN 3 状态 + 'pending' 返空 (server 端硬过滤); approve/reject 校验 'user_notified'; web AdminDashboardPage 5 tab + default 'user_notified' + 4 状态显示/操作 |
 | **BUG-093** | S72 batch 7 v3.0.37 | ✓ 沉淀 | **S72 batch 7 部署过程 commit `659025d` (web build TS2339 hotfix) + `7e823ac` (部署脚本 3 件套) 2 个 commit subject 缺 BUG 编号, 违反 AGENTS.md § 4 铁律 6**: 跟 BUG-091 同款违规, "hotfix / 部署 ops 都不算 BUG" 错误判断, BUG 范畴扩张 (hotfix / 部署 / 清理 / 文档 / 规范修订 都算 AI 行为变更) | 沉淀 BUG-093 进 apps/mobile/BUGS.md (永久记录); 升级 check-commit-message.py (N 5→10 + 加 git log origin/main..HEAD 未 push check); pre-commit hook 拦截无 BUG 编号 commit |
 | **BUG-092** | S72 batch 7 v3.0.37 | ✓ 已修 | **扫码支付页面"我已付款"按钮从来没实现**: server message 承诺, web 端 0 按钮, API 端点不存在, admin 端不知道用户已付款 | db 加 user_notified_at 字段; model markUserNotified 方法; route 新增 POST /:id/notify-paid; web api client + RechargePage 4 态 UI + 5s 轮询; admin 端加 userNotifiedAt 标记 |
@@ -233,6 +235,8 @@
 14. **🆕 UI 文案必跟代码 1:1 对齐 (BUG-092, 跨项目通用)** — server message "点击'我已付款'提交审核" 是契约, web 端必实现对应按钮. 修法: 写 server message 时必 grep web 端对应 UI 元素存在, 不能 message 承诺一套, 端点做另一套. 配套 4 态 UI (待操作 / 已操作等审核 / 已通过 / 已拒绝)
 15. **🆕 状态机迁移必同步 4 处 (BUG-081/094, 跨项目通用)** — server 字段 + model method + response handler (server route) + 客户端 UI 渲染, **任何一处漏整套状态机废**. 修法: 状态机迁移前必 grep 4 处一致; DB 状态机设计 sub-status 是反模式, 应该单字段迁移 (markUserNotified 改 status='user_notified', 跟 4 态 UI 1:1 对齐); 部署后必跑 `mysql SELECT status, COUNT(*) FROM recharge_requests GROUP BY status` 自检
 16. **🆕 admin 端点 default 必是"待审核"不是"全部未付款" (BUG-094, 跨项目通用)** — admin 默认查 'pending' 看起来直观但是反模式 (用户充值后没点已付款的订单全进后台 = noise). 修法: admin 看板 default 查 'user_notified' (用户已通知的待审核), 'pending' 只 audit 看不默认; server 端硬过滤 (跟 BUG-080 跨 user 数据泄漏教训一致), 防前端 query 绕过
+17. **🆕 状态机迁移必同步 5 处 (BUG-081→095 升级 4→5, 加 DB schema, 跨项目通用)** — server 字段 + model method + response handler + 客户端 UI 渲染 + **DB schema (enum/type 必同步)**. 修法: 状态机迁移前必 grep 5 处一致; DB schema 改必立即 SQL ALTER + db.ts CREATE 同步 + ALTER 兼容老库 logger.warn + server restart (pool reload). 部署 ALTER 必立即跑, 不依赖 initTables. 配套: server pool enum 跟 DB schema 强一致, schema 改必 `systemctl restart service` (mysql2 prepared statement cache)
+18. **🆕 JSX `{0}` 渲染陷阱 (BUG-082/096 配套前端侧, 跨项目通用)** — `{x && y}` 当 x=0 时短路返 0, React JSX `{0}` 渲染 "0" 字符串 (跟 null/undefined/false 不渲染不同). 修法: 删 `x &&` 第一个短路条件 + 改 `&& (X)` 为 `? (X) : null` 显式三目; 配套 BUG-082 (server 持久化 JSON 必 string 归一, 后端侧). 任何 0 数值字段渲染前必显式 boolean cast (>0 / Boolean / !==0) 包裹. lint 工具加 `@typescript-eslint/no-unnecessary-condition`
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -303,6 +307,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 7 v1.9, 加 BUG-094 admin 看板默认查 pending 错 (跟 BUG-092 markUserNotified 漏改 status 配套), § 4 Top 14 扩 16, § 2 关键字加 admin/状态机/user_notified)
+**最后更新**: 2026-06-26 (S72 batch 7 v2.0, 加 BUG-095 ALTER status enum 漏 + BUG-096 React {0} 渲染陷阱, § 4 Top 16 扩 18, § 2 关键字加 enum/React/0 渲染/JSX/server pool)
 **下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)
