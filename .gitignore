@@ -88,3 +88,8 @@ codegraph/
 /NUL
 # deploy.sh.original: S72 batch 4 损坏版 backup, 保留文件但不进 git
 apps/server/deploy.sh.original
+
+# === S72 batch 7 部署临时构建产物 (2026-06-26) ===
+# 部署前 npm run build 打的 dist tar, 部署完即弃 (跟 S72 batch 6 21 untracked 清理同源)
+apps/server/dist_*.tar.gz
+apps/web/web-dist-*.tgz
