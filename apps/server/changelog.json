@@ -254,6 +254,21 @@
       ]
     },
     {
+      "version": "3.0.39",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-103 修法 (撤销 h773052122 错误退款 34.93 + 删除 refundStep 自动退款功能, 失败改人工复核)",
+      "highlights": [
+        "BUG-103 修: apps/server/src/services/billingService.ts 整方法 refundStep 删除 (line 405-445), 失败不再自动退 (跟 BUG-072 D 长期方案 '接支付宝回调' 一致)",
+        "BUG-103 修: apps/server/src/services/novelService.ts catch 块删 refundStep 调用 (line 414-420), 失败只 notifyError 通知 user '请重试或联系客服' (配套)",
+        "BUG-103 修: DB 撤销 h773052122 错误退款 — UPDATE billing_logs SET ref_label = CONCAT('[已撤销 BUG-103 admin manual 2026-06-26] ', ref_label) WHERE id='1c1aacef-...' (留 audit trail) + UPDATE users SET balance = balance - 34.93 WHERE id='3b3aa45d-...' (35.07 → 0.14 正确 = 0.03 初始 - 0.11 消费)",
+        "BUG-103 修: 失败自动退款改成人工复核流程 (跟 BUG-072 D 长期方案一致) — 1) user 联系 admin 微信/钉钉 2) admin 查 billing_logs + task_jobs 3) 手动 SQL 加余额 4) 手动加 billing_logs type='charge' 5) 长期接支付宝回调",
+        "BUG-103 教训: 任何自动退款必配套审核机制, 短期方案退多了 → BUG (跟 S72 batch 7 BUG-100 catch 漏补刀同源: 修法 1 不彻底, 自动退款没人 review 必出错)",
+        "BUG-103 配套: 1 跨项目通用原则沉淀 mavis memory: '自动退款必配套审核机制 (跨项目通用, 跟 BUG-072 D 短期方案错同源, 跟 BUG-100 catch 漏补刀 100% 同源)'",
+        "版本号 4 项同步 3.0.38→3.0.39 (server 端): server package.json + index.ts fallback + ecosystem 2 处 + changelog.json (本条目) + .env (远端) + systemd unit (远端). mobile + web + APK 保持 v3.0.38 (没改 mobile/web 端代码)"
+      ]
+    },
+    {
       "version": "3.0.38",
       "buildDate": "2026-06-26",
       "type": "patch",

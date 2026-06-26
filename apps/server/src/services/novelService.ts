@@ -411,13 +411,12 @@ export class NovelService {
       await taskJobModel.fail(taskId, errorMsg);
       await novelModel.updateStatus(novelId, 'error');
 
-      // S72 v3.0.33 P0 #2 修复 (ADR-0002): 异常时回滚扣费
-      // 退费金额按 wordCount 算, 跟之前 chargeStep 一致
-      try {
-        await billingService.refundStep(novelId, 'analyze', content.length);
-      } catch (refundErr) {
-        logger.warn('Refund failed (non-blocking)', { novelId, error: refundErr instanceof Error ? refundErr.message : String(refundErr) });
-      }
+      // 🆕 v3.0.38 BUG-103 (2026-06-26): 删除自动退款 (跟 BUG-072 D 长期方案一致)
+      //   历史: S72 v3.0.33 P0 #2 修复 (ADR-0002) analyze 失败自动退, 实际 BUG h773052122 退 34.93 元错误
+      //   修法: 删 refundStep 调用, 失败只 notifyError 通知 user + admin 人工复核 (跟 BUG-072 D 长期方案一致)
+      //   替代: user 联系 admin 微信 → admin 查 billing_logs + task_jobs → 手动 SQL 加余额
+      //   配套: billingService.refundStep 整方法删除 (跟 novelService catch 块同步)
+      //   notifyError 已有: "请重试或联系客服" 提示 (跟 novelService 现有逻辑一致)
 
       // v2.5.15: 创建系统通知
       try {

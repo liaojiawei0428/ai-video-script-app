@@ -397,52 +397,21 @@ export class BillingService {
   }
 
   /**
-   * S72 v3.0.33 P0 #2 修复 (ADR-0002): 异常时回滚扣费
-   * 退费 = 加钱到 user_balance + 写 billing_logs (type='refund', schema enum 已支持)
-   * 注意: 只在最外层 catch 调用, 避免嵌套退费双倍
-   * @returns true=成功退费 / false=无 novel.userId 跳过
+   * 🆕 v3.0.38 BUG-103 (2026-06-26): 删除自动退款功能
+   * 历史: S72 v3.0.33 P0 #2 修复 (ADR-0002) 加了 refundStep, analyze 失败自动退
+   *   实际 BUG: h773052122 2026-06-26 15:41 触发 novel "没钱修什么仙" analyze 失败, 自动退 34.93 元 (2910536 字 × 0.012/1000)
+   *     user 没付款不该退, 这是错误退款 (跟 BUG-072 D 短期方案错同源)
+   *   修法: 删 refundStep, 改人工 (跟 BUG-072 D 长期方案 "支付宝回调" 一致, 不做自动退款)
+   *   配套: user 失败时 notifyError 通知, "请联系客服" 提示 (跟 novelService 现有逻辑一致)
+   * 教训: 任何自动退款必配套审核机制, 短期方案退多了 → BUG (跟 S72 batch 7 BUG-100 catch 漏补刀同源: 修法 1 不彻底)
+   *
+   * 替代方案 (人工复核):
+   *   1. user 联系 admin (微信/钉钉)
+   *   2. admin 查 billing_logs + task_jobs 确认失败
+   *   3. admin 手动 SQL: UPDATE users SET balance = balance + X WHERE id = ?
+   *   4. admin 手动加 billing_logs: INSERT ... type='charge' (refund 改 charge, 区分自动)
+   *   5. 长期方案: 接支付宝回调 (BUG-072 D, 等)
    */
-  async refundStep(novelId: string, stage: 'analyze' | 'episode' | 'shot' | 'comic', wordCount: number = 0, pageCount: number = 1): Promise<boolean> {
-    const novel = await novelModel.findById(novelId);
-    if (!novel?.userId) return false;
-    const user = await userModel.findById(novel.userId);
-    const vip = isVipActive(user);
-    const p = vip ? PRICING.vip : PRICING.standard;
-
-    let amount: number;
-    let desc: string;
-    let refType: string;
-    if (stage === 'shot') {
-      amount = p.shot;
-      desc = '分镜生成退款';
-      refType = 'shot';
-    } else if (stage === 'comic') {
-      amount = Math.round(p.comic * pageCount * 100) / 100;
-      desc = `漫画生成退款 (${pageCount}页)`;
-      refType = 'comic';
-    } else if (stage === 'analyze') {
-      amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
-      desc = '小说分析退款';
-      refType = 'novel_analyze';
-    } else {
-      amount = Math.max(PRICING.minCharge, Math.round(wordCount * p.analyze * 100) / 100);
-      desc = '剧本生成退款';
-      refType = 'episode';
-    }
-
-    // 退费: 加钱到 user_balance + 写 billing_logs (type='refund')
-    const logId = generateUUID();
-    const balanceAfter = Math.round(((user?.balance || 0) + amount) * 100) / 100;
-    await userModel.updateBalance(novel.userId, amount);
-    await execute(
-      `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, is_free, ref_type, ref_id, ref_label, created_at)
-       VALUES (?, ?, 'refund', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-      [logId, novel.userId, amount, balanceAfter, novelId, desc, wordCount, refType, novelId, `退款: ${desc}`, Date.now()]
-    );
-    logger.info('Billing: refund', { novelId, userId: novel.userId, stage, amount, balanceAfter });
-    try { websocketService.broadcastBalanceUpdate(novelId, balanceAfter); } catch {}
-    return true;
-  }
 }
 
 export const billingService = new BillingService();
