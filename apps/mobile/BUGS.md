@@ -3617,4 +3617,99 @@ rejected    27     -- 历史已拒绝
 - [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — 100% 同源, BUG-094 是 BUG-092 漏同步第 4 处
 - [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-094 修法是 BUG-092 修法 6 admin 端点漏 1 处的补完
 
+## BUG-095 (S72 batch 7 BUG-094 修法后立即, v3.0.37, 2026-06-26 13:11): BUG-094 修法 markUserNotified 写 status='user_notified' 但 DB schema `recharge_requests.status ENUM('pending','approved','rejected')` 不含 'user_notified' — MySQL 静默截断 + server 抛错 500 → web 端 catch 后 alert "通知失败" + admin 看板没订单
+
+### 现象 (user 实际反馈, 2026-06-26 13:10)
+
+User 部署 BUG-094 修法后走扫码支付流程, 反馈:
+> "点击我已付款按钮, 弹出通知失败, 并且后台没有订单出现"
+
+具体表现:
+1. user 提交充值 → 订单创建 (status='pending')
+2. user 点"我已付款"按钮 → web 端 catch `e?.response?.data?.error?.message` → alert "通知失败"
+3. admin 端点 `/api/admin/orders?status=user_notified` 返 0 命中 (实际 markUserNotified 写入失败)
+4. 14 个老 pending 订单 (BUG-094 修法前累积) 加上新 pending 订单, admin 端点全不显示
+
+### 真凶 (2 层, 跨项目通用教训)
+
+#### 层 1: DB schema enum 跟 model SQL 不一致
+- `db.ts:191` (BUG-095 修法前): `status ENUM('pending','approved','rejected') DEFAULT 'pending'`
+- 含义: DB schema 只支持 3 状态, 没有 'user_notified'
+- BUG-094 修法改了 `rechargeRequest.ts:39-44` model SQL: `UPDATE recharge_requests SET user_notified_at = ?, status = ?, updated_at = ? WHERE id = ?` (status='user_notified'), **但没同步改 db.ts CREATE TABLE**
+- 后果: model SQL 写 'user_notified' 到 enum 字段, MySQL 抛 `Data truncated for column 'status'`, server pool 抛错 500, web 端 catch 失败
+
+#### 层 2: 状态机迁移 4 处同步漏第 5 处 (DB schema, BUG-081 升级)
+- BUG-081 跨项目通用强约束: "状态机迁移必同步 allowlist + response handler" (4 处)
+- BUG-094 修法补到 4 处 (server 字段 + model method + response handler + 客户端 UI), 仍然漏第 5 处 — **DB schema enum**
+- BUG-094 修法自检表 (`mysql SELECT status, COUNT(*) FROM recharge_requests GROUP BY status`) 显示 `pending/approved/rejected` 3 状态, **没发现 schema enum 漏 'user_notified'**, 因为 ALTER TABLE 跟 CREATE TABLE 都没同步
+- BUG-094 修法没跑端到端验证 (只查 SQL 查 22 维 + admin 端点), 漏 server pool 真实抛错
+
+### 修复 (3 步, 2 文件改 + 1 立即 SQL)
+
+#### 修法 1: 立即 SQL ALTER TABLE (紧急, 不依赖 app 启动)
+```sql
+ALTER TABLE recharge_requests MODIFY COLUMN status ENUM('pending','user_notified','approved','rejected') DEFAULT 'pending';
+```
+- 跑: `mysql -h 10.1.0.11 -uroot -pqQ378685504 ai_script -e "ALTER TABLE ..."`
+- 验证: `SHOW COLUMNS FROM recharge_requests WHERE Field='status'` 期望含 `'user_notified'`
+- 立即跑 (跟 S72 batch 4 deploy.sh #6 修法一致: 部署 ALTER 必立即, 不依赖 initTables)
+
+#### 修法 2: db.ts 同步 (新部署库 + 兼容老库, 跟 BUG-079 教训一致)
+- `db.ts:191` (BUG-095 修法后): `status ENUM('pending','user_notified','approved','rejected') DEFAULT 'pending'`
+- 配套 `db.ts:202-209` ALTER 兼容老库 (logger.warn 替代静默 catch):
+  ```ts
+  try {
+    await db.execute("ALTER TABLE recharge_requests MODIFY COLUMN status ENUM('pending','user_notified','approved','rejected') DEFAULT 'pending'");
+  } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE recharge_requests MODIFY status enum user_notified' });
+  }
+  ```
+
+#### 修法 3: server restart (让 pool 重新 load schema, 防 cached enum)
+- `systemctl restart shipin-app`
+- 验证: 端到端 curl POST /api/recharge/:id/notify-paid (用 admin token 模拟) 期望返 200 / 400 (业务错) 而不是 500 (server 错)
+
+### 怎么验证修好 (5 维)
+
+1. **DB schema enum 含 'user_notified'**:
+   ```sql
+   mysql> SHOW COLUMNS FROM recharge_requests WHERE Field='status';
+   status enum('pending','user_notified','approved','rejected') YES MUL pending
+   ```
+2. **server pool reload schema** (server restart 后, 不返 500): 端到端 verify 返 403 FORBIDDEN (跨 user 保护, 业务错) 而不是 500 (server 错)
+3. **markUserNotified SQL 在 dist**: `grep -A 1 'markUserNotified' dist/models/rechargeRequest.js | grep 'user_notified'` 期望 ≥ 1 命中
+4. **ALTER status enum in db.js dist**: `grep -c 'user_notified' dist/models/db.js` 期望 ≥ 4 命中 (CREATE TABLE + ALTER TABLE + 注释)
+5. **admin 端点返 user_notified 订单**: 创建测试 pending 订单 + curl notify-paid 端点 + 看 admin 端点查 user_notified 期望返 1 条 (跟 markUserNotified 写时间戳一致)
+
+### 怎么避免再犯 (跨项目通用, BUG-081 升级 4→5 处 + 部署 ALTER 必立即)
+
+1. **状态机迁移必同步 5 处** (BUG-081 4 处 → BUG-095 升级 5 处, 加 DB schema): server 字段 + model method + response handler (server route) + 客户端 UI 渲染 + **DB schema (enum / type 必同步)**. 5 处缺一整套废
+2. **部署 ALTER 必立即 SQL 跑** (跟 S72 batch 4 deploy.sh #6 修法一致): 不依赖 app 启动 initTables (因为用户已点过按钮 1 次, ALTER 失败时已 throw 500, schema 不一致立即可见). 修法 1 跟修法 2 配套 (修法 1 立即 SQL + 修法 2 db.ts 兼容老库)
+3. **server pool 跟 DB schema 强一致**: schema enum 改了之后, **server pool 不重启不重新 load** (mysql2 库 prepared statement cache 命中旧 enum), 必须 `systemctl restart shipin-app`. 跟 S70 BUG-077 教训一致: 任何 schema 改必 restart service
+4. **端到端验证必查 4 类错误**: 200 (成功) / 4xx (业务错, 用户错) / 5xx (server 错, 部署错) / 网络错. BUG-094 修法只跑 22 维 + 端点 200 OK, 没测错误路径 (跨 user 保护 403 / 状态校验 400). 修法 3 加 server restart 后必跑全路径
+5. **initTables() 必兼容老库 + logger.warn** (BUG-079 教训): CREATE TABLE IF NOT EXISTS + ALTER TABLE try/catch logger.warn. BUG-095 之前 db.ts 只加 user_notified_at 列兼容, 漏 status enum 兼容. 现在 2 列都兼容, 未来新部署库 + 老库都一致
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 4+ (状态机迁移必同步 allowlist + response handler, 跨项目通用, BUG-095 升级到 5 处)
+- `apps/server/AGENTS.md` § 3 铁律 4 (APP_VERSION 改 1 处必同步 8 处) + § 5 任务 C (加新表 / 改 schema 必 ALTER)
+- `apps/server/AGENTS.md` § 4 改后 5 步 (本地 tsc 0 错 + npm run build + cp changelog.json + 跑维护模式部署 + 12 维验证)
+- `docs/BUGS_INDEX.md` § 4 Top 16 必读铁律 (S72 batch 7 加, 含铁律 4+)
+- `docs/DB_MIGRATION.md` § 1-2 (DB schema 迁移 SOP, 含 ALTER 兼容老库规范)
+- mavis memory: `状态机迁移必同步 5 处 (server 字段 + model + response handler + 客户端 UI + DB schema)` (本 session 沉淀, BUG-095 升级)
+- mavis memory: `server pool enum 跟 DB schema 强一致, 任何 schema 改必 restart service` (本 session 沉淀, BUG-095 教训)
+- [BUG-079 S71 后置假报告 12 维全过 100% 假](bug-079) — 同类教训: 部署 ALTER 必立即跑, 不依赖 initTables
+- [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — BUG-095 升级 4→5 处 (加 DB schema)
+- [BUG-083 S72 batch 4 dist/changelog.json 字符编码损坏](bug-083) — 同 S72 batch 系列: 部署链文本文件要 ALTER / cp 同步
+- [BUG-090 S72 batch 6 deploy.sh changelog.json cp 源是生产目录](bug-090) — 配套: BUG-095 修法 1 立即 SQL ALTER 跟 deploy.sh 必立即跑 ALTER 配套
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-094/095 修法链
+- [BUG-093 S72 batch 7 commit message 违规](bug-093) — 配套: BUG-095 修法 commit aaaf3eb 严格带 BUG-095 编号
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — 100% 同源, BUG-095 是 BUG-094 修法漏第 5 处 (DB schema)
+
+### 前置 BUG (S72 batch 7 状态机迁移漏同步链)
+
+- [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — BUG-095 升级 4→5 处
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-095 是 BUG-094 修法漏第 5 处 (DB schema)
+
+
 
