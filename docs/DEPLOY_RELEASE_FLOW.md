@@ -724,6 +724,29 @@ rm test.txt
 
 ---
 
+### 8.12 BUG-103: refundStep 自动退款退多了 34.93 元 (v3.0.39, 2026-06-26)
+
+- **根因**: novel "没钱修什么仙" analyze 失败 (2910536 字 task failed), `billingService.refundStep` 自动退 34.93 元, 但 user 没付款不该退. 根因: 自动退款机制没 review 环节 (跟 BUG-072 D 短期方案错同源, 跟 S72 batch 7 BUG-100 catch 漏补刀 100% 同源: 修法 1 不彻底)
+- **修法** (3 fix 一起发版, v3.0.39):
+  1. **DB 撤销 h773052122 错误退款** (audit trail 留 trace):
+     - `UPDATE billing_logs SET ref_label = CONCAT('[已撤销 BUG-103 admin manual 2026-06-26] ', ref_label) WHERE id='1c1aacef-...'`
+     - `UPDATE users SET balance = balance - 34.93 WHERE id='3b3aa45d-...'` (35.07 → 0.14 正确 = 0.03 初始 - 0.11 消费)
+  2. **删 `billingService.refundStep` 整方法** (line 405-445, 跟 BUG-072 D 长期方案 '接支付宝回调' 一致)
+  3. **`novelService` catch 块删 refundStep 调用** (line 414-420), 失败只 notifyError 通知 user '请联系客服'
+- **人工复核流程** (跟 BUG-072 D 一致):
+  1. user 联系 admin 微信/钉钉
+  2. admin 查 `billing_logs` + `task_jobs` 确认失败
+  3. 手动 SQL: `UPDATE users SET balance = balance + X WHERE id = ?`
+  4. 手动加 `billing_logs`: `INSERT ... type='charge'` (refund 改 charge, 区分自动)
+  5. 长期方案: 接支付宝回调 (BUG-072 D, 等)
+- **教训** (跨项目通用, 跟 BUG-072/082/098/100 同源):
+  1. **自动退款必配套审核机制** (跟 BUG-072 D 短期方案错同源, 跟 BUG-100 catch 漏补刀 100% 同源)
+  2. **任何自动化必有人 review** (跟 S54 BUG-073 silent fail 跑老 .js 同源: 自动化没人 review 必出错)
+  3. **短期方案 ≠ 长期方案** (跟 S72 batch 7 BUG-090 deploy.sh 教训一致, 短期方案必加 TODO 转长期)
+- **配套工具** (永久化): `apps/server/scripts/db-bug103-revert.sql` (撤销 + audit) + `apps/server/scripts/verify-bug103.sh` (7 维: refundStep 0 命中 + novelService 0 实际调用 + balance 0.14 + audit trail + /api/version 3.0.39 + systemd + .env)
+
+---
+
 ## § 9. 工具脚本清单 (永久工具, 跨项目通用)
 
 | 路径 | 用途 | 触发时机 |

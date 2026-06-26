@@ -4166,3 +4166,81 @@ const v = VARIANT_COLORS[(config.variant || 'default') as ToastVariant] || VARIA
 - [BUG-098 S72 batch 7 admin approve 鎶?500](bug-098) 鈥?BUG-101 toast variant 蹇呭綊涓€ 100% 鍚屾簮
 - [BUG-100 S72 batch 8 69 video_generations 鍗?queued 17 澶(bug-100) 鈥?BUG-101 mobile 绔?5 淇硶涓€鎵规 1:1 闀滃儚
 
+
+
+---
+
+## BUG-103 (S72 batch 8 鍚庣疆 3, 2026-06-26)
+
+**h773052122 35.07 鍏冨紓甯? refundStep 鑷姩閫€娆鹃€€澶氫簡 34.93 鍏?(user 娌′粯娆句笉璇ラ€€)**
+
+### 鐜拌薄
+- user `h773052122` 娉ㄥ唽 2026-06-26 09:41, 浣欓寮傚父 35.07 鍏?- 鍏呭€艰鍗?0 绗?(`recharge_requests` 0 + `points_orders` 0)
+- 娴佹按: 1 绗?refund 34.93 (ref_type=novel_analyze, ref_id=`a8ad54c5-...` 灏忚 "娌￠挶淇粈涔堜粰" 2910536 瀛?analyze 澶辫触)
+- 瀹為檯搴旇鏄? 0.03 鍏冩敞鍐岃禒閫?(璺熷叾浠?6/1 涔嬪悗鏂?user 涓€鏍? - 0.11 鍏冩秷璐?(image 0.01 + video 0.10) = -0.08 鍏?(浣嗗疄闄?0.14, 鍥犳秷璐瑰墠浣欓涓嶆槸 0.03 鑰屾槸 0.14 = 0.03 + 0.11, 璺?billing_logs 搴忓垪瀵瑰緱涓?
+- 绛夌瓑, 閲嶇畻: 0.03 (鍒濆) - 0.11 (娑堣垂) = -0.08, 浣?balance 搴旇鏄?0.14, 宸?0.22... 瀹為檯璺熸祦姘村寰椾笂: 0.03 + (-0.01) + (-0.10) = -0.08, 浣?balance 35.07 = refund 鍚? refund 35.07 + 0.11 = 35.18 - 0.11 = 35.07, 浣?billing_logs 0.01 + 0.10 + 34.93 = 35.04, 宸?0.03 = 鍒濆璧犻€?(璺熷叾浠栨柊 user 涓€鏍?. 瀹岀編.
+
+### 鏍瑰洜
+**`billingService.refundStep` 鑷姩閫€娆炬満鍒舵病 review 鐜妭** (璺?BUG-072 D 鐭湡鏂规閿欏悓婧? 璺?S72 batch 7 BUG-100 catch 婕忚ˉ鍒€ 100% 鍚屾簮):
+- 瑙﹀彂閾捐矾: `novelService.analyzeNovel` catch 鍧?(line 414-420) 鈫?`billingService.refundStep` (line 405-445) 鈫?`userModel.updateBalance` + 鍐?`billing_logs` (type='refund')
+- h773052122 瑙﹀彂: 14:41:55 涓婁紶 2910536 瀛楀皬璇? analyze task 澶辫触 (step 0/3), catch 鍧楄Е鍙?refundStep, 閫€ 34.93 鍏?- BUG: user 娌′粯娆句笉璇ラ€€, 浣?code 涓嶇 user 鏄惁浠樿繃娆? 浠诲姟澶辫触灏遍€€ (璺熸敮浠樺疂鍥炶皟鏃犲叧, 鏄?refundStep 鑷繁鍐冲畾)
+
+### 淇硶 (3 fix 涓€璧峰彂鐗? v3.0.39)
+
+#### Fix 1: DB 鎾ら攢 h773052122 閿欒閫€娆?(audit trail 鐣?trace)
+```sql
+-- audit trail: 淇濈暀 billing_logs 璁板綍 + 鍔?ref_label 鏍囪
+UPDATE billing_logs
+SET ref_label = CONCAT('[宸叉挙閿€ BUG-103 admin manual 2026-06-26] ', ref_label)
+WHERE id = '1c1aacef-a4e7-472d-9842-dacd303f4965';
+
+-- user.balance 鍑?34.93 (浠?35.07 鈫?0.14 姝ｇ‘ = 0.03 鍒濆 - 0.11 娑堣垂)
+UPDATE users
+SET balance = ROUND(balance - 34.93, 2), updated_at = UNIX_TIMESTAMP() * 1000
+WHERE id = '3b3aa45d-54d0-449a-bc99-7a804ab9d62e';
+```
+
+#### Fix 2: 鍒?`billingService.refundStep` 鏁存柟娉?- `apps/server/src/services/billingService.ts:399-445` 鍒?method, 鏇挎崲鎴愭敞閲?- 閰嶅: notifyError 宸叉湁 (user 澶辫触鏃堕€氱煡 admin 璺?user)
+
+#### Fix 3: `novelService` catch 鍧楀垹 refundStep 璋冪敤
+- `apps/server/src/services/novelService.ts:414-420` 鍒?5 琛?try/catch, 鏇挎崲鎴愭敞閲?- 澶辫触鍙?notifyError 閫氱煡 user '璇烽噸璇曟垨鑱旂郴瀹㈡湇'
+
+#### Fix 4: 4 椤圭増鏈彿鍚屾 3.0.38 鈫?3.0.39 (server 绔? mobile/web 涓嶅姩)
+- `apps/server/package.json` version
+- `apps/server/src/index.ts` fallback
+- `apps/server/ecosystem.config.js` 2 澶?- `apps/server/changelog.json` 鍔?v3.0.39 entry (7 highlights)
+- 杩滅 `.env` + `/etc/systemd/system/shipin-app.service` sed 鏀?
+### 閰嶅宸ュ叿 (姘镐箙鍖?
+- `apps/server/scripts/db-bug103-revert.sql` (鎾ら攢 + audit)
+- `apps/server/scripts/verify-bug103.sh` (7 缁? refundStep 0 鍛戒腑 + novelService 0 璋冪敤 + balance 0.14 + audit + /api/version + systemd + .env)
+- `apps/server/scripts/db-h773052122-check*.sql` (鐢ㄦ埛浣欓鏌ヨ, 5 涓増鏈? debug 鐢?
+
+### 鏁欒 (璺ㄩ」鐩€氱敤, 璺?BUG-072/082/098/100 鍚屾簮)
+
+1. **鑷姩閫€娆惧繀閰嶅瀹℃牳鏈哄埗** (璺?BUG-072 D 鐭湡鏂规閿欏悓婧? 璺?BUG-100 catch 婕忚ˉ鍒€ 100% 鍚屾簮)
+2. **浠讳綍鑷姩鍖栧繀鏈変汉 review** (璺?S54 BUG-073 silent fail 璺戣€?.js 鍚屾簮: 鑷姩鍖栨病浜?review 蹇呭嚭閿?
+3. **鐭湡鏂规 鈮?闀挎湡鏂规** (璺?S72 batch 7 BUG-090 deploy.sh 鏁欒涓€鑷? 鐭湡鏂规蹇呭姞 TODO 杞暱鏈?
+4. **DB 鎾ら攢鐣?audit trail** (璺?BUG-098 admin approve SQL 閿欏悓婧? 鏀瑰瓧娈靛€煎姞 audit 涓嶇洿鎺?DELETE, 鐣?trace 闃叉 user 鎴浘璇?鎴戜箣鍓嶇湅鍒版湁 34.93 鍏冪幇鍦ㄦ病浜嗘€庝箞瑙ｉ噴")
+5. **淇硶 1 涓嶅交搴? 蹇呭姞 review 鏈哄埗** (璺?BUG-098 catch 婕忚ˉ鍒€鍚屾簮, 浠讳綍淇硶閮藉繀甯︿簩娆￠獙璇?
+
+### Refs
+
+- `AGENTS.md` 搂 4 閾佸緥 8 (鎸佷箙鍖?JSON 蹇?string 褰掍竴, 璺?BUG-103 audit trail 閰嶅)
+- `apps/server/AGENTS.md` 搂 3 閾佸緥 4 (APP_VERSION 8 澶勫悓姝? BUG-103 4 椤瑰悓姝ラ厤濂?
+- `apps/server/src/services/billingService.ts:399-445` (refundStep 鍒犲墠 vs 鍒犲悗)
+- `apps/server/src/services/novelService.ts:407-420` (catch 鍧楀垹鍓?vs 鍒犲悗)
+- `docs/DEPLOY_RELEASE_FLOW.md` 搂 8.12 (BUG-103 瀹屾暣娈?
+- mavis memory: `鑷姩閫€娆惧繀閰嶅瀹℃牳鏈哄埗 (璺ㄩ」鐩€氱敤, 璺?BUG-072 D 鐭湡鏂规閿欏悓婧? 璺?BUG-100 catch 婕忚ˉ鍒€ 100% 鍚屾簮)` (鏈?session 娌夋穩)
+- mavis memory: `浠讳綍鑷姩鍖栧繀鏈変汉 review (璺ㄩ」鐩€氱敤, 璺?S54 BUG-073 silent fail 璺戣€?.js 鍚屾簮)` (鏈?session 娌夋穩)
+- [BUG-072 S69 鎵ｈ垂瀹¤ 5 BUG 鍏ㄤ笉涓€鑷碷(bug-072) 鈥?100% 鍚屾簮: BUG-072 D 鐭湡鏂规 "鍏呭€艰蛋绠＄悊鍛樺鏍? 蹇呭姞闀挎湡鏂规, BUG-103 鑷姩閫€娆句篃蹇呭姞
+- [BUG-079 S71 鍚庣疆鍋囨姤鍛?12 缁村叏杩?100% 鍋嘳(bug-079) 鈥?閰嶅: BUG-079 鍋囨姤鍛婂績鎬佽 BUG-103 閫€澶?34.93 鍏冩病鐪?review
+- [BUG-082 S71 鍚庣疆 server 鍐欐寔涔呭寲 JSON 蹇?string 褰掍竴](bug-082) 鈥?100% 鍚屾簮: BUG-082 catch 蹇呭綊涓€, BUG-103 catch 蹇呯暀 audit trail
+- [BUG-098 S72 batch 7 admin approve 鎶?500](bug-098) 鈥?閰嶅: BUG-098 SQL 閿?2 澶?(3 vs 4 placeholders), BUG-103 refundStep 12 vs 11 placeholders 閿?(1 涓?ref_label 澶?
+- [BUG-100 S72 batch 8 69 video_generations 鍗?queued 17 澶(bug-100) 鈥?100% 鍚屾簮: BUG-100 catch 婕忚ˉ鍒€ video_generations 绱Н 17 澶? BUG-103 refundStep 娌′汉 review 绱Н 34.93 鍏冮敊閫€
+
+### 鍓嶇疆 BUG (璺ㄩ」鐩€氱敤: 鑷姩鍖栨満鍒跺繀閰嶅瀹℃牳)
+
+- [BUG-072 S69 鎵ｈ垂瀹¤ 5 BUG 鍏ㄤ笉涓€鑷碷(bug-072) 鈥?BUG-103 鐭湡鏂规 "鑷姩閫€娆? 娌?review 100% 鍚屾簮
+- [BUG-079 S71 鍚庣疆鍋囨姤鍛?12 缁村叏杩?100% 鍋嘳(bug-079) 鈥?BUG-103 鑷姩鍖栨病浜?review 璺熷亣鎶ュ憡蹇冩€佸悓婧?- [BUG-098 S72 batch 7 admin approve 鎶?500](bug-098) 鈥?BUG-103 catch 婕忚ˉ鍒€ audit 璺?BUG-098 SQL 閿?100% 鍚屾簮
+- [BUG-100 S72 batch 8 69 video_generations 鍗?queued 17 澶(bug-100) 鈥?BUG-103 鑷姩閫€娆炬病 review 璺?BUG-100 catch 婕忚ˉ鍒€ 100% 鍚屾簮
+- [BUG-101 S72 batch 8 APP 涓婁紶鍒嗘瀽 upload 閿橾(bug-101) 鈥?閰嶅: BUG-101 mobile 绔?5 閿欒皟鐢? BUG-103 server 绔嚜鍔ㄩ€€娆?1 閿欒皟鐢?
