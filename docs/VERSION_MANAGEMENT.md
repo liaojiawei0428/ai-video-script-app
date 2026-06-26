@@ -829,5 +829,5 @@ git push origin main
 
 ---
 
-> **最后更新**: 2026-06-26 (S72 batch 6 收口 v2.1, 加 § 5.B 完整发版 SOP, 含 BUG-090 修法: scp changelog.json + 12 维验证查 changelog + APP_VERSION_CODE 同步)
+> **最后更新**: 2026-06-26 (S72 batch 6 收口 v2.2, 加 verify-deploy.sh 维度 22 BUG-090 防呆, § 5.B 完整发版 SOP 加 22 维验证引用)
 > **下次 review**: 每个 3 类发版后必更新本文件 + 触发 [`STANDARDS_EVOLUTION.md` § 3 5 步修订流程](./STANDARDS_EVOLUTION.md)

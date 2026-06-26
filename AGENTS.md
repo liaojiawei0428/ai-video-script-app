@@ -167,7 +167,8 @@
   - 一键脚本: 服务器端 `bash scripts/verify-deploy.sh --strict` (CI 用, 任何 1 失败 exit 1)
   - 配套规范: BUGS.md BUG-079/080/082 + `scripts/verify-deploy.sh` 注释
 - **🆕🆕🆕🆕🆕 server 22 维** (S72 batch 4 BUG-083 修法): 20 维 + **1 维 dist/changelog.json UTF-8 + JSON parse 双重验证 (non-ASCII char 计数 ≥ 50) + 1 维 server 端 readChangelog 优先级链路** (S72 batch 4 加, 防 BUG-083 字符编码损坏复发)
-- **🆕🆕🆕🆕🆕🆕 server 25 维 (S72 batch 6 待 S73 必加)**: 22 维 + **3 维 BUG-088/089/090 防呆 (Dialog RN Modal 包装 + refreshHistory 拆分 + deploy.sh /tmp/changelog.json 优先 + curl /api/version 4 字段验证)** — 跨项目通用: **每修一个 P0 BUG, 必加一个"以后不能再犯"的 grep 维度到 verify-deploy.sh**
+- **🆕🆕🆕🆕🆕🆕 server 22 维 (S72 batch 6 BUG-090 修法, S73 必升)**: 21 维 + **1 维 BUG-090 /api/version 4 字段验证 (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD)** (S72 batch 6 加, 防 BUG-090 deploy.sh changelog 滞后复发). BUG-088/089 是 mobile 端修法, server dist 验证不到, 由 user 装包 E2E 验证 (见 apps/mobile/DEPLOY.md)
+- **跨项目通用: 每修一个 P0 BUG, 必加一个"以后不能再犯"的 grep 维度到 verify-deploy.sh** — 已加 6 个 BUG 防呆 (BUG-079/080/081/082/083/090, 21 维)
 - **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (9 步: 查→公告→维护→等任务→预检→备份→systemd restart + 宝塔同步→12 维验证→恢复)
 - **🆕 S72 batch 6 BUG-090 教训**: 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段, 不只查 `version` 字段. changelog 滞后 = 用户看到老版本 changelog, 等同假报告. **必加 1 维 changelog 4 字段验证 (version + changelog + 5 highlights + buildDate)**
 

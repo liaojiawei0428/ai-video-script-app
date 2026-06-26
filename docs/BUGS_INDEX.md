@@ -213,7 +213,7 @@
 9. **扣费三处一致** (业务/API/UI) (BUG-005/072) — `grep -r "updateBalance|consumption"`
 10. **永久 SSH key + ssh-agent 加载** (S69 部署踩坑) — Windows OpenSSH 9.5p2 + MinGit 9.9p1 都 cache fingerprint, 必须 `ssh-agent` 加载才走对
 11. **🆕 deploy.sh cp 源必用 /tmp/ 而非生产目录** (BUG-090) — 生产目录永远是上一版本, 部署 SOP 必加完整 scp 清单 (dist.tar.gz + package.json + changelog.json)
-12. **🆕 12 维验证必查 /api/version 的 changelog 字段** (BUG-090) — 不只查 version, 还要看 changelog/highlights/buildDate 是不是新版本, 老版本残留 = 假报告
+12. **🆕 12 维验证必查 /api/version 的 changelog 字段** (BUG-090) — 不只查 version, 还要看 changelog/highlights/buildDate 是不是新版本, 老版本残留 = 假报告. **verify-deploy.sh 维度 22 强制查 4 字段** (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD)
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -284,6 +284,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 6 v1.5, 加 BUG-088/089/090: Dialog Modal 遮挡 + 生成成功 race + deploy.sh changelog cp 源错, § 4 Top 10 扩 12 加 deploy.sh cp 源 + 12 维验证查 changelog 字段, § 2 关键字加 Modal 嵌套/race condition/deploy.sh)
+**最后更新**: 2026-06-26 (S72 batch 6 v1.6, 加 BUG-088/089/090 + verify-deploy.sh 维度 22 BUG-090 防呆, § 4 Top 12 增 verify-deploy 22 维, § 2 关键字加 verify-deploy/22 维)
 **下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)

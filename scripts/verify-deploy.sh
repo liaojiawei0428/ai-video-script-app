@@ -72,7 +72,7 @@ skip() {
 }
 
 color cyan "═══════════════════════════════════════════════════════════════"
-color cyan "  shipin-APP 部署后 20 维验证 (BUG-079 P0 + BUG-080 P2 + BUG-082)"
+color cyan "  shipin-APP 部署后 22 维验证 (BUG-079/080/081/082/083/090 防呆)"
 color cyan "═══════════════════════════════════════════════════════════════"
 echo "  DEPLOY_DIR: $DEPLOY_DIR"
 echo "  API_BASE:   $API_BASE"
@@ -413,6 +413,61 @@ except Exception as e:
     FAIL=$((FAIL+1))
     FAIL_MSGS+=("21. dist/changelog.json UTF-8 损坏")
     color red "   ✗ 21. dist/changelog.json 损坏: $V21_RESULT (BUG-083 必修)"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
+# 维度 22: BUG-090 防呆 — /api/version 4 字段必查 (version + changelog + highlights + buildDate)
+# ──────────────────────────────────────
+# 历史: S72 batch 6 部署后, 12 维验证只查 version 字段 = 假报告, changelog/highlights/buildDate 全是上一版本
+#   根因: deploy.sh 第 6 步 cp -f ${DIST_DIR}/changelog.json 源是**生产目录** (上次部署留下的老版本),
+#         不是本机 scp 过来的新版本, **每次部署都被旧版本覆盖新版本, changelog 永远滞后 1 个版本**
+#   + 12 维验证只看 /api/version 的 version 字段, 不看 changelog (1 句话) / highlights (3-5 条要点) / buildDate (YYYY-MM-DD)
+# 修法: 1) deploy.sh 优先 /tmp/changelog.json (本机 scp 源, 新版本), fallback 到生产目录时显式 warn
+#       2) 部署 SOP 必加完整 scp 清单: dist.tar.gz + package.json + changelog.json 3 件套
+#       3) verify-deploy.sh 加维度 22 强制检查 /api/version 的 4 字段: version (== APP_VERSION) + changelog (非通用文案) + highlights (≥3 条) + buildDate (YYYY-MM-DD)
+# 防呆: 任何未来部署后, 维度 22 失败 = changelog 同步链断了一环, 必须检查 deploy.sh 是否走 /tmp/ 源 + scp 完整清单
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 22: BUG-090 /api/version 4 字段验证 (version + changelog + highlights + buildDate) ──"
+
+  # 22. /api/version 4 字段必查: 1) version == APP_VERSION 2) changelog 非空且非通用文案 3) highlights ≥ 3 条 4) buildDate 是 YYYY-MM-DD
+  V22_RESULT=$(python3 -c "
+import json, sys, re
+try:
+    d = json.loads(__import__('urllib.request', fromlist=['urlopen']).request.urlopen('${API_BASE}/api/version', timeout=3).read())
+    data = d.get('data', {})
+    version = data.get('version', '')
+    changelog = data.get('changelog', '')
+    highlights = data.get('highlights', [])
+    build_date = data.get('buildDate', '')
+
+    # 校验 4 字段
+    errors = []
+    if version != '$APP_VERSION':
+        errors.append(f'version mismatch: server={version} env={$APP_VERSION}')
+    if not changelog or changelog in ('优化性能，修复已知问题', '本次更新优化性能，修复已知问题', 'New features and improvements'):
+        errors.append(f'changelog 通用文案: {changelog[:30]}')
+    if len(highlights) < 3:
+        errors.append(f'highlights 不足 3 条: {len(highlights)}')
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', build_date):
+        errors.append(f'buildDate 格式错: {build_date}')
+
+    if errors:
+        print(f'FAIL {\"; \".join(errors)}')
+    else:
+        print(f'OK version={version} changelog={changelog[:30]}... highlights={len(highlights)} buildDate={build_date}')
+except Exception as e:
+    print(f'FAIL {type(e).__name__}: {e}')
+" 2>&1)
+  if echo "$V22_RESULT" | grep -q "^OK"; then
+    PASS=$((PASS+1))
+    color green "   ✓ 22. /api/version 4 字段全过: $V22_RESULT"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("22. /api/version 4 字段不全")
+    color red "   ✗ 22. /api/version 4 字段: $V22_RESULT (BUG-090 必修)"
   fi
   echo
 fi

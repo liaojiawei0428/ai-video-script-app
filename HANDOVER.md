@@ -91,7 +91,7 @@ shipin-APP/
 | **S72** | "汇报沟通规范从无到有" | v3.0.33 P9 | 新建 `docs/REPORTING_STANDARDS.md` 7 文件体系 (主索引 59 行 + 6 topic files 各 < 100 行) + 加做事 4 原则 / 任务前列计划 / 自我改进循环 (A/B/C) + 跨端跨工具借鉴 (Karpathy CLAUDE.md + Boris Cherny + 灵犀 Claw + BerriAI) | (规范自迭代, 无 BUG) | b176ee9 / 02c496b / 58e69fd / f5e2a48 / bfa9ea9 |
 | **S72 batch 4** (本 session) | "S72 batch 4 P0/P1/P2 部署 + 修生产 dist/changelog.json 损坏 + 铁律 9 思考链 visible" | v3.0.33 P10 + **AGENTS.md v2.9** | ADR-0002 8 问题全修 (P0 #1-#4 并发扣费/异常回滚/状态机/billing_logs 孤儿 + P1 #5-#8 取消状态/解析 fallback/upload 清理/extract 失败 + P2 #9-#11 自动剧集配置/analyze 鉴权/chunk 段号) + deploy.sh 3 修 (NEW_VERSION 路径/解压 dist 子目录/backup if 检查) + **BUG-083 (本 session 发现)**: 生产 dist/changelog.json 400 Chinese 损坏成 `?` 修复 + verify-deploy.sh 维度 21 防呆 + **🆕 铁律 9 (S72 batch 4 收口 user 硬要求)**: 思考链 + 工具调用流必须 visible, 跨端 6→9 铁律, 配 REPORTING_STANDARDS.md v2.4 同步 | BUG-083 (新) | 0b626ce / 5c49e68 / b6fddcf / d3c5ca8 / dda46a2 / 0c6b77f / 6ac0fe3 / 36392aa / 1244bea / d0babad / d7e7d00 / f543562 / 310098e + 后续 BUG-083 修法 + 铁律 9 commit |
 | **S72 batch 5** | "BUG-087 APP 无限弹窗 + web APP_VERSION_CODE 同步" | v3.0.35 P11 | **BUG-087**: mobile version.ts 1 行损坏 tsc 报 `is not a module` → APP_VERSION=undefined → fetch `?version=undefined` → server `compareVersions('3.0.34', 'undefined')=1` → needUpdate=true 每次冷启动弹窗. 修法: version.ts 改多行 (Write 工具强制 LF) + 新建 db/updateMemory.ts (RNFS 24h 抑制) + updater.tsx showUpdateDialog 异步化 + App.tsx 加日志 + 删 web version-fixed.ts. **8 处版本号同步漏改 9**: web `APP_VERSION_CODE` (38→39) 必跟 mobile build.gradle versionCode 同步 | BUG-087 (新) | 跨端 8 处版本号 9 项自检新增 |
-| **S72 batch 6** ← 最近 | "BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh changelog cp 源错" | v3.0.36 P12 | **BUG-088**: Dialog 组件用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡. 修法: Dialog.tsx 改用 RN `<Modal transparent animationType="none">` 包装 + historyModal 内删除按钮先关再开 (300ms timeout). **BUG-089**: polling 完成 setMessages 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (race condition). 修法: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages) + polling 完成 alert 后 setTimeout scrollToEnd 200ms. **BUG-090**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json` 源是生产目录 (老版本), 不是 /tmp/ (本机 scp). 修法: 优先 /tmp/changelog.json + 部署 SOP 必加 scp changelog.json + 12 维验证查 changelog 字段 | BUG-088/089/090 (新) | 0ce03f0 / 0683dc3 / a00602d (3 commit push origin main) |
+| **S72 batch 6** ← 最近 | "BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh changelog cp 源错" | v3.0.36 P12 | **BUG-088**: Dialog 组件用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡. 修法: Dialog.tsx 改用 RN `<Modal transparent animationType="none">` 包装 + historyModal 内删除按钮先关再开 (300ms timeout). **BUG-089**: polling 完成 setMessages 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (race condition). 修法: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages) + polling 完成 alert 后 setTimeout scrollToEnd 200ms. **BUG-090**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json` 源是生产目录 (老版本), 不是 /tmp/ (本机 scp). 修法: 优先 /tmp/changelog.json + 部署 SOP 必加 scp changelog.json + 12 维验证查 changelog 字段. **🆕 verify-deploy.sh 升 21→22 维** (维度 22 BUG-090 /api/version 4 字段验证: version + changelog + highlights + buildDate) | BUG-088/089/090 (新) | 0ce03f0 / 0683dc3 / a00602d + a5ae183 (.gitignore 清理 21 个 untracked) + verify-deploy.sh 维度 22 (6 commit push origin main) |
 
 ### 2.2 90 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
@@ -212,7 +212,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 16. **commit message 必带版本号 + BUG 编号**: `vX.Y.Z: <改动> (BUG-NNN + 规范修订)`
 
 ### 5.4 🆕 S71-S72 后置坑点 (5 + 3 = 8 个新)
-17. **BUG-079 假报告坑** — S71 部署自报"12 维全过" 100% 假, 实际没真动 server dist / DB schema. **修法**: `verify-deploy.sh --strict` 21 维, 任何 1 失败 exit 1, 不再接受自报
+17. **BUG-079 假报告坑** — S71 部署自报"12 维全过" 100% 假, 实际没真动 server dist / DB schema. **修法**: `verify-deploy.sh --strict` 22 维 (S72 batch 6 BUG-090 加维度 22), 任何 1 失败 exit 1, 不再接受自报
 18. **BUG-081 状态机迁移必同步 4 处** — S70 v3.0.0.16 改 passthrough (跳过 plan_cn_ready) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞. **修法**: AGENTS.md 铁律 4+ 4 步同步 (allowlist grep + UI case grep + DB schema 兼容 + 一键自检)
 19. **BUG-082 React #31 错误对象渲染** — agnes API 返 `{error: {code, message}}` 对象, server 原样存进 messages JSON, web 渲染对象触发 #31. **修法**: AGENTS.md 铁律 8 持久化必 string 归一 + `utils/errorUtils.ts` `extractErrorMessage()` 5 种输入归一 + web 防御渲染 `typeof === 'string' ? : JSON.stringify()`
 20. **PowerShell 5.1 写 .ts/.js/.md/.sql 丢 newline 坑** — S71 BUG-079 真实案例: `src/index.ts` 6673 字节挤 3 行, tsc 编译出 11 行 dist, node 启动立即 exit 0. **修法**: 必走 Write 工具 (UTF-8 自动 newline) 或 PS 7+ `[System.IO.File]::WriteAllText` (无 BOM)
@@ -297,7 +297,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - 跨项目模板沉淀: 把 REPORTING_STANDARDS.md 7 文件复制一份到 `~/.mavis/agents/` 做通用 AI 沟通规范模板
 
 ### G. (本 session 新加) BUG-083 修法全链路验证
-- 服务器端跑 `bash scripts/verify-deploy.sh --strict` 跑 21 维 (含新维度 21) 确认全过
+- 服务器端跑 `bash scripts/verify-deploy.sh --strict` 跑 22 维 (含 S72 batch 6 BUG-090 新维度 22) 确认全过
 - 监控 /api/version 返 valid JSON 持续 24h, 确认 BUG-083 不复发
 - S72 batch 4 ADR-0002 11 问题沉淀写进 `docs/standards/ADR/0002-novel-analyze-cancellation-and-error-handling.md` (目前是 git commit 散落, 没正式 ADR)
 
@@ -309,50 +309,44 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-26 (S72 batch 6 收口 + BUG-088/089/090 修 + 跨端 8 处版本号 9 项 + Top 12 + 30 坑点, v1.6)
+> **最后更新**: 2026-06-26 (S72 batch 6 收口 v1.7, BUG-088/089/090 修 + verify-deploy.sh 升 21→22 维 + 21 untracked 清理 + 跨端 9 项版本号 + Top 12 + 30 坑点, 6 commit push origin main)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
 
 ---
 
-## § 8. S72 batch 6 收尾 (2026-06-26, 本 session 详细记录)
+## § 8. S72 batch 6 收尾 + verify-deploy 22 维 (2026-06-26, 本 session 详细记录)
 
-### 做了什么 (5 个完整动作)
+### 做了什么 (6 个完整动作)
 
 - **BUG-088 修**: Dialog.tsx 改用 RN `<Modal>` 包装 + ImageAgentScreen/VideoAgentScreen historyModal 删除按钮 setShowHistory(false) + setTimeout 300ms
 - **BUG-089 修**: ImageAgentScreen/VideoAgentScreen 拆 loadHistory 为 loadHistory + refreshHistory + polling 完成 alert 后 setTimeout scrollToEnd 200ms
 - **BUG-090 修**: deploy.sh:184-198 优先 /tmp/changelog.json, fallback 显式 warn + 部署 SOP 必加 scp changelog.json
-- **8 处版本号同步 v3.0.35→v3.0.36**: mobile version.ts + build.gradle (versionCode 40→41) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts (APP_VERSION_CODE 40→41) + changelog.json + .env + systemd unit (deploy.sh 自动同步)
-- **3 commit push origin main**: `0ce03f0` (代码修复) + `0683dc3` (8 处版本号同步) + `a00602d` (BUG-090 修)
+- **9 项版本号同步 v3.0.35→v3.0.36**: mobile version.ts + build.gradle (versionCode 40→41) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts (APP_VERSION_CODE 40→41) + changelog.json + .env + systemd unit (deploy.sh 自动同步)
+- **5 份规范文档修订 + 21 个 untracked 清理**: AGENTS.md v2.10 + HANDOVER.md v1.6 + BUGS_INDEX.md v1.5 + VERSION_MANAGEMENT.md v2.1 (含 § 5.B 完整发版 SOP) + BAOTA_NODE_PROJECT_DEPLOY.md v1.1 + .gitignore 排除 NUL + deploy.sh.original
+- **🆕 verify-deploy.sh 升 21→22 维**: 维度 22 BUG-090 防呆 — /api/version 4 字段验证 (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD), 4 场景 mock 验证全过
+- **6 commit push origin main**: `0ce03f0` (代码修复) + `0683dc3` (8 处版本号同步) + `a00602d` (BUG-090 修) + `60a9dad` (5 份规范修订) + `a5ae183` (.gitignore 清理) + verify-deploy 维度 22
 
-### 关键决策 (3 个跨项目通用沉淀)
+### 关键决策 (4 个跨项目通用沉淀)
 
 - **决策 1**: 跨端 8 处版本号同步时, web 端 `APP_VERSION_CODE` 必跟 mobile `build.gradle versionCode` 同步 (S72 batch 5 漏改 38→39, v3.0.36 补 40→41). 8 处 → 9 项自检
 - **决策 2**: deploy.sh 的所有 `cp` 源必从 `/tmp/` (本机 scp), 不能从生产目录 (永远是上一版本). 部署 SOP 必加完整 scp 清单 (dist.tar.gz + package.json + changelog.json)
-- **决策 3**: 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段, 不只查 `version` 字段 (S71 BUG-083 verify-deploy 维度 20 已有 JSON parse 验证, S72 batch 6 加 changelog 4 字段必查)
+- **决策 3**: 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段, 不只查 `version` 字段 (S71 BUG-083 verify-deploy 维度 21 已有 JSON parse 验证, S72 batch 6 加 changelog 4 字段必查)
+- **决策 4 (本 session 加)**: verify-deploy.sh 加维度 22 强制 4 字段验证, 防 S72 batch 6 BUG-090 复发. 跨项目通用: **每修一个 P0 BUG, 必加一个"以后不能再犯"的 grep/parse 维度到 verify-deploy.sh**. BUG-088/089 是 mobile 端修法 server dist 验证不到, 走 user 装包 E2E (见 apps/mobile/DEPLOY.md), S73 待加 mobile-verify-apk.sh
 
 ### 留下的坑 (3 个下个 session 必看的点)
 
 - **坑 1**: `apps/server/ecosystem.config.js` 仍是 1 行 minified (跟 S54 BUG-073 那个根因一样). S72 batch 6 部署时未重 build, 2 处 APP_VERSION 都 = 3.0.36 OK, 但是是隐藏 P3, 下次 S73 必先 `wc -l ecosystem.config.js` 看是不是 1 行, 必重写多行 + 走"单文件 tsc + cp"模式部署
-- **坑 2**: verify-deploy.sh 当前 22 维 (S72 batch 4 升级), S72 batch 6 发现的 3 个 BUG 没加新防呆维度:
-  - BUG-088: RN Modal 包装 + Dialog 防御渲染 grep
-  - BUG-089: loadHistory / refreshHistory 拆分 grep
-  - BUG-090: deploy.sh cp 源 = /tmp/ 验证 + curl /api/version 4 字段 grep
-  - 下次 S73 必加这 3 维度 (跟 BUG-079/080/082 21 维一致, BUG-083 22 维之后, S72 batch 6 应该升到 25 维)
-- **坑 3**: docs/VERSION_MANAGEMENT.md § 5 部署 SOP 缺 changelog scp 命令, § 7.2 8 处自检缺 changelog scp 验证 + APP_VERSION_CODE 同步 (S72 batch 6 文档配套待修, 我先 batch 修了下个 commit)
+- **坑 2**: verify-deploy.sh 当前 22 维 (S72 batch 4 + S72 batch 6 升级). S72 batch 6 已加 1 维 (BUG-090 /api/version 4 字段验证), BUG-088/089 是 mobile 端修法 server dist 验证不到, 走 user 装包 E2E (见 apps/mobile/DEPLOY.md). 配套: 下次 S73 必加 mobile 端 verify-mobile-apk.sh (验证 Dialog RN Modal + loadHistory/refreshHistory 拆分在 mobile bundle 里)
+- **坑 3**: docs/VERSION_MANAGEMENT.md § 5 部署 SOP 缺 changelog scp 命令, § 7.2 9 项自检缺 changelog scp 验证 + APP_VERSION_CODE 同步 (S72 batch 6 已加, ✅ 完成)
 
 ### 下一步候选 (S72 batch 6 收尾, 等用户拍)
 
-#### A. 修 5 份文档加 v3.0.36 / S72 batch 6 引用 (P1, 立即做)
-- `docs/VERSION_MANAGEMENT.md` § 5.2 9 处自检 + § 5.7 部署步骤 2 + § 7.2 8 处自检 (加 changelog scp + APP_VERSION_CODE)
-- `AGENTS.md` 铁律 3 (web APP_VERSION_CODE 同步) + 铁律 5 (12 维验证查 changelog 字段)
-- `docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 2 步骤 2 (加 scp changelog.json)
-- 写完整 v3.0.36 发版 SOP 到 `docs/RELEASE_SOP_v3.0.36.md` 或 VERSION_MANAGEMENT.md § 5.B
-- commit: `docs: v3.0.36 / S72 batch 6 规范修订 (BUG-088/089/090 + 9 项版本号 + Top 12)`
+#### A. ✅ 完成: 5 份文档 + 21 个 untracked 清理 + verify-deploy 22 维
+- 6 commit push origin main (0ce03f0 / 0683dc3 / a00602d / 60a9dad / a5ae183 + verify-deploy 维度 22)
 
-#### B. verify-deploy.sh 升 22→25 维 (P1, S73 必做)
-- 维度 23: BUG-088 防呆 — server dist `Dialog.tsx` 含 `import { Modal } from 'react-native'` (web dist grep 防御渲染)
-- 维度 24: BUG-089 防呆 — server dist ImageAgentScreen + VideoAgentScreen 含 `refreshHistory` 函数 (≥1 命中)
-- 维度 25: BUG-090 防呆 — server `deploy.sh` 优先 /tmp/changelog.json + 部署后 curl /api/version 4 字段验证 (version + changelog + 5 highlights + buildDate)
+#### B. verify-deploy.sh 已升 21→22 维 (✅ S72 batch 6 完成, S73 待加 mobile 端 verify)
+- ✅ 维度 22 (本 session 加): BUG-090 防呆 — /api/version 4 字段验证 (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD), commit 跟 AGENTS.md v2.10 一起 push origin main
+- 📋 S73 待加: 维度 23-25 mobile 端防呆 (BUG-088 Dialog RN Modal + BUG-089 loadHistory/refreshHistory 拆分) — 走 `scripts/verify-mobile-apk.sh` (新文件, server 端 verify-deploy.sh 跑不到 mobile bundle)
 
 #### C. ecosystem.config.js 拆 1 行 minified (P3, 长期)
 - 跟 S54 BUG-073 同源, 必重写多行 + 走"单文件 tsc + cp"模式部署
