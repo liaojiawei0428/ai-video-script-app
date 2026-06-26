@@ -3887,5 +3887,113 @@ User 在 S72 batch 7 5 BUG 修完后明确反转原则:
 - [BUG-096 S72 batch 7 React {0} 渲染陷阱](bug-096) — BUG-097 mobile 端 "💬 待审核" 标记条件防呆
 - 之前 "主盯 web, 安卓暂不动" 旧原则 (S72 batch 4-6) — 反转删除
 
+## BUG-098 (S72 batch 7 部署后, v3.0.37, 2026-06-26 14:00): admin approve/reject 端点抛 500 INTERNAL_ERROR — `rechargeRequestModel.updateStatus` SQL 缺第 4 个参数 `id` + `billingService.topUp` SQL 多 1 个 `ref_label` 占位符, MySQL 抛 "Incorrect arguments" catch 后返 500
+
+### 现象 (user 实际反馈, 2026-06-26 13:59)
+
+User 在 BUG-092/094/095/096 部署完成后实测 admin 审核流程, 反馈:
+> "管理后台充值订单还是无法审核, 点击到账弹出操作失败的消息"
+
+具体表现:
+1. user 在 web/admin 看板看到 1 个 `user_notified` 订单 (user 之前点 "我已付款" 的)
+2. admin 点 "到账" 按钮
+3. web 端 catch `e?.response?.data?.error?.message` → alert "操作失败" (HTTP 500)
+4. DB 状态: `user_notified` 没变 (跟 BUG-095 同款: catch 后 DB 状态不变, 跟 BUG-079 假报告教训同款)
+5. billing_logs 没记录 (跟 BUG-078 配套: 统一入口失败)
+
+### 真凶 (2 层, 跨项目通用教训)
+
+#### 层 1: `rechargeRequestModel.updateStatus` SQL 缺第 4 个参数 `id`
+- `apps/server/src/models/rechargeRequest.ts:31-35` (BUG-098 修法前):
+  ```ts
+  async updateStatus(id: string, status: 'approved' | 'rejected', remark: string = ''): Promise<void> {
+    await execute(
+      'UPDATE recharge_requests SET status = ?, remark = ?, updated_at = ? WHERE id = ?',
+      [status, remark, Date.now()]  // ❌ 缺 id, 3 params vs 4 placeholders
+    );
+  }
+  ```
+- 含义: SQL 有 4 个 `?` 占位符 (status, remark, updated_at, id), params 数组只有 3 个
+- 后果: mysql2 prepared statement 抛 `Error: Incorrect arguments to mysqld_stmt_execute`, try/catch 返 500
+
+#### 层 2: `billingService.topUp` SQL 多 1 个 `ref_label` 占位符
+- `apps/server/src/services/billingService.ts:206-208` (BUG-098 修法前):
+  ```ts
+  `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, is_free, ref_type, ref_id, ref_label, created_at)
+   VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', ?, ?)`,  // 9 个 ? 占位符
+  [logId, userId, amount, balanceAfter, description, Date.now()]  // 6 params, 缺 3
+  ```
+- 含义: SQL 13 列 13 值, 但 `?` 占位符 9 个 vs 6 params, 缺 3 个 (ref_id, ref_label, created_at 错位)
+- 后果: 跟层 1 同款 `Incorrect arguments` 抛 500
+
+#### 共同根因: 历史 SQL 拼写错 (S70 BUG-077 之前代码, 一直 silent fail 直到 2026-06-26 admin approve 才触发)
+- shipin-APP S70 BUG-077 之前跑 PM2, 这些 SQL 错被 PM2 silent fail 掩盖 (跟 BUG-079 假报告教训同源)
+- S70 BUG-077 之后跑 systemd, 但 admin approve 流程在 S72 batch 7 之前**没用户实测** (admin 都是手动 DB 改, 没人点 admin "到账" 按钮)
+- 跟 S70 BUG-077 教训同款: "跑 systemd 不代表 deploy 真成功, 必跑端到端 E2E 测每条业务路径"
+
+### 修复 (2 文件, 1 行 SQL 改法 + 1 行 SQL 改法)
+
+#### 修法 1: `rechargeRequestModel.updateStatus` 加 `id` 参数
+```ts
+// 修法前
+'UPDATE recharge_requests SET status = ?, remark = ?, updated_at = ? WHERE id = ?',
+[status, remark, Date.now()]
+// 修法后
+'UPDATE recharge_requests SET status = ?, remark = ?, updated_at = ? WHERE id = ?',
+[status, remark, Date.now(), id]  // ✅ 加 id
+```
+
+#### 修法 2: `billingService.topUp` SQL `ref_label` 改 '' literal
+```ts
+// 修法前 (9 ? 占位符 vs 6 params, 缺 ref_label)
+`... VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', ?, ?)`,
+[logId, userId, amount, balanceAfter, description, Date.now()]
+// 修法后 (8 ? 占位符 vs 6 params, 改 ref_label 为 '' literal)
+`... VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', '', ?)`,
+[logId, userId, amount, balanceAfter, description, Date.now()]
+```
+
+### 怎么验证修好 (5 维)
+
+1. **端到端 admin approve 测试** (必跑, 跟 BUG-079/097 同款): 创建 user_notified 订单 + curl POST /api/admin/orders/.../approve, 期望 HTTP 200 + "已确认到账, 余额已增加"
+2. **DB 状态变更**: SELECT 订单 status='approved' + updated_at 变更
+3. **billing_logs 记录**: SELECT billing_logs WHERE ref_id=<order_id> 期望 1 条 (type='charge', amount=10, balance_after=228.15)
+4. **user balance 变更**: SELECT users.balance WHERE id=<user_id> 期望 +10 (跟 amount 一致)
+5. **dist SQL 字符串验证**: `grep "UPDATE recharge_requests SET status" dist/models/rechargeRequest.js` 期望 4 params (含 id), `grep "VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', '', ?)" dist/services/billingService.js` 期望 1 命中 (ref_label '' literal)
+
+### 怎么避免再犯 (跨项目通用, BUG-079/082 配套强化)
+
+1. **SQL 拼写错必配 try/catch + logger.error 打印 err.message + stack**: admin.ts:130 catch 块只返 500 INTERNAL_ERROR 不打 err, 调试难, 跟 BUG-079 假报告教训同款. 修法: `catch (err) { logger.error('approve failed', { err, orderId: req.params.id }); res.status(500).json(...); }`
+2. **TS 类型必加 `params: any[]` 类型校验 + 部署前自检 SQL params 跟 placeholders 数量一致**: 写 `validateSqlParams(sql, params)` helper, 部署前自动跑
+3. **admin approve/reject 必加 E2E 测试 + verify-deploy.sh 维度 25** (新): 跟 BUG-079 教训同款, 任何 "跑 systemd 不代表 deploy 真成功" 业务路径必跑端到端 (admin approve / user notify-paid / user register / user login / recharge submit)
+4. **S70 之前 PM2 时代 silent fail 的 SQL 错全部 audit**: `grep -rE "execute\(" apps/server/src --include="*.ts" | grep -v logger.error` 列出所有 SQL 拼写, 人工 review
+5. **lint 工具加 `sql-params-check` 静态分析**: tsc 自定义 check 跟 `execute` 调, 校验 placeholders 跟 params 数量一致, 部署阻断
+6. **跟 BUG-082 铁律 8 配套**: server 写持久化 JSON 必 string 归一, BUG-098 是 "server 写持久化 SQL 必 string + types 归一" 配套, 跨项目通用 UX 原则
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 4+ (状态机迁移必同步 4 处, BUG-098 状态机迁移链相关: user_notified → approved)
+- `AGENTS.md` § 4 铁律 4++ (Web 主导, APP 跟随, 跨项目通用, 部署后必跑端到端)
+- `apps/server/AGENTS.md` § 3 铁律 4 (APP_VERSION 改 1 处必同步 8 处) + § 5 任务 C (DB schema 迁移, 跟 BUG-095 配套)
+- `apps/server/AGENTS.md` § 4 改后 5 步 (本地 tsc 0 错 + npm run build + cp changelog.json + 跑维护模式部署 + 12 维验证, 22 → 23 → 24 维)
+- `apps/server/AGENTS.md` § 5 任务 E (紧急生产故障, journalctl -u shipin-app + curl /health + /api/version 5 步, 跟 BUG-098 debug 流程同源)
+- `docs/BUGS_INDEX.md` § 4 Top 16+ 必读铁律 (S72 batch 7 加)
+- mavis memory: `SQL placeholders 跟 params 数量必一致, tsc + try/catch + logger.error 同步 (跨项目通用, 跟 BUG-079/082 配套)` (本 session 沉淀)
+- [BUG-079 S71 后置假报告 12 维全过 100% 假](bug-079) — 100% 同源, BUG-098 假报告 "approve 跑通" 跟 BUG-079 假 "12 维全过" 同款
+- [BUG-082 S71 后置 server 写持久化 JSON 必 string 归一](bug-082) — 配套: BUG-082 后端持久化 JSON 必 string 归一, BUG-098 SQL 持久化必 string + types 归一
+- [BUG-090 S72 batch 6 deploy.sh changelog.json cp 源是生产目录](bug-090) — 同 S72 batch 系列: 部署链自检不严格, 漏 SQL 错
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-098 是 BUG-092 admin 审核链 admin approve 端点漏测
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-098 是 BUG-094 admin 端点 filter 修法后真正的 admin approve 失败
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — 配套: BUG-095 修 schema enum, BUG-098 修 admin approve SQL params
+- [BUG-096 S72 batch 7 React {0} 渲染陷阱](bug-096) — 配套: BUG-098 admin approve 修法 5 维验证 web 端, 跟 BUG-096 修法 4 维验证 web 端配套
+- [BUG-097 S72 batch 7 mobile 端同步 web 端 3 BUG](bug-097) — 配套: BUG-097 mobile 端 admin 端点 default 'user_notified', BUG-098 server 端 admin approve 真能跑通
+
+### 前置 BUG (S72 batch 7 admin 审核链全修)
+
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-098 admin 审核链源头 (user 点"我已付款" → 创建 user_notified 订单)
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-098 admin 看板看 user_notified 订单
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-098 markUserNotified 写 status='user_notified' 不再抛错
+- [BUG-097 S72 batch 7 mobile 端同步 web 端 3 BUG](bug-097) — BUG-098 mobile 端 admin 操作按钮也修
+
 
 
