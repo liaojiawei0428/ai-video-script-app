@@ -3997,3 +3997,103 @@ User 在 BUG-092/094/095/096 部署完成后实测 admin 审核流程, 反馈:
 
 
 
+
+
+---
+
+## BUG-100 (S72 batch 8 后置, 2026-06-26)
+
+**69 个 video_generations 卡 queued 17 天, user 反馈生视频永远没结果**
+
+### 现象
+- DB: `video_generations` 表 69 行 `status='queued'`, 最早 `2026-06-09 15:31:52` (17 天前), error_msg 全 NULL
+- DB: `image_generations` 同期 45 行 (completed=41 / failed=3 / queued=1) — **生图能跑** (91% 成功)
+- 远端 server log (`/www/wwwroot/shipin-APP/logs/error.log`) 6+ 次 `AgnesVideoProvider: ffmpeg frame extraction failed` + `Agnes Video create timeout (60000ms)` + `fetch failed` + `状态 tool_completed 不可确认`
+- 朋友提醒 "这 key 早就配了, 没所谓专用 key" — 翻代码 + 进程 env 验证: 实际 `AGNES_IMAGE_API_KEY=sk-fGgHxvU77T915PYEu9MjRdBfg4gsNuwaSOWh85WHjMnmtjWb` 已配, **v3.0.0 统一 key (一把通用 图/文/视频 3 端), 老名带 IMAGE 是 v2.5.x 时代变量名**
+
+### 根因 (3 个独立问题, 跟 BUG-098 同源: 单修法不彻底)
+
+1. **ffmpeg 6.1.1 image2 muxer 抽帧失败** (主因, 占 70%)
+   - `apps/server/src/utils/ffmpegHelper.ts:80-84` 旧修法 v3.0.0.23 加 `-update 1` 防 image sequence pattern
+   - **但 ffmpeg 6.1.1 image2 muxer 仍报 "Could not open file"** (实测 6/25 17:14:41, -update 1 已加仍 fail)
+   - 输出文件名 `frame-{mp4name}-{timestamp}-{pid}.png` 含数字 + .mp4 子串, muxer 误判 image sequence
+   - 累积 6+ 次错, 自 6/25 ~ 6/26 持续 (i2v 模式全坏)
+
+2. **状态机迁移漏 tool_completed 进 allowedStates** (跟 BUG-081 同源, 20%)
+   - `apps/server/src/services/videoAgentService.ts:403` 旧代码: `if (conv.status !== 'plan_ready') throw new Error('...')`
+   - 用户已 tool_completed (之前有成功视频), 点 confirm 想"再生" — 必 throw
+   - 错误: `状态 tool_completed 不可确认, 需 plan_ready` (log 6/26 03:14:24 实测)
+
+3. **catch 块漏更新 video_generations 表** (跟 BUG-098 同源, 80% 卡死的根因)
+   - `runCreateTaskInBackground` line 524-551 (createTask catch) + line 568-578 (persist catch)
+   - 两个 catch 都只回滚 `video_conversations` 状态到 `plan_ready`
+   - **video_generations 行的 status 永远卡 'queued'**, 累积 17 天 69 任务
+   - 跟 BUG-098 admin approve 同源: catch 块没"补刀"附属表
+
+### 修法 (3 fix 一起发版, v3.0.37 S72 batch 8)
+
+#### Fix 1: ffmpegHelper 改用 `image2pipe` muxer 走 stdout
+- `apps/server/src/utils/ffmpegHelper.ts:73-86` 改 ffmpeg 命令
+- 旧: `-f image2 -update 1 /tmp/frame-xxx.png` (image2 muxer + 临时文件 + 文件名检测)
+- 新: `-f image2pipe -c:v png -` (走 stdout, execFileSync 收 Buffer, 0 临时文件 IO)
+- 修后: i2v 模式稳定, 跨 ffmpeg 版本 (6.1.1 / 6.0 / 5.x) 都能用
+
+#### Fix 2: videoAgentService.confirm() 允许 tool_completed 重 confirm
+- `apps/server/src/services/videoAgentService.ts:403` 改
+- 旧: `if (conv.status !== 'plan_ready') throw ...`
+- 新: `if (conv.status !== 'plan_ready' && conv.status !== 'tool_completed') throw ...`
+- 配套 logger.info 're-confirm from tool_completed (re-generate same plan)' 让"再生" 功能可用
+- 状态机迁移配套: BUG-081 教训"4 处"升级到"5 处" (server 字段 + model + response + UI + DB schema enum)
+
+#### Fix 3: runCreateTaskInBackground 2 个 catch 块必更新 video_generations 标 failed
+- `apps/server/src/services/videoAgentService.ts:551-588` (createTask catch) + `:594-616` (persist catch)
+- 各加 queryOne 找该 conversation 最新一条 video_generations row + `videoGenerationModel.update(id, { status: 'failed', error_msg: ... })`
+- 修后: 任务失败 → 必标 failed, 不再卡 queued 累积
+
+### 配套工具 (永久化, 跟 BUG-094/095/098 部署脚本同模板)
+
+| 工具 | 路径 | 用途 |
+|---|---|---|
+| `deploy-bug100.sh` | `apps/server/scripts/deploy-bug100.sh` | 部署 3 fix (备份 + scp + 宝塔 Node 项目 restart + 清 69 累积 + 24 维验证) |
+| `verify-bug100.sh` | `apps/server/scripts/verify-bug100.sh` | 5 维验证 (3 fix 命中 + queued=0 + server 端到端) |
+| `db-bug100-clear.sql` | `apps/server/scripts/db-bug100-clear.sql` | 清 Pre-BUG-100 queued 任务 SQL (UPDATE status=failed WHERE created_at<24h) |
+| `deploy-bug100-verify.sh` | `apps/server/scripts/deploy-bug100-verify.sh` | base64 安全版 (跟 PS 5.1 兼容, S52 同款教训) |
+
+### 教训 (跨项目通用, 跟 BUG-079/082/090/094/095/098/099 配套)
+
+1. **ffmpeg image2 muxer 不可靠, 用 image2pipe 走 stdout** (跨项目通用, 任何 ffmpeg 抽帧都该走 pipe)
+2. **catch 块必更新所有关联表** (跟 BUG-098 同源: 单路径修法不彻底, 必"补刀"所有受影响的表)
+3. **状态机迁移必同步 allowedStates** (跟 BUG-081/094 同源: server 字段 + model + response + UI + DB schema enum 5 处)
+4. **env 必 cat 完整 + cat /proc/PID/environ 双向验证** (跨项目通用: 之前 cat .env 只看前 25 行漏看 AGNES_IMAGE_API_KEY 老名 key, 跟"v2.5.x 专用 key" 错误判断同源)
+5. **没有"v2.5.x 专用 key" 这种概念** (Agnes key 本身统一, 老名带 IMAGE 是 v2.5.x 时代变量名, 跟 key 能力无关, v3.0.0 设计意图一把通用)
+6. **DEBUG 卡死任务必查 3 处**: 进程 env + DB 状态分布 + server log stderr (本 BUG 累积 17 天才发现就因为 3 处没同时查)
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 4+ (状态机迁移同步 4 升级 5 处, BUG-100 配套)
+- `apps/server/AGENTS.md` § 3 铁律 4 (APP_VERSION 9 处同步) + § 5 任务 C (DB schema enum, 跟 BUG-095/100 配套)
+- `apps/server/AGENTS.md` § 4 改后 5 步 (本机 tsc 0 错 + npm run build + cp changelog.json + 维护模式 + 24 维验证)
+- `docs/DEPLOY_RELEASE_FLOW.md` § 8 已知坑加 1 条 BUG-100 (本 session 同步加)
+- `docs/BUGS_INDEX.md` § 4 Top 20 加 BUG-100 (本 session 同步加)
+- mavis memory: `env 完整必查 + cat /proc/PID/environ 双向验证 (跨项目通用, 跟 BUG-079/082/090/098 配套)` (本 session 沉淀)
+- mavis memory: `没有 v2.5.x 专用 key 这种概念, 老名带 IMAGE 是变量名, key 统一 (跨项目通用, Agnes 类供应商都这样)` (本 session 沉淀)
+- mavis memory: `catch 块必更新所有关联表, 跟 BUG-098 同源 (跨项目通用, 跟 BUG-098 admin approve 单表回滚 1:1)` (本 session 沉淀)
+- mavis memory: `ffmpeg image2 muxer 不可靠, 用 image2pipe 走 stdout (跨项目通用, 6.1.1 image2 muxer 在 -update 1 下仍误判 filename pattern)` (本 session 沉淀)
+- mavis memory: `state 机器迁移必同步 5 处 = 4 (server 字段 + model + response + UI) + 1 (DB schema enum)` (跨项目通用, 跟 BUG-081/094/095 配套升级)
+- [BUG-079 S71 后置假报告](bug-079) — 100% 同源, BUG-100 假"生视频能跑" 跟 BUG-079 假"12 维全过" 同款 (都靠假报告假象, 没真端到端)
+- [BUG-081 S71 后置状态机迁移 4 处同步](bug-081) — 升级配套: BUG-081 4 处 → BUG-100 加 tool_completed 进 allowedStates
+- [BUG-082 S71 后置持久化 JSON 必 string 归一](bug-082) — 配套: BUG-082 JSON, BUG-100 catch 必标 failed 跟 BUG-082 extractErrorMessage 配套
+- [BUG-090 S72 batch 6 deploy.sh changelog.json cp 源](bug-090) — 配套: BUG-090 部署链自检不严格, BUG-100 69 卡死累积 17 天就是缺部署后 DB 状态分布必查 (verify-bug100.sh 维度 4)
+- [BUG-094 S72 batch 7 admin 默认查 pending](bug-094) — 升级配套: BUG-094 状态机迁移 4 处漏 1, BUG-100 状态机迁移 4 处 (plan_ready only) 漏 tool_completed
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — 升级配套: BUG-095 DB schema enum 5 处, BUG-100 状态机迁移必同步 5 处 (跟 BUG-095 一致)
+- [BUG-097 S72 batch 7 mobile 端同步 web 端 3 BUG](bug-097) — 升级配套: BUG-097 mobile 端 admin 端点 default 'user_notified', BUG-100 mobile 端 confirm() 也修 (走 5 步同步 SOP)
+- [BUG-098 S72 batch 7 admin approve 抛 500](bug-098) — 100% 同源: BUG-098 catch 漏补刀附属表, BUG-100 catch 漏补刀 video_generations 表
+- [BUG-099 S72 batch 7 web dist 被破坏](bug-099) — 配套: BUG-099 部署链自检, BUG-100 部署链自检加 5 维 (verify-bug100.sh)
+
+### 前置 BUG (v3.0.37 S72 batch 8 后置 BUG-100)
+
+- [BUG-079 S71 后置假报告 12 维全过 100% 假](bug-079) — 假报告心态让 BUG-100 累积 17 天
+- [BUG-081 S71 后置状态机迁移 4 处同步](bug-081) — BUG-100 状态机迁移 4 处漏 tool_completed
+- [BUG-090 S72 batch 6 deploy.sh changelog.json cp 源](bug-090) — BUG-100 部署后没查 DB 状态分布 (verify-bug100.sh 补)
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-100 状态机迁移必同步 5 处 (DB schema enum 也算)
+- [BUG-098 S72 batch 7 admin approve 抛 500](bug-098) — BUG-100 catch 漏补刀 video_generations 表 100% 同源

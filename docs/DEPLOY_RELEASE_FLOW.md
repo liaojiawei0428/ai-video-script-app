@@ -696,6 +696,19 @@ rm test.txt
   3. 宝塔 nginx reload
 - **防呆**: 部署后必跑 `head -c 100 dist/assets/index-*.js | head -1` (vite minified 必 = `//`, 异常 = 重 build)
 
+### 8.10 BUG-100: 69 个 video_generations 卡 queued 累积 17 天 (S72 batch 8 后置)
+
+- **根因** (3 个独立问题, 跟 BUG-098 同源: 单修法不彻底):
+  1. **ffmpeg 6.1.1 image2 muxer 抽帧失败** (主因, 70%): `apps/server/src/utils/ffmpegHelper.ts` 旧修法 v3.0.0.23 加 `-update 1` 在 ffmpeg 6.1.1 image2 muxer 仍报 "Could not open file" (实测 6+ 次累积)
+  2. **状态机迁移漏 tool_completed 进 allowedStates** (跟 BUG-081 同源, 20%): `videoAgentService.ts:403` 旧代码 `if (conv.status !== 'plan_ready') throw`, 用户已 tool_completed 点 confirm 必 throw
+  3. **catch 块漏更新 video_generations 表** (跟 BUG-098 同源, 80% 卡死的根因): `runCreateTaskInBackground` 2 个 catch 块 (createTask + persist) 只回滚 video_conversations, video_generations 永远卡 queued
+- **修法** (3 fix 一起发版, v3.0.37 S72 batch 8):
+  1. **Fix 1**: `ffmpegHelper.ts` 改用 `image2pipe` muxer 走 stdout (替代 image2 muxer + 临时文件), 跨 ffmpeg 6.1.1/6.0/5.x 稳定
+  2. **Fix 2**: `videoAgentService.confirm()` 改 `if (conv.status !== 'plan_ready' && conv.status !== 'tool_completed') throw`, 状态机迁移必同步 4→5 处 (跟 BUG-081/094/095 配套)
+  3. **Fix 3**: `runCreateTaskInBackground` 2 个 catch 块各加 queryOne + videoGenerationModel.update(id, {status: 'failed'}) "补刀" 附属表 (跟 BUG-098 同源)
+- **清卡死**: 部署后必跑 `UPDATE video_generations SET status='failed', error_msg='Pre BUG-100 累积' WHERE status='queued' AND created_at<24h`
+- **防呆** (跨项目通用): 卡死任务必同时查 3 处 — `cat /proc/PID/environ` 进程 env + `SELECT status, COUNT(*) FROM task_table GROUP BY status` DB 状态分布 + `tail -50 logs/error.log | grep` server log stderr. 单一查 1 处看不出来 (跟 BUG-079 假报告 100% 同源)
+
 ---
 
 ## § 9. 工具脚本清单 (永久工具, 跨项目通用)
