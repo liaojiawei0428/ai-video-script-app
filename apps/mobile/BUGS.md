@@ -3711,5 +3711,98 @@ ALTER TABLE recharge_requests MODIFY COLUMN status ENUM('pending','user_notified
 - [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — BUG-095 升级 4→5 处
 - [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-095 是 BUG-094 修法漏第 5 处 (DB schema)
 
+## BUG-096 (S72 batch 7 BUG-092 修法后, v3.0.37, 2026-06-26 13:22): AdminDashboardPage.tsx "已通过" 历史订单后面渲染 "0" — React `{a && b}` 短路陷阱, 当 `a=0` 时返 `0` 字符串渲染 (老 approved 订单 userNotifiedAt=0 全受影响, admin 看板 "已通过" tab 5 条历史都显示 "0")
+
+### 现象 (user 截图反馈, 2026-06-26 13:22)
+
+User 部署 BUG-094/095 修法后, admin 看板"已通过" tab 历史订单后面渲染 "0" 数字. user 截图显示 5 条历史 approved 订单每条后面都有一个 "0":
+
+```
+solowxd  ¥10.00  已通过  0
+微信 · 2026/6/23 03:35:51 · 管理员确认到账
+
+q378685504  ¥100.00  已通过  0
+微信 · 2026/6/7 00:33:23 · 管理员确认到账
+...
+```
+
+格式跟 AdminDashboardPage.tsx 一致 (line 195-220 渲染), 但 "0" 实际位置在 status box "已通过" 后面, 同一行, 紧贴 status chip 右边.
+
+### 真凶 (1 层, React 经典陷阱)
+
+`apps/web/src/pages/AdminDashboardPage.tsx:210` (BUG-096 修法前):
+```jsx
+{o.userNotifiedAt && o.userNotifiedAt > 0 && o.status === 'user_notified' && (
+  <span className="text-xs px-2 py-0.5 rounded bg-accent/15 text-accent font-medium flex items-center gap-1">
+    💬 用户已通知已付款 · {new Date(o.userNotifiedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+  </span>
+)}
+```
+
+**React 经典陷阱: `a && b` 当 `a=0` 时返 `0` 字符串**:
+- `0 && X` JS 短路返 `0` (number, 不是 boolean)
+- React JSX `{0}` 渲染成 "0" 字符串 (跟 `{null}` / `{undefined}` / `{false}` 不渲染不同)
+- 老 approved 订单 (DB DEFAULT userNotifiedAt=0) 走 `0 && (0>0) && ...`, 第一个短路返 0, React 渲染 "0"
+
+**配套 React 行为**:
+- `0 && X` → 返 `0` (number) → 渲染 "0"
+- `"" && X` → 返 `""` (empty string) → 渲染 ""
+- `null && X` → 返 `null` → 不渲染
+- `undefined && X` → 返 `undefined` → 不渲染
+- `false && X` → 返 `false` → 不渲染
+
+只有 `0` / `""` 这 2 个 falsy 值会触发"渲染自身"陷阱. 跟 BUG-082 铁律 8 (持久化 JSON 必 string 归一) 教训同源: 跨项目通用 UX 原则, 任何 0 数值字段渲染前必显式 boolean cast.
+
+### 修复 (1 行改)
+
+`apps/web/src/pages/AdminDashboardPage.tsx:210` (BUG-096 修法后):
+```jsx
+{o.userNotifiedAt > 0 && o.status === 'user_notified' ? (
+  <span className="text-xs px-2 py-0.5 rounded bg-accent/15 text-accent font-medium flex items-center gap-1">
+    💬 用户已通知已付款 · {new Date(o.userNotifiedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+  </span>
+) : null}
+```
+
+修法 3 步:
+1. **删** `o.userNotifiedAt &&` 第一个短路条件 (因为 `o.userNotifiedAt > 0` 已包含数值检查, 不需要冗余)
+2. **改** `&& (...)` → `? (...) : null` 显式三目, 防 React 渲染 falsy 值
+3. **不依赖** `o.userNotifiedAt` 直接 (避免 0 渲染陷阱, 跟 BUG-082 铁律 8 强约束一致)
+
+### 怎么验证修好 (4 维)
+
+1. **web dist grep 0 渲染源消失**:
+   - 修法前: `grep "userNotifiedAt&&" dist/assets/*.js` 期望 ≥ 1 命中
+   - 修法后: `grep "userNotifiedAt>0" dist/assets/*.js` 期望 ≥ 1 命中, `grep "userNotifiedAt&&"` 期望 0 命中
+2. **admin 端点返 approved 订单 userNotifiedAt 字段** (DB 默认 0): `curl /api/admin/orders?status=approved` 期望 userNotifiedAt=0 字段存在
+3. **admin 端点返 user_notified 订单 userNotifiedAt > 0**: BUG-094/095 修法后 markUserNotified 写 timestamp, user_notified 订单 userNotifiedAt > 0, 应显示 "💬 用户已通知已付款 · MM-DD HH:MM" 标记
+4. **浏览器 hard refresh**: user 重新刷新 admin 看板, "已通过" tab 历史订单后面**不再有 "0" 字符串** ✅
+
+### 怎么避免再犯 (跨项目通用, BUG-082/096 配套强化)
+
+1. **JSX 渲染必显式 boolean cast 0 字段** (BUG-096 教训): 任何 0 数值字段渲染前必 `> 0` / `Boolean(x)` / `!== 0` 包裹, **不能直接 `x &&` 短路** (因为 0 短路返 0, 渲染 "0" 字符串)
+2. **JSX 渲染推荐三目**: `{x ? (...) : null}` 比 `{x && (...)}` 安全, 任何 falsy 值 (0/""/null/undefined/false) 都不会渲染自身
+3. **配套 BUG-082 铁律 8**: 持久化 JSON 必 string 归一 (server 返 {code,message} 归一 string), 跨项目通用 UX 原则. BUG-096 是"前端渲染"侧, BUG-082 是"后端持久化"侧, 配套
+4. **lint 工具加 `@typescript-eslint/no-unnecessary-condition`**: 强制 `x && x > 0` 这种冗余条件报 warning, 防止 BUG-096 修法前的"`x && x > 0` 短路" 写法
+5. **部署后必跑端到端 (admin 看板) 视觉验证**: 不只查 API 200 / SQL 22 维, 还要看实际 DOM 渲染 (playwright / puppeteer / 浏览器手动). BUG-094/095/096 修法都没跑实际 DOM 渲染, 都漏了 "0" 渲染陷阱
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 8 (持久化 JSON 必 string 归一, 跨项目通用 UX 原则)
+- `apps/web/AGENTS.md` § 4 web 端独有铁律 (不引入 shadcn / 状态管理只用 Zustand / 路由守卫在 App.tsx / bundle hash 必带)
+- `docs/BUGS_INDEX.md` § 4 Top 16 必读铁律 (S72 batch 7 加, 含铁律 4+/8)
+- mavis memory: `JSX 渲染必显式 boolean cast 0 字段, 推荐三目替代 &&` (本 session 沉淀, BUG-096 配套 BUG-082)
+- [BUG-082 S71 后置 server 写持久化 JSON 必 string 归一](bug-082) — 100% 同源, BUG-096 是 BUG-082 "前端渲染"侧
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-094/095/096 修法链
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-096 是 BUG-094 修法 admin 端点 + AdminDashboardPage 改 userNotifiedAt 条件引入
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-096 修法链第 3 环 (state 修 → render 漏 0)
+
+### 前置 BUG (S72 batch 7 状态机迁移漏同步链)
+
+- [BUG-082 S71 后置 server 写持久化 JSON 必 string 归一](bug-082) — 100% 同源, BUG-096 是 BUG-082 "前端渲染"侧
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-094/095/096 修法链源头
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-096 是 BUG-094 修法 admin 端点引入
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-096 修法链第 2 环
+
 
 
