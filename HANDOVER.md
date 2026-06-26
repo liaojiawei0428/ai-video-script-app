@@ -93,7 +93,7 @@ shipin-APP/
 | **S72 batch 5** | "BUG-087 APP 无限弹窗 + web APP_VERSION_CODE 同步" | v3.0.35 P11 | **BUG-087**: mobile version.ts 1 行损坏 tsc 报 `is not a module` → APP_VERSION=undefined → fetch `?version=undefined` → server `compareVersions('3.0.34', 'undefined')=1` → needUpdate=true 每次冷启动弹窗. 修法: version.ts 改多行 (Write 工具强制 LF) + 新建 db/updateMemory.ts (RNFS 24h 抑制) + updater.tsx showUpdateDialog 异步化 + App.tsx 加日志 + 删 web version-fixed.ts. **8 处版本号同步漏改 9**: web `APP_VERSION_CODE` (38→39) 必跟 mobile build.gradle versionCode 同步 | BUG-087 (新) | 跨端 8 处版本号 9 项自检新增 |
 | **S72 batch 6** ← 最近 | "BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh changelog cp 源错" | v3.0.36 P12 | **BUG-088**: Dialog 组件用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡. 修法: Dialog.tsx 改用 RN `<Modal transparent animationType="none">` 包装 + historyModal 内删除按钮先关再开 (300ms timeout). **BUG-089**: polling 完成 setMessages 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (race condition). 修法: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages) + polling 完成 alert 后 setTimeout scrollToEnd 200ms. **BUG-090**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json` 源是生产目录 (老版本), 不是 /tmp/ (本机 scp). 修法: 优先 /tmp/changelog.json + 部署 SOP 必加 scp changelog.json + 12 维验证查 changelog 字段. **🆕 verify-deploy.sh 升 21→22 维** (维度 22 BUG-090 /api/version 4 字段验证: version + changelog + highlights + buildDate) | BUG-088/089/090 (新) | 0ce03f0 / 0683dc3 / a00602d + a5ae183 (.gitignore 清理 21 个 untracked) + verify-deploy.sh 维度 22 (6 commit push origin main) |
 
-### 2.2 91 个 BUG 分布
+### 2.2 92 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
 - **S60** 4 个: BUG-056 等 (server type 错)
 - **S64** 3 个: BUG-066/067/068 (跨端版本 6 处)
@@ -103,6 +103,7 @@ shipin-APP/
 - **S72 batch 4** 1 个: BUG-083 (dist/changelog.json 字符编码损坏)
 - **S72 batch 5** 1 个: BUG-087 (APP 无限弹窗 + web APP_VERSION_CODE 同步)
 - **S72 batch 6** 4 个: BUG-088 (Dialog Modal 遮挡) + BUG-089 (polling race) + BUG-090 (deploy.sh cp 源错) + BUG-091 (commit a5ae183 缺 BUG 编号, 违反铁律 6)
+- **S72 batch 7** 1 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现)
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口

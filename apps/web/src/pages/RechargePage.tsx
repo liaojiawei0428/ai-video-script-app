@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { createRechargeApi } from '../lib/api';
-import { Wallet, CheckCircle, AlertCircle, Crown } from 'lucide-react';
+import { createRechargeApi, notifyRechargePaidApi, getRechargeHistoryApi } from '../lib/api';
+import { Wallet, CheckCircle, AlertCircle, Crown, Loader } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 
 const PRESETS = [10, 30, 50, 100, 200, 500];
@@ -13,14 +13,42 @@ export function RechargePage() {
   const [loading, setLoading] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [orderId, setOrderId] = useState('');
-  const [message, setMessage] = useState('');
+  const [orderStatus, setOrderStatus] = useState<'pending' | 'user_notified' | 'approved' | 'rejected' | ''>('');
+  const [orderMessage, setOrderMessage] = useState('');
+  const [notifyLoading, setNotifyLoading] = useState(false);
+  const [notifiedAt, setNotifiedAt] = useState<number>(0);
 
   useEffect(() => { fetchBalance(); }, [fetchBalance]);
+
+  // v3.0.37 (S72 batch 7 BUG-092): 轮询订单状态 (跟 BUG-089 教训一致: polling 完成 alert 关闭后 setTimeout)
+  // 触发条件: 已扫码 (qrCodeUrl 非空) + status='user_notified' (用户已点"我已付款") — 等待 admin approve
+  useEffect(() => {
+    if (!orderId || orderStatus !== 'user_notified') return;
+    const timer = setInterval(async () => {
+      try {
+        const r: any = await getRechargeHistoryApi();
+        const records = r.data?.data?.records || [];
+        const cur = records.find((x: any) => x.id === orderId);
+        if (cur && cur.status !== orderStatus) {
+          setOrderStatus(cur.status);
+          if (cur.status === 'approved') {
+            fetchBalance();
+            setOrderMessage(`✅ 充值已到账! 您的余额: ¥${cur.amount}`);
+          } else if (cur.status === 'rejected') {
+            setOrderMessage('❌ 充值被拒绝, 请联系客服');
+          }
+        }
+      } catch (e) { /* 静默, 跟 BUG-089 refreshHistory 教训一致 */ }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [orderId, orderStatus, fetchBalance]);
 
   const submit = async () => {
     setLoading(true);
     setQrCodeUrl('');
-    setMessage('');
+    setOrderMessage('');
+    setOrderStatus('');
+    setNotifiedAt(0);
     try {
       const r: any = await createRechargeApi(amount);
       const data = r.data?.data;
@@ -28,12 +56,31 @@ export function RechargePage() {
       if (url) {
         setQrCodeUrl(url);
         setOrderId(data?.id || '');
-        setMessage(data?.message || '');
+        setOrderStatus('pending');
+        setOrderMessage(data?.message || '请扫码支付');
       } else {
         alert('支付链接生成失败');
       }
     } catch (e: any) { alert(e?.response?.data?.error?.message || '提交失败'); }
     finally { setLoading(false); }
+  };
+
+  // v3.0.37 (S72 batch 7 BUG-092): 用户点"我已付款" — 调 POST /api/recharge/:id/notify-paid
+  // 配套: 1) authMiddleware 鉴权 2) 验证订单属于该 user (越权保护) 3) 验证 status='pending'
+  // 4) 标记 user_notified_at 5) 上层 effect 轮询 status → approved 后 setOrderMessage + fetchBalance
+  const handleNotifyPaid = async () => {
+    if (!orderId) return;
+    setNotifyLoading(true);
+    try {
+      const r: any = await notifyRechargePaidApi(orderId);
+      setOrderStatus('user_notified');
+      setNotifiedAt(Date.now());
+      setOrderMessage(r.data?.message || '已通知管理员, 请耐心等待审核 (通常 5 分钟内到账)');
+    } catch (e: any) {
+      alert(e?.response?.data?.error?.message || '通知失败, 请稍后重试');
+    } finally {
+      setNotifyLoading(false);
+    }
   };
 
   return (
@@ -99,17 +146,57 @@ export function RechargePage() {
           <h2 className="font-semibold mb-4 flex items-center gap-2">
             <AlertCircle size={18} className="text-accent" /> 扫码支付
           </h2>
-          <p className="text-sm text-text-secondary mb-4">{message}</p>
+          <p className="text-sm text-text-secondary mb-4">{orderMessage}</p>
           <div className="flex justify-center mb-4">
             <img src={qrCodeUrl} alt="支付宝收款码" className="w-64 h-64 rounded-xl border border-border" />
           </div>
-          <div className="text-center text-sm text-text-tertiary">
+          <div className="text-center text-sm text-text-tertiary mb-4">
             订单号: <span className="font-mono text-xs">{orderId}</span>
+            <span className="ml-3 inline-block px-2 py-0.5 rounded text-xs bg-bg-tertiary">
+              {{ pending: '待支付', user_notified: '待审核', approved: '已通过', rejected: '已拒绝' }[orderStatus] || '待支付'}
+            </span>
           </div>
+
+          {/* v3.0.37 (S72 batch 7 BUG-092): "我已付款" 按钮 — 修 BUG-092 (之前扫码支付页面没这个按钮) */}
+          {orderStatus === 'pending' && (
+            <button
+              className="btn-primary w-full text-base py-3 mb-3 flex items-center justify-center gap-2"
+              onClick={handleNotifyPaid}
+              disabled={notifyLoading}
+            >
+              {notifyLoading ? <><Loader size={16} className="animate-spin" /> 提交中...</> : <><CheckCircle size={16} /> 我已付款</>}
+            </button>
+          )}
+          {orderStatus === 'user_notified' && (
+            <div className="mb-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+              <p className="text-sm text-warning flex items-center gap-2">
+                <Loader size={16} className="animate-spin" />
+                已通知管理员, 正在审核中... 请耐心等待 (通常 5 分钟内到账)
+              </p>
+              <p className="text-xs text-text-tertiary mt-1">
+                重复充值请先联系客服 (微信/QQ), 避免重复到账
+              </p>
+            </div>
+          )}
+          {orderStatus === 'approved' && (
+            <div className="mb-3 p-3 bg-success/10 border border-success/30 rounded-lg">
+              <p className="text-sm text-success flex items-center gap-2">
+                <CheckCircle size={16} /> 充值已到账! 余额已更新
+              </p>
+            </div>
+          )}
+          {orderStatus === 'rejected' && (
+            <div className="mb-3 p-3 bg-error/10 border border-error/30 rounded-lg">
+              <p className="text-sm text-error flex items-center gap-2">
+                <AlertCircle size={16} /> 充值被拒绝, 请联系客服
+              </p>
+            </div>
+          )}
+
           <div className="mt-4 p-3 bg-accent/10 border border-accent/30 rounded-lg">
             <p className="text-sm text-accent flex items-center gap-2">
               <CheckCircle size={16} />
-              支付完成后，管理员审核通过即到账
+              支付完成后，请点击"我已付款"按钮提交审核 (管理员审核通过即到账)
             </p>
           </div>
         </div>

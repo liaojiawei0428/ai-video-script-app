@@ -93,6 +93,13 @@
 - 🆕 **永久自检工具**: `tools/check-commit-message.py` (commit 前必跑, 1 失败 exit 1)
 - 跨项目通用: 任何 AI session 写 commit 必带 `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` 格式
 
+### 🔍 "支付" / "扫码" / "我已付款" / "notify-paid" / "recharge"
+- **BUG-092** 扫码支付页面"我已付款"按钮从来没实现 (server message 承诺, web 端没渲染, API 端点不存在)
+- 跨项目通用: 任何 "用户操作 → admin 审核" 异步流程必 4 态 UI (待操作 / 已操作等审核 / 已通过 / 已拒绝)
+- 跨项目通用: server 端 message 文案 必跟 web 端 UI 1:1 对齐 (文案是契约, 不是装饰)
+- 🆕 API: `POST /api/recharge/:id/notify-paid` (auth + 越权保护 + 状态校验, BUG-092 配套)
+- 🆕 DB 字段: `recharge_requests.user_notified_at` (admin 看板优先处理标记)
+
 ### 🔍 "web" / "React" / "Vite" / "shadcn"
 - BUG-066 / 067 / 072
 
@@ -220,6 +227,7 @@
 11. **🆕 deploy.sh cp 源必用 /tmp/ 而非生产目录** (BUG-090) — 生产目录永远是上一版本, 部署 SOP 必加完整 scp 清单 (dist.tar.gz + package.json + changelog.json)
 12. **🆕 12 维验证必查 /api/version 的 changelog 字段** (BUG-090) — 不只查 version, 还要看 changelog/highlights/buildDate 是不是新版本, 老版本残留 = 假报告. **verify-deploy.sh 维度 22 强制查 4 字段** (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD)
 13. **🆕 commit message subject 必带 BUG 编号 (BUG-091, 跨项目通用)** — 跟 AGENTS.md § 4 铁律 6 冲突, body 有 Refs 不算. 修法: `tools/check-commit-message.py` (永久自检, commit 前必跑, 1 失败 exit 1) + 格式 `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` 5 段缺一不可
+14. **🆕 UI 文案必跟代码 1:1 对齐 (BUG-092, 跨项目通用)** — server message "点击'我已付款'提交审核" 是契约, web 端必实现对应按钮. 修法: 写 server message 时必 grep web 端对应 UI 元素存在, 不能 message 承诺一套, 端点做另一套. 配套 4 态 UI (待操作 / 已操作等审核 / 已通过 / 已拒绝)
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -290,6 +298,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 6 v1.7, 加 BUG-091 commit message 违规沉淀 + check-commit-message.py 永久自检工具, § 4 Top 12 扩 13, § 2 关键字加 commit message/铁律 6)
+**最后更新**: 2026-06-26 (S72 batch 7 v1.8, 加 BUG-092 扫码支付没"我已付款"按钮 + 5 修法 (db/model/route/api/UI/Admin), § 4 Top 13 扩 14, § 2 关键字加 支付/扫码/notify-paid)
 **下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)

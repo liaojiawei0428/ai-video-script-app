@@ -192,12 +192,17 @@ async function initTables(): Promise<void> {
       remark VARCHAR(500) DEFAULT '',
       ip VARCHAR(50) DEFAULT '',
       ip_location VARCHAR(100) DEFAULT '',
+      user_notified_at BIGINT DEFAULT 0,  -- v3.0.37 (S72 batch 7 BUG-092) 用户点"我已付款"时间戳, admin 看板优先处理
       created_at BIGINT DEFAULT 0,
       updated_at BIGINT DEFAULT 0,
       INDEX idx_rr_user (user_id),
       INDEX idx_rr_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  // 兼容老库: 添加 user_notified_at 列 (S72 batch 7 BUG-092 修法, 跟 BUG-079 教训一致: 必须 logger.warn 替代静默 catch)
+  try { await db.execute("ALTER TABLE recharge_requests ADD COLUMN user_notified_at BIGINT DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE recharge_requests ADD COLUMN user_notified_at BIGINT DEFAULT 0' });
+  }
 
   // ======== 计费系统 ========
 

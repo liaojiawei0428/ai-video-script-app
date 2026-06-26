@@ -119,6 +119,9 @@ export const getComicApi = (id: string) => apiClient.get(`/episodes/${id}/comic`
 export const createRechargeApi = (amount: number, method: string = 'wxpay') =>
   apiClient.post('/recharge/submit', { amount, method });
 export const getRechargeHistoryApi = () => apiClient.get('/recharge/my');
+// v3.0.37 (S72 batch 7 BUG-092): 用户点"我已付款"通知 admin 端点 (修 web 端扫码支付没"我已付款"按钮 BUG)
+export const notifyRechargePaidApi = (orderId: string) =>
+  apiClient.post(`/recharge/${orderId}/notify-paid`);
 
 // === Billing (v3.0.32 BUG-078 S71: 账单明细, 含充值 + 消费 + 免费) ===
 // 旧版只调 getRechargeHistoryApi (只显示充值, 没消费记录) — web 端"账单明细"页面 BUG-078 修法

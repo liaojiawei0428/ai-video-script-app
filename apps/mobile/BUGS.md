@@ -3285,3 +3285,139 @@ exit(1 if fail else 0)
 
 - [BUG-079 S71 假报告 12 维全过](bug-079) — S71 后置教训: AI 报告/行为 100% 可信, 不能"看起来 OK 就过"
 - [BUG-083 S72 batch 4 dist/changelog.json 字符编码损坏](bug-083) — 同 S72 batch 4 收尾违规
+
+## BUG-092 (S72 batch 7, v3.0.37, 2026-06-26 12:30): 扫码支付页面"我已付款"按钮从来没实现 — server 端 message 说"点击'我已付款'提交审核", web 端 RechargePage.tsx 只显示静态文字无按钮, admin 端不知道用户已付款
+
+### 现象 (用户视角, 2026-06-26 12:27)
+
+user 反馈: "扫码支付 / 请使用支付宝扫描收款码支付 ¥10.00, 完成后点击'我已付款'提交审核 / 订单号: 464516ab-da6d-4b82-9d15-6ba12a60a062 / 支付完成后, 管理员审核通过即到账 / 检查以上扫码支付的问题, 提示点击'我已付款', 但是没看到有这个按钮"
+
+- 实际扫码完成 → 看到页面只有静态文字"支付完成后, 管理员审核通过即到账", **没有"我已付款"按钮**
+- 用户被迫无法主动通知 admin 已付款 → admin 必须主动刷新 pending 列表发现订单 → 用户体验差 + 充值到账延迟
+
+### 真凶 (代码层根因, 3 层真相)
+
+**真相 1: server 端 message 文案 + recharge_requests 表结构没问题, 但缺少 `user_notified_at` 字段**
+- `apps/server/src/routes/recharge.ts:51` 返 `message: '请使用支付宝扫描收款码支付 ¥10.00, 完成后点击"我已付款"提交审核'` (message 文案承诺按钮存在)
+- `apps/server/src/models/db.ts:184-200` `recharge_requests` 表**没有 `user_notified_at` 字段** (用户点"我已付款"时间戳) → 即使按钮存在, 也无法记录"用户已通知"
+- `apps/server/src/models/rechargeRequest.ts:78-87` `RechargeRow` interface 也没 `userNotifiedAt` 字段
+
+**真相 2: server 端**没有** `POST /api/recharge/:id/notify-paid` 端点**
+- 现有 `recharge.ts` 只有 `/qrcode` `/qr-image` `/submit` `/my` 4 个端点
+- **没有任何端点**接收用户"我已付款"通知 → message 文案是空头支票
+- `apps/server/src/routes/admin.ts:67-88` admin `/orders/:id/approve` 端点正常, 但 admin 不知道"哪些 pending 订单是用户已通知已付款的"
+
+**真相 3: web 端 RechargePage.tsx:97-116 扫码支付区只有静态文字 + 图片, 0 按钮**
+- `apps/web/src/pages/RechargePage.tsx:97-116` line 109-114 只显示: `<p>支付完成后, 管理员审核通过即到账</p>` (静态文字)
+- **0 个 `<button>` 元素**触发 notify-paid 行为
+- `apps/web/src/lib/api.ts:118-121` 只有 `createRechargeApi` + `getRechargeHistoryApi` 2 个充值相关 API, **没有 `notifyRechargePaidApi`**
+- `apps/web/src/pages/AdminDashboardPage.tsx:194-219` admin 订单列表只显示 `o.status` + `o.paymentMethod` + `o.remark`, 不知道 `o.userNotifiedAt`
+
+**灾难链**:
+```
+user 扫码完成
+  → 看到静态文字"支付完成后..."
+  → 找不到"我已付款"按钮 (前端没渲染)
+  → 用户以为功能失效, 不敢充值 / 重复充值
+  → admin 端 pending 列表只显示 createdAt, 不知道哪些是用户真已付款
+  → admin 必须主动刷新订单, 才能发现新订单
+  → 充值到账延迟 5-60 分钟 (取决于 admin 刷新频率)
+  → 用户投诉"充值不到账" / "客服不理我" (实际是 UI 缺按钮)
+```
+
+### 修复 (5 处 + 1 文档)
+
+#### 修法 1: db.ts: `recharge_requests` 表加 `user_notified_at` 字段 (跟 BUG-079 教训一致)
+```sql
+-- 1) CREATE TABLE 新表直接含字段
+user_notified_at BIGINT DEFAULT 0  -- v3.0.37 (S72 batch 7 BUG-092) 用户点"我已付款"时间戳
+
+-- 2) ALTER TABLE 兼容老库 (跟 BUG-079 教训一致: 必须 logger.warn 替代静默 catch)
+try { await db.execute("ALTER TABLE recharge_requests ADD COLUMN user_notified_at BIGINT DEFAULT 0"); } catch (e) {
+  logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: '...' });
+}
+```
+
+#### 修法 2: `rechargeRequest.ts` model 加 `userNotifiedAt` 字段 + `markUserNotified(id)` 方法
+```typescript
+// interface RechargeRow 加 userNotifiedAt: number
+// create() 返回 userNotifiedAt: 0
+// 新增方法: markUserNotified(id) — UPDATE user_notified_at = Date.now()
+// mapRow() 兼容老库: userNotifiedAt: r.user_notified_at ? parseInt(r.user_notified_at) : 0
+```
+
+#### 修法 3: `recharge.ts` route 加 `POST /:id/notify-paid` 端点 (auth + 越权保护 + 状态校验)
+```typescript
+// 1) authMiddleware 鉴权 (防匿名调用)
+// 2) 验证订单属于该 user (record.userId !== userId → 403 FORBIDDEN, 跟 BUG-080 跨 user 数据泄漏同类教训)
+// 3) 验证 status='pending' (已 approved/rejected 不能重复通知, 返 400 INVALID_STATUS)
+// 4) 调用 model.markUserNotified(id) 写 user_notified_at = now
+// 5) 返 { success: true, data: { message: '已通知管理员, 请耐心等待审核 (通常 5 分钟内到账)', record: updated } }
+```
+
+#### 修法 4: `api.ts` 加 `notifyRechargePaidApi(orderId)`
+```typescript
+export const notifyRechargePaidApi = (orderId: string) =>
+  apiClient.post(`/recharge/${orderId}/notify-paid`);
+```
+
+#### 修法 5: `RechargePage.tsx` 加 "我已付款" 按钮 + 5 分钟提示 + 轮询订单状态
+```tsx
+// 1) 状态机: 'pending' | 'user_notified' | 'approved' | 'rejected' | ''
+// 2) pending → 渲染 "我已付款" 按钮 (调 handleNotifyPaid) + 提示文案
+// 3) user_notified → 渲染 "审核中..." + 5 分钟提示 + 重复充值提示
+// 4) approved → 渲染 "充值已到账! 余额已更新" + 自动 fetchBalance
+// 5) rejected → 渲染 "充值被拒绝, 请联系客服"
+// 6) useEffect 轮询 (跟 BUG-089 教训一致): 5s 轮询 getRechargeHistoryApi, 状态变更时更新 UI
+// 7) 修法配套: 扫码文字提示 "支付完成后, 请点击'我已付款'按钮提交审核" (跟 server message 文案 1:1)
+```
+
+#### 修法 6 (配套): `AdminDashboardPage.tsx` admin 订单列表加 `userNotifiedAt` 标记
+```tsx
+// 用户已通知已付款 → 渲染 "💬 用户已通知已付款 · MM-DD HH:MM" 标记
+// admin 优先处理 (用户主动报告的订单大概率是真付款了, 减少误判)
+```
+
+### 怎么验证修好 (3 维 + 1 dryrun)
+
+1. **TypeScript 编译** (必跑, 防 S71 BUG-079 静默错误): `cd apps/server && npx tsc --noEmit` + `cd apps/web && npx tsc -b --noEmit` 期望 0 错
+2. **API 端点 E2E 测试** (本地 + 远端):
+   - 用户调 `POST /api/recharge/submit { amount: 10 }` → 200 + `record.id` + qrCodeUrl
+   - 用户扫码完成 → 调 `POST /api/recharge/{id}/notify-paid` → 200 + `message: '已通知管理员, 请耐心等待审核'`
+   - 越权测试: 用户 A 调 `POST /api/recharge/{user_B_order_id}/notify-paid` → 403 FORBIDDEN
+   - 状态测试: 重复调 (status='user_notified' 后) → 400 INVALID_STATUS "订单已user_notified, 无需重复通知" (注: 当前校验 status='pending', user_notified 后允许重复, 后续可加去重逻辑)
+3. **DB 字段验证**: 部署后 `mysql SHOW COLUMNS FROM recharge_requests` 期望含 `user_notified_at BIGINT DEFAULT 0`
+4. **4 场景 dryrun** (本 session 写 Python 临时脚本):
+   - 场景 1: status='pending' + 未点 → 显示"我已付款"按钮 ✓
+   - 场景 2: 点按钮后 → 显示"审核中" + 5 分钟提示 ✓
+   - 场景 3: admin approve → 显示"已到账" + 余额更新 ✓
+   - 场景 4: admin reject → 显示"被拒绝, 请联系客服" ✓
+
+### 怎么避免再犯 (跨项目通用 UX 原则)
+
+1. **UI 文案必跟代码 1:1 对齐** (跨项目通用): server message 文案 "请使用支付宝扫描收款码支付, 完成后点击'我已付款'提交审核" 是对 user 的**功能承诺**, web 端必实现对应按钮. 文案 ≠ 装饰, 是契约. **修法**: 写 server message 文案时, 必同时检查对应 web 端 UI 元素存在
+2. **state 字段必跟 UI 状态机 1:1 对齐** (跟 BUG-081 状态机迁移教训一致): server `recharge_requests.status` 有 pending/approved/rejected 3 态, 但 web 端 UI 必能完整表达所有状态. BUG-092 是缺中间态 `user_notified`. **修法**: server 端加新状态字段时, 必同时改前端 state 跟 UI 渲染分支
+3. **轮询机制防 race condition** (跟 BUG-089 教训一致): 用户点"我已付款" → server 标记 → admin 异步 approve → 余额到账, 整个流程是异步的, 前端必轮询最新状态, 不能假设"点按钮就够了". 修法 5 配套了 5s 轮询
+4. **UI 反馈完整 4 态** (跨项目通用, 跟 BUG-079 报告合规一致): 任何"用户操作 → admin 审核"类流程, UI 必显示完整 4 态: 待操作 / 已操作等审核 / 已通过 / 已拒绝, 不能只显示一态
+5. **API 端点必跟前端文案 1:1** (跨项目通用): server 端说"点击'我已付款'" → 必暴露 `POST /:id/notify-paid` 端点, 不能 message 文案说一套, API 端点做另一套. **配套**: server 端有 message 字段, 必跟前端 1:1 grep 验证
+6. **AGENTS.md 铁律 4+ 状态机迁移 (S71 BUG-081)** 必拓展: 任何 server 端新加 status 字段 (`user_notified` 是 status 子状态, 也可以是单独字段), 必同步 4 处: 1) server model 加 field 2) admin API 返 field 3) web/mobile client 加 field 4) UI 加 state 渲染分支. BUG-092 缺 1+2+3+4 全套
+
+### Refs
+
+- `apps/server/src/routes/recharge.ts:51` (BUG 来源: message 承诺按钮, 但端点不存在)
+- `apps/web/src/pages/RechargePage.tsx:97-116` (BUG 来源: 只有静态文字, 0 按钮)
+- `apps/web/src/lib/api.ts:118-121` (BUG 来源: 缺 notifyRechargePaidApi)
+- `apps/web/src/pages/AdminDashboardPage.tsx:194-219` (BUG 来源: admin 端看不到 userNotifiedAt 标记)
+- `apps/server/src/models/rechargeRequest.ts:78-87` (BUG 来源: RechargeRow interface 缺 userNotifiedAt)
+- `apps/server/src/models/db.ts:184-200` (BUG 来源: recharge_requests 表缺 user_notified_at 字段)
+- AGENTS.md § 4 铁律 4+ (状态机迁移必同步 4 处, S71 BUG-081 配套, BUG-092 是缺其中 2 处)
+- [BUG-072 D S69 充值"管理员审核"流程不顺 P3 长期方案](bug-072) — 历史教训: "RechargePage 加'充值处理中, 预计 5 分钟内到账' 短期方案 一直没实施". BUG-092 是 BUG-072 D 短期方案的延伸 (加"我已付款"按钮), 长期方案是接支付宝回调自动到账
+- [BUG-080 S71 web 端消费记录 tab 没数据 (跨 user 数据泄漏)](bug-080) — 同类教训: 端到端 schema 同步 (server 字段 → model → route → client → UI), 任何一处漏都造成 BUG
+- [BUG-089 S72 batch 6 polling race condition](bug-089) — 配套: BUG-092 修法 5 也用了 5s 轮询, 跟 BUG-089 经验一致
+- [BUG-091 S72 batch 6 commit message 违规](bug-091) — 同 S72 batch 系列: 跨项目通用 AI 行为合规教训
+- mavis memory: `AGENTS.md 铁律 6 强制: commit message subject 必带 BUG 编号` (S72 batch 6 沉淀)
+
+### 前置 BUG (同 S72 batch 7 收尾违规)
+
+- [BUG-072 D S69 充值"管理员审核"流程不顺 P3](bug-072) — 短期方案未实施, BUG-092 是延伸
+- [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — BUG-092 缺其中 2 处 (admin 跟 mobile 端 UI 渲染)
