@@ -2,16 +2,16 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-06-25 (S72 batch 4 收口 v1.5, BUG-083 修 + 铁律 9 思考链 visible + 跨端 6→9 铁律 + 23 BUG + 26 坑点)
+> **最后更新**: 2026-06-26 (S72 batch 6 收口 v1.6, BUG-088/089/090 修 + Dialog Modal 遮挡 + polling race + deploy.sh cp 源错 + 跨端 8 处版本号 9 项 + Top 12 + 27 坑点)
 
 ---
 
 ## § 0. 30 秒速览 (下个 session 必看)
 
 - **项目**: shipin-APP (`F:\QiTa\banmu\APP\ai-video-script-app`), AI 短剧剧本生成 Web+Mobile+Server
-- **当前版本**: v3.0.33 (生产 server 实际版本, S72 batch 4 部署)
-- **最近 7 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → **S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit)** → **S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构)** → **S71 (BUG-079/080/081/082 4 P0 + 铁律 4+/8 + 8 处版本号)** → **S72 (汇报规范 7 文件 + REPORTING_STANDARDS.md)** → **S72 batch 4 (ADR-0002 8 问题全修 + BUG-083 修生产 dist/changelog.json 损坏)** ← 本 session
-- **核心交付**: 跨端统一规范体系 (16 份文档), BUGS.md 75 个案例, 跨端 AGENTS.md 2 层结构 (根 v2.0 + mobile/server 瘦身 v2.0)
+- **当前版本**: v3.0.36 (生产 server 实际版本, S72 batch 6 部署, 8 处版本号全对齐 + 公网 APK 已上传)
+- **最近 8 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → **S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit)** → **S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构)** → **S71 (BUG-079/080/081/082 4 P0 + 铁律 4+/8 + 8 处版本号)** → **S72 (汇报规范 7 文件 + REPORTING_STANDARDS.md)** → **S72 batch 4 (ADR-0002 8 问题全修 + BUG-083 修生产 dist/changelog.json 损坏)** → **S72 batch 5 (BUG-087 APP 无限弹窗 + web APP_VERSION_CODE 同步)** → **S72 batch 6 (BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh cp 源错)** ← 最近 session
+- **核心交付**: 跨端统一规范体系 (16 份文档), BUGS.md 90 个案例, 跨端 AGENTS.md 2 层结构 (根 v2.0 + mobile/server 瘦身 v2.0)
 - **生产环境**: `https://ab.maque.uno` (公网), 服务器本地路径 `/www/wwwroot/shipin-APP` (flat 结构, 非 monorepo)
 - **本机环境**: Windows Server 2022 + PowerShell 5.1, **PortableGit 2.43.0** 已装 (`C:\Tools\PortableGit\bin\git.exe`)
 - **🚨 S70 部署路径重大变化**: shipin-APP **不再走 PM2**, **走 systemd unit + 宝塔 panel Node 项目同步**. 任何新 session 接手, **必读** [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md) (S70 v1.0, 5 步部署 + 12 维验证 + 9 坑). 不要用 `pm2 restart`, 用 `systemctl restart shipin-app`.
@@ -90,15 +90,19 @@ shipin-APP/
 | **S71** | "S71 后置 4 P0 BUG" | v3.0.32→3.0.33 P8 | BUG-079/080/081/082 4 P0 + BUG-082 P2 TODO + 8 处版本号规范自迭代 + 4 教训 + 铁律 4+/8 | BUG-079/080/081/082 + 082 P3 | d795675 / 6ea3484 / abca9d3 / 4381a7e / f92cc19 / 81f4972 / 084a148 / 1a402c3 |
 | **S72** | "汇报沟通规范从无到有" | v3.0.33 P9 | 新建 `docs/REPORTING_STANDARDS.md` 7 文件体系 (主索引 59 行 + 6 topic files 各 < 100 行) + 加做事 4 原则 / 任务前列计划 / 自我改进循环 (A/B/C) + 跨端跨工具借鉴 (Karpathy CLAUDE.md + Boris Cherny + 灵犀 Claw + BerriAI) | (规范自迭代, 无 BUG) | b176ee9 / 02c496b / 58e69fd / f5e2a48 / bfa9ea9 |
 | **S72 batch 4** (本 session) | "S72 batch 4 P0/P1/P2 部署 + 修生产 dist/changelog.json 损坏 + 铁律 9 思考链 visible" | v3.0.33 P10 + **AGENTS.md v2.9** | ADR-0002 8 问题全修 (P0 #1-#4 并发扣费/异常回滚/状态机/billing_logs 孤儿 + P1 #5-#8 取消状态/解析 fallback/upload 清理/extract 失败 + P2 #9-#11 自动剧集配置/analyze 鉴权/chunk 段号) + deploy.sh 3 修 (NEW_VERSION 路径/解压 dist 子目录/backup if 检查) + **BUG-083 (本 session 发现)**: 生产 dist/changelog.json 400 Chinese 损坏成 `?` 修复 + verify-deploy.sh 维度 21 防呆 + **🆕 铁律 9 (S72 batch 4 收口 user 硬要求)**: 思考链 + 工具调用流必须 visible, 跨端 6→9 铁律, 配 REPORTING_STANDARDS.md v2.4 同步 | BUG-083 (新) | 0b626ce / 5c49e68 / b6fddcf / d3c5ca8 / dda46a2 / 0c6b77f / 6ac0fe3 / 36392aa / 1244bea / d0babad / d7e7d00 / f543562 / 310098e + 后续 BUG-083 修法 + 铁律 9 commit |
+| **S72 batch 5** | "BUG-087 APP 无限弹窗 + web APP_VERSION_CODE 同步" | v3.0.35 P11 | **BUG-087**: mobile version.ts 1 行损坏 tsc 报 `is not a module` → APP_VERSION=undefined → fetch `?version=undefined` → server `compareVersions('3.0.34', 'undefined')=1` → needUpdate=true 每次冷启动弹窗. 修法: version.ts 改多行 (Write 工具强制 LF) + 新建 db/updateMemory.ts (RNFS 24h 抑制) + updater.tsx showUpdateDialog 异步化 + App.tsx 加日志 + 删 web version-fixed.ts. **8 处版本号同步漏改 9**: web `APP_VERSION_CODE` (38→39) 必跟 mobile build.gradle versionCode 同步 | BUG-087 (新) | 跨端 8 处版本号 9 项自检新增 |
+| **S72 batch 6** ← 最近 | "BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh changelog cp 源错" | v3.0.36 P12 | **BUG-088**: Dialog 组件用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡. 修法: Dialog.tsx 改用 RN `<Modal transparent animationType="none">` 包装 + historyModal 内删除按钮先关再开 (300ms timeout). **BUG-089**: polling 完成 setMessages 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (race condition). 修法: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages) + polling 完成 alert 后 setTimeout scrollToEnd 200ms. **BUG-090**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json` 源是生产目录 (老版本), 不是 /tmp/ (本机 scp). 修法: 优先 /tmp/changelog.json + 部署 SOP 必加 scp changelog.json + 12 维验证查 changelog 字段 | BUG-088/089/090 (新) | 0ce03f0 / 0683dc3 / a00602d (3 commit push origin main) |
 
-### 2.2 23 个 BUG 分布
+### 2.2 90 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
 - **S60** 4 个: BUG-056 等 (server type 错)
 - **S64** 3 个: BUG-066/067/068 (跨端版本 6 处)
 - **S65-S66** 1 个: BUG-069 (ecosystem 漏修, S64 教训应用)
 - **S67-S68** 2 个: BUG-070/071 (活跃任务 + AGENTS.md 收口)
 - **S69-S71** 5 个: BUG-072/073/074/075/076/077/078/079/080/081/082 (P0 跨端收尾 + 宝塔重构)
-- **S72 batch 4** 1 个: BUG-083 (本 session, dist/changelog.json 字符编码损坏)
+- **S72 batch 4** 1 个: BUG-083 (dist/changelog.json 字符编码损坏)
+- **S72 batch 5** 1 个: BUG-087 (APP 无限弹窗 + web APP_VERSION_CODE 同步)
+- **S72 batch 6** 3 个: BUG-088/089/090 (Dialog Modal 遮挡 + polling race + deploy.sh cp 源)
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口
@@ -225,6 +229,18 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 
 26. **silent 执行坑 (跨项目通用, 铁律 9 配套)** — AI 接到任务 silent 推理 5-10 步 + 直接出结果, user 中途无法介入, 跑偏 30+ min 才发现. 根因: AI 内部 thinking 块不暴露 + 工具调用结果不报 + 失败/判断点不主动说. **修法 (铁律 9, S72 batch 4 收口 user 硬要求)**: 1) 思考过程显式写到回复 (📋 思考: ...) 2) 工具调用流必报 (做什么+为什么+结果) 3) 失败/重试主动报 (⚠️ 撞墙: 错 X, 试 Y) 4) 自主判断点列选项 (2+ 候选必显式) 5) 测试/验证贴原始输出 (前 5+后 5+关键中间). 跨项目通用: **任何 AI session 默认 full D 模式, silent 执行 = 浪费 10 倍时间**
 
+### 5.7 🆕 S72 batch 5 后置坑点 (1 个新, BUG-087)
+
+27. **BUG-087 mobile config/version.ts 1 行损坏坑 (跟 BUG-079 同根, 跨项目通用)** — mobile `apps/mobile/src/config/version.ts` 跟 web / server 一样是 critical 文件, 但 S72 batch 5 时是 1445 字节 1 行 (newline=0). tsc 报 `TS2306: File .../version.ts is not a module`, 编译出空 module, export undefined, 运行期 `APP_VERSION = undefined`, fetch `?version=undefined`, server `compareVersions('3.0.34', 'undefined')` 解析: `'undefined'.split('.') = ['undefined']` → `Number('undefined')=NaN` → `(NaN || 0) = 0` → `3 > 0 = 1` → needUpdate=true. **修法**: version.ts 改多行 (Write 工具强制 LF) + 新建 `db/updateMemory.ts` 24h 抑制 + showUpdateDialog 异步化 + 删 web version-fixed.ts. **教训**: S71 BUG-079 修了 web version.ts, S72 batch 5 才发现 mobile 没防, **跨端 critical 文件必所有端都跑 `python3 -c "data=open(f,'rb').read(); print(data.count(b'\\n'))"` 验证**. shipin-APP 跨端 4 个 critical version.ts: mobile / web / server config / server index.ts fallback. 跨项目通用: **任何跨端 .ts 配置文件, 改完必跑 newline 验证 + tsc --noEmit 验证 + 实测 import 不为 undefined**
+
+### 5.8 🆕 S72 batch 6 后置坑点 (3 个新, BUG-088/089/090)
+
+28. **BUG-088 Dialog 用普通 View 被 RN 原生 Modal 遮挡坑 (跨项目通用, RN/React/Vue)** — Dialog/DialogHost 等"全局弹窗"组件用普通 `<View>` + `StyleSheet.absoluteFillObject` 模拟, 渲染在 React 视图树中, 永远被 RN 原生 `<Modal>` (走 Android Dialog / iOS UIViewController native 层) 遮挡, 用户看不到 confirm → 功能失效. **修法**: 任何"全局弹窗"必须用 RN `<Modal transparent animationType="none" statusBarTranslucent>` 包装, 走 native 层永远在 React 视图树最上层. shipin-APP 实际位置: `apps/mobile/src/components/Dialog.tsx` line 121-128 (v3.0.36 改). 跨项目通用: 任何"全局"组件 (Dialog/Toast/Sheet/Modal) 都用 RN Modal 包装, 不要用普通 View 模拟. 配套: 多 Modal 嵌套时先关再开 + setTimeout 300ms 等关闭动画, 防 z-order race
+
+29. **BUG-089 polling 完成 auto-load race condition 坑 (跨项目通用, RN/React/SSE/WebSocket)** — polling 完成后紧接 `loadHistory()` → `loadConversation()` 整体覆盖 messages state, 即使 `setMessages(prev)` 已把 streaming → image 写进内存, 也被 loadConversation 拿到的 server 旧 messages 覆盖 (server 写入有微小延迟, userInitiated race). **修法**: 拆 loadHistory 为 loadHistory (首次 auto-load 详情) + refreshHistory (polling 完成只刷列表不覆盖 messages). 配套: polling 完成 alert 关闭后 setTimeout scrollToEnd 200ms, 确保新内容可见. shipin-APP 实际位置: `apps/mobile/src/screens/ImageAgentScreen.tsx` + `VideoAgentScreen.tsx` (v3.0.36 拆函数). 跨项目通用: 任何持续推送 (SSE / WebSocket / setInterval) 完成后只更新局部 state, 不整体 reload, 配 userInitiated flag 区分"用户主动"vs"系统触发"
+
+30. **BUG-090 deploy.sh cp 源是生产目录不是 /tmp/ 坑 (跨项目通用, deploy SOP)** — deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json`, 源是**生产目录** (上次部署留下的老版本), 不是本机 scp 过来的新版本, **每次部署都被旧版本覆盖新版本, changelog 永远滞后 1 个版本**. **修法 (跨项目通用)**: 1) deploy.sh 优先读 `/tmp/changelog.json` (本机 scp 源), fallback 到生产目录时显式 warn 2) 部署 SOP 必加完整 scp 清单: `dist.tar.gz + package.json + changelog.json` 3 个必备 3) 12 维验证必查 /api/version 的 changelog/highlights/buildDate 字段, 不只查 version. shipin-APP 实际位置: `apps/server/deploy.sh:184-198` (v3.0.36 修). 跨项目通用: **生产目录永远是上一版本, deploy.sh 的所有 cp/cp 源都从 /tmp/ 拿**. 配套 BUG-083 (字符编码): 部署链文本文件要 cp + UTF-8 验证
+
 ---
 
 ## § 6. 交接模板 (下次 session 收尾时, AI 必追加一段)
@@ -293,5 +309,60 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-25 (S72 batch 4 收口 + BUG-083 修 + verify-deploy 维度 21 防呆 + 铁律 9 思考链 visible 跨端 6→9 铁律 + 23 BUG + 26 坑点, v1.5)
+> **最后更新**: 2026-06-26 (S72 batch 6 收口 + BUG-088/089/090 修 + 跨端 8 处版本号 9 项 + Top 12 + 30 坑点, v1.6)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
+
+---
+
+## § 8. S72 batch 6 收尾 (2026-06-26, 本 session 详细记录)
+
+### 做了什么 (5 个完整动作)
+
+- **BUG-088 修**: Dialog.tsx 改用 RN `<Modal>` 包装 + ImageAgentScreen/VideoAgentScreen historyModal 删除按钮 setShowHistory(false) + setTimeout 300ms
+- **BUG-089 修**: ImageAgentScreen/VideoAgentScreen 拆 loadHistory 为 loadHistory + refreshHistory + polling 完成 alert 后 setTimeout scrollToEnd 200ms
+- **BUG-090 修**: deploy.sh:184-198 优先 /tmp/changelog.json, fallback 显式 warn + 部署 SOP 必加 scp changelog.json
+- **8 处版本号同步 v3.0.35→v3.0.36**: mobile version.ts + build.gradle (versionCode 40→41) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts (APP_VERSION_CODE 40→41) + changelog.json + .env + systemd unit (deploy.sh 自动同步)
+- **3 commit push origin main**: `0ce03f0` (代码修复) + `0683dc3` (8 处版本号同步) + `a00602d` (BUG-090 修)
+
+### 关键决策 (3 个跨项目通用沉淀)
+
+- **决策 1**: 跨端 8 处版本号同步时, web 端 `APP_VERSION_CODE` 必跟 mobile `build.gradle versionCode` 同步 (S72 batch 5 漏改 38→39, v3.0.36 补 40→41). 8 处 → 9 项自检
+- **决策 2**: deploy.sh 的所有 `cp` 源必从 `/tmp/` (本机 scp), 不能从生产目录 (永远是上一版本). 部署 SOP 必加完整 scp 清单 (dist.tar.gz + package.json + changelog.json)
+- **决策 3**: 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段, 不只查 `version` 字段 (S71 BUG-083 verify-deploy 维度 20 已有 JSON parse 验证, S72 batch 6 加 changelog 4 字段必查)
+
+### 留下的坑 (3 个下个 session 必看的点)
+
+- **坑 1**: `apps/server/ecosystem.config.js` 仍是 1 行 minified (跟 S54 BUG-073 那个根因一样). S72 batch 6 部署时未重 build, 2 处 APP_VERSION 都 = 3.0.36 OK, 但是是隐藏 P3, 下次 S73 必先 `wc -l ecosystem.config.js` 看是不是 1 行, 必重写多行 + 走"单文件 tsc + cp"模式部署
+- **坑 2**: verify-deploy.sh 当前 22 维 (S72 batch 4 升级), S72 batch 6 发现的 3 个 BUG 没加新防呆维度:
+  - BUG-088: RN Modal 包装 + Dialog 防御渲染 grep
+  - BUG-089: loadHistory / refreshHistory 拆分 grep
+  - BUG-090: deploy.sh cp 源 = /tmp/ 验证 + curl /api/version 4 字段 grep
+  - 下次 S73 必加这 3 维度 (跟 BUG-079/080/082 21 维一致, BUG-083 22 维之后, S72 batch 6 应该升到 25 维)
+- **坑 3**: docs/VERSION_MANAGEMENT.md § 5 部署 SOP 缺 changelog scp 命令, § 7.2 8 处自检缺 changelog scp 验证 + APP_VERSION_CODE 同步 (S72 batch 6 文档配套待修, 我先 batch 修了下个 commit)
+
+### 下一步候选 (S72 batch 6 收尾, 等用户拍)
+
+#### A. 修 5 份文档加 v3.0.36 / S72 batch 6 引用 (P1, 立即做)
+- `docs/VERSION_MANAGEMENT.md` § 5.2 9 处自检 + § 5.7 部署步骤 2 + § 7.2 8 处自检 (加 changelog scp + APP_VERSION_CODE)
+- `AGENTS.md` 铁律 3 (web APP_VERSION_CODE 同步) + 铁律 5 (12 维验证查 changelog 字段)
+- `docs/BAOTA_NODE_PROJECT_DEPLOY.md` § 2 步骤 2 (加 scp changelog.json)
+- 写完整 v3.0.36 发版 SOP 到 `docs/RELEASE_SOP_v3.0.36.md` 或 VERSION_MANAGEMENT.md § 5.B
+- commit: `docs: v3.0.36 / S72 batch 6 规范修订 (BUG-088/089/090 + 9 项版本号 + Top 12)`
+
+#### B. verify-deploy.sh 升 22→25 维 (P1, S73 必做)
+- 维度 23: BUG-088 防呆 — server dist `Dialog.tsx` 含 `import { Modal } from 'react-native'` (web dist grep 防御渲染)
+- 维度 24: BUG-089 防呆 — server dist ImageAgentScreen + VideoAgentScreen 含 `refreshHistory` 函数 (≥1 命中)
+- 维度 25: BUG-090 防呆 — server `deploy.sh` 优先 /tmp/changelog.json + 部署后 curl /api/version 4 字段验证 (version + changelog + 5 highlights + buildDate)
+
+#### C. ecosystem.config.js 拆 1 行 minified (P3, 长期)
+- 跟 S54 BUG-073 同源, 必重写多行 + 走"单文件 tsc + cp"模式部署
+- 跨项目通用: 任何 1 行 minified config 必先重写多行
+
+#### D. 新功能开发 (S73 后, 等用户拍)
+- user 提需求: 新功能 / 性能优化 / 安全加固
+- 价值: 实际业务推进
+
+#### E. BUG-082 mobile 端防御渲染 (P2, 跟 S72 batch 6 同样)
+- mobile `apps/mobile/src/screens/.../AgentChatPanel` 加 typeof 防御渲染
+- 防 BUG-082 mobile 版, react-native fetch 也可能撞同类问题
+- user 主盯 web 端, 安卓端暂不动; web 稳定后做

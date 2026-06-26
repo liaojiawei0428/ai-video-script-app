@@ -156,8 +156,15 @@ Set-Service ssh-agent -StartupType Automatic
 Start-Service ssh-agent
 ssh-add C:\Users\Administrator\.ssh\shipin_user_key
 
-# 2.2 scp 上传 (大文件走 Matrix CDN URL 更稳)
+# 2.2 scp 上传 (大文件走 Matrix CDN URL 更稳) — 🆕 v3.0.36 (S72 batch 6 BUG-090) 必加 changelog.json
 scp dist-server-v3.0.30-20260624_1630.tar.gz root@159.75.16.110:/tmp/
+scp -i <key> apps/server/package.json root@159.75.16.110:/tmp/package.json
+scp -i <key> apps/server/changelog.json root@159.75.16.110:/tmp/changelog.json  # 🆕 v3.0.36 BUG-090 修法
+
+# 原因 (BUG-090): deploy.sh 的所有 cp 源必须用 /tmp/ (本机 scp 过来的新版本),
+#   不能从生产目录 (${DIST_DIR}/) 拿 (永远是上一版本, 每次部署都被旧 changelog 覆盖)
+#   deploy.sh 优先 /tmp/changelog.json, fallback 到生产目录时显式 warn
+#   12 维验证必查 /api/version 的 changelog + highlights + buildDate 4 字段
 
 # 或走 CDN (大文件推荐)
 # 1. 主端 mavis mcp call matrix matrix_upload_to_cdn --file args.json
@@ -561,6 +568,6 @@ systemctl start shipin-app
 
 ---
 
-**最后更新**: 2026-06-24 (S70 收尾 v1.0, BUG-077 修法完整化)
+**最后更新**: 2026-06-26 (S72 batch 6 收口 v1.1, 加 BUG-090 修法: 部署 SOP 必加 scp changelog.json 3 件套 + 12 维验证查 changelog 字段)
 **下次 review**: shipin-APP 部署流程变更时 (换 systemd unit / 换宝塔 vhost / 加新 env 等)
 **维护者**: 任何 session 收尾 AI (不限于 S71/S72/...)

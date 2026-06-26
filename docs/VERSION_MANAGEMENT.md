@@ -326,10 +326,11 @@ ADMIN_TOKEN=xxx bash apps/server/deploy.sh
 
 按 § 1 定义判定, 列本次变更项 → 取最高类别 → 按进位规则算新版本号。
 
-### § 5.2 改 8 处版本号 (🆕 v3.0.33 扩: .env + systemd unit)
+### § 5.2 改 9 处版本号 (🆕 v3.0.36 扩: changelog scp + APP_VERSION_CODE 同步 web)
 
 ```bash
-APP_VERSION='3.0.30'
+APP_VERSION='3.0.36'
+APP_VERSION_CODE=41  # mobile versionCode = web APP_VERSION_CODE, 必同步
 
 # 1. mobile src/config/version.ts (唯一来源)
 # 改: export const APP_VERSION = '$APP_VERSION';
@@ -348,6 +349,7 @@ APP_VERSION='3.0.30'
 
 # 6. web src/config/version.ts (APP_VERSION + APP_VERSION_CODE)
 # 改: export const APP_VERSION = '$APP_VERSION'; export const APP_VERSION_CODE = N+1;
+# 🆕 v3.0.36 (S72 batch 6): web APP_VERSION_CODE 必跟 mobile build.gradle versionCode 同步 (S72 batch 5 漏改 38→39, BUG-087 教训)
 
 # 7. 🆕 server .env APP_VERSION
 # 改: APP_VERSION=$APP_VERSION
@@ -357,8 +359,11 @@ APP_VERSION='3.0.30'
 # 改: sed -i "s/^Environment=APP_VERSION=.*/Environment=APP_VERSION=$APP_VERSION/" /etc/systemd/system/shipin-app.service
 # S71 BUG-082 P3 教训: S70 BUG-077 写完未同步, systemd 硬编码 3.0.29, .env 是 3.0.32, 实际 process.env 拿 3.0.32 (systemd EnvironmentFile 优先于 [Service] Environment, 但实际 systemd 文档说相反 — 这是隐藏 P3, 必须 2 处都改)
 
-# 9. changelog.json 加一条新条目 (§ 4)
-# 10. server dist 复制 (§ 4.3)
+# 9. 🆕 changelog.json 加一条新条目 (§ 4) + scp 到 /tmp/ (v3.0.36 BUG-090 教训)
+# 本地: 加新版本 entry (5 条 highlights, buildDate 必填)
+# 部署: scp -i <key> apps/server/changelog.json root@<host>:/tmp/changelog.json
+#       deploy.sh 优先 /tmp/changelog.json, fallback 到生产目录时显式 warn
+# S72 batch 6 BUG-090 教训: changelog 跟 8 处版本号必同步部署, 不然用户看不到 changelog
 ```
 
 ### § 5.3 git commit + push
@@ -394,14 +399,18 @@ cp changelog.json dist/changelog.json  # S64 加
 tar czf /tmp/dist.tar.gz dist/ package.json
 ```
 
-### § 5.7 部署 (🆕 v3.0.33 走 systemd + 改 .env + 改 systemd unit)
+### § 5.7 部署 (🆕 v3.0.33 走 systemd + 改 .env + 改 systemd unit + 🆕 v3.0.36 scp changelog)
 
 ```bash
 # 1. APK 上传 (历史 APK 不覆盖, BUG-017)
 scp app-release.apk root@159.75.16.110:/www/wwwroot/shipin-APP/public/DeepScript_v3.0.33.apk
 
-# 2. server dist 上传
+# 2. server dist + package.json + changelog.json 三件套 scp (🆕 v3.0.36 BUG-090 教训)
 scp /tmp/dist.tar.gz root@159.75.16.110:/tmp/
+scp -i <key> apps/server/package.json root@159.75.16.110:/tmp/package.json
+scp -i <key> apps/server/changelog.json root@159.75.16.110:/tmp/changelog.json  # 🆕 v3.0.36
+# deploy.sh 优先 /tmp/changelog.json (本机 scp 源, 新版本), fallback 到生产目录时显式 warn
+# 原因: 生产目录永远是上一版本, deploy.sh 的所有 cp 源都从 /tmp/ 拿
 
 # 3. 远端执行 deploy.sh (S70 v2.0 systemd 路径, 9 步走完)
 #   deploy.sh 自动: 维护模式 9 步流程 + 部署前 6 维预检 + 改 .env + 改 systemd unit + 宝塔同步
@@ -521,7 +530,7 @@ ssh root@159.75.16.110 "ls -la /www/wwwroot/shipin-APP/public/DeepScript_v*.apk"
 
 ### § 7.1 读本规范 (§ 1 - § 6)
 
-### § 7.2 跑 § 5.2 8 处版本号同步自检 (🆕 v3.0.33 扩: ecosystem + .env + systemd unit)
+### § 7.2 跑 § 5.2 9 项版本号同步自检 (🆕 v3.0.33 8 处 + v3.0.36 加 2 项: web APP_VERSION_CODE + changelog scp)
 
 ```
 □ mobile src/config/version.ts APP_VERSION
@@ -529,15 +538,19 @@ ssh root@159.75.16.110 "ls -la /www/wwwroot/shipin-APP/public/DeepScript_v*.apk"
 □ server package.json version
 □ server src/index.ts fallback 'X.Y.Z'
 □ server ecosystem.config.js env + env_production (2 处, replaceAll) ← S66 BUG-069
-□ web src/config/version.ts APP_VERSION + APP_VERSION_CODE
+□ web src/config/version.ts APP_VERSION + APP_VERSION_CODE (🆕 v3.0.36: APP_VERSION_CODE 必跟 mobile build.gradle versionCode 同步, S72 batch 5 BUG-087 漏改 38→39)
 □ 🆕 server .env APP_VERSION ← S71 BUG-082 P3
 □ 🆕 systemd unit /etc/systemd/system/shipin-app.service Environment=APP_VERSION ← S71 BUG-082 P3
-□ changelog.json 追加当前版本条目
+□ changelog.json 追加当前版本条目 + 🆕 scp 到 /tmp/changelog.json (S72 batch 6 BUG-090 教训)
 ```
 
 > 🆕 **S71 BUG-082 P3 教训**: S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码了 `Environment=APP_VERSION=3.0.29`, 但 `EnvironmentFile=-/www/wwwroot/shipin-APP/.env` 里的 `APP_VERSION=3.0.32` 实际生效 (systemd EnvironmentFile 优先级实测覆盖 [Service] Environment). 3 个月后才在 V3.0.33 升级时发现. **S71 后 8 处自检是底线, ecosystem.config.js 2 处 + .env + systemd unit 1 处都是隐藏 P3**
 > 
-> 🆕 **自检工具脚本**: `node tools/verify-version-8-points.js [NEW_VERSION]` — 自动跑 6 处本地 + 远程 .env + systemd unit (需 SSH key, 默认 C:\Users\Administrator\AppData\Local\Temp\shipin_app_key). 失败 exit 1.
+> 🆕 **S72 batch 5 BUG-087 教训**: web `APP_VERSION_CODE` 必跟 mobile `build.gradle versionCode` 同步, S72 batch 5 v3.0.35 漏改 web 38→39, 落后 mobile 1 个版本. **9 项自检加 web APP_VERSION_CODE**
+> 
+> 🆕 **S72 batch 6 BUG-090 教训**: changelog.json 必须 scp 到 /tmp/, 部署 SOP 必加 `scp -i <key> apps/server/changelog.json root@<host>:/tmp/changelog.json`. deploy.sh 优先 /tmp/changelog.json (本机 scp 源, 新版本), fallback 到生产目录 (永远是上一版本) 时显式 warn
+> 
+> 🆕 **自检工具脚本**: `node tools/verify-version-8-points.js [NEW_VERSION]` — 自动跑 6 处本地 + 远程 .env + systemd unit (需 SSH key, 默认 C:\Users\Administrator\AppData\Local\Temp\shipin_app_key). 失败 exit 1. 后续 S73 必加 9 项: web APP_VERSION_CODE 同步 + changelog scp 验证
 
 ### § 7.3 跑 § 5.8 5 维验证
 
@@ -642,5 +655,179 @@ git commit -m "v3.0.30: <一句话描述> (BUG-NNN)"
 
 ---
 
-> **最后更新**: 2026-06-24 (S68 P0 收口 v2.0)
+### § 5.B 完整发版 SOP (S72 batch 6 v3.0.36 实战, 8 步完整流程)
+
+> **🆕 v3.0.36 (S72 batch 6) 新建**: 本节是 S72 batch 6 完整跑通的发版流程总结, 跟 § 5 标准 8 步 + § 5.A 活跃任务部署配套.
+> **目的**: 让任何 AI 接 shipin-APP 发版任务时, 走完整 8 步流程, **不再撞 BUG-087/090 这类"漏改一处"的坑**.
+
+#### 步骤 1: 改 9 项版本号 (本地, 必跑 § 5.2 自检)
+
+```bash
+APP_VERSION='3.0.36'
+APP_VERSION_CODE=41  # mobile versionCode = web APP_VERSION_CODE, 必同步 (S72 batch 5 漏改 教训)
+
+# 1. mobile src/config/version.ts
+# 2. mobile build.gradle (versionCode N+1; versionName "$APP_VERSION")
+# 3. server package.json
+# 4. server src/index.ts fallback
+# 5. server ecosystem.config.js (env + env_production 2 处, replaceAll)
+# 6. web src/config/version.ts (APP_VERSION + APP_VERSION_CODE, 必跟 mobile build.gradle versionCode 同步)
+# 7. server .env APP_VERSION (本地 + 部署时)
+# 8. systemd unit /etc/systemd/system/shipin-app.service (Environment=APP_VERSION, 部署时)
+# 9. changelog.json 加新版本 entry (5 条 highlights + buildDate 必填)
+```
+
+**自检** (9 项必全过):
+```bash
+grep "APP_VERSION = '$APP_VERSION'" apps/mobile/src/config/version.ts
+grep "versionName \"$APP_VERSION\"" apps/mobile/android/app/build.gradle
+grep "\"version\": \"$APP_VERSION\"" apps/server/package.json
+grep "process.env.APP_VERSION || '$APP_VERSION'" apps/server/src/index.ts
+grep "APP_VERSION: '$APP_VERSION'" apps/server/ecosystem.config.js  # 2 处
+grep "APP_VERSION = '$APP_VERSION'" apps/web/src/config/version.ts
+grep "APP_VERSION_CODE = $APP_VERSION_CODE" apps/web/src/config/version.ts  # 🆕 同步 mobile
+grep "$APP_VERSION" apps/server/changelog.json
+```
+
+#### 步骤 2: 本地编译 + 打包 (5 min)
+
+```bash
+# 2.1 跑 tsc 编译 + tsc --noEmit
+cd F:\QiTa\banmu\APP\ai-video-script-app\apps\server
+npm run build
+# 期望: tsc 0 错, dist/index.js 200+ 行完整 (BUG-073 教训)
+
+# 2.2 cp changelog.json dist/ (tsc 不复制 json)
+cp changelog.json dist/changelog.json
+
+# 2.3 打包 (排除 backup + dev 依赖)
+cd ..
+tar czf dist-server-v3.0.36-20260626_1000.tar.gz \
+  --exclude='dist.bak*' \
+  server/dist server/changelog.json server/ecosystem.config.js server/.env.example
+```
+
+#### 步骤 3: 打 mobile APK (3-5 min, 跟 server 并行)
+
+```bash
+cd F:\QiTa\banmu\APP\ai-video-script-app\apps\mobile\android
+./gradlew assembleRelease
+# 产出: app/build/outputs/apk/release/app-release.apk
+```
+
+**APK metadata 验证** (必跑, BUG-074 教训):
+```bash
+aapt2 dump badging app-release.apk | head -1
+# 期望: versionName='3.0.36' versionCode='41'
+
+apksigner verify --print-certs app-release.apk | grep "DN:"
+# 期望: CN=DeepScript Release, O=shipin-APP, L=Shenzhen, ST=Guangdong, C=CN
+```
+
+#### 步骤 4: scp 上传 4 件套 (3 min, 🆕 v3.0.36 BUG-090 必加 changelog.json)
+
+```bash
+# 4.1 ssh-agent 加载
+Set-Service ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+ssh-add C:\Users\Administrator\.ssh\shipin_user_key
+
+# 4.2 scp 4 件套 (必加 changelog.json, BUG-090 教训)
+scp -i <key> apps/server/dist-server-v3.0.36-20260626_1000.tar.gz  root@<host>:/tmp/dist.tar.gz
+scp -i <key> apps/server/package.json                              root@<host>:/tmp/package.json
+scp -i <key> apps/server/changelog.json                            root@<host>:/tmp/changelog.json  # 🆕 BUG-090
+scp -i <key> apps/mobile/android/app/build/outputs/apk/release/app-release.apk  root@<host>:/www/wwwroot/shipin-APP/public/DeepScript_v3.0.36.apk
+```
+
+**原因** (跨项目通用): deploy.sh 的所有 `cp` 源必须用 `/tmp/` (本机 scp 源 = 新版本), **不能从生产目录拿 (永远是上一版本)**. 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段 (BUG-090 教训).
+
+#### 步骤 5: 服务器端部署 (8 min, 走 systemd, 不是 PM2)
+
+```bash
+# 5.1 ssh 到服务器
+ssh root@<host>
+
+# 5.2 检查活跃任务 (S67 BUG-070 教训)
+COUNT=$(curl -s http://127.0.0.1:6000/api/admin/active-tasks | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['count'])")
+if [ "$COUNT" -gt 0 ]; then
+  bash /www/wwwroot/shipin-APP/deploy.sh   # 跑维护模式 9 步
+else
+  bash /www/wwwroot/shipin-APP/deploy.sh --skip-maintenance
+fi
+# deploy.sh 自动: 维护模式 + 6 维预检 + 备份 + 解压 + 同步 9 项版本号 + 重启 systemd + 宝塔同步 + 12 维验证
+# 详细: apps/server/deploy.sh + docs/BAOTA_NODE_PROJECT_DEPLOY.md § 2
+```
+
+#### 步骤 6: web build + 部署 (跟 server 并行)
+
+```bash
+cd F:\QiTa\banmu\APP\ai-video-script-app\apps\web
+npm run build
+scp -r dist/* root@<host>:/www/wwwroot/ab.maque.uno/
+```
+
+#### 步骤 7: 12 维验证 (铁律 5, 必跑)
+
+```bash
+# 7.1 服务自身 6 维
+echo "1.  systemctl shipin-app: $(systemctl is-active shipin-app)"
+echo "2.  ss 6000:             $(ss -tln | grep ':6000' | head -1 | awk '{print $4}')"
+echo "3.  /health:             $(curl -sI -m 3 http://127.0.0.1:6000/health | head -1 | tr -d \\r)"
+echo "4.  /api/version:        $(curl -sm 3 http://127.0.0.1:6000/api/version | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["version"])')"
+echo "5.  characterVariant:    $(curl -sm 3 http://127.0.0.1:6000/api/pricing | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["image"]["standard"]["characterVariant"]["amount"])')"
+echo "6.  /api/novels:         $(curl -sI -m 3 http://127.0.0.1:6000/api/novels | head -1 | tr -d \\r)"
+
+# 7.2 宝塔 + 反代 4 维
+echo "7.  宝塔 nginx 80:       $(ss -tln | grep ':80 ' | head -1 | awk '{print $4}')"
+echo "8.  宝塔 panel 888:      $(ss -tln | grep ':888 ' | head -1 | awk '{print $4}')"
+echo "9.  ab.maque.uno HTTPS:  $(curl -skm 5 https://ab.maque.uno/api/version | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["version"])')"
+echo "10. APK HTTP/2 200:      $(curl -sIk -m 5 https://ab.maque.uno/app/DeepScript_v3.0.36.apk | head -1 | tr -d \\r)"
+
+# 7.3 宝塔 Node 项目 shipin_APP 2 维 (BUG-077 验收)
+echo "11. 宝塔 shipin_APP run: $(python3 -c '...')"  # 详见 BAOTA_NODE_PROJECT_DEPLOY.md § 2.4
+echo "12. 宝塔 shipin_APP cfg: run_user=root is_power_on=1"
+
+# 7.4 🆕 v3.0.36 (BUG-090) 必加 changelog 4 字段验证
+echo "13. /api/version changelog 4 字段:"
+curl -sm 3 https://ab.maque.uno/api/version | python3 -c "
+import sys, json
+d = json.load(sys.stdin)['data']
+print(f'   version:   {d[\"version\"]}')
+print(f'   changelog: {d.get(\"changelog\", \"MISSING\")}')
+print(f'   highlights: {len(d.get(\"highlights\", []))} 条')
+print(f'   buildDate: {d.get(\"buildDate\", \"MISSING\")}')
+# 期望: version='3.0.36' + changelog 是 1 句话 (非通用文案) + highlights 5 条 + buildDate='2026-06-26'
+"
+```
+
+**期望所有 12+ 维全过** (跟 S72 batch 6 v3.0.36 部署一致).
+
+#### 步骤 8: 文档更新 + commit + push (5 min)
+
+```bash
+# 8.1 改 apps/mobile/BUGS.md (新 BUG 加段, BUG-NNN)
+# 8.2 改 docs/BUGS_INDEX.md (新 BUG 加 § 1/2/4)
+# 8.3 改 HANDOVER.md (新 session 段 + § 5 坑点)
+# 8.4 改 apps/server/changelog.json (v3.0.36 entry)
+# 8.5 commit 3 个 (代码 / 版本号 / 文档)
+git add -A
+git commit -m "v3.0.36: BUG-088 + BUG-089 + BUG-090 修法 (代码修复)"
+git commit -m "v3.0.36: 9 项版本号同步 (S72 batch 6)"
+git commit -m "v3.0.36: BUG-090 修 deploy.sh /tmp/changelog.json 优先"
+git push origin main
+```
+
+**完整发版 SOP 配套文档**:
+- `docs/BAOTA_NODE_PROJECT_DEPLOY.md` (S70 v1.0, shipin-APP 宝塔部署详细 5 步 + 12 维 + 9 坑 + 紧急回滚)
+- `apps/server/deploy.sh` (S70 v2.0, 9 步 systemd 路径)
+- `scripts/verify-deploy.sh` (S71 后置, 14→20 维 strict 验证脚本)
+
+**🆕 v3.0.36 (S72 batch 6) 新增的 3 个硬要求**:
+1. **scp 必加 changelog.json** (步骤 4) — BUG-090 教训
+2. **12 维验证必加 changelog 4 字段** (步骤 7) — BUG-090 教训
+3. **web APP_VERSION_CODE 必跟 mobile build.gradle versionCode 同步** (步骤 1 第 6 项) — S72 batch 5 BUG-087 教训
+
+---
+
+> **最后更新**: 2026-06-26 (S72 batch 6 收口 v2.1, 加 § 5.B 完整发版 SOP, 含 BUG-090 修法: scp changelog.json + 12 维验证查 changelog + APP_VERSION_CODE 同步)
 > **下次 review**: 每个 3 类发版后必更新本文件 + 触发 [`STANDARDS_EVOLUTION.md` § 3 5 步修订流程](./STANDARDS_EVOLUTION.md)

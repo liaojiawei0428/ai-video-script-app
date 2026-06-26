@@ -14,6 +14,7 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-090** | S72 batch 6 v3.0.36 | ✓ 已修 | **deploy.sh 部署后 changelog.json 还是老版本 (5 条 highlights 全丢, 拿老版本或"优化性能"占位符)**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json`, 源是**生产目录** (上次部署留下的老版本), 不是本机 scp 过来的新版本, **每次部署都被旧版本覆盖新版本** | deploy.sh 优先读 `/tmp/changelog.json` (本机 scp 源), fallback 到生产目录时显式 warn; 部署 SOP 必加 scp changelog.json 到 /tmp/; 12 维验证必查 /api/version 的 changelog/highlights/buildDate 字段 |
 | **BUG-089** | S72 batch 6 v3.0.36 | ✓ 已修 | **生图/视频生成成功不立刻显示, 必须切走 Tab 再切回才显示**: polling 完成 setMessages(prev) 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (userInitiated race / server 写入 race), UI 回到 streaming 加载圈 | ImageAgentScreen + VideoAgentScreen 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages); polling 完成 alert 后 setTimeout scrollToEnd 200ms |
 | **BUG-088** | S72 batch 6 v3.0.36 | ✓ 已修 | **删除会话弹窗被历史侧栏 Modal 完全遮挡, 用户看不到 confirm → 无法删除历史会话**: Dialog.tsx 用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡 (Android Dialog / iOS UIViewController 永远在 React 视图树最上层) | Dialog.tsx 改用 RN <Modal transparent animationType="none" statusBarTranslucent> 包装 (走 native 层); ImageAgentScreen + VideoAgentScreen 历史侧栏删除按钮先 setShowHistory(false) + setTimeout 300ms 再弹 confirm (防两个 RN Modal z-order race) |
 | **BUG-087** | S72 batch 5 v3.0.35 | ✓ 已修 | **APP 内"无限发现新版本"**: mobile config/version.ts 1 行注释 tsc 报 `is not a module` → APP_VERSION=undefined → fetch /api/version?version=undefined → server compareVersions(3.0.34, 'undefined')=1 → needUpdate=true 每次冷启动弹窗 | version.ts 改多行 (Write 工具强制 LF); 新增 db/updateMemory.ts (RNFS 24h 抑制); updater.tsx showUpdateDialog 异步化 (取消按钮写 memory + 下载按钮不写); App.tsx useEffect 加日志; 删 web version-fixed.ts |
@@ -74,6 +75,18 @@
 
 ### 🔍 "弹窗" / "Modal" / "Dialog" / "Confirm" / "遮挡"
 - **BUG-088** 删除会话弹窗被历史侧栏 RN Modal 遮挡 (Dialog 改用 RN Modal 包装 + 先关 Modal 再弹 confirm)
+
+### 🔍 "polling" / "race condition" / "auto-load" / "覆盖"
+- **BUG-089** 生成成功 race condition (拆 loadHistory 为 loadHistory + refreshHistory, polling 完成不 auto-load)
+- **BUG-050** (S60 P3) historyModal 重设计引入 userInitiated, 当年只考虑用户主动操作没考虑 polling 完成路径
+
+### 🔍 "deploy.sh" / "scp" / "changelog.json" / "源文件" / "/tmp/"
+- **BUG-090** deploy.sh changelog.json cp 源是生产目录不是 /tmp/ (本机 scp 源才是新版本, 生产永远是上一版本)
+- **BUG-083** dist/changelog.json 字符编码损坏 (跟 BUG-090 配套, 部署链文本文件要 cp + UTF-8 验证)
+
+### 🔍 "/api/version" / "changelog 字段" / "验证" / "12 维"
+- **BUG-090** 12 维验证只看 version 字段 = 假报告, changelog/highlights/buildDate 必查
+- **BUG-083** verify-deploy.sh 加维度 20 (UTF-8 字符编码 + JSON parse 双重验证)
 
 ### 🔍 "web" / "React" / "Vite" / "shadcn"
 - BUG-066 / 067 / 072
@@ -187,18 +200,20 @@
 
 ---
 
-## § 4. 高频踩坑 Top 10 (必读铁律, 任何 AI 必看)
+## § 4. 高频踩坑 Top 12 (必读铁律, 任何 AI 必看)
 
 1. **PM2 改 env 必 `delete + start`** (BUG-008) — `restart` 不重读 .env
-2. **APP_VERSION 6 处同步** (BUG-069) — server ecosystem env + env_production 2 处 + mobile version.ts + build.gradle + web version.ts + changelog.json
+2. **APP_VERSION 8 处同步** (BUG-069/082 P3) — server ecosystem env + env_production 2 处 + mobile version.ts + build.gradle + web version.ts + APP_VERSION_CODE + changelog.json + 🆕 **.env** + 🆕 **systemd unit Environment=APP_VERSION**
 3. **活跃任务必跑维护模式** (BUG-070) — 跑 `apps/server/deploy.sh`, 6 步流程
 4. **APK 部署必 aapt2 验证** (BUG-068/074) — `aapt2 dump badging` 确认 versionName 跟文件名一致
 5. **APK 命名 `DeepScript_v<ver>.apk` 跟 versionName 必一致** (BUG-024) — 禁止 `cp v3.0.12.apk v3.0.13.apk` 当试纸
-6. **server + mobile src + APK 三方版本必同步** (BUG-074) — 改 mobile version.ts 必跑 `verify-apk-version.sh` (TODO S70)
+6. **server + mobile src + APK 三方版本必同步** (BUG-074) — 改 mobile version.ts 必跑 `verify-apk-version.sh`
 7. **1-行 minified src 禁 tsc 重 build** (BUG-073) — 走"单文件 tsc + cp"模式, 避免 S54 编译坏
 8. **跨端规范必收口到根 AGENTS.md** (BUG-071) — 改 1 处必同步 3 处
 9. **扣费三处一致** (业务/API/UI) (BUG-005/072) — `grep -r "updateBalance|consumption"`
 10. **永久 SSH key + ssh-agent 加载** (S69 部署踩坑) — Windows OpenSSH 9.5p2 + MinGit 9.9p1 都 cache fingerprint, 必须 `ssh-agent` 加载才走对
+11. **🆕 deploy.sh cp 源必用 /tmp/ 而非生产目录** (BUG-090) — 生产目录永远是上一版本, 部署 SOP 必加完整 scp 清单 (dist.tar.gz + package.json + changelog.json)
+12. **🆕 12 维验证必查 /api/version 的 changelog 字段** (BUG-090) — 不只查 version, 还要看 changelog/highlights/buildDate 是不是新版本, 老版本残留 = 假报告
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -269,6 +284,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 6 v1.4, 加 BUG-087/088/089: APP 无限弹窗 + Dialog Modal 遮挡 + 生成成功 race condition)
-**下次 review**: S72 收尾时, 必查 Top 10 + 速览表是否需更新
+**最后更新**: 2026-06-26 (S72 batch 6 v1.5, 加 BUG-088/089/090: Dialog Modal 遮挡 + 生成成功 race + deploy.sh changelog cp 源错, § 4 Top 10 扩 12 加 deploy.sh cp 源 + 12 维验证查 changelog 字段, § 2 关键字加 Modal 嵌套/race condition/deploy.sh)
+**下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)

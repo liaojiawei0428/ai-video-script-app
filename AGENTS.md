@@ -118,19 +118,22 @@
 - web 任务追加 `apps/web/DEPLOY.md` (优先级 9)
 - **必读**: 开始工作前必跑 `Read DEV_PROGRESS.md` (§ 5)
 
-### 铁律 3: APP_VERSION 改 1 处必同步 **8 处** (跨端强约束, S66 BUG-069 + S71 BUG-082 P3 教训, v3.0.33 扩)
-- **8 处位置** (v3.0.33 扩 6→8: 加 .env + systemd unit):
+### 铁律 3: APP_VERSION 改 1 处必同步 **9 项** (跨端强约束, S66 BUG-069 + S71 BUG-082 P3 + S72 batch 5/6 教训, v3.0.36 扩 8→9)
+- **9 项位置** (v3.0.36 扩 8→9: 🆕 web APP_VERSION_CODE 同步 + changelog scp 必备):
   1. `apps/mobile/src/config/version.ts` (mobile 单一来源)
   2. `apps/mobile/android/app/build.gradle` (versionCode + versionName)
   3. `apps/server/package.json` (`"version"`)
   4. `apps/server/src/index.ts` (fallback `process.env.APP_VERSION || 'X.Y.Z'`)
   5. `apps/server/ecosystem.config.js` (**2 处**: env + env_production, S66 BUG-069 教训)
-  6. `apps/web/src/config/version.ts` (web 单一来源) + `apps/server/changelog.json`
+  6. `apps/web/src/config/version.ts` (web 单一来源 **+ APP_VERSION_CODE 必跟 mobile build.gradle versionCode 同步**, S72 batch 5 BUG-087 漏改 38→39 教训)
   7. **🆕 `/www/wwwroot/shipin-APP/.env`** (APP_VERSION, S71 BUG-082 P3: process.env 实际生效是 .env)
   8. **🆕 `/etc/systemd/system/shipin-app.service`** (Environment=APP_VERSION, S71 BUG-082 P3: S70 BUG-077 写完未同步)
-- 改完必跑 `VERSION_MANAGEMENT.md § 7.2` **8 处** grep 自检 (v3.0.33 扩)
-- 详细 8 步发版 SOP → `VERSION_MANAGEMENT.md § 5` (v3.0.33 同步扩 8 处)
-- **🆕 S71 BUG-082 P3 教训**: S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码 `Environment=APP_VERSION=3.0.29` 但 .env 实际生效 (systemd EnvironmentFile 优先级实测), 3 个月后 V3.0.33 升级才修复. **8 处是底线, ecosystem.config.js 2 处 + .env + systemd unit 1 处都是隐藏 P3**
+  9. **🆕 `apps/server/changelog.json` 加新版本 entry + 部署时 scp 到 /tmp/changelog.json** (S72 batch 6 BUG-090 教训: 部署 SOP 必加完整 scp 清单 dist.tar.gz + package.json + changelog.json)
+- 改完必跑 `VERSION_MANAGEMENT.md § 7.2` **9 项** grep 自检 (v3.0.36 同步)
+- 详细 8 步发版 SOP → `VERSION_MANAGEMENT.md § 5` (v3.0.36 同步扩 9 项)
+- **🆕 S71 BUG-082 P3 教训**: S70 BUG-077 重构 shipin-APP 走 systemd 时, systemd unit 硬编码 `Environment=APP_VERSION=3.0.29` 但 .env 实际生效 (systemd EnvironmentFile 优先级实测), 3 个月后 V3.0.33 升级才修复. **9 项是底线, ecosystem.config.js 2 处 + .env + systemd unit 1 处都是隐藏 P3**
+- **🆕 S72 batch 5 BUG-087 教训**: web `APP_VERSION_CODE` 必跟 mobile `build.gradle versionCode` 同步, S72 batch 5 漏改 38→39, 落后 mobile 1 个版本. 跨项目通用: 跨端 4 个 critical version.ts (mobile/web/server config/server index.ts fallback) 改完必跑 `python3 -c "data=open(f,'rb').read(); print(data.count(b'\\n'))"` 验证 newline + `tsc --noEmit` 验证
+- **🆕 S72 batch 6 BUG-090 教训**: changelog.json 必须 scp 到 /tmp/, 部署 SOP 必加 `scp -i <key> apps/server/changelog.json root@<host>:/tmp/changelog.json`. deploy.sh 优先 /tmp/changelog.json (本机 scp 源, 新版本), fallback 到生产目录 (永远是上一版本) 时显式 warn. 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段
 
 ### 铁律 4: shipin-APP 部署走 **systemd unit** 不用 PM2 (S70 BUG-077 重构)
 - ❌ `pm2 restart` — **S70 起 shipin-APP 不用 PM2**, 走 systemd unit
@@ -153,7 +156,7 @@
 - **真实案例 (S71 BUG-081)**: S70 v3.0.0.16 改 passthrough (跳过 `plan_cn_ready` → 直接 `plan_ready`) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞到 "无法改方案 / An unexpected error occurred". 配套 BUG-082: 状态机迁移必同步 4 处 (allowlist + response handler + DB schema + 错误归一)
 - **跨项目通用**: 任何 stateful 系统 (订单状态机 / 工作流引擎 / 协议状态机 / 编译器 AST 状态 / parser 状态) 改 status 字段必同步更新所有引用点. 常见踩坑: 改了 schema 没改 allowlist, 改了 allowlist 没改 UI, 改了 UI 没改 schema. **任意一处漏 = 9 天后用户撞 BUG**
 
-### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082** 升级)
+### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082 + S72 batch 6 BUG-090** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
 - **🆕 server 12 维** (S70 BUG-077): 6 维自身 + 3 维宝塔/nginx/反代/APK + **3 维宝塔 Node 项目 shipin_APP run=True (核心, BUG-077 验收)**
@@ -163,7 +166,10 @@
 - **🆕🆕🆕🆕 server 20 维** (S71 BUG-082 修法): 16 维 + **2 维 BUG-082 防呆 (server dist `extractErrorMessage` 3 文件命中 + web dist `JSON.stringify(part.message)` 防御渲染 1 文件命中)** + 2 维 E2E (DB 层 + API 层都验证 error part.message 是 string 不是 object)
   - 一键脚本: 服务器端 `bash scripts/verify-deploy.sh --strict` (CI 用, 任何 1 失败 exit 1)
   - 配套规范: BUGS.md BUG-079/080/082 + `scripts/verify-deploy.sh` 注释
+- **🆕🆕🆕🆕🆕 server 22 维** (S72 batch 4 BUG-083 修法): 20 维 + **1 维 dist/changelog.json UTF-8 + JSON parse 双重验证 (non-ASCII char 计数 ≥ 50) + 1 维 server 端 readChangelog 优先级链路** (S72 batch 4 加, 防 BUG-083 字符编码损坏复发)
+- **🆕🆕🆕🆕🆕🆕 server 25 维 (S72 batch 6 待 S73 必加)**: 22 维 + **3 维 BUG-088/089/090 防呆 (Dialog RN Modal 包装 + refreshHistory 拆分 + deploy.sh /tmp/changelog.json 优先 + curl /api/version 4 字段验证)** — 跨项目通用: **每修一个 P0 BUG, 必加一个"以后不能再犯"的 grep 维度到 verify-deploy.sh**
 - **活跃任务场景** (S67 BUG-070, `VERSION_MANAGEMENT.md § 5.A`): 部署前必查 `active-tasks`, > 0 必跑 `apps/server/deploy.sh` 维护模式流程 (9 步: 查→公告→维护→等任务→预检→备份→systemd restart + 宝塔同步→12 维验证→恢复)
+- **🆕 S72 batch 6 BUG-090 教训**: 12 维验证必查 `/api/version` 的 `changelog` + `highlights` + `buildDate` 字段, 不只查 `version` 字段. changelog 滞后 = 用户看到老版本 changelog, 等同假报告. **必加 1 维 changelog 4 字段验证 (version + changelog + 5 highlights + buildDate)**
 
 ### 铁律 6: commit message 必带版本号 + BUG 编号 (跨端统一规范)
 - 格式: `vX.Y.Z: <改动一句话> (BUG-NNN + 规范修订)`
@@ -179,6 +185,7 @@
 - **pre-commit 防呆** (可选): `.husky/pre-commit` 自动跑 `bash tools/check-ps51-newline.sh --staged`, 任何损坏文件 commit 必失败
 - **真实案例 (S71 BUG-079)**: `src/index.ts` 6673 字节挤 3 行 (newline=2), `web/version.ts` 1008 字节挤 1 行 (newline=0), tsc 编译出 11 行 dist, node 启动立即 exit 0
 - **真实案例 (S72 batch 5 BUG-087)**: `apps/mobile/src/config/version.ts` 1445 字节挤 1 行 (newline=0, 整个文件是 `//` 注释 + `export const ...` 在同一行). tsc 报 `TS2306: File .../version.ts is not a module`, 运行时 `APP_VERSION = undefined`, fetch 发 `?version=undefined`, server `compareVersions` 返 1 → 无限发现新版本弹窗. 同 S71 BUG-079 一模一样的坑, web 修后 mobile 又犯
+- **真实案例 (S72 batch 6 BUG-090)**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json` 源是**生产目录** (上次部署留下的老版本), 不是本机 scp 过来的新版本, **每次部署都被旧版本覆盖新版本, changelog 永远滞后 1 个版本**. 修法: deploy.sh 优先 `/tmp/changelog.json` (本机 scp 源), fallback 到生产目录时显式 warn. **生产目录永远是上一版本, deploy.sh 的所有 cp 源都从 /tmp/ 拿** (跟 BUG-083 字符编码配套: 部署链文本文件要 cp + UTF-8 验证)
 - **跨项目通用**: PowerShell 5.1 是 Windows Server 2016/2019 默认, 任何 AI 用 ssh 写远端文件必走 Write 工具或 `cat > file <<EOF` 避免 PS 5.1 写入
 
 ### 铁律 8: 🔌 server 写持久化 JSON 必 string 归一 (S71 BUG-082 强约束, 跨项目通用)
@@ -363,5 +370,5 @@
 ---
 
 > **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参与 shipin-APP 项目时必须遵守.
-> **最后更新**: 2026-06-25 (S72 batch 4 收口 v2.9, 加 铁律 9 思考链 + 工具调用流必 visible + 跨端 6→9 铁律 + BUG-083 修法配套)
+> **最后更新**: 2026-06-26 (S72 batch 6 收口 v2.10, 跨端铁律 3 扩 8→9 项 + changelog scp 必备, 铁律 5 验证扩 22 维 + 待 S73 升 25 维, 铁律 7 增 BUG-090 案例, 必读表增 BUGS_INDEX v1.5 引用)
 > **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时
