@@ -232,6 +232,26 @@
         "BUG-089 修: polling 完成 alert 关闭后 setTimeout scrollToEnd 200ms (确保生成的图片/视频可见)",
         "铁律 8 强化: 跨项目通用 UX 原则 - 多 Modal 嵌套先关再开, polling 完成不要 auto-load"
       ]
+    },
+    {
+      "version": "3.0.37",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-092 修法 (扫码支付'我已付款'按钮 + 4 态 UI + admin 优先处理标记)",
+      "highlights": [
+        "BUG-092 修: apps/server/src/models/db.ts — recharge_requests 表加 user_notified_at BIGINT DEFAULT 0 字段 (CREATE TABLE + ALTER 兼容老库, logger.warn 替代静默 catch)",
+        "BUG-092 修: apps/server/src/models/rechargeRequest.ts — RechargeRow interface 加 userNotifiedAt + create() 返 userNotifiedAt: 0 + 新增 markUserNotified(id) 方法 + mapRow() 兼容老库",
+        "BUG-092 修: apps/server/src/routes/recharge.ts — 新增 POST /:id/notify-paid 端点 (authMiddleware 鉴权 + record.userId !== userId 403 越权保护 + status !== 'pending' 400 INVALID_STATUS 校验)",
+        "BUG-092 修: apps/web/src/lib/api.ts — 加 notifyRechargePaidApi(orderId) 客户端",
+        "BUG-092 修: apps/web/src/pages/RechargePage.tsx — 加'我已付款'按钮 + 4 态 UI (pending/user_notified/approved/rejected) + 5s 轮询订单状态 (跟 BUG-089 教训一致) + 5 分钟到账提示 + 修 message 文案 '支付完成后, 请点击\"我已付款\"按钮提交审核'",
+        "BUG-092 修: apps/web/src/pages/AdminDashboardPage.tsx — admin 订单列表加 userNotifiedAt 标记 ('💬 用户已通知已付款 · MM-DD HH:MM', 优先处理)",
+        "BUG-092 配套: apps/mobile/BUGS.md 加完整段 (5 模块: 现象/真凶 3 层/5 修法+1 配套/3 维验证/6 跨项目通用原则/Refs 7 项)",
+        "BUG-092 配套: docs/BUGS_INDEX.md § 1 速览表加 BUG-092 + § 2 关键字'支付/扫码/notify-paid' + § 4 Top 13→14",
+        "BUG-092 配套: HANDOVER.md § 2.1 session 速览 + § 2.2 92 BUG 分布",
+        "BUG-092 配套: tools/check-commit-message.py 8 commit 验证 PASS=7 / FAIL=1 (a5ae183 历史违规已沉淀 BUG-091)",
+        "2 跨项目通用原则沉淀 mavis memory: 'UI 文案必跟代码 1:1 对齐' + '异步流程 UI 必显示完整 4 态'",
+        "版本号 8 处同步 3.0.36→3.0.37 (跨端铁律 3): mobile version.ts + android build.gradle (versionCode 41→42) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 41→42 + changelog.json (本条目) + .env + systemd unit"
+      ]
     }
   ]
 }
