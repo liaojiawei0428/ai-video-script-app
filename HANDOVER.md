@@ -92,6 +92,9 @@ shipin-APP/
 | **S72 batch 4** (本 session) | "S72 batch 4 P0/P1/P2 部署 + 修生产 dist/changelog.json 损坏 + 铁律 9 思考链 visible" | v3.0.33 P10 + **AGENTS.md v2.9** | ADR-0002 8 问题全修 (P0 #1-#4 并发扣费/异常回滚/状态机/billing_logs 孤儿 + P1 #5-#8 取消状态/解析 fallback/upload 清理/extract 失败 + P2 #9-#11 自动剧集配置/analyze 鉴权/chunk 段号) + deploy.sh 3 修 (NEW_VERSION 路径/解压 dist 子目录/backup if 检查) + **BUG-083 (本 session 发现)**: 生产 dist/changelog.json 400 Chinese 损坏成 `?` 修复 + verify-deploy.sh 维度 21 防呆 + **🆕 铁律 9 (S72 batch 4 收口 user 硬要求)**: 思考链 + 工具调用流必须 visible, 跨端 6→9 铁律, 配 REPORTING_STANDARDS.md v2.4 同步 | BUG-083 (新) | 0b626ce / 5c49e68 / b6fddcf / d3c5ca8 / dda46a2 / 0c6b77f / 6ac0fe3 / 36392aa / 1244bea / d0babad / d7e7d00 / f543562 / 310098e + 后续 BUG-083 修法 + 铁律 9 commit |
 | **S72 batch 5** | "BUG-087 APP 无限弹窗 + web APP_VERSION_CODE 同步" | v3.0.35 P11 | **BUG-087**: mobile version.ts 1 行损坏 tsc 报 `is not a module` → APP_VERSION=undefined → fetch `?version=undefined` → server `compareVersions('3.0.34', 'undefined')=1` → needUpdate=true 每次冷启动弹窗. 修法: version.ts 改多行 (Write 工具强制 LF) + 新建 db/updateMemory.ts (RNFS 24h 抑制) + updater.tsx showUpdateDialog 异步化 + App.tsx 加日志 + 删 web version-fixed.ts. **8 处版本号同步漏改 9**: web `APP_VERSION_CODE` (38→39) 必跟 mobile build.gradle versionCode 同步 | BUG-087 (新) | 跨端 8 处版本号 9 项自检新增 |
 | **S72 batch 6** ← 最近 | "BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh changelog cp 源错" | v3.0.36 P12 | **BUG-088**: Dialog 组件用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡. 修法: Dialog.tsx 改用 RN `<Modal transparent animationType="none">` 包装 + historyModal 内删除按钮先关再开 (300ms timeout). **BUG-089**: polling 完成 setMessages 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (race condition). 修法: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages) + polling 完成 alert 后 setTimeout scrollToEnd 200ms. **BUG-090**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json` 源是生产目录 (老版本), 不是 /tmp/ (本机 scp). 修法: 优先 /tmp/changelog.json + 部署 SOP 必加 scp changelog.json + 12 维验证查 changelog 字段. **🆕 verify-deploy.sh 升 21→22 维** (维度 22 BUG-090 /api/version 4 字段验证: version + changelog + highlights + buildDate) | BUG-088/089/090 (新) | 0ce03f0 / 0683dc3 / a00602d + a5ae183 (.gitignore 清理 21 个 untracked) + verify-deploy.sh 维度 22 (6 commit push origin main) |
+| **S72 batch 7** (本 session) | "规范反转 Web 主导 APP 跟随 + 5 BUG web 端修" | v3.0.37 P13 | **BUG-092** (扫码支付 我已付款 按钮从来没实现) + **BUG-093** (commit 659025d + 7e823ac 无 BUG 编号, BUG-091 同款违规) + **BUG-094** (admin 默认查 pending, 14 条累积后台) + **BUG-095** (BUG-094 markUserNotified 改 status='user_notified' 但 DB schema enum 不含, 状态机迁移漏第 5 处) + **BUG-096** (AdminDashboardPage 已通过 历史订单渲染 0 字符串, React {0} 渲染陷阱) + **BUG-097** (mobile 漏修 web 3 BUG, 反转旧原则 主盯 web 安卓暂不动) + 🆕 规范反转: Web 主导, APP 跟随 (跨端铁律 4++ 跨项目通用) + 5 步同步 SOP + verify-deploy 维度 24 mobile 端同步自检 + mavis memory 沉淀 | BUG-092/093/094/095/096/097 | 8356970 (BUG-097 mobile sync 3 file) + a74bab4 (BUG-097 沉淀) + cbaf2ea (APK verify 工具) + 1e8239b (BUG-092~096 web 端修法) |
+| **S72 batch 8** | "P0 收尾 v3.0.38~3.0.40" | v3.0.38 P14 + v3.0.39 P15 + v3.0.40 P16 | **BUG-099** (web dist index-*.js 被破坏成 2 bytes 0\n, 宝塔 nginx 缓存 + git push race, verify-deploy 维度 22 容忍 set -e) + **BUG-100** (69 video_generations 卡 queued 17 天, 3 根因: ffmpeg image2pipe muxer + 状态机 tool_completed 可 re-confirm + catch 必补刀 video_generations → failed) + **BUG-101** (mobile toast.show 5 错调用, cloud-upload/sparkles 当 ToastVariant, bg of undefined, 加防御性 fallback) + **BUG-103** (refundStep 自动退款退多 34.93 元, h773052122 余额异常, 删 refundStep 整方法 + 失败改人工复核) + **BUG-104** (server bump 3.0.39 漏 rebuild APK, user 升级弹窗 APK 404, 9 项版本号同步 + rebuild APK + web dist 同步) + **BUG-105** (角色分析 prompt 跟 user 需求不一致, 走老 37 字段固定格式, 走 characterDescription.ts 新版 Markdown 5 section, 严禁编造, 6 fix 一起发版) + DEPLOY_RELEASE_FLOW.md v1.0 主入口 SOP | BUG-099/100/101/103/104/105 | 03331ed (BUG-101) / 1a0e724 (BUG-100) / 2f86eec (BUG-103) / ecd297f (BUG-104) / b989ffc (BUG-105) / 9e17ab3 (DEPLOY_RELEASE_FLOW.md 主入口) / cbaf2ea (APK verify) / a5ae183 (.gitignore 清理 21 untracked) |
+| **S72 batch 9** (本 session) | "BUG-105 mobile 端 sync, 跨端铁律 4++ Web→APP 同步 5 步 SOP 实战" | v3.0.41 P17 | **BUG-105 mobile sync**: web characterUtils.ts v2.5.34 早已就绪, mobile v3.0.29 漏同步移植, 3 个 screen (CharacterDetail/List/DescriptionReview) 各有本地 11 字段硬编码 extractDescriptionText, server v3.0.40 改 description 为 Markdown 自由文本后, mobile GET 返回 JSON 字符串 (models/character.ts JSON.stringify 产物), 原样显示给用户 (含 \n 转义符, 完全不可读). 修法: 移植 web characterUtils.ts → mobile/src/utils/characterUtils.ts (95 行 4 种格式兼容 + summaryOf markdown 跳过) + 3 个 screen 改 import + 删本地硬编码. 8 项版本号 3.0.40→3.0.41 同步 (mobile version.ts + build.gradle versionCode 44→45 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE + changelog.json + 远端 .env + 远端 systemd unit). 本机 gradlew assembleRelease 37s (21/394 任务执行, APK 30078127 bytes), aapt2 dump badging versionName=3.0.41 versionCode=45, apksigner verify 证书 DN = CN=DeepScript Release (BUG-023 永久签名). scp APK + deploy-bug105-mobile-sync.sh 远端 6 步 bump + restart. web npm run build 3.57s (新 bundle index-B1XyyGhQ.js) + scp + nginx reload. 5 维验证全过: 公网 APK HTTP 200 + 远端 SHA256 = 本机 SHA256 982342F7...CA74D + 公网 /api/version version=3.0.41 forceUpdate=true needUpdate=true (8 条 highlights 全对) + 历史 APK 11 个未覆盖 (v3.0.3~v3.0.9 + v3.0.37/38/39/41). verify-mobile-characterUtils.js 5/5 PASS. 沉淀 4 件套: BUGS_INDEX § 1 BUG-105 速览行 (server + mobile sync) + Top 25 (web utils 必同步移植 mobile 端, 跨项目通用铁律 4++) + DEPLOY § 8.14.1 (BUG-105 mobile sync 实战) + 1 mavis memory (web→mobile utils 同步必须移植, 不能 import monorepo 包) | BUG-105 mobile sync (追加强调) | ec3dfaf |
 
 ### 2.2 92 个 BUG 分布
 - **S58-P10** 7 个: BUG-017/021/022/023/024/025 (APK 升级 7 铁律源头)
@@ -262,62 +265,47 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 **留下的坑**:
 - (列 1-3 个下个 session 必看的点)
 
-**下一步候选**:
-- (列 2-4 个候选任务, 等用户拍)
+**下一步候选 (S72 batch 9 收尾, v3.0.41 BUG-105 mobile sync 完成, 等用户拍)**:
+
+### 已完成 (S72 batch 6~9 期间, 4/7 候选收尾)
+- ~~A. BUG-082 mobile 端防御渲染~~ → BUG-097 mobile sync 已修 3 file (api/client.ts + RechargeScreen.tsx + AdminDashboard.tsx), 还有 mobile AgentChatPanel typeof 防御渲染未做 (P2 长期)
+- ~~B. 21 个 untracked 临时文件清理~~ → S72 batch 9 已 trash 24 个临时文件 (3 个 tools/append-*.js + 14 个 db-h773052122-check*.sql + 1 个 simulate-user-upgrade.sh + 6 个 scripts/ 临时核查脚本), 保留 standardize 的 simulate-v3038-to-v3039-upgrade.sh + verify-deploy-24d.sh
+
+### 待选 (S73 候选)
+- **G. BUG-082 mobile AgentChatPanel 防御渲染 (P2)** — 跟 web 端 BUG-082 同源, mobile fetch 也可能撞 {code, message} 对象 (虽然目前 server models/character.ts 已 stringify, 但防患未然)
+- **H. 跨端 AGENTS.md § 5.A 活跃任务部署 (S67 BUG-070 跟进)** — 现在 S70/S71 部署都直接 systemctl restart 没跑维护模式流程, 真正有活跃任务时会撞, 需把 S67 BUG-070 维护模式 + S70 systemd 重启 集成
+- **I. BUG-083 修法全链路验证** — 服务器端跑 scripts/verify-deploy.sh --strict 22 维 (含 S72 batch 6 BUG-090 维度 22 /api/version 4 字段验证) 确认全过 + 监控 /api/version 返 valid JSON 持续 24h + S72 batch 4 ADR-0002 11 问题沉淀写进 docs/standards/ADR/0002-novel-analyze-cancellation-and-error-handling.md (目前只在 git commit 散落, 没正式 ADR)
+- **J. 集成 check-commit-message.py 到 husky pre-commit hook (P3, 长期)** — .husky/pre-commit 跑 python3 tools/check-commit-message.py 1, 任何 AI session commit 前自动验证 subject 带 BUG 编号, 配套 BUG-091 防呆自动化
+- **K. 性能/安全/兼容性优化** — server 性能分析 + DB 索引优化 + APK 启动速度 + RN 7 旧设备兼容 + server 端 xss/csrf/rate-limit 强化
+- **L. 新功能开发** — 用户指定新功能 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成)
+- **M. (🆕 推荐) verify-deploy-24d.sh 实战验证** — S72 batch 7 加的 24 维验证脚本 verify-deploy-24d.sh (含维度 24 mobile 端同步自检, 跟 BUG-105 mobile sync 配套) 还没跑过, 必跑端到端验证它真的能拦截 mobile 端漏修
+
+> **推荐 M** (verify-deploy-24d.sh 实战验证) — 跟 BUG-105 mobile sync 直接配套, 跑通后下次改 web 端 + mobile 端同步时 24 维自动拦截漏修, 闭环 S72 batch 7 的规范反转 (Web→APP 铁律 4++)
+
 ```
+[old content preserved for reference]
 
 ---
 
-## § 7. 下一步候选 (S72 batch 4 收尾, BUG-083 修完, 等用户拍)
+## § 7. 下一步候选 (S72 batch 9 收尾, v3.0.41 BUG-105 mobile sync 完成, 等用户拍)
 
-### A. BUG-082 剩 1 项: mobile 端防御渲染
-- 修 `apps/mobile/src/screens/.../AgentChatPanel` (有类似 case 'error' 吗?) 同步防御性渲染
-- 防 BUG-082 mobile 版, react-native fetch 也可能撞同类问题
-- **🆕 规范反转 (S72 batch 7 2026-06-26)**: Web 主导, APP 跟随. 改 web 必同步 app, 列入 AGENTS.md § 4 铁律 4++ 跨项目通用规范. 此条 TODO 跟 S72 batch 7 5 BUG (092/094/095/096) 一起同步修 mobile 端 (下次 mobile commit)
+### 已完成 (S72 batch 6~9 期间, 4/7 候选收尾)
+- ~~A. BUG-082 mobile 端防御渲染~~ → BUG-097 mobile sync 已修 3 file (api/client.ts + RechargeScreen.tsx + AdminDashboard.tsx), 还有 mobile AgentChatPanel typeof 防御渲染未做 (P2 长期)
+- ~~B. 21 个 untracked 临时文件清理~~ → S72 batch 9 已 trash 24 个临时文件 (3 个 tools/append-*.js + 14 个 db-h773052122-check*.sql + 1 个 simulate-user-upgrade.sh + 6 个 scripts/ 临时核查脚本), 保留 standardize 的 simulate-v3038-to-v3039-upgrade.sh + verify-deploy-24d.sh
+- ~~D. 新功能开发 (S72 batch 6 期间)~~ → S72 batch 7/8/9 全在修 BUG, 暂缓
+- ~~F. 汇报规范继续优化 (S72 后置)~~ → S72 batch 4~9 持续应用, REPORTING_STANDARDS.md 7 文件体系已用上
 
-### B. 21 个 untracked 临时文件清理
-- S63 蓝山测试遗留 (scripts/bs-* + lib/ + AI_TESTING_GUIDE.md) + BUG-079~082 调试 (apps/server/scripts/debug-*.js + NUL + version-fixed.ts)
-- mavis-trash 在 reparse point (F:\QiTa\banmu mount) 拒绝, PowerShell Remove-Item 被 permission rule 挡
-- 需要 user 手动 PowerShell 强删, 或后续 git stash -u 暂存
+### 待选 (S73 候选)
+- **G. BUG-082 mobile AgentChatPanel 防御渲染 (P2)** — 跟 web 端 BUG-082 同源, mobile fetch 也可能撞 {code, message} 对象 (虽然目前 server models/character.ts 已 stringify, 但防患未然)
+- **H. 跨端 AGENTS.md § 5.A 活跃任务部署 (S67 BUG-070 跟进)** — 现在 S70/S71 部署都直接 systemctl restart 没跑维护模式流程, 真正有活跃任务时会撞, 需把 S67 BUG-070 维护模式 + S70 systemd 重启 集成
+- **I. BUG-083 修法全链路验证** — 服务器端跑 scripts/verify-deploy.sh --strict 22 维 (含 S72 batch 6 BUG-090 维度 22 /api/version 4 字段验证) 确认全过 + 监控 /api/version 返 valid JSON 持续 24h + S72 batch 4 ADR-0002 11 问题沉淀写进 docs/standards/ADR/0002-novel-analyze-cancellation-and-error-handling.md (目前只在 git commit 散落, 没正式 ADR)
+- **J. 集成 check-commit-message.py 到 husky pre-commit hook (P3, 长期)** — .husky/pre-commit 跑 python3 tools/check-commit-message.py 1, 任何 AI session commit 前自动验证 subject 带 BUG 编号, 配套 BUG-091 防呆自动化
+- **K. 性能/安全/兼容性优化** — server 性能分析 + DB 索引优化 + APK 启动速度 + RN 7 旧设备兼容 + server 端 xss/csrf/rate-limit 强化
+- **L. 新功能开发** — 用户指定新功能 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成)
+- **M. (🆕 推荐) verify-deploy-24d.sh 实战验证** — S72 batch 7 加的 24 维验证脚本 verify-deploy-24d.sh (含维度 24 mobile 端同步自检, 跟 BUG-105 mobile sync 配套) 还没跑过, 必跑端到端验证它真的能拦截 mobile 端漏修
 
-### C. 跨端 AGENTS.md § 5.A 活跃任务部署 (S67 BUG-070 跟进)
-- 现在 S70/S71 部署都直接 `systemctl restart` 没跑维护模式流程
-- 真正有活跃任务时会撞, 需要 S67 BUG-070 维护模式 + S70 systemd 重启 集成
-- 待 user 描述使用场景
+> **推荐 M** (verify-deploy-24d.sh 实战验证) — 跟 BUG-105 mobile sync 直接配套, 跑通后下次改 web 端 + mobile 端同步时 24 维自动拦截漏修, 闭环 S72 batch 7 的规范反转 (Web→APP 铁律 4++)
 
-### D. 新功能开发 (S72 batch 4 收尾后)
-- 用户指定新功能 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成)
-- 价值: 实际业务推进
-
-### E. 性能 / 安全 / 兼容性优化
-- server 性能分析 + DB 索引优化
-- APK 启动速度 / RN 7 旧设备兼容
-- server 端 xss/csrf/rate-limit 强化
-
-### F. 汇报规范继续优化 (S72 后置)
-- `docs/REPORTING_STANDARDS.md` 主索引可再瘦 (~59 行 → ~30 行), 把 § 7 跨项目通用性表 + 维护规则挪到 `docs/reporting/原则.md`
-- `docs/reporting/原则.md` 当前 53 行, 可加 "AI 跟用户协作的 5 个角色" 段 (执行者/审阅者/挑战者/学习者/记录者)
-- `apps/web/AGENTS.md` v1.0 (S72 新建) 待实战验证, 未来加 web 端独有的 React 状态管理 / 路由守卫细节
-- 根目录 `CLAUDE.md` (S72 新建) 待 Claude Code CLI 用户验证配置
-- 跨项目模板沉淀: 把 REPORTING_STANDARDS.md 7 文件复制一份到 `~/.mavis/agents/` 做通用 AI 沟通规范模板
-
-### G. (本 session 新加) BUG-083 修法全链路验证
-- 服务器端跑 `bash scripts/verify-deploy.sh --strict` 跑 22 维 (含 S72 batch 6 BUG-090 新维度 22) 确认全过
-- 监控 /api/version 返 valid JSON 持续 24h, 确认 BUG-083 不复发
-- S72 batch 4 ADR-0002 11 问题沉淀写进 `docs/standards/ADR/0002-novel-analyze-cancellation-and-error-handling.md` (目前是 git commit 散落, 没正式 ADR)
-
----
-
-> **本文件维护规则**:
-> - 每次重要 session 收尾时, AI 必追加一段到 § 2.1 session 速览表 + § 5 坑点清单
-> - 跨端规范变更 (新文档/新 BUG/新 ADR) 时, 同步更新 § 1-5
-> - 删除过时内容时, 保留 commit hash 方便追溯
-> - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
-
-> **最后更新**: 2026-06-26 (S72 batch 7 v2.0, 规范反转 Web 主导 APP 跟随 (AGENTS.md § 4 铁律 4++ 跨项目通用 UX 原则) + 删 3 处 "主盯 web, 安卓暂不动" 旧原则 + verify-deploy.sh 升 24 维 (维度 24 mobile 端同步自检) + 5 步同步 SOP + Top 18→19 + 38 坑点, 11 commit push origin main 含 6 commit v2.0 收尾)
-> **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
-
----
 
 ## § 8. S72 batch 6 收尾 + 规范自检 (2026-06-26, 本 session 详细记录)
 
@@ -371,3 +359,29 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 #### F. 集成 check-commit-message.py 到 husky pre-commit hook (本 session 加, 可选 P3)
 - 改 `.husky/pre-commit` 加 `python3 tools/check-commit-message.py 1`, 任何 AI session commit 前自动验证
 - 配套 BUG-091 防呆自动化, 跨项目通用
+
+---
+
+
+
+### S72 batch 9 收尾段 (2026-06-26 v3.0.41 BUG-105 mobile sync, 本 session 详细记录)
+
+#### 做了什么 (5 个完整动作)
+- **诊断**: 你问 APP 是否有同步跟进? 触发 BUG-105 mobile sync 缺口 (跨端铁律 4++ 历史欠账, web 端 v2.5.34 characterUtils.ts 早已就绪, mobile v3.0.29 UI redesign 漏同步移植, 3 个 screen 硬编码 11 字段, server v3.0.40 改 description 为 Markdown 自由文本后 mobile GET 返回 JSON 字符串原样显示给用户, 含 \n 转义符)
+- **方案 A 跟 web 1:1 移植**: 新增 apps/mobile/src/utils/characterUtils.ts (95 行 4 种 description 格式兼容 — 自由文本字符串 / 11 字段 JSON 对象 / JSON 字符串 / 双层 JSON 字符串, recursive parseStringToText + summaryOf 跳 markdown 标题/列表项) + 3 个 screen 改 import 走统一 utils + 删本地硬编码 (CharacterDetailScreen + CharacterListScreen + CharacterDescriptionReviewScreen)
+- **8 项版本号同步 3.0.40→3.0.41**: mobile version.ts + build.gradle (versionCode 44→45 + versionName 3.0.41) + server package.json + index.ts fallback + ecosystem.config.js (env + env_production 2 处) + web version.ts (APP_VERSION_CODE 44→45) + changelog.json (v3.0.41 entry 8 highlights) + 远端 .env (APP_VERSION=3.0.41) + 远端 systemd unit (Environment=APP_VERSION=3.0.41)
+- **本机重打 + 远端部署**: gradlew assembleRelease 37s (增量编译 21/394 任务执行, APK 30078127 bytes) + aapt2 dump badging versionName=3.0.41 versionCode=45 + apksigner verify 证书 DN = CN=DeepScript Release (BUG-023 永久签名) + scp APK + deploy-bug105-mobile-sync.sh 远端 6 步 bump (.env + systemd unit + ecosystem + cp changelog + daemon-reload + restart shipin-app) + web npm run build 3.57s (新 bundle index-B1XyyGhQ.js) + tar + scp + nginx reload
+- **沉淀 4 件套 + cleanup + commit**: tools/verify-mobile-characterUtils.js 5/5 PASS + docs/BUGS_INDEX.md § 1 BUG-105 速览行 (server + mobile sync) + § 4 Top 25 (web utils 必同步移植 mobile 端, 跨项目通用铁律 4++) + docs/DEPLOY_RELEASE_FLOW.md § 8.14.1 (BUG-105 mobile sync 实战案例) + 1 mavis memory (web→mobile utils 同步必须移植, 不能 import monorepo 包) + trash 24 个临时文件 (3 个 tools/append-*.js + 14 个 db-h773052122-check*.sql + 1 个 simulate-user-upgrade.sh + 6 个 scripts/ 临时核查) + commit ec3dfaf push origin main
+
+#### 关键决策 (5 个跨项目通用沉淀)
+- **决策 1**: web utils 必同步移植 mobile 端 (apps/mobile/src/utils/<name>.ts 单独复制, 不能 import monorepo 包), 跟 BUG-097 mobile 漏修 web 100% 同源, 跟 BUG-002 monorepo shared 包 import value 风险 100% 同源
+- **决策 2**: server 改 description / 任何字段格式必同步三端 (server + web + mobile, 三端 utils 配套不齐必崩), 跟 BUG-099 web dist 破坏 100% 同源 (一端配套不齐 = 整套崩)
+- **决策 3**: changelog.json entry 必放 entries 数组末尾 (按 changelog.json _rule: 同 version 最新条目放数组末尾, server /api/version 查 entries[-1]), 跟 BUG-090 deploy.sh changelog cp 源错 100% 同源 (changelog 同步链断一环全崩)
+- **决策 4**: PS 5.1 bash quoting 嵌套 + 反斜杠续行必挂, 走本地 .js 脚本 + node 跑, 跟之前 BUG-105 部署时同源问题, 跨端大段中文 task 稳路径
+- **决策 5**: shipin-APP 远端是 flat 结构 (/www/wwwroot/shipin-APP/ecosystem.config.js, 不在 apps/server/ 子目录), 跟本地 monorepo 嵌套不同, 部署脚本 sed 路径必硬记这个差异, 跨项目通用
+
+#### 留下的坑 (3 个下个 session 必看的点)
+- **坑 1**: verify-deploy-24d.sh (S72 batch 7 加, 含维度 24 mobile 端同步自检) 还没跑过实战, 下次 S73 必跑通验证它真的能拦截 mobile 端漏修 (跟 BUG-105 mobile sync 同源闭环)
+- **坑 2**: BUG-082 mobile 端 AgentChatPanel typeof 防御渲染还没做 (跟 web 端 BUG-082 同源, mobile fetch 也可能撞 {code, message} 对象, 防患未然)
+- **坑 3**: tools/check-commit-message.py (S72 batch 6 新建) 还没集成到 husky pre-commit hook, 下次 S73 必做 (BUG-091 防呆自动化)
+
