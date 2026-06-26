@@ -103,7 +103,7 @@ shipin-APP/
 - **S72 batch 4** 1 个: BUG-083 (dist/changelog.json 字符编码损坏)
 - **S72 batch 5** 1 个: BUG-087 (APP 无限弹窗 + web APP_VERSION_CODE 同步)
 - **S72 batch 6** 4 个: BUG-088 (Dialog Modal 遮挡) + BUG-089 (polling race) + BUG-090 (deploy.sh cp 源错) + BUG-091 (commit a5ae183 缺 BUG 编号, 违反铁律 6)
-- **S72 batch 7** 1 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现)
+- **S72 batch 7** 3 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现) + BUG-093 (commit `659025d`+`7e823ac` 缺 BUG 编号, 跟 BUG-091 同款违规) + BUG-094 (admin 看板默认查 'pending' 错, markUserNotified 漏改 status, 14 条累积后台, 跟 BUG-081/092 配套)
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口

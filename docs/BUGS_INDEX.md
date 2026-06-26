@@ -14,6 +14,9 @@
 
 | BUG | session | 状态 | 简述 | 修法 commit |
 |---|---|---|---|---|
+| **BUG-094** | S72 batch 7 v3.0.37 | ✓ 已修 | **admin 看板默认查 'pending' 状态订单, BUG-092 修法 markUserNotified 漏改 status, user 点 1 次"我已付款" 后台出 3 条待审核 (DB 实际 14 条 pending 累积)**: admin 端点 default 'pending' + markUserNotified 只改 user_notified_at 不改 status + BUG-092 漏同步 1 处 (admin 端点 4 态机迁移) | markUserNotified 同时 `status='user_notified'` (状态机迁移, 4 态 UI 1:1 对齐); admin GET /orders default 'user_notified' + 'all' 强制 IN 3 状态 + 'pending' 返空 (server 端硬过滤); approve/reject 校验 'user_notified'; web AdminDashboardPage 5 tab + default 'user_notified' + 4 状态显示/操作 |
+| **BUG-093** | S72 batch 7 v3.0.37 | ✓ 沉淀 | **S72 batch 7 部署过程 commit `659025d` (web build TS2339 hotfix) + `7e823ac` (部署脚本 3 件套) 2 个 commit subject 缺 BUG 编号, 违反 AGENTS.md § 4 铁律 6**: 跟 BUG-091 同款违规, "hotfix / 部署 ops 都不算 BUG" 错误判断, BUG 范畴扩张 (hotfix / 部署 / 清理 / 文档 / 规范修订 都算 AI 行为变更) | 沉淀 BUG-093 进 apps/mobile/BUGS.md (永久记录); 升级 check-commit-message.py (N 5→10 + 加 git log origin/main..HEAD 未 push check); pre-commit hook 拦截无 BUG 编号 commit |
+| **BUG-092** | S72 batch 7 v3.0.37 | ✓ 已修 | **扫码支付页面"我已付款"按钮从来没实现**: server message 承诺, web 端 0 按钮, API 端点不存在, admin 端不知道用户已付款 | db 加 user_notified_at 字段; model markUserNotified 方法; route 新增 POST /:id/notify-paid; web api client + RechargePage 4 态 UI + 5s 轮询; admin 端加 userNotifiedAt 标记 |
 | **BUG-090** | S72 batch 6 v3.0.36 | ✓ 已修 | **deploy.sh 部署后 changelog.json 还是老版本 (5 条 highlights 全丢, 拿老版本或"优化性能"占位符)**: deploy.sh 第 6 步 `cp -f ${DIST_DIR}/changelog.json dist/changelog.json`, 源是**生产目录** (上次部署留下的老版本), 不是本机 scp 过来的新版本, **每次部署都被旧版本覆盖新版本** | deploy.sh 优先读 `/tmp/changelog.json` (本机 scp 源), fallback 到生产目录时显式 warn; 部署 SOP 必加 scp changelog.json 到 /tmp/; 12 维验证必查 /api/version 的 changelog/highlights/buildDate 字段 |
 | **BUG-089** | S72 batch 6 v3.0.36 | ✓ 已修 | **生图/视频生成成功不立刻显示, 必须切走 Tab 再切回才显示**: polling 完成 setMessages(prev) 已更新 streaming→image, 但紧接 loadHistory() → loadConversation() 整体覆盖 messages (userInitiated race / server 写入 race), UI 回到 streaming 加载圈 | ImageAgentScreen + VideoAgentScreen 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages); polling 完成 alert 后 setTimeout scrollToEnd 200ms |
 | **BUG-088** | S72 batch 6 v3.0.36 | ✓ 已修 | **删除会话弹窗被历史侧栏 Modal 完全遮挡, 用户看不到 confirm → 无法删除历史会话**: Dialog.tsx 用普通 View + absoluteFillObject, 被 RN 原生 Modal (历史侧栏) 永远遮挡 (Android Dialog / iOS UIViewController 永远在 React 视图树最上层) | Dialog.tsx 改用 RN <Modal transparent animationType="none" statusBarTranslucent> 包装 (走 native 层); ImageAgentScreen + VideoAgentScreen 历史侧栏删除按钮先 setShowHistory(false) + setTimeout 300ms 再弹 confirm (防两个 RN Modal z-order race) |
@@ -228,6 +231,8 @@
 12. **🆕 12 维验证必查 /api/version 的 changelog 字段** (BUG-090) — 不只查 version, 还要看 changelog/highlights/buildDate 是不是新版本, 老版本残留 = 假报告. **verify-deploy.sh 维度 22 强制查 4 字段** (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD)
 13. **🆕 commit message subject 必带 BUG 编号 (BUG-091, 跨项目通用)** — 跟 AGENTS.md § 4 铁律 6 冲突, body 有 Refs 不算. 修法: `tools/check-commit-message.py` (永久自检, commit 前必跑, 1 失败 exit 1) + 格式 `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` 5 段缺一不可
 14. **🆕 UI 文案必跟代码 1:1 对齐 (BUG-092, 跨项目通用)** — server message "点击'我已付款'提交审核" 是契约, web 端必实现对应按钮. 修法: 写 server message 时必 grep web 端对应 UI 元素存在, 不能 message 承诺一套, 端点做另一套. 配套 4 态 UI (待操作 / 已操作等审核 / 已通过 / 已拒绝)
+15. **🆕 状态机迁移必同步 4 处 (BUG-081/094, 跨项目通用)** — server 字段 + model method + response handler (server route) + 客户端 UI 渲染, **任何一处漏整套状态机废**. 修法: 状态机迁移前必 grep 4 处一致; DB 状态机设计 sub-status 是反模式, 应该单字段迁移 (markUserNotified 改 status='user_notified', 跟 4 态 UI 1:1 对齐); 部署后必跑 `mysql SELECT status, COUNT(*) FROM recharge_requests GROUP BY status` 自检
+16. **🆕 admin 端点 default 必是"待审核"不是"全部未付款" (BUG-094, 跨项目通用)** — admin 默认查 'pending' 看起来直观但是反模式 (用户充值后没点已付款的订单全进后台 = noise). 修法: admin 看板 default 查 'user_notified' (用户已通知的待审核), 'pending' 只 audit 看不默认; server 端硬过滤 (跟 BUG-080 跨 user 数据泄漏教训一致), 防前端 query 绕过
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -298,6 +303,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 7 v1.8, 加 BUG-092 扫码支付没"我已付款"按钮 + 5 修法 (db/model/route/api/UI/Admin), § 4 Top 13 扩 14, § 2 关键字加 支付/扫码/notify-paid)
+**最后更新**: 2026-06-26 (S72 batch 7 v1.9, 加 BUG-094 admin 看板默认查 pending 错 (跟 BUG-092 markUserNotified 漏改 status 配套), § 4 Top 14 扩 16, § 2 关键字加 admin/状态机/user_notified)
 **下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)
