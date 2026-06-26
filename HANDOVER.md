@@ -314,7 +314,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-26 (S72 batch 6 收口 v1.7, BUG-088/089/090 修 + verify-deploy.sh 升 21→22 维 + 21 untracked 清理 + 跨端 9 项版本号 + Top 12 + 30 坑点, 6 commit push origin main)
+> **最后更新**: 2026-06-26 (S72 batch 7 v1.8, BUG-092/093/094 收 + verify-deploy.sh 22 维 + 9 项版本号同步 + Top 12→16 + 32 坑点, 7 commit push origin main: 182033f/9cb8537/659025d/7e823ac/5c6c1a8/8ceb284/7528dc2/ef0ab60)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
 
 ---
