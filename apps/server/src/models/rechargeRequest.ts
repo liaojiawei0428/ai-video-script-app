@@ -37,9 +37,12 @@ export class RechargeRequestModel {
 
   // v3.0.37 (S72 batch 7 BUG-092): 标记用户已通知已付款 (admin 看板可优先处理)
   async markUserNotified(id: string): Promise<void> {
+    // v3.0.37 (S72 batch 7 BUG-094): 状态机迁移 pending -> user_notified (admin 看板查询默认 user_notified, 跟 4 态 UI 1:1 对齐)
+    // 修法: pending 状态订单不直接进 admin 看板, user 点"我已付款"才迁移到 user_notified 进审核
+    // 配套: admin.ts:59 default 'pending' -> 'user_notified', approve/reject 校验 'user_notified'
     await execute(
-      'UPDATE recharge_requests SET user_notified_at = ?, updated_at = ? WHERE id = ?',
-      [Date.now(), Date.now(), id]
+      'UPDATE recharge_requests SET user_notified_at = ?, status = ?, updated_at = ? WHERE id = ?',
+      [Date.now(), 'user_notified', Date.now(), id]
     );
   }
 
@@ -47,6 +50,17 @@ export class RechargeRequestModel {
     const rows = await poolQuery<any>(
       'SELECT * FROM recharge_requests WHERE status = ? ORDER BY created_at DESC LIMIT ?',
       [status, limit]
+    );
+    return rows.map(this.mapRow);
+  }
+
+  // v3.0.37 (S72 batch 7 BUG-094): 多状态查询 (admin 看板 'all' 用, 强制过滤 pending)
+  async findByStatuses(statuses: string[], limit: number = 200): Promise<RechargeRow[]> {
+    if (statuses.length === 0) return [];
+    const placeholders = statuses.map(() => '?').join(',');
+    const rows = await poolQuery<any>(
+      `SELECT * FROM recharge_requests WHERE status IN (${placeholders}) ORDER BY created_at DESC LIMIT ?`,
+      [...statuses, limit]
     );
     return rows.map(this.mapRow);
   }

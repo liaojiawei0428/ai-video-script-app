@@ -130,7 +130,7 @@ function DashboardTab() {
 // ════════════════════════════════════════════════════════════
 function OrdersTab() {
   const [orders, setOrders] = useState<any[]>([]);
-  const [status, setStatus] = useState('pending');
+  const [status, setStatus] = useState('user_notified');
   const [loading, setLoading] = useState(true);
 
   const load = (s: string) => {
@@ -139,7 +139,7 @@ function OrdersTab() {
     adminOrdersApi(s).then(r => setOrders(r.data?.data?.orders || [])).finally(() => setLoading(false));
   };
 
-  useEffect(() => { load('pending'); }, []);
+  useEffect(() => { load('user_notified'); }, []);
 
   const handleApprove = async (id: string) => {
     if (!confirm('确认此充值申请已收到款项？')) return;
@@ -170,9 +170,9 @@ function OrdersTab() {
         </button>
       </div>
 
-      {/* 状态筛选 */}
+      {/* 状态筛选 (v3.0.37 S72 batch 7 BUG-094 修法: 5 个 tab, default 'user_notified' 取代 'pending') */}
       <div className="flex gap-2">
-        {['pending', 'approved', 'rejected', 'all'].map(s => (
+        {['user_notified', 'approved', 'rejected', 'pending', 'all'].map(s => (
           <button
             key={s}
             onClick={() => load(s)}
@@ -180,7 +180,7 @@ function OrdersTab() {
               status === s ? 'bg-primary text-white' : 'bg-bg-tertiary text-text-secondary hover:bg-border'
             }`}
           >
-            {{ pending: '待审核', approved: '已通过', rejected: '已拒绝', all: '全部' }[s as keyof Record<string, string>] || s}
+            {{ user_notified: '待审核', approved: '已通过', rejected: '已拒绝', pending: '待支付 (audit)', all: '全部' }[s as keyof Record<string, string>] || s}
           </button>
         ))}
       </div>
@@ -198,14 +198,16 @@ function OrdersTab() {
                   <span className="font-medium text-sm">{o.username || o.userId?.slice(0, 8)}</span>
                   <span className="text-xs px-2 py-0.5 rounded bg-primary/15 text-primary font-medium">¥{o.amount?.toFixed(2)}</span>
                   <span className={`text-xs px-2 py-0.5 rounded ${
-                    o.status === 'pending' ? 'bg-warning/15 text-warning' :
+                    o.status === 'user_notified' ? 'bg-warning/15 text-warning' :
+                    o.status === 'pending' ? 'bg-bg-tertiary text-text-tertiary' :
                     o.status === 'approved' ? 'bg-success/15 text-success' :
                     'bg-error/15 text-error'
                   }`}>
-                    {{ pending: '待审核', approved: '已通过', rejected: '已拒绝' }[o.status as keyof Record<string, string>] || o.status}
+                    {{ user_notified: '待审核', pending: '待支付', approved: '已通过', rejected: '已拒绝' }[o.status as keyof Record<string, string>] || o.status}
                   </span>
                   {/* v3.0.37 (S72 batch 7 BUG-092): 用户已通知标记 (优先处理, 跟 BUG-089 教训一致: 区分"用户主动" vs "系统触发") */}
-                  {o.userNotifiedAt && o.userNotifiedAt > 0 && o.status === 'pending' && (
+                  {/* v3.0.37 (S72 batch 7 BUG-094): 条件改 user_notified (因为 markUserNotified 现在改 status='user_notified', 4 态 UI 1:1 对齐) */}
+                  {o.userNotifiedAt && o.userNotifiedAt > 0 && o.status === 'user_notified' && (
                     <span className="text-xs px-2 py-0.5 rounded bg-accent/15 text-accent font-medium flex items-center gap-1">
                       💬 用户已通知已付款 · {new Date(o.userNotifiedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </span>
@@ -216,7 +218,7 @@ function OrdersTab() {
                   {o.remark && ` · ${o.remark}`}
                 </div>
               </div>
-              {o.status === 'pending' && (
+              {o.status === 'user_notified' && (
                 <div className="flex gap-2 flex-shrink-0">
                   <button onClick={() => handleApprove(o.id)} className="px-3 py-1.5 rounded-lg text-xs bg-success/15 text-success hover:bg-success/25 flex items-center gap-1">
                     <CheckCircle size={12} /> 到账

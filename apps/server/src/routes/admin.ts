@@ -54,12 +54,20 @@ router.get('/dashboard', adminAuth, async (req: Request, res: Response) => {
   });
 });
 
-/** 订单列表 */
+/** 订单列表 (v3.0.37 S72 batch 7 BUG-094 修法: default 'user_notified' 取代 'pending', 'all' 强制 IN 3 状态, 'pending' 强制返空) */
 router.get('/orders', adminAuth, async (req: Request, res: Response) => {
-  const status = (req.query.status as string) || 'pending';
-  const orders = status === 'all'
-    ? await rechargeRequestModel.findAll()
-    : await rechargeRequestModel.findByStatus(status);
+  const status = (req.query.status as string) || 'user_notified';
+  // BUG-094 修法: pending 状态订单不进 admin 看板, 必须 user 点"我已付款"才会变 user_notified, admin 才能看到
+  // 'all' 查 user_notified + approved + rejected (永远不含 pending, server 端硬过滤, 防前端 query 绕过)
+  let orders: any[];  // v3.0.37 BUG-094: 显式 any[] type, 防 TS7034/TS7005 (let 推断失败, 跟 BUG-082 铁律 8 一样必显式 type)
+  if (status === 'all') {
+    orders = await rechargeRequestModel.findByStatuses(['user_notified', 'approved', 'rejected']);
+  } else if (status === 'pending') {
+    // pending 状态不暴露给 admin (audit 仍可用 DB 直查, 但 admin 看板永不显示)
+    orders = [];
+  } else {
+    orders = await rechargeRequestModel.findByStatus(status);
+  }
   res.json({ success: true, data: { orders } });
 });
 
@@ -68,7 +76,7 @@ router.post('/orders/:id/approve', adminAuth, async (req: Request, res: Response
   try {
     const item = await rechargeRequestModel.findById(req.params.id);
     if (!item) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '订单不存在' } });
-    if (item.status !== 'pending') return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: '订单已处理' } });
+    if (item.status !== 'user_notified') return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: '订单未到 user_notified 状态, 请先让用户点"我已付款"' } });
 
     await rechargeRequestModel.updateStatus(item.id, 'approved', '管理员确认到账');
     await billingService.topUp(item.userId, item.amount, `充值申请：¥${item.amount.toFixed(2)}`);
@@ -92,7 +100,7 @@ router.post('/orders/:id/reject', adminAuth, async (req: Request, res: Response)
   try {
     const item = await rechargeRequestModel.findById(req.params.id);
     if (!item) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '订单不存在' } });
-    if (item.status !== 'pending') return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: '订单已处理' } });
+    if (item.status !== 'user_notified') return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: '订单未到 user_notified 状态, 请先让用户点"我已付款"' } });
 
     await rechargeRequestModel.updateStatus(item.id, 'rejected', req.body.remark || '管理员拒绝');
     logger.info('Admin rejected recharge', { orderId: item.id, userId: item.userId });
