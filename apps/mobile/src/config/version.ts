@@ -12,7 +12,14 @@
 //   4. commit message 必带版本号 (铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验证 (BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.39';
+export const APP_VERSION = '3.0.41';
+
+// v3.0.41 (S72 batch 7 BUG-105 mobile sync): 移植 web characterUtils.ts 到 mobile utils, 3 个 screen 改用统一 utils, 兼容 server v3.0.40 Markdown 自由文本格式
+//   - 修法: 跟 web apps/web/src/lib/characterUtils.ts v2.5.34 1:1 对齐 (除 getRoleLabel/getRoleColor — mobile 端用 theme/character.ts)
+//   - 修法: 4 种 description 格式兼容 (自由文本字符串 / 11 字段 JSON 对象 / JSON 字符串 / 双层 JSON 字符串)
+//   - 修法: summaryOf 跳 markdown 标题/列表项, 取第一段正文
+//   - BUG-097 mobile 漏修 web 同源历史欠账 (mobile v3.0.29 UI redesign 时漏 web 端配套)
+//   - 配套: 6 处版本号同步 3.0.39 → 3.0.41, rebuild APK, 端到端 mobile 实测
 
 // v3.0.36 (S72 batch 6): BUG-088 + BUG-089 修法
 //   - BUG-088: Dialog 组件改用 RN Modal 包装 (历史侧栏遮挡 + 删除不生效)

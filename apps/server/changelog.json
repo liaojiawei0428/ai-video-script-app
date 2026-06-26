@@ -76,6 +76,21 @@
         "BUG-098 修: admin approve 抛 500 → SQL placeholders 跟 params 数量必一致 (3 vs 4 + 6 vs 9) + catch 块加 logger.error",
         "BUG-097 修: mobile 端漏修 web 3 BUG → 同步 3 文件 api/client.ts + RechargeScreen.tsx + AdminDashboard.tsx (Web 主导 APP 跟随 铁律 4++)"
       ]
+    },
+    {
+      "version": "3.0.41",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-105 mobile 端 sync (跨端铁律 4++ Web 主导 APP 跟随, 移植 web characterUtils.ts 4 种 description 格式兼容到 mobile, 修 APP 角色详情显示 JSON 转义字符串乱码)",
+      "highlights": [
+        "BUG-105 mobile 端 sync: 新增 apps/mobile/src/utils/characterUtils.ts (跟 web apps/web/src/lib/characterUtils.ts v2.5.34 1:1 对齐, 4 种 description 格式兼容 — 自由文本字符串 / 11 字段 JSON 对象 / JSON 字符串 / 双层 JSON 字符串)",
+        "BUG-105 mobile 端 sync: apps/mobile/src/screens/CharacterDetailScreen.tsx 删本地 extractDescriptionText 硬编码 11 字段 (height/build/face/...), 改用统一 utils 4 种格式兼容",
+        "BUG-105 mobile 端 sync: apps/mobile/src/screens/CharacterListScreen.tsx 删本地 extractDescriptionText 硬编码 11 字段 + 本地 summaryOf 简单截断, 改用统一 utils (summaryOf 跳 markdown 标题/列表项, 取第一段正文)",
+        "BUG-105 mobile 端 sync: apps/mobile/src/screens/CharacterDescriptionReviewScreen.tsx 删本地 extractDescriptionText 硬编码 11 字段, 改用统一 utils",
+        "BUG-105 mobile 端 sync 教训: web 端 v2.5.34 配套逻辑必须同步移植 mobile 端, 跨端铁律 4++ Web→APP 同步 5 步 SOP (跟 BUG-097 mobile 漏修 web 3 BUG 同源, BUG-104 server bump 漏 rebuild APK 同源)",
+        "BUG-105 mobile 端 sync 教训: server 端改 description 格式 (Markdown 自由文本) 必同步 web + mobile 两端 utils, 三端配套不齐必崩",
+        "8 项版本号同步 3.0.40 → 3.0.41 (mobile version.ts + build.gradle versionCode 44→45 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 44→45 + changelog.json + 远端 .env + 远端 systemd unit)"
+      ]
     }
   ]
 }

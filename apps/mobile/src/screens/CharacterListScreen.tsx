@@ -25,38 +25,9 @@ import type { Character, StylePreset } from '@ai-script/shared-types';
 import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, EmptyState, LinearGradientView as LinearGradient } from '../components';
 import { colors, spacing, radii, typography } from '../theme';
 import { surface, text, gradient, getStatusInfo } from '../theme/character';
+import { extractDescriptionText, summaryOf } from '../utils/characterUtils'; // v3.0.41 (BUG-105 mobile sync): 走统一 utils, summaryOf 跳 markdown 标题/列表项, 取第一段正文
 
 type RouteParams = { novelId: string };
-
-// 描述摘要 helper
-function summaryOf(text: string | undefined, maxLen: number = 80): string {
-  if (!text) return '';
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen).trim() + '…';
-}
-
-// 描述提取 (跟 web 端一致)
-function extractDescriptionText(desc: any): string {
-  if (!desc) return '';
-  if (typeof desc === 'string') return desc;
-  if (typeof desc === 'object') {
-    const lines: string[] = [];
-    const d = desc;
-    if (d.name) lines.push(`# ${d.name}`);
-    if (d.age) lines.push(`- 年龄: ${d.age}`);
-    if (d.height) lines.push(`- 身高: ${d.height}`);
-    if (d.build) lines.push(`- 体型: ${d.build}`);
-    if (d.face) lines.push(`- 脸型: ${d.face}`);
-    if (d.features) lines.push(`- 五官: ${d.features}`);
-    if (d.hair) lines.push(`- 发型: ${d.hair}`);
-    if (d.signature) lines.push(`- 标志: ${d.signature}`);
-    if (d.clothes) lines.push(`- 服装: ${d.clothes}`);
-    if (d.personality) lines.push(`- 性格: ${d.personality}`);
-    if (d.aliases && d.aliases.length) lines.push(`- 别名: ${d.aliases.join('、')}`);
-    return lines.join('\n');
-  }
-  return String(desc);
-}
 
 export function CharacterListScreen(): React.JSX.Element {
   const route = useRoute<any>();
