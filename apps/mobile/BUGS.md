@@ -3804,5 +3804,88 @@ q378685504  ¥100.00  已通过  0
 - [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-096 是 BUG-094 修法 admin 端点引入
 - [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-096 修法链第 2 环
 
+## BUG-097 (S72 batch 7 规范反转, v3.0.37, 2026-06-26 13:50): S72 batch 7 BUG-092/094/095/096 全部 web 端修, mobile 端漏 3 BUG — 跟之前 "主盯 web, 安卓暂不动" 旧原则冲突, user 反转规范 "Web 主导, APP 跟随" 列为铁律 4++
+
+### 现象 (user 反转规范, 2026-06-26 13:49)
+
+User 在 S72 batch 7 5 BUG 修完后明确反转原则:
+> "(主盯 web, 安卓暂不动) 这个删掉, 现在Web端所有的项目功能调整和修复工作都要同步到APP里, 确保Web端里有的功能, 在APP上也同步有这个功能. 以Web端为主导, APP跟随Web端调整, 只要Web有调整, 就必须要同步检查APP是否相关功能有没有跟上, 把这个列为项目规范, 确保双端同时开发, APP要跟随Web端"
+
+实际 mobile 端漏修 3 BUG (跟 web v3.0.37 比对):
+- ❌ **BUG-092 漏修**: mobile `RechargeScreen.tsx` 没 notify-paid API + 没 "我已付款" 按钮 (跟 web BUG-092 修法前 v3.0.36 一样)
+- ❌ **BUG-094 漏修**: mobile `AdminDashboard.tsx:15` `useState('pending')` 跟 web v3.0.36 一样, admin 默认查 'pending' (修法后查 'user_notified')
+- ❌ **STAGE_TEXT 4 态机漏修**: mobile `StatusBadge` 3 态 (pending/approved/rejected), 没 user_notified, 跟 web 4 态机不一致
+- ✓ **BUG-095/096 漏**: server 端 + web 端, mobile 端没这 2 BUG (mobile 没用 `userNotifiedAt &&` 模式)
+
+### 真凶 (1 层, 跨项目通用教训)
+
+#### 之前 "主盯 web, 安卓暂不动" 旧原则错了
+- S70 BUG-077 之前 shipin-APP 跑 PM2, mobile 是 RN, web 是 Vite, 三端独立
+- user 之前觉得 "mobile 端 跑得动就 OK, web 端是主战场", 所以 S72 batch 4-5-6 多个 BUG 都 "先修 web, mobile 看情况"
+- 实际后果: S72 batch 6 BUG-088/089/090 修 mobile 端 (Dialog Modal / polling race / deploy.sh), 但 S72 batch 7 BUG-092/094/095/096 全部没修 mobile 端
+- user 反馈 "我在 APP 上没看到按钮" 才暴露 BUG-092 漏修 → 规范反转
+
+### 修复 (5 文件, 跟 web 端 1:1 镜像同步)
+
+#### 修法 1: apps/mobile/src/api/client.ts (2 处)
+- 加 `notifyRechargePaid = (id) => apiClient.post(\`/recharge/${id}/notify-paid\`)` (跟 web 端 `api.ts:21` notifyRechargePaidApi 1:1)
+- 改 `adminOrders = (status: string = 'user_notified')` 取代 `'pending'` (跟 web 端 `api.ts` adminOrdersApi 1:1)
+
+#### 修法 2: apps/mobile/src/screens/RechargeScreen.tsx (5 处)
+- 加 `notifyRechargePaid` import
+- 加 `notifying / currentOrderId / currentStatus` 3 个 state (跟 web 端 RechargePage.tsx:18-20 1:1)
+- `handleSubmit` 改: 创建订单 (status='pending') + setCurrentOrderId, 移除原 "我已付款 + 提交审核" 2 步合并 (跟 web 端 BUG-092 修法 1:1)
+- 加 `handleNotifyPaid` 函数 (调 notifyRechargePaid API + setCurrentStatus('user_notified'))
+- 加 5s 轮询 useEffect (currentStatus='user_notified' 触发, 跟 BUG-089 教训一致)
+- 加 "我已付款" 按钮 + 审核中文案 + styles.notifyBtn + styles.notifiedBox + styles.notifiedText
+- 改 `StatusBadge` 4 态: pending/待支付 + user_notified/待审核 + approved/已到账 + rejected/已拒绝 (跟 web 端 RechargePage.tsx:22 STAGE_TEXT 1:1)
+
+#### 修法 3: apps/mobile/src/screens/AdminDashboard.tsx (4 处)
+- `useState('pending')` → `'user_notified'` (跟 web AdminDashboardPage.tsx:133 1:1)
+- 4 tab → 5 tab: user_notified/待审核 + approved/已通过 + rejected/已拒绝 + pending/待支付 (audit) + all/全部 (跟 web AdminDashboardPage.tsx:175 1:1)
+- admin 操作按钮条件 `item.status === 'pending'` → `item.status === 'user_notified'` (跟 web AdminDashboardPage.tsx:221 1:1)
+- 状态文案 + userNotifiedAt 标记: `item.status === 'user_notified' && item.userNotifiedAt > 0` 显示 "💬 待审核 · {ts}" (跟 web AdminDashboardPage.tsx:210-214 1:1, BUG-096 React 0 渲染陷阱防呆配套)
+
+### 怎么验证修好 (4 维)
+
+1. **mobile 端跟 web 端 1:1 镜像**: `diff <(grep -E 'notifyRechargePaid|user_notified' apps/web/src) <(grep -E 'notifyRechargePaid|user_notified' apps/mobile/src)` 期望两集合一致 (跟铁律 4++ SOP 配套)
+2. **mobile tsc 0 错 (我改的 3 文件)**: `npx tsc --noEmit` 期望 0 错 (注: mobile 端有 3 pre-existing 错 in styles 重复 color 字段, 跟 BUG-097 无关, 跟 BUG-073 同款待修)
+3. **mobile 端 4 漏修点全部修**: `grep 'notifyRechargePaid' apps/mobile/src` ≥ 1 命中, `grep '我已付款' apps/mobile/src` ≥ 1 命中, `grep 'user_notified' apps/mobile/src` ≥ 1 命中 (跟 verify-deploy.sh 维度 24 一致)
+4. **APK rebuild + 部署**: `cd apps/mobile && gradlew assembleRelease` (5 min 增量编译) + aapt2 dump badging 验 versionName + scp APK 到 ab.maque.uno + bump server 9 项版本号 (跟 web 部署 SOP 5 步配套)
+
+### 怎么避免再犯 (跨项目通用, 铁律 4++ 永久规范)
+
+1. **铁律 4++ 永久规范** (跨项目通用 UX 原则, AGENTS.md § 4 新增): 改 web 端任意功能/UI/状态机/接口后, **必同步 app 端**, 跑 5 步 SOP: 1) 评估 mobile 端漏修清单 (grep diff) 2) 修 mobile 端代码 3) tsc + APK rebuild 4) aapt2 dump badging 5) scp APK + bump server 9 项版本号
+2. **verify-deploy.sh 维度 24 自动防呆**: 部署后必查 mobile 源含 web 关键 API/UI 元素, ≥1 命中 (`grep 'notifyRechargePaid' apps/mobile/src` / `grep '我已付款' apps/mobile/src` / `grep 'user_notified' apps/mobile/src`), 0 命中即 FAIL (跟 BUG-082 维度 17/18 同款)
+3. **删 3 处 "主盯 web, 安卓暂不动" 旧原则**: HANDOVER.md § 0 + § A + § E 3 处, apps/mobile/AGENTS.md v1.2 footer, 改为 "Web 主导, APP 跟随" 新规范
+4. **mavis memory 沉淀**: `Web 主导 APP 跟随 (跨项目通用, 改 web 必同步 app, 列入项目规范)` (S72 batch 7)
+5. **每 batch 修 web 必跑 mobile 端 diff**: `diff <(grep -E 'xxx' apps/web/src) <(grep -E 'xxx' apps/mobile/src)` 列出 web 有但 app 没有的代码, 立即同步
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 4++ (新规范, S72 batch 7 跨项目通用 UX 原则)
+- `apps/mobile/AGENTS.md` v1.3 (S72 batch 7 加铁律 4++ + 删 "主盯 web, 安卓暂不动" 旧原则)
+- `apps/web/AGENTS.md` v1.1 (S72 batch 7 同步)
+- `HANDOVER.md` v2.0 (S72 batch 7 规范反转 v2.0 footer)
+- `docs/BUGS_INDEX.md` v2.1 (Top 19 加铁律 4++)
+- `docs/STANDARDS_EVOLUTION.md` (S72 batch 7 规范自迭代)
+- `scripts/verify-deploy.sh` 维度 24 (mobile 端同步自检)
+- mavis memory: `Web 主导 APP 跟随 (跨项目通用, 改 web 必同步 app, 列入项目规范)` (本 session 沉淀)
+- [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — 配套: 铁律 4++ 加 1 处 (mobile 端同步, 4→5 处)
+- [BUG-088 S72 batch 6 删除弹窗遮挡](bug-088) — 同 S72 batch 6 系列: BUG-088 当时修 mobile 端 (Dialog Modal), 跟 BUG-097 同款 mobile 端同步修法
+- [BUG-089 S72 batch 6 polling race condition](bug-089) — 配套: BUG-097 修法 5s 轮询跟 BUG-089 教训一致
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-097 是 BUG-092 mobile 端同步修法
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-097 是 BUG-094 mobile 端同步修法
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-097 修法 4 态机跟 BUG-095 配套 (status enum 含 'user_notified')
+- [BUG-096 S72 batch 7 React {0} 渲染陷阱](bug-096) — 配套: BUG-097 mobile 端 "💬 待审核" 标记条件用 `> 0` 不用 `&&` (跟 BUG-096 修法 1:1)
+
+### 前置 BUG (S72 batch 7 跨端规范反转链)
+
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-097 mobile 端同步源头 1
+- [BUG-094 S72 batch 7 admin 默认查 pending 错](bug-094) — BUG-097 mobile 端同步源头 2
+- [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-097 mobile 端 4 态机配套
+- [BUG-096 S72 batch 7 React {0} 渲染陷阱](bug-096) — BUG-097 mobile 端 "💬 待审核" 标记条件防呆
+- 之前 "主盯 web, 安卓暂不动" 旧原则 (S72 batch 4-6) — 反转删除
+
 
 
