@@ -188,7 +188,7 @@ async function initTables(): Promise<void> {
       user_id VARCHAR(36) NOT NULL,
       username VARCHAR(100) DEFAULT '',
       amount DECIMAL(10,2) NOT NULL,
-      status ENUM('pending','approved','rejected') DEFAULT 'pending',
+      status ENUM('pending','user_notified','approved','rejected') DEFAULT 'pending',  -- v3.0.37 (S72 batch 7 BUG-094/095) 4 态机: pending → user_notified → approved/rejected
       remark VARCHAR(500) DEFAULT '',
       ip VARCHAR(50) DEFAULT '',
       ip_location VARCHAR(100) DEFAULT '',
@@ -202,6 +202,10 @@ async function initTables(): Promise<void> {
   // 兼容老库: 添加 user_notified_at 列 (S72 batch 7 BUG-092 修法, 跟 BUG-079 教训一致: 必须 logger.warn 替代静默 catch)
   try { await db.execute("ALTER TABLE recharge_requests ADD COLUMN user_notified_at BIGINT DEFAULT 0"); } catch (e) {
     logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE recharge_requests ADD COLUMN user_notified_at BIGINT DEFAULT 0' });
+  }
+  // 兼容老库: 扩 status enum 加 user_notified (S72 batch 7 BUG-095 修法, markUserNotified 写 status='user_notified' 必须 enum 含此值, 不然 MySQL 抛 Data truncated)
+  try { await db.execute("ALTER TABLE recharge_requests MODIFY COLUMN status ENUM('pending','user_notified','approved','rejected') DEFAULT 'pending'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE recharge_requests MODIFY status enum user_notified' });
   }
 
   // ======== 计费系统 ========
