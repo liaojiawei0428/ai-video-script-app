@@ -3199,3 +3199,89 @@ scp -i <key> apps/server/changelog.json  root@<host>:/tmp/changelog.json  # 🆕
 ### 前置 BUG (同 batch 5/6 联动)
 - [BUG-088 S72 batch 6 删除弹窗遮挡](../apps/mobile/BUGS.md) — 同 batch 6 修
 - [BUG-089 S72 batch 6 生成成功 race condition](../apps/mobile/BUGS.md) — 同 batch 6 修
+
+## BUG-091 (S72 batch 6 收尾规范自检, v3.0.36, 2026-06-26 10:30): S72 batch 6 commit `a5ae183` (21 个 untracked 临时文件清理) subject 缺 BUG 编号, 违反 AGENTS.md § 4 铁律 6
+
+### 现象 (规范自检, 跨项目通用)
+
+跑规范自检脚本 (写文件 `tools/tmp-check-rules.py`, 5 行 commit message 自检) 发现:
+
+```bash
+$ git log -6 --pretty=format:"%h | %s"
+49ca51c | v3.0.36 verify-deploy: 升 21→22 维 + BUG-090 防呆 (/api/version 4 字段验证)  ✓
+a5ae183 | v3.0.36 cleanup: 21 个 untracked 临时文件清理 (S72 batch 4/5/6 遗留 + S63 蓝叠测试)  ❌ SUBJECT 缺 BUG 编号
+60a9dad | v3.0.36 docs: S72 batch 6 BUG-088/089/090 配套规范修订  ✓
+a00602d | v3.0.36: BUG-090 修 deploy.sh changelog.json 同步 (cp 源改 /tmp/)  ✓
+0683dc3 | v3.0.36: BUG-088 + BUG-089 修 + 8 处版本号同步 (S72 batch 6)  ✓
+0ce03f0 | v3.0.36: BUG-088 + BUG-089 修删除会话弹窗遮挡 + 生成成功不立刻显示 (S72 batch 6)  ✓
+```
+
+- 6 个 commit, 5 个 subject 符合 AGENTS.md 铁律 6 格式 (`vX.Y.Z: <一句话> (BUG-NNN + 规范修订)`)
+- **1 个 commit `a5ae183` subject 缺 BUG 编号**: `v3.0.36 cleanup: 21 个 untracked 临时文件清理 (...)` (只有版本号, 没 BUG 编号)
+- commit body 有 BUG 编号 (`Refs: BUG-079, BUG-083, BUG-090, HANDOVER.md v1.6 § 7`) — **但 body 不算, subject 是 git log 跟 GitHub PR 标题唯一必现的字段**
+- 5/6 = 83% 符合, 1/6 违规
+
+### 真凶 (代码层根因, AI 行为规范类)
+
+S72 batch 6 收尾时 (清理 21 个 untracked 临时文件), 我 (AI) 写 commit message 走"宽松解释"模式, 觉得 body 有 BUG 编号就算合规, **没严格按 AGENTS.md § 4 铁律 6 格式**:
+- AGENTS.md § 4 铁律 6 原文: "格式: `vX.Y.Z: <改动一句话> (BUG-NNN + 规范修订)`"
+- 实际写: `v3.0.36 cleanup: 21 个 untracked 临时文件清理 (S72 batch 4/5/6 遗留 + S63 蓝叠测试)`
+- **漏写**: `(BUG-079/083/090 + 规范修订)` 括号部分 (虽然 body 有, 但 subject 缺)
+
+### 修复 (3 步)
+
+#### 修法 1: 沉淀 BUG-091 (本 BUG) 永久记录违规 (跨项目通用, 不可 amend)
+- ❌ 不能 amend commit `a5ae183` (git safety protocol: "Avoid git commit --amend. ONLY use --amend when ALL conditions are met: (1) User explicitly requested amend...")
+- ✅ 沉淀 BUG-091 进 `apps/mobile/BUGS.md` + `docs/BUGS_INDEX.md` § 1 + 配 mavis memory 跨项目通用沉淀
+- ✅ 后续 commit 100% 严格按铁律 6 格式
+
+#### 修法 2: 写规范自检脚本 (永久工具, 任何 AI session 跑)
+
+新建 `tools/check-commit-message.py` (15 行):
+```python
+"""铁律 6 自检: 验证 N 个 commit subject 含 BUG 编号"""
+import subprocess, re
+N = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+result = subprocess.run(["git", "log", f"-{N}", "--pretty=format:%s"], capture_output=True, text=True)
+msgs = result.stdout.strip().split("\n")
+bug_pat = re.compile(r"BUG-\d{3,}")
+fail = [m for m in msgs if not bug_pat.search(m)]
+print(f"PASS={len(msgs) - len(fail)} / FAIL={len(fail)} / TOTAL={len(msgs)}")
+for m in fail:
+    print(f"  ❌ {m}")
+exit(1 if fail else 0)
+```
+
+#### 修法 3: 补 commit (空 commit 必带 BUG 编号, 标记违规)
+- 用户拍板: 暂不补空 commit (amend 风险 vs 空 commit 污染), 用 BUG-091 + 自检脚本代替
+- 后续 S73 任何 commit 必先跑 `python3 tools/check-commit-message.py 1` 验证 subject 含 BUG 编号, 不通过禁止 `git commit`
+
+### 怎么验证修好 (3 维)
+
+1. **铁律 6 自检 0 失败**: `python3 tools/check-commit-message.py 6` 跑最近 6 commit, 期望 PASS=6 / FAIL=0
+2. **mavis memory 沉淀**: `grep "commit message" MEMORY.md` 找到 "AGENTS.md 铁律 6 强制: commit message subject 必带 BUG 编号" 段 (本 session 写)
+3. **AGENTS.md 铁律 6 跨 session 遵守**: 后续 S73-Sxx 任何 commit subject 100% 含 `BUG-NNN`, 自检脚本 0 失败
+
+### 怎么避免再犯 (跨项目通用)
+
+1. **commit 前必跑自检**: `python3 tools/check-commit-message.py 1` (验证单个 commit subject), 不通过禁止 `git commit` (跟 husky pre-commit hook 配套)
+2. **格式记忆法**: `vX.Y.Z: <一句话> (BUG-NNN + 规范修订)` 5 段缺一不可 — 改了什么 + 改了哪个 BUG + 配套规范修订
+3. **Body 不算**: commit subject 才是 git log --oneline 跟 GitHub PR 标题跟团队沟通的字段, body 是补充, **subject 必带 BUG 编号是底线**
+4. **跨项目通用**: 任何 AI session 写 commit 必带 BUG 编号 (或 `+ 规范修订` 字样, 表示无 BUG 触发纯规范修订), 后续 AI 看 git log 30 秒内能定位"这次改了什么 / 关联什么 BUG"
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 6 (commit message 必带版本号 + BUG 编号, 跨端统一规范)
+- `apps/server/AGENTS.md` § 3 铁律 8 (commit message 必带版本号 + BUG 编号, server 端配套)
+- `apps/mobile/AGENTS.md` § 6 跨端版本管理 4 处铁律 (mobile 视角, 跟 server 端一致)
+- `docs/STANDARDS_EVOLUTION.md` § 7.3 commit 规范 + § 7.4 写 BUG 必触发规范修订
+- `apps/mobile/CODING_STANDARDS.md` § 38 (mobile 硬性规范, BUG 记录强制流程)
+- `docs/BUGS_INDEX.md` § 4 Top 12 必读铁律 (S72 batch 6 加, 含铁律 6)
+- mavis memory: `AGENTS.md 铁律 6 强制: commit message subject 必带 BUG 编号` (本 session 沉淀)
+- [BUG-079 S71 后置假报告 12 维全过 100% 假](bug-079) — 同类教训: 报告 vs 实际不一致, AI 行为合规
+- [BUG-082 S71 后置 server 写持久化 JSON 必 string 归一](bug-082) — 配套: S71 后 AI 行为合规性 4 铁律 (4+/6/7/8)
+
+### 前置 BUG (同 S72 batch 6 收尾违规)
+
+- [BUG-079 S71 假报告 12 维全过](bug-079) — S71 后置教训: AI 报告/行为 100% 可信, 不能"看起来 OK 就过"
+- [BUG-083 S72 batch 4 dist/changelog.json 字符编码损坏](bug-083) — 同 S72 batch 4 收尾违规

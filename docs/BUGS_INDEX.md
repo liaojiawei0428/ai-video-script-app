@@ -88,6 +88,11 @@
 - **BUG-090** 12 维验证只看 version 字段 = 假报告, changelog/highlights/buildDate 必查
 - **BUG-083** verify-deploy.sh 加维度 20 (UTF-8 字符编码 + JSON parse 双重验证)
 
+### 🔍 "commit message" / "铁律 6" / "subject" / "BUG 编号" / "AI 行为合规"
+- **BUG-091** commit a5ae183 subject 缺 BUG 编号 (body 有但 body 不算, 违反 AGENTS.md § 4 铁律 6)
+- 🆕 **永久自检工具**: `tools/check-commit-message.py` (commit 前必跑, 1 失败 exit 1)
+- 跨项目通用: 任何 AI session 写 commit 必带 `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` 格式
+
 ### 🔍 "web" / "React" / "Vite" / "shadcn"
 - BUG-066 / 067 / 072
 
@@ -214,6 +219,7 @@
 10. **永久 SSH key + ssh-agent 加载** (S69 部署踩坑) — Windows OpenSSH 9.5p2 + MinGit 9.9p1 都 cache fingerprint, 必须 `ssh-agent` 加载才走对
 11. **🆕 deploy.sh cp 源必用 /tmp/ 而非生产目录** (BUG-090) — 生产目录永远是上一版本, 部署 SOP 必加完整 scp 清单 (dist.tar.gz + package.json + changelog.json)
 12. **🆕 12 维验证必查 /api/version 的 changelog 字段** (BUG-090) — 不只查 version, 还要看 changelog/highlights/buildDate 是不是新版本, 老版本残留 = 假报告. **verify-deploy.sh 维度 22 强制查 4 字段** (version == APP_VERSION + changelog 非通用文案 + highlights ≥ 3 条 + buildDate YYYY-MM-DD)
+13. **🆕 commit message subject 必带 BUG 编号 (BUG-091, 跨项目通用)** — 跟 AGENTS.md § 4 铁律 6 冲突, body 有 Refs 不算. 修法: `tools/check-commit-message.py` (永久自检, commit 前必跑, 1 失败 exit 1) + 格式 `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` 5 段缺一不可
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -284,6 +290,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 6 v1.6, 加 BUG-088/089/090 + verify-deploy.sh 维度 22 BUG-090 防呆, § 4 Top 12 增 verify-deploy 22 维, § 2 关键字加 verify-deploy/22 维)
+**最后更新**: 2026-06-26 (S72 batch 6 v1.7, 加 BUG-091 commit message 违规沉淀 + check-commit-message.py 永久自检工具, § 4 Top 12 扩 13, § 2 关键字加 commit message/铁律 6)
 **下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)
