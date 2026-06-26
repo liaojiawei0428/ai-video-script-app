@@ -3514,3 +3514,107 @@ fi
 - [BUG-091 S72 batch 6 commit message 违规](bug-091) — 100% 同款违规, BUG-093 是 S72 batch 7 重现
 - [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — 部署过程 2 个违规 commit 跟 BUG-092 部署直接相关
 
+## BUG-094 (S72 batch 7 部署后, v3.0.37, 2026-06-26 13:00): admin 看板默认查 'pending' 状态订单, BUG-092 修法 markUserNotified 漏改 status, 导致 user 点 1 次"我已付款" 后台出 3 条待审核订单 (DB 实际 14 条 pending 累积)
+
+### 现象 (user 实际反馈, 2026-06-26 12:58)
+
+User 部署 v3.0.37 后, 走扫码支付流程后反馈:
+
+```
+q378685504 ¥50.00 待审核    [12:55:58]
+q378685504 ¥50.00 待审核    [12:55:59]
+q378685504 ¥50.00 待审核    [12:56:00]
+```
+
+3 条状态 "待审核" (admin 端文案, 对应 DB status='pending') 同 username 同金额连发. User 实际**只点 1 次"我已付款"按钮** (订单 `464516ab-da6d-4b82-9d15-6ba12a60a062` 之前已建), 期望是"只有当点击了已付款按钮，才会把当前订单记录发送审核, 而不是点击点一次充值按钮就发送一次订单审核".
+
+### 真凶 (3 层, 跨项目通用教训)
+
+#### 层 1: admin 端点默认查 'pending' (server 端)
+- `apps/server/src/routes/admin.ts:59` (BUG-094 修法前): `const status = (req.query.status as string) || 'pending';`
+- 含义: admin 打开看板默认查所有 status='pending' 订单, **包含所有用户充值后没点"我已付款"的订单**
+- 14 个 user 没点"我已付款" 的 pending 订单, **全部进 admin 看板**, 跟 user 期望完全相反
+
+#### 层 2: markUserNotified 漏改 status 字段 (状态机迁移 4 处同步漏 1 处, BUG-081 教训)
+- `apps/server/src/models/rechargeRequest.ts:39-44` (BUG-094 修法前): `UPDATE recharge_requests SET user_notified_at = ?, updated_at = ? WHERE id = ?`
+- **只改 `user_notified_at` 时间戳, 不改 `status` 字段** — BUG-092 修法时为 "sub-status" 设计 (不影响主 status), 跟 BUG-081 状态机迁移 4 处同步强约束冲突
+- 后果: user 点"我已付款" 后, 订单 status 仍是 'pending', admin 端点不显示 status='user_notified' 订单 (因为根本没这状态订单)
+
+#### 层 3: BUG-092 修法时 admin 端点 (server) + AdminDashboardPage (web) 漏同步
+- BUG-092 修法 6 写: "admin 订单列表加 userNotifiedAt 标记 (💬 用户已通知已付款 · MM-DD HH:MM, 优先处理)" — 但**只改 web 端显示标记**, 没改 admin 端点查询默认 (仍 'pending'), 没改 admin approve/reject 校验 (仍 'pending')
+- BUG-092 修法 6 是 "sub-status" 设计, 跟 BUG-081 跨项目通用"状态机迁移必同步 allowlist + response handler" 冲突
+- BUG-092 修法后 BUGS.md 段没列 "状态机迁移 4 处同步" 自检, 漏 1 处 (server admin 端点)
+
+### DB 真相 (2026-06-26 13:02 部署前查)
+
+```sql
+mysql> SELECT status, COUNT(*) as cnt FROM recharge_requests GROUP BY status;
+status      cnt
+pending     14     -- 🐛 BUG-094 根因: 14 个订单 status=pending 全进 admin 看板
+approved    14     -- 历史已审核
+rejected    27     -- 历史已拒绝
+```
+
+跟 user 描述 "3 条待审核" 完全一致 (3 是 user 看到的子集, 14 是实际 DB 累积).
+
+### 修复 (3 步, 5 文件改)
+
+#### 修法 1: markUserNotified 改 status='user_notified' (状态机迁移, 4 态 UI 1:1 对齐)
+- `apps/server/src/models/rechargeRequest.ts`: `UPDATE recharge_requests SET user_notified_at = ?, status = ?, updated_at = ? WHERE id = ?` (status = 'user_notified')
+- 配套: `recharge.ts:80-82` 仍校验 `record.status !== 'pending'` 不变 (markUserNotified 只能从 pending 调)
+
+#### 修法 2: admin 端点 server 端硬过滤 pending
+- `apps/server/src/routes/admin.ts:59-71`:
+  - default: 'pending' → 'user_notified' (admin 看板默认看用户已通知的待审核)
+  - 'all' 查 user_notified + approved + rejected (永远不含 pending, server 端硬约束, 防前端 query 绕过)
+  - 'pending' 强制返空 (admin 看板永不显示)
+  - approve/reject 校验 'pending' → 'user_notified' (跟 model 同步)
+- 配套: 新加 `model.findByStatuses()` method (查 IN (...) SQL)
+
+#### 修法 3: web AdminDashboardPage 5 tab + default 'user_notified'
+- `apps/web/src/pages/AdminDashboardPage.tsx`:
+  - default 'pending' → 'user_notified'
+  - 4 tab → 5 tab: user_notified/approved/rejected/pending (audit)/all
+  - 状态样式 + 单条显示文案 + admin 操作按钮条件 `o.status === 'pending'` → `o.status === 'user_notified'`
+  - 4 态 UI 跟 BUG-092 1:1 对齐
+
+### 怎么验证修好 (4 维)
+
+1. **server 端 grep BUG-094 关键字命中**:
+   - `grep "user_notified" /www/wwwroot/shipin-APP/dist/routes/admin.js`: 5 命中 ✅
+   - `grep "user_notified" /www/wwwroot/shipin-APP/dist/models/rechargeRequest.js`: 5 命中 ✅
+   - `grep "findByStatuses" /www/wwwroot/shipin-APP/dist/models/rechargeRequest.js`: 1 命中 ✅
+2. **DB 状态**: `mysql> SELECT status, COUNT(*) FROM recharge_requests GROUP BY status` — 修法后 user 充值创建 pending, 点"我已付款" 变 user_notified, admin 端点查 user_notified 默认 14→0 累积逐步清理
+3. **web UI**: 浏览器 hard refresh https://ab.maque.uno/admin → 5 tab (待审核/已通过/已拒绝/待支付 audit/全部) + default "待审核" 0 命中 + "全部" 查 14+14+27+user_notified(新) 总数
+4. **端到端**: user 端 扫码 → "我已付款" → 订单 status pending→user_notified → admin 端 5 tab "待审核" 看到 1 条 → admin 点 "到账" → status user_notified→approved + 余额到账
+
+### 怎么避免再犯 (跨项目通用, 跟 BUG-081 配套强化)
+
+1. **状态机迁移必同步 4 处** (BUG-081 强约束, BUG-094 漏 1 处): server 字段 + model method + response handler (server route) + 客户端 (web/mobile UI 渲染). **任何一处漏, 整套状态机废**
+2. **admin 端点 default 必是"待处理"不是"全部"**: 'pending' 看起来直观, 但是 admin 看 "全部待处理" 跟 "用户待审核" 是不同概念, 默认应该是"待审核" (user_notified), 不是"未付款" (pending). 跟 BUG-080 跨 user 数据泄漏教训一致: server 端硬过滤比前端 UI 隐藏更稳
+3. **DB 状态机设计 sub-status 是反模式**: 状态机应该是单字段 (status), sub-status (userNotifiedAt > 0) 难 query 难同步. markUserNotified 应该是 status: pending → user_notified 单字段迁移, 不是 "pending + sub-marker"
+4. **部署后必跑 DB GROUP BY status 自检**: `mysql> SELECT status, COUNT(*) FROM recharge_requests GROUP BY status` — 看累积异常, 跟 verify-deploy.sh --strict 22 维配套
+5. **跟 BUG-072 D 长期方案配套**: BUG-072 D 短期方案 "RechargePage 加'充值处理中, 预计 5 分钟内到账'提示" 还没实施, BUG-094 修法是过渡态. 长期方案是接支付宝回调自动到账 (不用 user 通知 + admin 审核)
+
+### Refs
+
+- `AGENTS.md` § 4 铁律 4+ (状态机迁移必同步 allowlist + response handler, 跨项目通用)
+- `apps/server/AGENTS.md` § 5 任务 C (DB schema 迁移, 配套状态机迁移)
+- `apps/web/AGENTS.md` § 3 改 web 端必跑 `tsc -b --noEmit` 0 错 (本次修法一次过)
+- `apps/mobile/AGENTS.md` § 6 铁律 4+ (状态机迁移 4 处同步, mobile 视角)
+- `docs/BUGS_INDEX.md` § 4 Top 14 必读铁律 (S72 batch 7 加, 含铁律 4+)
+- mavis memory: `状态机迁移必同步 4 处 (server 字段 + model + response handler + 客户端 UI)` (本 session 沉淀, BUG-094 配套)
+- [BUG-072 D S69 充值"管理员审核"流程不顺 P3](bug-072) — 短期方案未实施, BUG-094 修法是过渡态
+- [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — 100% 同源教训, BUG-094 是 BUG-092 部署时漏同步第 4 处 (admin 端点)
+- [BUG-082 S71 后置 server 写持久化 JSON 必 string 归一](bug-082) — 配套: 本次修法 admin.ts:62 `let orders: any[]` 显式 type 跟 BUG-082 铁律 8 一致
+- [BUG-089 S72 batch 6 polling race condition](bug-089) — 配套: BUG-094 修法 admin 端点 `let orders: any[]` 跟 polling 5s 一致
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-094 修法是 BUG-092 修法 6 (admin 端点) 漏 1 处的补完
+- [BUG-093 S72 batch 7 commit message 违规](bug-093) — 配套: 跨项目通用 AI 行为合规, BUG-094 修法 commit 8ceb284 严格带 BUG-094 编号
+
+### 前置 BUG (同 S72 batch 7 收尾违规)
+
+- [BUG-072 D S69 充值"管理员审核"流程不顺 P3](bug-072) — 短期方案未实施, BUG-094 修法是过渡态
+- [BUG-081 S71 后置 状态机迁移 4 处同步](bug-081) — 100% 同源, BUG-094 是 BUG-092 漏同步第 4 处
+- [BUG-092 S72 batch 7 扫码支付按钮缺失](bug-092) — BUG-094 修法是 BUG-092 修法 6 admin 端点漏 1 处的补完
+
+
