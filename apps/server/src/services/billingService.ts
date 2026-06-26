@@ -203,8 +203,9 @@ export class BillingService {
     await userModel.updateBalance(userId, amount);
     // v3.0.32 BUG-078 S71: 充值也用统一入口
     await execute(
+      // v3.0.37 (S72 batch 7 BUG-098): 修 SQL 9 占位符 vs 6 params (ref_label 占位符多 1 个, 改 '' literal)
       `INSERT INTO billing_logs (id, user_id, type, amount, balance_after, novel_id, description, word_count, is_free, ref_type, ref_id, ref_label, created_at)
-       VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', ?, ?)`,
+       VALUES (?, ?, 'charge', ?, ?, '', ?, 0, 0, 'recharge', '', '', ?)`,
       [logId, userId, amount, balanceAfter, description, Date.now()]
     );
     logger.info('Billing: top-up', { userId, amount, balanceAfter });

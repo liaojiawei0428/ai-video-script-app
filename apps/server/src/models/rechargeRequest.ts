@@ -29,9 +29,10 @@ export class RechargeRequestModel {
   }
 
   async updateStatus(id: string, status: 'approved' | 'rejected', remark: string = ''): Promise<void> {
+    // v3.0.37 (S72 batch 7 BUG-098): 修 SQL 缺第 4 个参数 id (老代码 3 params vs 4 placeholders, MySQL 抛错 "Incorrect arguments" catch 后返 500 INTERNAL_ERROR, admin approve/reject 失败)
     await execute(
       'UPDATE recharge_requests SET status = ?, remark = ?, updated_at = ? WHERE id = ?',
-      [status, remark, Date.now()]
+      [status, remark, Date.now(), id]
     );
   }
 
