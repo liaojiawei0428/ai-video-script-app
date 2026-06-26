@@ -207,11 +207,12 @@ function OrdersTab() {
                   </span>
                   {/* v3.0.37 (S72 batch 7 BUG-092): 用户已通知标记 (优先处理, 跟 BUG-089 教训一致: 区分"用户主动" vs "系统触发") */}
                   {/* v3.0.37 (S72 batch 7 BUG-094): 条件改 user_notified (因为 markUserNotified 现在改 status='user_notified', 4 态 UI 1:1 对齐) */}
-                  {o.userNotifiedAt && o.userNotifiedAt > 0 && o.status === 'user_notified' && (
+                  {/* v3.0.37 (S72 batch 7 BUG-096): 修 React 0 渲染陷阱 (o.userNotifiedAt=0 时 a && 短路返 0, JSX {0} 渲染成 "0" 字符串, 老 approved 订单全受影响) */}
+                  {o.userNotifiedAt > 0 && o.status === 'user_notified' ? (
                     <span className="text-xs px-2 py-0.5 rounded bg-accent/15 text-accent font-medium flex items-center gap-1">
                       💬 用户已通知已付款 · {new Date(o.userNotifiedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="text-xs text-text-tertiary">
                   {o.paymentMethod || '微信'} · {new Date(o.createdAt).toLocaleString('zh-CN')}
