@@ -516,6 +516,43 @@ if [ "$SERVER_ONLY" != "true" ]; then
 fi
 
 # ──────────────────────────────────────
+# 维度 24: 铁律 4++ 防呆 (Web 主导, APP 跟随, 必同步) — BUG-092/094/095/096 mobile 端漏修
+# ──────────────────────────────────────
+# 历史: S72 batch 7 修 BUG-092/094/095/096 全部 web 端, mobile 端漏 3 BUG (缺"我已付款"按钮 / admin 默认查 pending / React 0 渲染陷阱)
+# 规范反转 (2026-06-26): 改 web 端必同步 app 端, 列入 AGENTS.md § 4 铁律 4++
+# 修法: 部署后必查 mobile 源 (apps/mobile/src) 含 web 关键 API/UI 元素, ≥1 命中
+# 防呆: 任何 web 关键改动 mobile 漏 0 命中 = FAIL, 部署阻断, 强制同步
+# ──────────────────────────────────────
+if [ "$SERVER_ONLY" != "true" ]; then
+  color blue "── 维度 24: 铁律 4++ Web 主导 APP 跟随 (mobile 端同步自检) ──"
+
+  MOBILE_SRC="/www/wwwroot/shipin-APP/../app.mobile/src"
+  # 实际 mobile 源在 apps/mobile/src, 部署源可能在 git worktree / monorepo root
+  # 优先找本仓库 apps/mobile/src (verify-deploy 跑在 server 端, 但 monorepo 根是 F:/QiTa/banmu/APP/...)
+  MOBILE_SRC_LOCAL="apps/mobile/src"
+  if [ -d "$MOBILE_SRC_LOCAL" ]; then
+    # 24. mobile 端必须含 web 关键 API/UI 元素 (BUG-092 配套: notifyRechargePaidApi / 我已付款 / STAGE_TEXT 4 态)
+    # 任意 1 个 0 命中即 FAIL
+    V24_NOTIFY=$(grep -rl 'notifyRechargePaidApi\|notify-paid' "$MOBILE_SRC_LOCAL"/screens 2>/dev/null | wc -l)
+    V24_PAID=$(grep -rl '我已付款' "$MOBILE_SRC_LOCAL"/screens 2>/dev/null | wc -l)
+    V24_STAGE=$(grep -rl 'user_notified' "$MOBILE_SRC_LOCAL"/screens 2>/dev/null | wc -l)
+    V24_TOTAL=$((V24_NOTIFY + V24_PAID + V24_STAGE))
+
+    if [ "$V24_TOTAL" -ge 1 ]; then
+      PASS=$((PASS+1))
+      color green "   ✓ 24. mobile 端 web 关键 API/UI 同步: notify-paid=$V24_NOTIFY, 我已付款=$V24_PAID, user_notified=$V24_STAGE (铁律 4++ 合规)"
+    else
+      FAIL=$((FAIL+1))
+      FAIL_MSGS+=("24. mobile 端漏同步")
+      color red "   ✗ 24. mobile 端漏同步: notify-paid=0, 我已付款=0, user_notified=0 (铁律 4++ 违规, S72 batch 7 BUG-092/094/095/096 漏修)"
+    fi
+  else
+    skip "24. MOBILE_SRC_LOCAL ($MOBILE_SRC_LOCAL) 不存在 (verify-deploy 在 server 端跑, monorepo 根未挂)"
+  fi
+  echo
+fi
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"

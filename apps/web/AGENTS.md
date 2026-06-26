@@ -72,5 +72,5 @@
 **server 端独有 (web 共享 API)** → [`../../apps/server/AGENTS.md`](../../apps/server/AGENTS.md)
 **跨端统一规范 (S68 收口核心)** → [`../../AGENTS.md`](../../AGENTS.md)
 
-> **最后更新**: 2026-06-25 (S72 v1.0 新建, 列 web 端独有 React 栈 + 3 GAP + 部署路径)
+> **最后更新**: 2026-06-26 (S72 batch 7 v1.1, 加铁律 4++ (Web 主导, APP 跟随) — 改 web 端必同步 app 端 5 步 SOP, 跟根 AGENTS.md v2.11 + mobile AGENTS.md v1.3 同步)
 > **下次 review**: web 端有架构变更 / 新 GAP / 独立部署时

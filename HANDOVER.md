@@ -103,7 +103,7 @@ shipin-APP/
 - **S72 batch 4** 1 个: BUG-083 (dist/changelog.json 字符编码损坏)
 - **S72 batch 5** 1 个: BUG-087 (APP 无限弹窗 + web APP_VERSION_CODE 同步)
 - **S72 batch 6** 4 个: BUG-088 (Dialog Modal 遮挡) + BUG-089 (polling race) + BUG-090 (deploy.sh cp 源错) + BUG-091 (commit a5ae183 缺 BUG 编号, 违反铁律 6)
-- **S72 batch 7** 5 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现) + BUG-093 (commit `659025d`+`7e823ac` 缺 BUG 编号, 跟 BUG-091 同款违规) + BUG-094 (admin 看板默认查 'pending' 错, markUserNotified 漏改 status, 14 条累积后台) + BUG-095 (BUG-094 修法 markUserNotified 写 status='user_notified' 但 DB schema enum 不含, 状态机迁移漏第 5 处) + BUG-096 (AdminDashboardPage "已通过" 历史订单渲染 "0" 字符串, React `{0}` 渲染陷阱, 跟 BUG-082 配套前端侧)
+- **S72 batch 7** 5 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现) + BUG-093 (commit `659025d`+`7e823ac` 缺 BUG 编号, 跟 BUG-091 同款违规) + BUG-094 (admin 看板默认查 'pending' 错, markUserNotified 漏改 status, 14 条累积后台) + BUG-095 (BUG-094 修法 markUserNotified 写 status='user_notified' 但 DB schema enum 不含, 状态机迁移漏第 5 处) + BUG-096 (AdminDashboardPage "已通过" 历史订单渲染 "0" 字符串, React `{0}` 渲染陷阱, 跟 BUG-082 配套前端侧) + **🆕 规范反转 (2026-06-26)**: Web 主导, APP 跟随 (反之前 "主盯 web, 安卓暂不动" 旧原则, 5 BUG 全部 web 端修, mobile 端漏 3 BUG, user 反馈"APP 没按钮"才被发现). 列入 AGENTS.md § 4 铁律 4++ + 5 步同步 SOP + verify-deploy.sh 维度 24 mobile 端同步自检 + mavis memory 沉淀
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口
@@ -273,7 +273,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 ### A. BUG-082 剩 1 项: mobile 端防御渲染
 - 修 `apps/mobile/src/screens/.../AgentChatPanel` (有类似 case 'error' 吗?) 同步防御性渲染
 - 防 BUG-082 mobile 版, react-native fetch 也可能撞同类问题
-- user 主盯 web, 安卓暂不动; web 稳定后做
+- **🆕 规范反转 (S72 batch 7 2026-06-26)**: Web 主导, APP 跟随. 改 web 必同步 app, 列入 AGENTS.md § 4 铁律 4++ 跨项目通用规范. 此条 TODO 跟 S72 batch 7 5 BUG (092/094/095/096) 一起同步修 mobile 端 (下次 mobile commit)
 
 ### B. 21 个 untracked 临时文件清理
 - S63 蓝山测试遗留 (scripts/bs-* + lib/ + AI_TESTING_GUIDE.md) + BUG-079~082 调试 (apps/server/scripts/debug-*.js + NUL + version-fixed.ts)
@@ -314,7 +314,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 > - 删除过时内容时, 保留 commit hash 方便追溯
 > - 跟 `AGENTS.md` 互补: AGENTS.md = 行为规范, HANDOVER.md = 项目状态
 
-> **最后更新**: 2026-06-26 (S72 batch 7 v1.9, BUG-092/093/094/095/096 收 + verify-deploy.sh 22 维 + 9 项版本号同步 + Top 12→18 + 35 坑点, 10 commit push origin main: 182033f/9cb8537/659025d/7e823ac/5c6c1a8/8ceb284/7528dc2/ef0ab60/aaaf3eb/1276e19/b6908cb/b1aa275)
+> **最后更新**: 2026-06-26 (S72 batch 7 v2.0, 规范反转 Web 主导 APP 跟随 (AGENTS.md § 4 铁律 4++ 跨项目通用 UX 原则) + 删 3 处 "主盯 web, 安卓暂不动" 旧原则 + verify-deploy.sh 升 24 维 (维度 24 mobile 端同步自检) + 5 步同步 SOP + Top 18→19 + 38 坑点, 11 commit push origin main 含 6 commit v2.0 收尾)
 > **下次更新**: 用户指定新功能开发任务 + 完成后追加到 § 6
 
 ---
@@ -366,7 +366,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 #### E. BUG-082 mobile 端防御渲染 (P2, 跟 S72 batch 6 同样)
 - mobile `apps/mobile/src/screens/.../AgentChatPanel` 加 typeof 防御渲染
 - 防 BUG-082 mobile 版, react-native fetch 也可能撞同类问题
-- user 主盯 web 端, 安卓端暂不动; web 稳定后做
+- **🆕 规范反转 (S72 batch 7 2026-06-26)**: Web 主导, APP 跟随. 改 web 必同步 app, 列入 AGENTS.md § 4 铁律 4++ 跨项目通用规范. 此条 TODO 跟 S72 batch 7 5 BUG (092/094/095/096) 一起同步修 mobile 端 (下次 mobile commit)
 
 #### F. 集成 check-commit-message.py 到 husky pre-commit hook (本 session 加, 可选 P3)
 - 改 `.husky/pre-commit` 加 `python3 tools/check-commit-message.py 1`, 任何 AI session commit 前自动验证

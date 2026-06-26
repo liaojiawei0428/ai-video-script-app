@@ -156,6 +156,24 @@
 - **真实案例 (S71 BUG-081)**: S70 v3.0.0.16 改 passthrough (跳过 `plan_cn_ready` → 直接 `plan_ready`) 时, `imageAgentService.processTurn` allowedStates 没同步, 9 天后用户撞到 "无法改方案 / An unexpected error occurred". 配套 BUG-082: 状态机迁移必同步 4 处 (allowlist + response handler + DB schema + 错误归一)
 - **跨项目通用**: 任何 stateful 系统 (订单状态机 / 工作流引擎 / 协议状态机 / 编译器 AST 状态 / parser 状态) 改 status 字段必同步更新所有引用点. 常见踩坑: 改了 schema 没改 allowlist, 改了 allowlist 没改 UI, 改了 UI 没改 schema. **任意一处漏 = 9 天后用户撞 BUG**
 
+### 铁律 4++: 🌐 Web 主导, APP 跟随 (S72 batch 7 规范反转, 2026-06-26, 跨项目通用 UX 原则)
+- **🛑 严禁**: 改 web 端 (`apps/web/`) 任意功能/UI/状态机/接口后, 不检查 app 端 (`apps/mobile/`) 是否同步. 跟之前 "主盯 web, 安卓暂不动" 原则**反转**, 跨端对齐是底线
+- **✅ 必做**: 任何 web 端改动必同步检查 app 端是否受影响, 必跑 5 步:
+  1. **评估 mobile 端漏修清单**: `diff <(grep -rn '<改动关键字>' apps/web/src) <(grep -rn '<改动关键字>' apps/mobile/src)` 列出 web 有但 app 没有的代码
+  2. **修 mobile 端代码**: 跟 web 端 1:1 同步 (状态机 4 态 / API 端点 / UI 文案 / 错误处理)
+  3. **跑 mobile tsc + APK rebuild**: `cd apps/mobile && npx tsc --noEmit && gradlew assembleRelease` (5 min 增量编译)
+  4. **aapt2 验 versionName**: `aapt2 dump badging app-release.apk` 验 `versionName` 跟 `version.ts` 一致
+  5. **scp APK + bump server**: 上传 `https://ab.maque.uno/app/DeepScript_v<X.Y.Z>.apk` + 同步 server `package.json`/`.env` 9 项版本号
+- **真实案例 (S72 batch 7)**: BUG-092/094/095/096 全部 web 端修, mobile 端漏 3 BUG (缺"我已付款"按钮 / admin 默认查 pending / React 0 渲染陷阱), user 反馈"APP 没按钮"才被发现. 同样 BUG-088/089/090 S72 batch 6 修 mobile 端, 当时 user 还说"主盯 web, 安卓暂不动", 但实际 BUG-088 mobile Dialog / BUG-089 polling race 都在 mobile 端修过
+- **配套**:
+  - `apps/mobile/AGENTS.md` 删 "主盯 web, 安卓暂不动" 旧原则 (S72 batch 7)
+  - `HANDOVER.md` § 0 + § A + § E 3 处旧原则删 (S72 batch 7)
+  - `tools/verify-deploy.sh` 加维度 24: `grep '<web 关键改动关键字>' apps/mobile/src` 必 ≥1 命中 (BUG-092 配套: `notifyRechargePaidApi` / `我已付款` / `STAGE_TEXT` 4 态)
+  - `BUGS_INDEX.md` § 4 Top 19+: **Web 主导, APP 跟随, 必同步** (跨项目通用 UX 原则)
+  - `STANDARDS_EVOLUTION.md` § 7.5 规范自迭代
+  - mavis memory: `Web 主导 APP 跟随 (跨项目通用, 改 web 必同步 app, 列入项目规范)` (S72 batch 7 沉淀)
+- **跨项目通用**: 任何 web + mobile + 小程序 + 多端项目, 主端改功能必同步所有端, 必跑 5 步 + 维度 24 自检. 常见踩坑: 改了 web 忘了 mobile / 改了 web mobile 漏状态机 1 态 / 改了 web mobile 漏 API 端点 / 改了 web mobile 漏防御渲染 / 改了 web mobile 漏状态文案. **任意一端漏 = 用户撞 BUG**
+
 ### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082 + S72 batch 6 BUG-090** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
@@ -371,5 +389,5 @@
 ---
 
 > **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参与 shipin-APP 项目时必须遵守.
-> **最后更新**: 2026-06-26 (S72 batch 6 收口 v2.10, 跨端铁律 3 扩 8→9 项 + changelog scp 必备, 铁律 5 验证扩 22 维 + 待 S73 升 25 维, 铁律 7 增 BUG-090 案例, 必读表增 BUGS_INDEX v1.5 引用)
+> **最后更新**: 2026-06-26 (S72 batch 7 v2.11, 跨端铁律 4++ 新增 (Web 主导, APP 跟随, 必同步) + 删 3 处 "主盯 web, 安卓暂不动" 旧原则, 配套 verify-deploy.sh 升 23 维 + 新增维度 24 mobile 端同步自检, 联动更新 BUGS_INDEX v2.1)
 > **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时

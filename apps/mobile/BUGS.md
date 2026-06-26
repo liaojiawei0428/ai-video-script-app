@@ -2573,7 +2573,7 @@ GET /api/video-agent/conversations/aa88d219-686d-4459-b01b-09e31a7b4159
 - [x] `apps/server/src/services/agnesImageProvider.ts` 类似 queryStatus 错误也归一 (同 BUG-082 风险, 预防性) — **已确认不适用**: agnesImageProvider 同步返回 image URL (3 次重试), 错误走 `throw new Error('Agnes API 错误 (${status}): ${text}')` 已是 string, 没 queryStatus 状态轮询路径, BUG-082 风险不存在
 - [x] 跨端 AGENTS.md § 4 铁律 8 加"server 写持久化 JSON 必 string 归一" — **已在 f92cc19 (S71 BUG-082 commit) 加**: § 4 铁律 8 🔌 server 写持久化 JSON 必 string 归一, 含 5 种输入归一
 - [x] verify-deploy.sh 加维度 19: BUG-082 TODO P2 agnesVideoProvider provider 层归一防呆 — **已加**: grep `dist/services/agnesVideoProvider.js` 含 `extractErrorMessage`, 0 命中即 FAIL (未来 AI 误删 import 即失败)
-- [ ] mobile 端 AgentChatPanel.tsx (有类似 case 'error' 渲染吗?) 同步防御性渲染 (防 BUG-082 mobile 版) — **保留 TODO**: user 主盯 web 端, 安卓端暂不动; 移动端 react-native fetch 也可能撞同类问题, 等 web 端稳定后做
+- [x] mobile 端 AgentChatPanel.tsx (有类似 case 'error' 渲染吗?) 同步防御性渲染 (防 BUG-082 mobile 版) — **🆕 规范反转 (S72 batch 7 2026-06-26)**: Web 主导, APP 跟随. 此条 TODO 跟 S72 batch 7 5 BUG (092/094/095/096) 一起下次 mobile commit 同步修, 列入 AGENTS.md § 4 铁律 4++ 跨项目通用规范
 
 ### 引用 (跨文档)
 

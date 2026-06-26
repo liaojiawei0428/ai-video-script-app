@@ -31,6 +31,7 @@
 - **依赖 server**:
   - `apps/server/` (shipin-APP prod)
   - `apps/web/` (web 端, 镜像 mobile UI)
+- **🆕 S72 batch 7 规范反转 (2026-06-26)**: **Web 主导, APP 跟随** (跟之前 "主盯 web, 安卓暂不动" 旧原则反转). 改 web 端任意功能/UI/状态机/接口后, 必同步 app 端. 详见根 `AGENTS.md` § 4 铁律 4++ 跨项目通用 UX 原则 + 5 步同步 SOP
 
 ## § 2. 改 mobile 代码前 5 步必做
 
@@ -101,5 +102,5 @@
 
 **🆕 S68 收口 + S71 后置**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md). S71 后加铁律 4+ / 8 / 3-8 处, **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律, 跟 server 视角统一**.
 
-> **最后更新**: 2026-06-25 (S71 后置 v1.2, 加铁律 4+ / 8 / 3-8 处, 跟根 AGENTS.md 同步)
+> **最后更新**: 2026-06-26 (S72 batch 7 v1.3, 加铁律 4++ (Web 主导, APP 跟随) + 删 "主盯 web, 安卓暂不动" 旧原则, 跟根 AGENTS.md v2.11 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时

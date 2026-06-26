@@ -237,6 +237,7 @@
 16. **🆕 admin 端点 default 必是"待审核"不是"全部未付款" (BUG-094, 跨项目通用)** — admin 默认查 'pending' 看起来直观但是反模式 (用户充值后没点已付款的订单全进后台 = noise). 修法: admin 看板 default 查 'user_notified' (用户已通知的待审核), 'pending' 只 audit 看不默认; server 端硬过滤 (跟 BUG-080 跨 user 数据泄漏教训一致), 防前端 query 绕过
 17. **🆕 状态机迁移必同步 5 处 (BUG-081→095 升级 4→5, 加 DB schema, 跨项目通用)** — server 字段 + model method + response handler + 客户端 UI 渲染 + **DB schema (enum/type 必同步)**. 修法: 状态机迁移前必 grep 5 处一致; DB schema 改必立即 SQL ALTER + db.ts CREATE 同步 + ALTER 兼容老库 logger.warn + server restart (pool reload). 部署 ALTER 必立即跑, 不依赖 initTables. 配套: server pool enum 跟 DB schema 强一致, schema 改必 `systemctl restart service` (mysql2 prepared statement cache)
 18. **🆕 JSX `{0}` 渲染陷阱 (BUG-082/096 配套前端侧, 跨项目通用)** — `{x && y}` 当 x=0 时短路返 0, React JSX `{0}` 渲染 "0" 字符串 (跟 null/undefined/false 不渲染不同). 修法: 删 `x &&` 第一个短路条件 + 改 `&& (X)` 为 `? (X) : null` 显式三目; 配套 BUG-082 (server 持久化 JSON 必 string 归一, 后端侧). 任何 0 数值字段渲染前必显式 boolean cast (>0 / Boolean / !==0) 包裹. lint 工具加 `@typescript-eslint/no-unnecessary-condition`
+19. **🆕 Web 主导, APP 跟随, 必同步 (铁律 4++, 跨项目通用 UX 原则)** — 改 web 端任意功能/UI/状态机/接口后, 必同步 app 端, 跑 5 步 SOP: 1) 评估 mobile 端漏修清单 (grep diff) 2) 修 mobile 端代码 3) tsc + APK rebuild 4) aapt2 dump badging 5) scp APK + bump server 9 项版本号. 真实案例: S72 batch 7 BUG-092/094/095/096 全部 web 端修, mobile 端漏 3 BUG. 配套: AGENTS.md § 4 铁律 4++ + verify-deploy.sh 维度 24 mobile 端同步自检 (grep "我已付款" / "notifyRechargePaidApi" / "user_notified" 必 ≥1 命中). 反 shipin-APP 之前 "主盯 web, 安卓暂不动" 旧原则 (S72 batch 7 2026-06-26 规范反转)
 
 ## § 4.5 宝塔部署踩坑 Top 5 (S70 BUG-077 总结, 任何 AI 必看)
 
@@ -307,6 +308,6 @@
 
 ---
 
-**最后更新**: 2026-06-26 (S72 batch 7 v2.0, 加 BUG-095 ALTER status enum 漏 + BUG-096 React {0} 渲染陷阱, § 4 Top 16 扩 18, § 2 关键字加 enum/React/0 渲染/JSX/server pool)
+**最后更新**: 2026-06-26 (S72 batch 7 v2.1, 加铁律 4++ Web 主导 APP 跟随 (规范反转 2026-06-26, 删 3 处 "主盯 web, 安卓暂不动" 旧原则), § 4 Top 18 扩 19, § 2 关键字加 Web 主导/APP 跟随/同步)
 **下次 review**: S72 收尾时, 必查 Top 12 + 速览表是否需更新
 **维护者**: 任何 session 收尾 AI (不限于 S70/S71/...)
