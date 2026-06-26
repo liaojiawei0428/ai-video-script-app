@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ActivityIndicator, Linking, Platform } from 'react-native';
 import RNFS from 'react-native-fs';
-import { submitRecharge, getRechargeHistory } from '../api/client';
+import { submitRecharge, getRechargeHistory, notifyRechargePaid } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { API_BASE_URL } from '../config';
 import { colors, spacing, radii, typography } from '../theme';
@@ -9,6 +9,9 @@ import { colors, spacing, radii, typography } from '../theme';
 export function RechargeScreen({ route, navigation }: any): React.JSX.Element {
   const amount = route.params?.amount || 10;
   const [submitting, setSubmitting] = useState(false);
+  const [notifying, setNotifying] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState('');
+  const [currentStatus, setCurrentStatus] = useState<'pending' | 'user_notified' | 'approved' | 'rejected'>('pending');
   const [records, setRecords] = useState<any[]>([]);
   const { isLoggedIn } = useNovelStore();
   const qrImageUrl = `${API_BASE_URL}/recharge/qr-image?t=${Date.now()}`;
@@ -26,8 +29,11 @@ export function RechargeScreen({ route, navigation }: any): React.JSX.Element {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      await submitRecharge(amount);
-      Alert.alert('已提交', `充值 ¥${amount.toFixed(2)} 申请已提交，管理员确认后余额自动到账。`);
+      const r = await submitRecharge(amount);
+      // v3.0.37 (S72 batch 7 BUG-097): 拆 2 步 — 提交充值 + 用户点"我已付款"通知 admin (跟 web BUG-092 配套, 铁律 4++ 跨项目通用同步)
+      const orderId = r.data?.data?.id || '';
+      setCurrentOrderId(orderId);
+      setCurrentStatus('pending');
       const rh = await getRechargeHistory();
       if (rh.data?.data?.records) setRecords(rh.data.data.records);
     } catch (err: any) {
@@ -36,6 +42,47 @@ export function RechargeScreen({ route, navigation }: any): React.JSX.Element {
       setSubmitting(false);
     }
   };
+
+  // v3.0.37 (S72 batch 7 BUG-097): 用户点"我已付款" — 调 notifyRechargePaid (跟 web BUG-092 配套)
+  const handleNotifyPaid = async () => {
+    if (!currentOrderId) {
+      Alert.alert('提示', '请先提交充值');
+      return;
+    }
+    setNotifying(true);
+    try {
+      await notifyRechargePaid(currentOrderId);
+      setCurrentStatus('user_notified');
+      Alert.alert('已通知', '已通知管理员审核中, 通常 5 分钟内到账');
+    } catch (err: any) {
+      Alert.alert('通知失败', err?.response?.data?.error?.message || '请稍后重试');
+    } finally {
+      setNotifying(false);
+    }
+  };
+
+  // v3.0.37 (S72 batch 7 BUG-097): 5s 轮询订单状态 (跟 BUG-089 教训一致, 只刷 status 不 reload 整个记录)
+  useEffect(() => {
+    if (!currentOrderId || currentStatus !== 'user_notified') return;
+    const timer = setInterval(async () => {
+      try {
+        const r = await getRechargeHistory();
+        const recs = r.data?.data?.records || [];
+        const cur = recs.find((x: any) => x.id === currentOrderId);
+        if (cur && cur.status !== currentStatus) {
+          setCurrentStatus(cur.status as any);
+          if (cur.status === 'approved') {
+            const rh = await getRechargeHistory();
+            if (rh.data?.data?.records) setRecords(rh.data.data.records);
+          } else if (cur.status === 'rejected') {
+            const rh = await getRechargeHistory();
+            if (rh.data?.data?.records) setRecords(rh.data.data.records);
+          }
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [currentOrderId, currentStatus]);
 
   const openAlipay = async () => {
     const supported = await Linking.canOpenURL('alipays://');
@@ -100,9 +147,27 @@ export function RechargeScreen({ route, navigation }: any): React.JSX.Element {
         {submitting ? (
           <ActivityIndicator color={colors.text.inverse} />
         ) : (
-          <Text style={styles.submitText}>我已付款 ¥{amount.toFixed(2)}，提交审核</Text>
+          <Text style={styles.submitText}>提交充值 ¥{amount.toFixed(2)}</Text>
         )}
       </TouchableOpacity>
+
+      {/* v3.0.37 (S72 batch 7 BUG-097): "我已付款" 按钮 — 修 web 端 BUG-092 同款, 拆 2 步 (提交 + 通知) */}
+      {currentOrderId && currentStatus === 'pending' && (
+        <TouchableOpacity style={styles.notifyBtn} onPress={handleNotifyPaid} disabled={notifying}>
+          {notifying ? (
+            <ActivityIndicator color={colors.text.inverse} />
+          ) : (
+            <Text style={styles.submitText}>✓ 我已付款</Text>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {/* v3.0.37 (S72 batch 7 BUG-097): 4 态 UI 跟 web RechargePage 1:1 对齐 */}
+      {currentOrderId && currentStatus === 'user_notified' && (
+        <View style={styles.notifiedBox}>
+          <Text style={styles.notifiedText}>⏳ 已通知管理员审核中... 请耐心等待 (通常 5 分钟内到账)</Text>
+        </View>
+      )}
 
       {records.length > 0 && (
         <View style={styles.recordsSection}>
@@ -123,8 +188,10 @@ export function RechargeScreen({ route, navigation }: any): React.JSX.Element {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  // v3.0.37 (S72 batch 7 BUG-097): 4 态 UI 跟 web RechargePage 1:1 对齐 (user_notified 4 态机)
   const map: Record<string, { label: string; color: string }> = {
-    pending: { label: '待审核', color: '#F97316' },
+    pending: { label: '待支付', color: '#F97316' },
+    user_notified: { label: '待审核', color: '#F59E0B' },
     approved: { label: '已到账', color: '#22C55E' },
     rejected: { label: '已拒绝', color: '#EF4444' },
   };
@@ -158,6 +225,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent, borderRadius: radii.lg,
     padding: spacing.md, alignItems: 'center',
   },
+  // v3.0.37 (S72 batch 7 BUG-097): "我已付款" 按钮 + 审核中提示框
+  notifyBtn: {
+    backgroundColor: '#22C55E', borderRadius: radii.lg,
+    padding: spacing.md, alignItems: 'center', marginTop: spacing.sm,
+  },
+  notifiedBox: {
+    backgroundColor: '#FEF3C7', borderRadius: radii.md,
+    padding: spacing.md, marginTop: spacing.sm,
+    borderWidth: 1, borderColor: '#F59E0B',
+  },
+  notifiedText: { ...typography.body, color: '#92400E', textAlign: 'center' },
   submitText: { ...typography.h3, color: colors.text.inverse },
   recordsSection: { marginTop: spacing.lg },
   recordsTitle: { ...typography.h3, color: colors.text.secondary, marginBottom: spacing.sm },

@@ -12,7 +12,8 @@ export function AdminDashboard(): React.JSX.Element {
   const [tab, setTab] = useState<'dashboard' | 'orders' | 'feedback' | 'users'>('dashboard');
   const [data, setData] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
-  const [orderStatus, setOrderStatus] = useState('pending');
+  // v3.0.37 (S72 batch 7 BUG-097): admin 默认查 'user_notified' 取代 'pending' (跟 web BUG-094 配套, 铁律 4++ 跨项目通用同步)
+  const [orderStatus, setOrderStatus] = useState('user_notified');
   const [loading, setLoading] = useState(true);
   const { logout, setAdmin, clearNovels } = useNovelStore();
 
@@ -185,7 +186,8 @@ export function AdminDashboard(): React.JSX.Element {
       {tab === 'orders' && (
         <View style={{ flex: 1 }}>
           <View style={styles.orderFilters}>
-            {[{ k: 'pending', v: '待审核' }, { k: 'approved', v: '已通过' }, { k: 'rejected', v: '已拒绝' }, { k: 'all', v: '全部' }].map(f => (
+            {/* v3.0.37 (S72 batch 7 BUG-097): 5 tab 跟 web AdminDashboardPage 1:1 对齐 (user_notified/pending audit/all) */}
+            {[{ k: 'user_notified', v: '待审核' }, { k: 'approved', v: '已通过' }, { k: 'rejected', v: '已拒绝' }, { k: 'pending', v: '待支付 (audit)' }, { k: 'all', v: '全部' }].map(f => (
               <TouchableOpacity key={f.k} style={[styles.filter, orderStatus === f.k && styles.filterActive]} onPress={() => loadOrders(f.k)}>
                 <Text style={styles.filterText}>{f.v}</Text>
               </TouchableOpacity>
@@ -200,7 +202,8 @@ export function AdminDashboard(): React.JSX.Element {
                   <Text style={styles.orderUser}>{item.username}</Text>
                   <Text style={styles.orderAmt}>¥{item.amount.toFixed(2)}</Text>
                   <Text style={styles.orderMeta}>{item.ipLocation || item.ip} · {formatTs(item.createdAt)}</Text>
-                  {item.status === 'pending' && (
+                  {/* v3.0.37 (S72 batch 7 BUG-097): admin 操作按钮条件改 'user_notified' (跟 web BUG-094 配套) */}
+                  {item.status === 'user_notified' && (
                     <View style={styles.orderActions}>
                       <TouchableOpacity style={styles.approveBtn} onPress={() => handleApprove(item.id)}>
                         <Text style={styles.approveText}>✓ 确认到账</Text>
@@ -210,7 +213,14 @@ export function AdminDashboard(): React.JSX.Element {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {item.status !== 'pending' && <Text style={styles.orderStatus}>{item.status === 'approved' ? '已到账' : '已拒绝'}</Text>}
+                  {/* v3.0.37 (S72 batch 7 BUG-097): 状态文案 4 态 跟 web 1:1 对齐 (user_notified 显示 "待审核" 区分 pending "待支付") */}
+                  {item.status !== 'pending' && item.status !== 'user_notified' && (
+                    <Text style={styles.orderStatus}>{item.status === 'approved' ? '已到账' : '已拒绝'}</Text>
+                  )}
+                  {/* v3.0.37 (S72 batch 7 BUG-097): user_notified 状态显示 "💬 用户已通知已付款" (跟 web BUG-092 配套) */}
+                  {item.status === 'user_notified' && item.userNotifiedAt && item.userNotifiedAt > 0 ? (
+                    <Text style={styles.orderStatus}>💬 待审核 · {formatTs(item.userNotifiedAt)}</Text>
+                  ) : null}
                 </View>
               </View>
             )}

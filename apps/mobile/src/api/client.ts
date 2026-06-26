@@ -234,6 +234,10 @@ export const getQrCode = () =>
 export const submitRecharge = (amount: number) =>
   apiClient.post('/recharge/submit', { amount });
 
+// v3.0.37 (S72 batch 7 BUG-097): 用户点"我已付款"通知 admin (跟 web BUG-092 配套, 铁律 4++ 跨项目通用同步)
+export const notifyRechargePaid = (id: string) =>
+  apiClient.post(`/recharge/${id}/notify-paid`);
+
 export const getRechargeHistory = () =>
   apiClient.get('/recharge/my');
 
@@ -251,7 +255,8 @@ export const adminLogin = (username: string, password: string) =>
 export const adminDashboard = () =>
   apiClient.get('/admin/dashboard');
 
-export const adminOrders = (status: string = 'pending') =>
+// v3.0.37 (S72 batch 7 BUG-097): admin 默认查 'user_notified' 取代 'pending' (跟 web BUG-094 配套, 铁律 4++ 跨项目通用同步)
+export const adminOrders = (status: string = 'user_notified') =>
   apiClient.get(`/admin/orders?status=${status}`);
 
 export const adminApprove = (id: string) =>
