@@ -709,6 +709,19 @@ rm test.txt
 - **清卡死**: 部署后必跑 `UPDATE video_generations SET status='failed', error_msg='Pre BUG-100 累积' WHERE status='queued' AND created_at<24h`
 - **防呆** (跨项目通用): 卡死任务必同时查 3 处 — `cat /proc/PID/environ` 进程 env + `SELECT status, COUNT(*) FROM task_table GROUP BY status` DB 状态分布 + `tail -50 logs/error.log | grep` server log stderr. 单一查 1 处看不出来 (跟 BUG-079 假报告 100% 同源)
 
+### 8.11 BUG-101: APP 上传小说分析失败 "Cannot read property 'bg' of undefined" (v3.0.38, 2026-06-26)
+
+- **根因**: mobile 端 5 个 `toast.show(msg, '<Ionicons-name>')` 错调用 (UploadScreen + OutlineReviewScreen x 3 + PlotGraphScreen), 误把 cloud-upload/sparkles/checkmark-circle 当 ToastVariant 传, runtime `VARIANT_COLORS['cloud-upload']` = undefined, `v.bg` 抛错. 配套: Toast.tsx 缺防御性 fallback, TS 编译过 (string 兼容) 但 runtime 必抛 (跟 BUG-079 假报告 100% 同源)
+- **修法** (2 步):
+  1. **Fix 1**: `Toast.tsx:152` 改 `VARIANT_COLORS[(config.variant || 'default') as ToastVariant] || VARIANT_COLORS.default` 防御性 fallback (跟 BUG-082 catch 必归一 + BUG-098 SQL params 必归一 同源)
+  2. **Fix 2**: 5 个错调用全改 `'success'` 明确 variant (UploadScreen + 3 OutlineReview + 1 PlotGraph)
+- **教训** (跨项目通用, 跟 BUG-082/098/100/097 同源):
+  1. **Record<Union, T> 索引必带 fallback** (跟 BUG-082 catch 必归一 + BUG-098 SQL params 必归一 同源, 任何严格 union 索引都必带 fallback, 不然传错字面量必抛)
+  2. **TS 编译过 ≠ 运行时正确** (跟 BUG-079 假报告 100% 同源, 必跑端到端验证)
+  3. **mobile 端 5 错调用 1 次修完** (跟 BUG-100 跨项目通用 3 修法 1 批次同源)
+  4. **Ionicons name 跟 enum/union 不通用, 调用前必对齐** (跟 BUG-097 mobile 端漏修小错教训一致, 任何字符串当枚举用都必加 TS 严格 union)
+- **配套工具** (永久化): `apps/server/scripts/verify-bug101.sh` (5 维: fallback 命中 + 0 错调用 + ≥ 5 'success' + /api/version 4 字段 + 公网 APK SHA256)
+
 ---
 
 ## § 9. 工具脚本清单 (永久工具, 跨项目通用)

@@ -4097,3 +4097,72 @@ User 在 BUG-092/094/095/096 部署完成后实测 admin 审核流程, 反馈:
 - [BUG-090 S72 batch 6 deploy.sh changelog.json cp 源](bug-090) — BUG-100 部署后没查 DB 状态分布 (verify-bug100.sh 补)
 - [BUG-095 S72 batch 7 ALTER status enum 漏](bug-095) — BUG-100 状态机迁移必同步 5 处 (DB schema enum 也算)
 - [BUG-098 S72 batch 7 admin approve 抛 500](bug-098) — BUG-100 catch 漏补刀 video_generations 表 100% 同源
+
+
+---
+
+## BUG-101 (S72 batch 8 鍚庣疆 2, 2026-06-26)
+
+**APP 涓婁紶灏忚鍒嗘瀽澶辫触 "Cannot read property 'bg' of undefined"**
+
+### 鐜拌薄
+- 鐢ㄦ埛鍦?mobile 绔?UploadScreen 涓婁紶 TXT 鏂囦欢, 涓婁紶鎴愬姛鍚庡脊"宸叉彁浜? 姝ｅ湪璺宠浆鍒拌繘搴﹂〉..." toast, 绔嬪埢鎶?"Cannot read property 'bg' of undefined"
+- 閿欒鍫嗘爤鎸囧悜 `Toast.tsx` 鐨?`VARIANT_COLORS[config.variant || 'default']` 鎵句笉鍒板搴?variant 鏃?`v.bg` 鎶ラ敊
+- 璺?user 鍙嶈浆"Web 涓诲 APP 璺熼殢"鍘熷垯涓€鑷? BUG-097 mobile 绔悓姝ユ紡淇繖绉嶉殣鎬?浼犻敊 variant" 绫诲皬閿?
+### 鏍瑰洜
+**5 涓?`toast.show(msg, '<Ionicons-name>')` 閿欒皟鐢?*, 璇妸 Ionicons icon name 褰?ToastVariant 浼?
+1. `UploadScreen.tsx:183` 鈥?`toast.show('宸叉彁浜?..', 'cloud-upload')` 鉁?(cloud-upload 涓嶆槸 ToastVariant)
+2. `OutlineReviewScreen.tsx:53` 鈥?`toast.show('澶х翰宸茬敓鎴?, 'sparkles')` 鉁?3. `OutlineReviewScreen.tsx:67` 鈥?`toast.show('宸蹭繚瀛?, 'checkmark-circle')` 鉁?4. `OutlineReviewScreen.tsx:84` 鈥?`toast.show('澶х翰宸茬‘璁?, 'checkmark-done-circle')` 鉁?5. `PlotGraphScreen.tsx:57` 鈥?`toast.show('浜嬩欢鍥捐氨宸茬敓鎴?, 'sparkles')` 鉁?
+**Toast.tsx 缂洪槻寰℃€?fallback**:
+- `VARIANT_COLORS: Record<ToastVariant, ...>` 鏄弗鏍?5 閿?Record
+- `useToast.show(message, variant)` 鎺ュ彛鏄撹鐢?(string, variant 鏄?string 浣嗗疄闄呮槸 union)
+- 褰?variant 涓嶅湪 union 鍐呮椂 `VARIANT_COLORS['cloud-upload']` = undefined, `v.bg` 绔嬪嵆鎶?"Cannot read property 'bg' of undefined"
+- TS 缂栬瘧杩?(string 鍏煎), runtime 閿?(TS 涓ユ牸搴︽病寮€)
+
+### 淇硶 (2 姝?
+
+**Fix 1: Toast.tsx 闃插尽鎬?fallback**
+```ts
+// 淇墠
+const v = VARIANT_COLORS[config.variant || 'default'];
+// 淇悗
+const v = VARIANT_COLORS[(config.variant || 'default') as ToastVariant] || VARIANT_COLORS.default;
+```
+
+**Fix 2: 5 涓敊璋冪敤鍏ㄦ敼**
+- `UploadScreen.tsx:183` `toast.show('宸叉彁浜?..', 'cloud-upload')` 鈫?`toast.show('宸叉彁浜?..', 'success')`
+- `OutlineReviewScreen.tsx:53/67/84` 鍏ㄦ敼 `'success'`
+- `PlotGraphScreen.tsx:57` 鏀?`'success'`
+
+**閰嶅宸ュ叿 (姘镐箙鍖?**:
+- `apps/server/scripts/verify-bug101.sh` (5 缁? Toast fallback 鍛戒腑 + 0 閿欒皟鐢?+ 鈮?5 'success' + /api/version 4 瀛楁 + 鍏綉 APK SHA256)
+- `scripts/api-version-check.py` (PS 5.1 base64 瀹夊叏)
+
+### 鏁欒 (璺ㄩ」鐩€氱敤, 璺?BUG-082/098 鍚屾簮)
+
+1. **toast.show 2 鍙傛帴鍙ｆ槗璇敤, 蹇呭姞闃插尽鎬?fallback** (璺?BUG-082 catch 蹇呭綊涓€ + BUG-098 SQL params 蹇呭綊涓€ 鍚屾簮)
+2. **Record<Union, T> 蹇呭姞 || {default}** (璺?BUG-082 閰嶅, 浠讳綍涓ユ牸 union 绱㈠紩閮藉繀甯?fallback, 涓嶇劧浼犻敊瀛楅潰閲忓繀鎶?
+3. **Ionicons name 璺?enum/union 涓嶉€氱敤, 璋冪敤鍓嶅繀瀵归綈** (璺?BUG-097 mobile 绔紡淇皬閿欐暀璁竴鑷? 浠讳綍瀛楃涓插綋鏋氫妇鐢ㄩ兘蹇呭姞 TS 涓ユ牸 union)
+4. **TS 缂栬瘧杩?鈮?杩愯鏃舵纭?* (璺?BUG-079 鍋囨姤鍛?100% 鍚屾簮, 蹇呰窇绔埌绔獙璇?
+5. **mobile 绔?5 閿欒皟鐢?1 娆′慨瀹?* (璺?BUG-100 璺ㄩ」鐩€氱敤 3 淇硶 1 鎵规鍚屾簮)
+
+### Refs
+
+- `AGENTS.md` 搂 4 閾佸緥 4++ (Web 涓诲 APP 璺熼殢, 蹇呭悓姝? 5 姝?SOP)
+- `apps/mobile/AGENTS.md` 搂 5 (璺ㄧ閾佸緥 4+ 鐘舵€佹満杩佺Щ蹇呭悓姝? 璺?BUG-101 ToastVariant union 婕忔敼 100% 鍚屾簮)
+- `apps/mobile/src/components/Toast.tsx` line 151-152 (VARIANT_COLORS 闃插尽 fallback)
+- `docs/DEPLOY_RELEASE_FLOW.md` 搂 8.11 (BUG-101 瀹屾暣娈?
+- mavis memory: `toast.show 2 鍙傛帴鍙ｆ槗璇敤, 蹇呭姞闃插尽鎬?fallback (璺ㄩ」鐩€氱敤, 璺?BUG-082 catch 褰掍竴 + BUG-098 SQL params 褰掍竴 鍚屾簮)` (鏈?session 娌夋穩)
+- mavis memory: `Record<Union, T> 蹇呭姞 || {default}, 浠讳綍涓ユ牸 union 绱㈠紩閮藉繀甯?fallback, 涓嶇劧浼犻敊瀛楅潰閲忓繀鎶?(璺ㄩ」鐩€氱敤)` (鏈?session 娌夋穩)
+- [BUG-082 S71 鍚庣疆 server 鍐欐寔涔呭寲 JSON 蹇?string 褰掍竴](bug-082) 鈥?100% 鍚屾簮: BUG-082 catch 蹇呭綊涓€, BUG-101 toast variant 蹇?fallback
+- [BUG-097 S72 batch 7 mobile 绔悓姝?web 绔?3 BUG](bug-097) 鈥?100% 鍚屾簮: BUG-097 mobile 绔紡淇皬閿?(3 BUG), BUG-101 mobile 绔紡淇?ToastVariant 閿欑敤 (5 閿欒皟鐢?
+- [BUG-098 S72 batch 7 admin approve 鎶?500](bug-098) 鈥?閰嶅: BUG-098 SQL params 蹇呭綊涓€, BUG-101 toast variant 蹇?fallback
+- [BUG-100 S72 batch 8 69 video_generations 鍗?queued 17 澶(bug-100) 鈥?閰嶅: BUG-100 mobile 绔紡淇?5 fix 涓€鍙戠増, BUG-101 mobile 绔紡淇?5 toast 閿欒皟鐢ㄤ竴鍙戠増 (1 鎵规 5 淇硶鍘熷垯)
+
+### 鍓嶇疆 BUG (璺ㄩ」鐩€氱敤: 闅愭€у瓧绗︿覆 enum 閿欑敤绫?
+
+- [BUG-082 S71 鍚庣疆 server 鍐欐寔涔呭寲 JSON 蹇?string 褰掍竴](bug-082) 鈥?BUG-101 catch 蹇呭綊涓€ 100% 鍚屾簮
+- [BUG-097 S72 batch 7 mobile 绔悓姝?web 绔?3 BUG](bug-097) 鈥?BUG-101 mobile 绔殣鎬ч敊鐢?5 璋冪敤 100% 鍚屾簮
+- [BUG-098 S72 batch 7 admin approve 鎶?500](bug-098) 鈥?BUG-101 toast variant 蹇呭綊涓€ 100% 鍚屾簮
+- [BUG-100 S72 batch 8 69 video_generations 鍗?queued 17 澶(bug-100) 鈥?BUG-101 mobile 绔?5 淇硶涓€鎵规 1:1 闀滃儚
+
