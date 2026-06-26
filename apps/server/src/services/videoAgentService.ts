@@ -400,7 +400,19 @@ export class VideoAgentService {
     try {
       const conv = await videoConversationModel.findById(conversationId);
       if (!conv) throw new Error('会话不存在');
-      if (conv.status !== 'plan_ready') throw new Error(`状态 ${conv.status} 不可确认, 需 plan_ready`);
+      // v3.0.37 BUG-100: 状态机迁移 — 允许 tool_completed 状态重 confirm (用户点 "再生" 同 plan)
+      //   之前: 任何 != 'plan_ready' 都 throw, 旧会话卡 tool_completed (BUG-081 状态机迁移漏 1) 时用户无法再生
+      //   修法: tool_completed 视作 "再生" (re-generate), 跳过 status check, 走完整 confirm 流程 (扣费 + 重置 retry_count + 状态回 tool_queued)
+      //   配套: BUG-081 教训 "状态机迁移必同步 4 处" 升级到 "5 处" (server 字段 + model method + response + UI + DB schema enum)
+      //   风险: 重复 confirm 会被 videoBackgroundLocks 拦 (line 393 上方), 不会并发执行; 扣费是按 confirm 次数, 用户自己负责
+      if (conv.status !== 'plan_ready' && conv.status !== 'tool_completed') {
+        throw new Error(`状态 ${conv.status} 不可确认, 需 plan_ready 或 tool_completed`);
+      }
+      if (conv.status === 'tool_completed') {
+        logger.info('VideoAgent: re-confirm from tool_completed (re-generate same plan)', {
+          conversationId, lastResultUrl: conv.last_result_url,
+        });
+      }
 
       const plan = parsePlan(conv.plan);
       if (!plan || !plan.prompt) throw new Error('会话无 plan');
@@ -547,6 +559,32 @@ export class VideoAgentService {
         error_msg: safeFriendlyMsg,
         messages: failMessages as any,
       } as any);
+      // v3.0.37 BUG-100: 必更新 video_generations 表标 failed (防 69 任务卡 queued, 累积 17 天)
+      //   历史: 旧修法只回滚 video_conversations, video_generations 行永远卡 'queued' 状态
+      //   根因: catch 块没"补刀"video_generations (跟 BUG-098 admin approve 同源: 单路径修法不彻底)
+      //   修法: queryOne 找该 conversation 最新一条 video_generations row, UPDATE status='failed' + error_msg
+      //   配套: 清旧数据 SQL 在 deploy-bug100.sh 跑 (跟铁律 4 跨端同步配套, 跟 BUG-095 DB schema enum ALTER 同源)
+      try {
+        const { queryOne } = await import('../models/db');
+        const genRow = await queryOne<any>(
+          `SELECT id FROM video_generations WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
+          [conversationId]
+        );
+        if (genRow?.id) {
+          await videoGenerationModel.update(genRow.id, {
+            status: 'failed',
+            error_msg: safeFriendlyMsg.slice(0, 200),
+          } as any);
+          logger.info('VideoAgent: video_generations marked failed (createTask catch)', {
+            conversationId, genId: genRow.id, errorMsg: safeFriendlyMsg.slice(0, 80),
+          });
+        }
+      } catch (genErr) {
+        // 视频生成审计表写失败不阻断主流程, 仅 warn
+        logger.warn('VideoAgent: video_generations.markFailed failed (non-fatal)', {
+          conversationId, error: (genErr as Error).message,
+        });
+      }
       return;
     }
 
@@ -574,6 +612,27 @@ export class VideoAgentService {
         plan: originalPlan as any,
         error_msg: (err as Error).message,
       } as any);
+      // v3.0.37 BUG-100: 必更新 video_generations 表标 failed (跟 createTask catch 配套, 同样 69 卡死根因)
+      try {
+        const { queryOne } = await import('../models/db');
+        const genRow = await queryOne<any>(
+          `SELECT id FROM video_generations WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
+          [conversationId]
+        );
+        if (genRow?.id) {
+          await videoGenerationModel.update(genRow.id, {
+            status: 'failed',
+            error_msg: `persist taskId/videoId 失败: ${(err as Error).message}`.slice(0, 200),
+          } as any);
+          logger.info('VideoAgent: video_generations marked failed (persist catch)', {
+            conversationId, genId: genRow.id,
+          });
+        }
+      } catch (genErr) {
+        logger.warn('VideoAgent: video_generations.markFailed failed (non-fatal, persist catch)', {
+          conversationId, error: (genErr as Error).message,
+        });
+      }
       return;
     }
 
