@@ -3112,3 +3112,90 @@ if (status === 'tool_completed') {
 ### 前置 BUG (同 batch 5/6 联动)
 - [BUG-050 S60 P3 重设计 race condition](../apps/mobile/BUGS.md) — userInitiated 引入者, 当时只考虑"用户主动新建/删除"
 - [BUG-088 S72 batch 6 删除弹窗遮挡](../apps/mobile/BUGS.md) — 同 batch 一起修
+
+## BUG-090 (S72 batch 6 v3.0.36, 2026-06-26 09:50): deploy.sh 部署后 changelog.json 还是老版本 (cp 源是生产目录不是 /tmp/ 源)
+
+### 现象 (用户视角)
+1. 升 v3.0.36 后 curl https://ab.maque.uno/api/version
+2. 返回 `changelog: "本次更新优化性能，修复已知问题"` + `highlights: []` + `buildDate: "1970-01-01"`
+3. **新版本 changelog 5 条要点全部丢失**, APP 端用户看不到本次更新内容
+4. 用户体验: 弹"发现新版本" 但 changelog 是占位符文案
+
+### 真凶 (代码层根因)
+**deploy.sh 第 6 步 cp changelog.json 时, 源是 `${DIST_DIR}/changelog.json` (生产目录, 已是老版本) 而不是新版本**:
+
+```bash
+# apps/server/deploy.sh (改之前 line 186-187)
+if [ -f "${DIST_DIR}/changelog.json" ]; then
+  cp -f ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json  # ❌ 源是生产, 已是老版本
+  echo "    ✓ changelog.json -> dist/changelog.json (S72 batch 4 修)"
+fi
+```
+
+**灾难链**:
+```
+本机 scp apps/server/dist.tar.gz -> /tmp/dist.tar.gz
+本机 scp apps/server/package.json -> /tmp/package.json (deploy.sh 读 version)
+本机没 scp apps/server/changelog.json -> /tmp/changelog.json
+deploy.sh 跑:
+  tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist    # 解压新 dist (含 tsc 输出)
+  if [ -f "${DIST_DIR}/changelog.json" ]; then      # ⚠️ 检查的是生产目录, 不是 /tmp/
+    cp -f ${DIST_DIR}/changelog.json ...             # ⚠️ cp 老版本覆盖新版本
+  fi
+  systemctl restart shipin-app
+curl /api/version -> 读 dist/changelog.json -> 拿到老版本 changelog
+```
+
+**根因**: deploy.sh 设计时假设 `${DIST_DIR}/changelog.json` 是新版本, 但实际生产目录的 changelog.json 是上一次部署留下的旧版本, **每次部署都被旧版本覆盖新版本**, changelog 永远滞后 1 个版本。
+
+### 修复 (2 处)
+
+#### Fix 1: deploy.sh 优先 /tmp/changelog.json
+```bash
+# apps/server/deploy.sh (改之后)
+if [ -f "/tmp/changelog.json" ]; then
+  cp -f /tmp/changelog.json ${DIST_DIR}/dist/changelog.json
+  cp -f /tmp/changelog.json ${DIST_DIR}/changelog.json
+  echo "    ✓ changelog.json -> dist/changelog.json (从 /tmp/ 源, v3.0.36 修)"
+elif [ -f "${DIST_DIR}/changelog.json" ]; then
+  cp -f ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json
+  echo "    ⚠️ changelog.json -> dist/changelog.json (从生产 fallback, 可能是旧版本, 部署前必 scp /tmp/changelog.json)"
+fi
+```
+
+#### Fix 2: 部署 SOP 加 scp changelog.json
+未来 AI 部署时, scp 命令模板加一条:
+```bash
+scp -i <key> apps/server/dist.tar.gz      root@<host>:/tmp/dist.tar.gz
+scp -i <key> apps/server/package.json    root@<host>:/tmp/package.json
+scp -i <key> apps/server/changelog.json  root@<host>:/tmp/changelog.json  # 🆕 v3.0.36
+```
+
+### 怎么验证修好 (3 维)
+
+1. **本机 scp changelog.json 后**, deploy.sh 优先 /tmp/changelog.json
+   - 期望: `✓ changelog.json -> dist/changelog.json (从 /tmp/ 源, v3.0.36 修)`
+   - 实测: ? 待下次部署验证
+
+2. **curl /api/version** (v3.0.36 部署后实测):
+   - 期望: `changelog: "BUG-088 + BUG-089 修法 (删除会话弹窗遮挡 + 生成成功 race condition)"`, `highlights: [5 条]`, `buildDate: "2026-06-26"`
+   - 实测: ? v3.0.36 部署后修过一次 (手动 scp changelog + 重启), 真实显示 5 条 highlights
+
+3. **fallback 测试**: 不 scp /tmp/changelog.json, 看 deploy.sh 是否 fallback 警告
+   - 期望: `⚠️ changelog.json -> dist/changelog.json (从生产 fallback, 可能是旧版本, 部署前必 scp /tmp/changelog.json)`
+   - 实测: ? 待测试
+
+### 怎么避免再犯 (跨项目通用原则)
+
+1. **deploy.sh 的所有 cp 源都用 /tmp/ 而非生产目录** — 跨项目通用, 生产目录永远是上一版本
+2. **部署 SOP 必加完整 scp 清单** — dist.tar.gz + package.json + changelog.json, 任何遗漏都会丢东西
+3. **部署后 12 维验证必查 /api/version 的 changelog 字段** — 不只看 version, 还要看 changelog/highlights/buildDate 是不是新版本
+
+### Refs
+- AGENTS.md § 4 跨端铁律 5 (12 维验证) — 部署后 12 维全过包含 /api/version, 但只看 version 不看 changelog 字段
+- BUGS.md BUG-073 (S54 1-行 minified 部署踩 8h) — 同类教训: 部署前不验证 dist 完整性, 部署后才发现
+- BUGS.md BUG-079 (S71 server dist 没部署) — 同类教训: 部署链断了一环, 12 维验证没查出来
+
+### 前置 BUG (同 batch 5/6 联动)
+- [BUG-088 S72 batch 6 删除弹窗遮挡](../apps/mobile/BUGS.md) — 同 batch 6 修
+- [BUG-089 S72 batch 6 生成成功 race condition](../apps/mobile/BUGS.md) — 同 batch 6 修

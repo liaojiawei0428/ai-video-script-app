@@ -183,9 +183,16 @@ echo "    ✓ 解压完成到 ${DIST_DIR}/dist"
 
 # S72 v3.0.33 batch 4 修复: cp changelog.json dist/changelog.json (S64 起必加, tsc 不复制 json)
 # 之前漏加, shipin-app 读 dist/changelog.json (readChangelog 优先级, S72 修) 找不到, fallback 到根 changelog.json (老版本)
-if [ -f "${DIST_DIR}/changelog.json" ]; then
+# 🆕 v3.0.36 (S72 batch 6) BUG-088/089 修复: 优先用 /tmp/changelog.json (本机 scp 过来的新版本)
+#   之前从 ${DIST_DIR}/changelog.json (生产目录, 已是老版本) cp, 导致新版本 changelog.json 丢失
+#   部署 SOP 必加: scp -i key apps/server/changelog.json root@<host>:/tmp/changelog.json
+if [ -f "/tmp/changelog.json" ]; then
+  cp -f /tmp/changelog.json ${DIST_DIR}/dist/changelog.json
+  cp -f /tmp/changelog.json ${DIST_DIR}/changelog.json
+  echo "    ✓ changelog.json -> dist/changelog.json (从 /tmp/ 源, v3.0.36 修)"
+elif [ -f "${DIST_DIR}/changelog.json" ]; then
   cp -f ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json
-  echo "    ✓ changelog.json -> dist/changelog.json (S72 batch 4 修)"
+  echo "    ⚠️ changelog.json -> dist/changelog.json (从生产 fallback, 可能是旧版本, 部署前必 scp /tmp/changelog.json)"
 else
   echo "    ⚠️ changelog.json 不在 ${DIST_DIR}/, 跳过 (本地先 scp)"
 fi
