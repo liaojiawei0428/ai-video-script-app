@@ -82,3 +82,9 @@ codegraph/
 /WEB_DEPLOY_STEPS.md
 /yavg.txt
 /login-body.json
+
+# === S72 batch 6 清理 (2026-06-26) ===
+# NUL: Windows reserved name, 物理不存在但 git 误报 untracked
+/NUL
+# deploy.sh.original: S72 batch 4 损坏版 backup, 保留文件但不进 git
+apps/server/deploy.sh.original
