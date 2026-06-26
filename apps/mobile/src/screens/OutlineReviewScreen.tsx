@@ -50,7 +50,7 @@ export function OutlineReviewScreen(): React.JSX.Element {
       const res = await generateOutline(novelId);
       setOutline(res.data.data);
       setDirty(false);
-      toast.show('大纲已生成', 'sparkles');
+      toast.show('大纲已生成', 'success');  // v3.0.37 BUG-101: 之前传 'sparkles' (Ionicons name) 当 ToastVariant, runtime 报 'bg' of undefined
     } catch (e: any) {
       Alert.alert('生成失败', e?.response?.data?.error?.message || e?.message || '请稍后重试');
     } finally {
@@ -64,7 +64,7 @@ export function OutlineReviewScreen(): React.JSX.Element {
       const res = await updateOutline(novelId, outline.items);
       setOutline(res.data.data);
       setDirty(false);
-      toast.show('已保存', 'checkmark-circle');
+      toast.show('已保存', 'success');  // v3.0.37 BUG-101: 同上
     } catch (e: any) {
       Alert.alert('保存失败', e?.response?.data?.error?.message || e?.message || '请稍后重试');
     }
@@ -81,7 +81,7 @@ export function OutlineReviewScreen(): React.JSX.Element {
       const res = await confirmOutline(novelId);
       setOutline(res.data.data);
       setDirty(false);
-      toast.show('大纲已确认', 'checkmark-done-circle');
+      toast.show('大纲已确认', 'success');  // v3.0.37 BUG-101: 同上
       setTimeout(() => navigation.goBack(), 600);
     } catch (e: any) {
       Alert.alert('确认失败', e?.response?.data?.error?.message || e?.message || '请稍后重试');

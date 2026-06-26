@@ -252,6 +252,20 @@
         "2 跨项目通用原则沉淀 mavis memory: 'UI 文案必跟代码 1:1 对齐' + '异步流程 UI 必显示完整 4 态'",
         "版本号 8 处同步 3.0.36→3.0.37 (跨端铁律 3): mobile version.ts + android build.gradle (versionCode 41→42) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 41→42 + changelog.json (本条目) + .env + systemd unit"
       ]
+    },
+    {
+      "version": "3.0.38",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-101 修法 (mobile 端 toast.show 5 个错调用, 'bg' of undefined 修复 + Toast.tsx 防御性 fallback)",
+      "highlights": [
+        "BUG-101 修: apps/mobile/src/components/Toast.tsx — VARIANT_COLORS[(config.variant || 'default') as ToastVariant] || VARIANT_COLORS.default 防御性 fallback, 防 'Cannot read property bg of undefined' 运行时错 (跟 BUG-082 铁律 8 配套, 防御性归一)",
+        "BUG-101 修: apps/mobile/src/screens/UploadScreen.tsx:183 — toast.show('已提交...', 'cloud-upload') 改 'success' (cloud-upload 是 Ionicons name 不是 ToastVariant, 之前 VARIANT_COLORS['cloud-upload'] = undefined 报 bg 错)",
+        "BUG-101 修: apps/mobile/src/screens/OutlineReviewScreen.tsx — 3 处 toast.show(msg, '<ionicons-name>') 改 'success' (sparkles/checkmark-circle/checkmark-done-circle 全是 Ionicons name 错用为 variant)",
+        "BUG-101 修: apps/mobile/src/screens/PlotGraphScreen.tsx:57 — toast.show('事件图谱已生成', 'sparkles') 改 'success' (同上)",
+        "BUG-101 配套: 9 项版本号 3.0.37→3.0.38 (mobile version.ts + android build.gradle versionCode 42→43 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 42→43 + changelog.json + .env + systemd unit)",
+        "BUG-101 配套: 1 跨项目通用原则沉淀 mavis memory: 'toast.show 2 参接口易误用, 必加防御性 fallback' (跟 BUG-082 catch 必归一 + BUG-098 SQL params 必归一 同源)"
+      ]
     }
   ]
 }

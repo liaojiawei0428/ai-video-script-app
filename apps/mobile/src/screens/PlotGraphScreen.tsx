@@ -54,7 +54,7 @@ export function PlotGraphScreen(): React.JSX.Element {
     try {
       const res = await generatePlotGraph(novelId);
       setGraph(res.data.data);
-      toast.show('事件图谱已生成', 'sparkles');
+      toast.show('事件图谱已生成', 'success');  // v3.0.37 BUG-101: 之前传 'sparkles' 当 ToastVariant, runtime 报 'bg' of undefined
     } catch (e: any) {
       Alert.alert('生成失败', e?.response?.data?.error?.message || e?.message || '请稍后重试');
     } finally {

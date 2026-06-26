@@ -180,7 +180,7 @@ export function UploadScreen(): React.JSX.Element {
       }
 
       setTitle('');
-      toast.show('已提交，正在跳转到进度页...', 'cloud-upload');
+      toast.show('已提交，正在跳转到进度页...', 'success');  // v3.0.37 BUG-101: 之前传 'cloud-upload' (Ionicons name) 当 ToastVariant, runtime 报 'bg' of undefined
       setTimeout(() => {
         navigation.navigate('Chat', { novelId, novelTitle: novel.title });
       }, 800);

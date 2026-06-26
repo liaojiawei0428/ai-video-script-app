@@ -148,7 +148,10 @@ export function ToastHost() {
   }, [show]);
 
   if (!config) return null;
-  const v = VARIANT_COLORS[config.variant || 'default'];
+  // v3.0.37 BUG-101: 防御性 fallback — 防止调用方传错 variant (如 Ionicons name 'cloud-upload' / 'sparkles' / 'checkmark-circle')
+  // 修法: 不在 VARIANT_COLORS union 内的 variant 强制 fallback 到 'default', 防 "Cannot read property 'bg' of undefined" 运行时错
+  // 教训: useToast.show(message, variant) 接口易误用, 必加防御层; 调用方 5 处 (OutlineReviewScreen + PlotGraphScreen + UploadScreen) 必改成 toast.success(msg) / toast.info(msg) 等明确 API
+  const v = VARIANT_COLORS[(config.variant || 'default') as ToastVariant] || VARIANT_COLORS.default;
 
   return (
     <Animated.View

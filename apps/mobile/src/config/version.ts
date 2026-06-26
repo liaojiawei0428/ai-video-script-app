@@ -12,7 +12,7 @@
 //   4. commit message 必带版本号 (铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验证 (BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.37';
+export const APP_VERSION = '3.0.38';
 
 // v3.0.36 (S72 batch 6): BUG-088 + BUG-089 修法
 //   - BUG-088: Dialog 组件改用 RN Modal 包装 (历史侧栏遮挡 + 删除不生效)
