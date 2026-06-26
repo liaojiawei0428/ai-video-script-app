@@ -18,6 +18,11 @@ export function RechargePage() {
   const [notifyLoading, setNotifyLoading] = useState(false);
   const [notifiedAt, setNotifiedAt] = useState<number>(0);
 
+  // v3.0.37 (S72 batch 7 BUG-092): 订单状态 4 态文案 (修 BUG-092, 跟状态机 1:1 对齐)
+  const STAGE_TEXT: Record<string, string> = { pending: '待支付', user_notified: '待审核', approved: '已通过', rejected: '已拒绝' };
+  type OrderStage = 'pending' | 'user_notified' | 'approved' | 'rejected' | '';
+  const ORDER_STAGES: OrderStage[] = ['pending', 'user_notified', 'approved', 'rejected'];
+
   useEffect(() => { fetchBalance(); }, [fetchBalance]);
 
   // v3.0.37 (S72 batch 7 BUG-092): 轮询订单状态 (跟 BUG-089 教训一致: polling 完成 alert 关闭后 setTimeout)
@@ -30,7 +35,10 @@ export function RechargePage() {
         const records = r.data?.data?.records || [];
         const cur = records.find((x: any) => x.id === orderId);
         if (cur && cur.status !== orderStatus) {
-          setOrderStatus(cur.status);
+          // v3.0.37 (S72 batch 7 BUG-092): type guard 收紧, server 返未知 status 时不 set (防 S54 BUG-073 同款 cast 警告)
+          if (ORDER_STAGES.includes(cur.status as OrderStage)) {
+            setOrderStatus(cur.status as OrderStage);
+          }
           if (cur.status === 'approved') {
             fetchBalance();
             setOrderMessage(`✅ 充值已到账! 您的余额: ¥${cur.amount}`);
@@ -153,7 +161,7 @@ export function RechargePage() {
           <div className="text-center text-sm text-text-tertiary mb-4">
             订单号: <span className="font-mono text-xs">{orderId}</span>
             <span className="ml-3 inline-block px-2 py-0.5 rounded text-xs bg-bg-tertiary">
-              {{ pending: '待支付', user_notified: '待审核', approved: '已通过', rejected: '已拒绝' }[orderStatus] || '待支付'}
+              {STAGE_TEXT[orderStatus] || '待支付'}
             </span>
           </div>
 
