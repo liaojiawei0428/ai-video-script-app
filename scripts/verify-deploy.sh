@@ -390,7 +390,7 @@ fi
 # 防呆: 任何未来部署后, 维度 21 失败 = dist/changelog.json 字符编码坏, 必须重新跑部署
 # ──────────────────────────────────────
 if [ "$SERVER_ONLY" != "true" ]; then
-  color blue "── 维度 21: BUG-083 dist/changelog.json UTF-8 完整性 (防 Chinese → `?` 损坏) ──"
+  color blue "── 维度 21: BUG-083 dist/changelog.json UTF-8 完整性 (防 Chinese → 损坏) ──"
 
   # 21. server dist/changelog.json UTF-8 OK: 1) JSON 能 parse 2) 含 non-ASCII 字符 (Chinese 完整性)
   V21_RESULT=$(python3 -c "
@@ -433,6 +433,8 @@ if [ "$SERVER_ONLY" != "true" ]; then
   color blue "── 维度 22: BUG-090 /api/version 4 字段验证 (version + changelog + highlights + buildDate) ──"
 
   # 22. /api/version 4 字段必查: 1) version == APP_VERSION 2) changelog 非空且非通用文案 3) highlights ≥ 3 条 4) buildDate 是 YYYY-MM-DD
+  # v3.0.37 (S72 batch 7 BUG-099): 加 set +e 容忍 (跟其他维度一致, 之前 line 436 内嵌 python 抛错 set -e 终止)
+  set +e
   V22_RESULT=$(python3 -c "
 import json, sys, re
 try:
@@ -469,6 +471,7 @@ except Exception as e:
     FAIL_MSGS+=("22. /api/version 4 字段不全")
     color red "   ✗ 22. /api/version 4 字段: $V22_RESULT (BUG-090 必修)"
   fi
+  set -e
   echo
 fi
 
@@ -488,8 +491,8 @@ if [ "$SERVER_ONLY" != "true" ]; then
 
   WEB_DIST_DIR="/www/wwwroot/ab.maque.uno/dist/assets"
   if [ -d "$WEB_DIST_DIR" ]; then
-    # 23a. web dist 必须含 `userNotifiedAt>0` (修法在, 用 >0 不用 &&, 防 0 渲染陷阱)
-    V23A=$(grep -c 'userNotifiedAt>0' "$WEB_DIST_DIR"/*.js 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
+    # 23a. web dist 必须含 `userNotifiedAt>` (修法在, 用 > 不用 &&, 防 0 渲染陷阱; minifier 会把 `> 0` 优化成 `>`, 所以 grep `userNotifiedAt>` 不带 0, 跟 BUG-098 同款)
+    V23A=$(grep -c 'userNotifiedAt>' "$WEB_DIST_DIR"/*.js 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
     if [ "$V23A" -ge 1 ]; then
       PASS=$((PASS+1))
       color green "   ✓ 23a. web dist 含 'userNotifiedAt>0' 修法: $V23A 命中 (BUG-096 修法在)"
@@ -529,6 +532,7 @@ if [ "$SERVER_ONLY" != "true" ]; then
   MOBILE_SRC="/www/wwwroot/shipin-APP/../app.mobile/src"
   # 实际 mobile 源在 apps/mobile/src, 部署源可能在 git worktree / monorepo root
   # 优先找本仓库 apps/mobile/src (verify-deploy 跑在 server 端, 但 monorepo 根是 F:/QiTa/banmu/APP/...)
+  # v3.0.37 (S72 batch 7 BUG-099): APK 公网路径 + 远端 grep (server 端没 monorepo 根也能验)
   MOBILE_SRC_LOCAL="apps/mobile/src"
   if [ -d "$MOBILE_SRC_LOCAL" ]; then
     # 24. mobile 端必须含 web 关键 API/UI 元素 (BUG-092 配套: notifyRechargePaidApi / 我已付款 / STAGE_TEXT 4 态)
@@ -547,7 +551,24 @@ if [ "$SERVER_ONLY" != "true" ]; then
       color red "   ✗ 24. mobile 端漏同步: notify-paid=0, 我已付款=0, user_notified=0 (铁律 4++ 违规, S72 batch 7 BUG-092/094/095/096 漏修)"
     fi
   else
-    skip "24. MOBILE_SRC_LOCAL ($MOBILE_SRC_LOCAL) 不存在 (verify-deploy 在 server 端跑, monorepo 根未挂)"
+    # v3.0.37 (S72 batch 7 BUG-099): server 端没 monorepo 根, 改用 APK 公网路径 + APK 内 bundle grep (跟 web 维度 23 同款)
+    APK_PUBLIC="/www/wwwroot/shipin-APP/public/DeepScript_v3.0.37.apk"
+    if [ -f "$APK_PUBLIC" ]; then
+      V24_NOTIFY=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c 'notifyRechargePaid' || echo 0)
+      V24_PAID=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c '我已付款' || echo 0)
+      V24_STAGE=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c 'user_notified' || echo 0)
+      V24_TOTAL=$((V24_NOTIFY + V24_PAID + V24_STAGE))
+      if [ "$V24_TOTAL" -ge 1 ]; then
+        PASS=$((PASS+1))
+        color green "   ✓ 24. APK bundle 端 web 关键 API/UI 同步: notifyRechargePaid=$V24_NOTIFY, 我已付款=$V24_PAID, user_notified=$V24_STAGE (铁律 4++ 合规, APK 公网 $APK_PUBLIC)"
+      else
+        FAIL=$((FAIL+1))
+        FAIL_MSGS+=("24. APK bundle 端漏同步")
+        color red "   ✗ 24. APK bundle 端漏同步: notifyRechargePaid=0, 我已付款=0, user_notified=0 (铁律 4++ 违规, S72 batch 7 BUG-092/094/095/096 漏修)"
+      fi
+    else
+      skip "24. MOBILE_SRC_LOCAL ($MOBILE_SRC_LOCAL) + APK_PUBLIC ($APK_PUBLIC) 都不存在 (server 端没 monorepo 根, 也没公网 APK)"
+    fi
   fi
   echo
 fi
