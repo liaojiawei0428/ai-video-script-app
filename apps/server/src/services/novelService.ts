@@ -72,6 +72,18 @@ export class NovelService {
    * v2.5.14: 从分析报告中解析角色详细描述 (37 字段格式)
    * 返回值包含完整的 description JSON, 不再只是 appearance/personality 简单字段
    */
+  /**
+   * v3.0.0.40 BUG-105: parseCharactersFromReport 重新设计
+   *
+   * 之前 (v2.5.14): 解析 37 字段固定格式 (身高/体型/脸型/.../关系), 强制 LLM 填不存在的字段
+   *   → 逼 LLM 编造, 跟 user 明确"必须基于剧情内容来描述, 不得乱写"冲突
+   * 现在 (v3.0.0.40): 只解析"角色名 + 身份 + 角色类型 + 阵营" 4 个基础字段
+   *   description 字段留空, 由后续 extractDescriptions (characterDescription.ts 新版 prompt)
+   *   从小说原文 + 全剧摘要生成 Markdown 5 section 自由文本
+   *
+   * 兼容老 37 字段报告 (历史 novel data): 如果发现 37 字段, 仍按老逻辑解析
+   * (容错老数据, 不破坏历史 novel)
+   */
   static parseCharactersFromReport(fullContent: string): Array<{
     name: string; appearance: string; personality: string; roleType: string;
     description: Record<string, any>;
@@ -84,8 +96,22 @@ export class NovelService {
     const parsedChars: Array<{ name: string; appearance: string; personality: string; roleType: string; description: Record<string, any> }> = [];
     if (!roleSection) return parsedChars;
 
-    // 字段映射: 中文标签 → JSON key
-    const fieldMap: Record<string, string> = {
+    // v3.0.0.40 BUG-105: 新格式 "1. 角色名 - 身份 - 角色类型 - 阵营"
+    // 例: "1. 独孤琰 - 北燕公主 - 主角 - 正派"
+    // 例: "2. 宁风 - 北燕太子 - 重要配角 - 正派"
+    // 老 37 字段格式: "1. 角色名 - 身份" 后面接 "   身高:..." 等
+    //
+    // 判定: 看下一行是不是 "   字段名：值" 形式 → 老格式; 否则 → 新格式
+    const newFormatFieldMap: Record<string, string> = {
+      '主角': 'protagonist', '重要配角': 'supporting', '次要配角': 'supporting',
+      '跑龙套': 'minor', '路人': 'minor', '路人甲乙丙丁': 'minor',
+    };
+    const alignmentMap: Record<string, string> = {
+      '正派': '正派', '反派': '反派', '中立': '中立',
+    };
+
+    // 老 37 字段映射 (保留容错, 老 novel data 不会解析失败)
+    const oldFieldMap: Record<string, string> = {
       '类型': 'role_type', '性别': 'gender', '年龄': 'age', '身高': 'height',
       '体型': 'build', '脸型': 'face', '肤色': 'skin',
       '眼睛': 'eyes', '眉毛': 'eyebrows', '鼻子': 'nose', '嘴唇': 'lips',
@@ -101,20 +127,66 @@ export class NovelService {
 
     const lines = roleSection[1].split('\n');
     let currentChar: any = null;
+    // 探测模式: 第一个角色用哪种格式, 后面跟随
+    let detectedFormat: 'new' | 'old' | null = null;
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       // 角色名行: "1. 名字 - 身份" / "1、 名字 -"
+      // v3.0.0.40: 也匹配 "1. 名字 - 身份 - 主角 - 正派" (新格式)
       const nameMatch = line.match(/^\s*\d+[.、\.]\s*([^\s\-–—(（]+)/);
       if (nameMatch) {
         if (currentChar) parsedChars.push(currentChar);
         const name = nameMatch[1].replace(/[）)]$/, '').trim();
-        currentChar = {
-          name, appearance: '', personality: '', roleType: 'supporting',
-          description: { name },
-        };
-      } else if (currentChar) {
-        // 解析每个字段: "   字段名：值"
-        for (const [label, key] of Object.entries(fieldMap)) {
+
+        // v3.0.0.40 BUG-105: 探测格式 — 看下一行是不是老 37 字段
+        // 老格式判定: 下一行形如 "   字段名：值"  (字段名前导空白 + 中文标签 + 冒号)
+        let isOldFormat = false;
+        if (i + 1 < lines.length) {
+          const nextLine = lines[i + 1];
+          for (const label of Object.keys(oldFieldMap)) {
+            if (new RegExp(`^\\s+${label}\\s*[：:]`).test(nextLine)) {
+              isOldFormat = true;
+              break;
+            }
+          }
+        }
+
+        if (detectedFormat === null) {
+          detectedFormat = isOldFormat ? 'old' : 'new';
+        }
+
+        if (detectedFormat === 'new') {
+          // 新格式: "1. 名字 - 身份 - 角色类型 - 阵营"
+          // 解析整行, 用 " - " split
+          const parts = line.split(/\s*-\s*/);
+          const charName = parts[0].replace(/^\s*\d+[.、\.]\s*/, '').trim();
+          const identity = parts[1] || '';
+          const roleTypeZh = parts[2] || '次要配角';
+          const alignmentZh = parts[3] || '中立';
+
+          currentChar = {
+            name: charName,
+            appearance: '',  // 新版不写, 留给 extractDescriptions
+            personality: '',
+            roleType: newFormatFieldMap[roleTypeZh] || 'supporting',
+            description: {
+              name: charName,
+              identity,        // 身份/职业
+              role_type_zh: roleTypeZh,  // 角色类型 (中文, 给新版 characterDescription.ts 参考)
+              alignment: alignmentZh,    // 阵营
+            },
+          };
+        } else {
+          // 老 37 字段格式: 容错, 保留原逻辑
+          currentChar = {
+            name, appearance: '', personality: '', roleType: 'supporting',
+            description: { name },
+          };
+        }
+      } else if (currentChar && detectedFormat === 'old') {
+        // 老 37 字段解析: "   字段名：值"
+        for (const [label, key] of Object.entries(oldFieldMap)) {
           const regex = new RegExp(`^\\s*${label}\\s*[：:]?\\s*(.+)`);
           const match = line.match(regex);
           if (match) {
@@ -141,8 +213,22 @@ export class NovelService {
   }
 
   /**
-   * v2.5.10: 回填 - 从已有 analysis_report 重新解析并创建角色（不重跑 LLM）
-   * 用于修复历史 novel（如 33ca8e0a）的角色库为空问题
+   * v3.0.0.40 BUG-105: backfill-characters 端点
+   *
+   * 修法: 不再依赖 parseCharactersFromReport 老 37 字段 (会逼 LLM 编造)
+   *   改走 characterService.extractDescriptions → characterDescription.ts 新版 prompt
+   *   → 从小说原文 + 全剧摘要生成 Markdown 5 section 自由文本
+   *
+   * 行为:
+   * 1. 从 analysis_report 解析"角色名 + 身份 + 角色类型 + 阵营" 4 基础字段
+   * 2. 跟现有角色对比, 增量创建新角色 (不覆盖老角色)
+   * 3. 调 extractDescriptions 重生成所有角色 description (走 characterDescription.ts 新版)
+   *
+   * 配套端点: POST /api/novels/:novelId/backfill-characters (routes/novels.ts:42)
+   * 配套前端:
+   *   - web: CharacterListPage.tsx 列表页 "重新分析" 按钮
+   *   - mobile: CharacterListScreen.tsx 列表页 "重新分析" 按钮
+   *   - mobile: CharacterDescriptionReviewScreen.tsx 触发 extractCharacterDescriptions
    */
   async backfillCharactersFromReport(novelId: string): Promise<{ created: number; total: number; alreadyExisted: number; descriptionsGenerated: number }> {
     const novel = await novelModel.findById(novelId);
@@ -150,13 +236,14 @@ export class NovelService {
     const report = novel.analysisReport || '';
     if (!report) throw new AppError('NO_ANALYSIS', '小说没有 analysis_report，无法回填', 400);
 
+    // 1. 解析报告 (新格式: 角色名 + 身份 + 角色类型 + 阵营; 老格式 37 字段也容错)
     const parsedChars = NovelService.parseCharactersFromReport(report);
     if (parsedChars.length === 0) {
       logger.warn('backfillCharactersFromReport: 仍未解析到角色', { novelId });
       return { created: 0, total: 0, alreadyExisted: 0, descriptionsGenerated: 0 };
     }
 
-    // 查现有角色，避免重复
+    // 2. 查现有角色，避免重复
     const existing = await characterModel.findByNovelId(novelId);
     const existingNames = new Set(existing.map(c => c.name));
     const toCreate = parsedChars.filter(c => !existingNames.has(c.name));
@@ -168,6 +255,8 @@ export class NovelService {
         name: char.name, aliases: [],
         appearance: char.appearance, personality: char.personality,
         roleType: char.roleType as 'protagonist' | 'antagonist' | 'supporting' | 'minor', relationships: [],
+        // v3.0.0.40 BUG-105: 不再存 37 字段 JSON, description 留空 (extractDescriptions 重生成)
+        description: '',
         createdAt: Date.now(),
       }));
       await characterModel.bulkCreate(characters);
@@ -175,15 +264,15 @@ export class NovelService {
       logger.info('backfillCharactersFromReport: created', { novelId, created });
     }
 
-    // v2.5.14: 同步调用 extractDescriptions, 从小说原文生成详细描述
-    // 之前是 setImmediate 异步, 用户看不到结果
+    // 3. 同步调 extractDescriptions, 走 characterDescription.ts 新版 prompt
+    //   从小说原文 + 全剧摘要生成 Markdown 5 section 自由文本
     let descriptionsGenerated = 0;
     try {
       websocketService.broadcastProgress(novelId, 0, 'character_extracting');
       const { extractDescriptions } = await import('./characterService');
       const descResult = await extractDescriptions(novelId);
       descriptionsGenerated = descResult.succeeded;
-      logger.info('backfillCharactersFromReport: descriptions generated', { novelId, ...descResult });
+      logger.info('backfillCharactersFromReport: descriptions generated (v3.0.0.40 新版 characterDescription.ts)', { novelId, ...descResult });
     } catch (err) {
       logger.warn('backfill extractDescriptions failed', { novelId, error: err instanceof Error ? err.message : String(err) });
     }
@@ -523,10 +612,14 @@ export class NovelService {
       });
     }
 
-    // ========== Phase 4: 角色描述补充 (v2.5.14 — 仅当分析报告未生成详细描述时才调用) ==========
-    // 新版分析 prompt 已在报告中生成 37 字段详细描述, 不需要再单独调 extractDescriptions
-    // 但旧版报告(简单格式)没有详细描述, 需要补充
-    const needsDescExtraction = parsedChars.some(c => !c.description || Object.keys(c.description).length <= 2);
+    // ========== Phase 4: 角色描述生成 (v3.0.0.40 BUG-105 — 永远调新版) ==========
+    // v2.5.14 老版本: 报告里 parse 出 37 字段 description 就不再调 extractDescriptions
+    //   → characterDescription.ts 新版 prompt 永远不跑
+    // v3.0.0.40 新版本: 报告里只列"角色名 + 身份 + 角色类型 + 阵营" 4 个基础字段
+    //   → 永远调 extractDescriptions, 走 characterDescription.ts 新版 prompt
+    //   → 从小说原文 + 全剧摘要生成 Markdown 5 section 自由文本
+    //   → 严禁编造, 丰度梯度按角色标签
+    const needsDescExtraction = true;
 
     if (needsDescExtraction) {
       await taskJobModel.updateProgress(taskId, 90, 3);

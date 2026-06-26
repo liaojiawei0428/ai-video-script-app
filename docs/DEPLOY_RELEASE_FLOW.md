@@ -783,6 +783,33 @@ rm test.txt
 
 ---
 
+### 8.14 BUG-105: 角色分析 prompt 跟 user 需求不一致, 走老 37 字段固定格式 (v3.0.40, 2026-06-26)
+
+- **根因**: 现状 2 个 prompt 文件并存: `apps/server/src/prompts/novelAnalysis.ts` 老版 37 字段 (v2.5.14) + `apps/server/src/prompts/characterDescription.ts` 新版 Markdown 5 section (v3.0.0.30 S50 v2). 但 `apps/server/src/services/novelService.ts` 的 `parseAndSave` 里 `needsDescExtraction = parsedChars.some(c => !c.description || Object.keys(c.description).length <= 2)` 永远 false (老 prompt 必填 37 字段, parsedChars.description 永远 ≥ 2 字段) → 新版 characterDescription.ts 永远不被调用 → 角色分析 100% 走老 37 字段 → 逼 LLM 编造不存在的字段 (例: 路人甲根本没提身高, LLM 编"中等身材" 凑数). 跟 user 明确"现在的新版本的角色分析是根据剧情内容来提取角色形象的, 而不是现在的固定所有角色身高体型等等信息" 冲突
+- **修法** (6 fix 一起发版, v3.0.40):
+  1. **`novelAnalysis.ts` 简化 🎭 角色分析部分**: 从 37 字段固定格式 → 极简 4 基础字段 (角色名 + 身份 + 角色类型 + 阵营), 详细描述完全交给后续 extractDescriptions
+  2. **`novelService.ts parseCharactersFromReport` 重写**: 容错新格式 (只解析 4 基础字段, description 字段留空), 老 37 字段格式也兼容 (探测下一行是不是 "字段名:值" 老格式 → 走老逻辑)
+  3. **`novelService.ts parseAndSave` `needsDescExtraction = true`**: 永远调 extractDescriptions, 让 characterDescription.ts v3.0.0.30 新版 prompt 真正生效 (之前永远不调)
+  4. **`characterSheetPrompt.ts` 重写**: `CharacterSheetData` 删 37 字段 (face/eyes/eyebrows/nose/lips/hair_*/clothing_*/...), 保留 4 字段: name/styleId/visualDescription/gender, `buildEnglishVisualDescription`/`buildChineseVisualDescription` 删 (不用 37 字段拼 visual), `buildPrimaryVisualBlock` 简化用 visualDescription 自由文本
+  5. **`characterService.ts generateImageVariants` 改用 `visualDescription` 字段**: 替代 `prompt_safe_description` (表达更准), 删 `extractDistinctiveFeatures` 函数 (dead code, 之前从 description 文本中找"特征/标志/胎记"段落的逻辑)
+  6. **`novelService.ts backfillCharactersFromReport` 走新版 characterDescription.ts**: 跟 `/api/novels/:novelId/characters/extract` 端点一致 (web `CharacterListPage.tsx` 列表页"重新分析"按钮 + mobile `CharacterListScreen.tsx` 列表页"重新分析"按钮, 已调 `backfillCharactersApi`)
+- **端到端验证** (q378685504 / wuliao login + POST /api/novels/d6449c45-45fc-4ce6-9dad-9036e45701e8/backfill-characters):
+  - ✅ login OK, JWT len 211, balance 247.18 (跟之前 S72 batch 7 E2E 一致)
+  - ✅ backfill 返 200 + `data.descriptionsGenerated: 9` (9 角色全成功, 跟 novel 实际角色数一致)
+  - ✅ 主角 独孤琰 完整 Markdown 5 section: 基本信息/外貌与服装 (含原文引用)/性格与行为/语言风格/标志性特征
+  - ✅ 配角 秋霞 5 section 含原文标注 (第3章/第5章): 善良单纯 + 勇敢护主 + 天真无邪 (例: 陆婕妤寻衅时主动挡在苏蓉蓉面前被兰烟掌掴 第5章)
+  - ✅ 跑龙套 兰烟 60 字 2 句: 陆婕妤的贴身宫女, 约20岁, 虎背熊腰, 方脸黝黑, 铜铃眼凶光, 粗眉厚唇 + 狗仗人势听从陆婕妤命令掌掴秋霞 (第5章), 被苏蓉蓉言语震慑后退缩
+  - ✅ 100% 不再硬凑 37 字段, 跟 user "根据剧情内容来提取角色形象" 100% 一致
+- **教训** (跨项目通用, 跟 BUG-079 假报告 100% 同源):
+  1. **角色分析 prompt 必基于剧情内容, 不限制死字段** (跟 user 明确"必须基于剧情内容来描述, 不得乱写" 一致, 跟 BUG-079 TS 编译过 ≠ 运行时正确 100% 同源: prompt 写得详细 ≠ LLM 输出正确, 实际逼 LLM 编造)
+  2. **角色标签分类 + 丰度梯度**: 主角 800-2000 字 5 section, 重要配角 300-800 字 4 section, 次要配角 80-200 字 1-2 section, 跑龙套 30-60 字 1-2 句, 路人 10-30 字 1 句话 (上限不强制, 小说没提就少写)
+  3. **丰度上限不强制, 宁可少写, 严禁编造** (允许 description < 模板下限, 跟 BUG-103 删自动退款"失败不重试" 同源: 安全优先, 不编造不存在的剧情素材)
+  4. **2 个 prompt 文件并存时, 必查流程判断条件** (跟 BUG-104 server bump 漏 rebuild APK 100% 同源: 部署 SOP 缺一环就崩, `needsDescExtraction` 判断永远 false 让新版 prompt 永远不跑)
+  5. **端到端验证必跑真实 user login + 真实 novel id** (跟 BUG-100 修法 1 必加端到端 100% 同源, 跟 BUG-098 catch 必加二次验证 100% 同源, 跟 BUG-079 假报告 100% 同源)
+- **配套工具** (永久化): `apps/mobile/BUGS.md` BUG-105 完整段 + `docs/BUGS_INDEX.md` 速览表 + Top 24 + `docs/DEPLOY_RELEASE_FLOW.md` § 8.14 (本段) + 1 mavis memory: "角色分析 prompt 必基于剧情内容, 不限制死字段, 严禁编造 (跨项目通用, 跟 BUG-079 TS 编译过 ≠ 运行时正确 100% 同源)"
+
+---
+
 ## § 9. 工具脚本清单 (永久工具, 跨项目通用)
 
 | 路径 | 用途 | 触发时机 |

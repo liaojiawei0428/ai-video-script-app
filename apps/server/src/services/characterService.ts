@@ -448,28 +448,10 @@ function makeFallbackDescription(c: Character): string {
   return `【未匹配到 LLM 输出, 请手动填写】\n\n角色名: ${c.name}\n身份: ${c.roleType || '未知'}\n请基于小说内容为该角色编写描述.`;
 }
 
-/**
- * v2.5.34: 从自由文本中提取"显著特征"段落
- * 匹配 "标志性特征", "显著特征", "胎记", "疤痕", "特殊习惯" 等关键词所在段落
- * 提取出的内容会作为 distinctive_features 注入三视图 prompt
- */
-function extractDistinctiveFeatures(text: string): string {
-  if (!text) return '';
-  // 找包含关键词的段落 (## 标题 或 - 列表项)
-  const patterns = [
-    /#+\s*标志[性]?特征[^\n]*\n([\s\S]*?)(?=\n#|\n---|\n\n\n|$)/i,
-    /#+\s*显著特征[^\n]*\n([\s\S]*?)(?=\n#|\n---|\n\n\n|$)/i,
-    /#+\s*外貌[与和]?服装[^\n]*\n([\s\S]*?)(?=\n#|\n---|\n\n\n|$)/i,
-    /[-*]\s*[^：:]*[胎疤痕][^：:]*[：:][^\n]+/g,
-  ];
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m && m[1]) {
-      return m[1].trim().slice(0, 800);  // v3.0.0.30 (S50): 300 -> 800 字符上限, 更多特征
-    }
-  }
-  return '';
-}
+// v3.0.0.40 BUG-105: 删 extractDistinctiveFeatures (dead code)
+//   之前从 description 文本中抽"显著特征"段落, 拼 distinctive_features 字段注入三视图 prompt
+//   现在 description 整段走 visualDescription 自由文本, 不用单独抽
+//   (跟 user "不要用字段限制, 必须基于剧情内容" 100% 一致)
 
 // ════════════════════════════════════════════════════════════
 //  2. 用户确认 (无扣费)
@@ -565,6 +547,7 @@ export async function generateImageVariants(
   const { buildStyleAnchorPrefix, buildStyleNegativePrompt, buildStyleBibleJsonBlock } = await import('./styleBible');
   // v3.0.0.29 (S49): 翻译中文描述到英文 (保留 trigger 词), 给 agens image model 用
   // v3.0.0.30 (S50): 去掉 slice(0, 1500) 硬截断, DB description 字段 TEXT 够长, 整段翻译保留更多丰度
+  // v3.0.0.40 (BUG-105): 完全用 description 自由文本, 不再按 37 字段拼装
   const { translateCharacterDescriptionToEnglish } = await import('./promptTranslator');
   const translatedVisualText = await translateCharacterDescriptionToEnglish(visualText);
 
@@ -572,20 +555,21 @@ export async function generateImageVariants(
   const novelWithBible = await queryOne<any>('SELECT style_bible FROM novels WHERE id = ?', [char.novelId]);
   const styleBible = novelWithBible?.style_bible ? (typeof novelWithBible.style_bible === 'string' ? JSON.parse(novelWithBible.style_bible) : novelWithBible.style_bible) : null;
 
-  // v2.5.34: 简化 sheetData, 不再按 37 字段切, 直接传整个 description 文本
-  // v3.0.0.29 (S49): prompt_safe_description 用翻译后版本, 让 agens image model 收到 EN trigger 词
+  // v3.0.0.40 BUG-105: 重写 sheetData, 不用 37 字段, 完全用 visualDescription 自由文本
+  // 之前: 37 字段 (face/eyes/eyebrows/nose/lips/hair_*/clothing_*/...) 拼 visual
+  // 现在: 整段 description 自由文本作为 visualDescription, 跟 user "根据剧情内容" 100% 一致
   const sheetData: Record<string, any> = {
     name: char.name,
     styleId,
-    // 主要视觉描述: 中文→英文 翻译后, 给 agens 用 (v3.0.0.30 S50 去硬截断)
-    prompt_safe_description: translatedVisualText || visualText,
+    // 主要视觉描述: 中文→英文 翻译后, 给 agens 用 (v3.0.0.40 BUG-105: 字段名 visualDescription 表达更准)
+    visualDescription: translatedVisualText || visualText,
     // 兜底字段 (从旧格式/字段中提取)
     gender: char.gender || oldDescObj?.gender || '',
-    // 显著特征: 从 description 文本中找"特征/标志/胎记"段落
-    distinctive_features: extractDistinctiveFeatures(rawDesc) || oldDescObj?.distinctive_features || oldDescObj?.signature || '',
+    // v3.0.0.40 BUG-105: 删 distinctive_features 字段 (从 description 文本中找"特征/标志/胎记"段落的逻辑)
+    //   → 整段 description 走 visualDescription, 不再单独抽
   };
 
-  logger.info('character sheet prompt translated', {
+  logger.info('character sheet prompt translated (v3.0.0.40 BUG-105 自由文本)', {
     characterId,
     originalLen: visualText.length,  // v3.0.0.30 (S50): 去 slice 硬截断, 报原始 len
     translatedLen: translatedVisualText.length,
@@ -595,9 +579,9 @@ export async function generateImageVariants(
   const sheetPrompt = buildCharacterSheetPrompt(sheetData as any, styleBible);
   const finalPrompt = sheetPrompt;
 
-  logger.info('generateImageVariants: character sheet prompt', {
+  logger.info('generateImageVariants: character sheet prompt (v3.0.0.40 BUG-105 自由文本)', {
     characterId, name: char.name, promptLen: finalPrompt.length,
-    hasEyes: !!sheetData.eyes, hasFace: !!sheetData.face, hasClothing: !!sheetData.clothing_top,
+    hasVisualDescription: !!sheetData.visualDescription,  // v3.0.0.40: 主要 visual 来源
     hasStyleBible: !!styleBible, styleId: styleBible?.styleId,
   });
 

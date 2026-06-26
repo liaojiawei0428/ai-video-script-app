@@ -1,256 +1,23 @@
 {
-  "_comment": "Deep剧本 APP 版本 changelog 数据源 (S64 规范: 真实条目, 严禁硬编码)",
+  "_comment": "Deep剧本 APP 版本 changelog 数据 (S64 规范: 真实条目, 严禁硬编)",
   "_spec": "VERSION_MANAGEMENT.md § 4",
-  "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条要点)/type (major|minor|patch)",
-  "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (同 version 后 set 覆盖前, 所以同 version 最新条目放数组末尾)",
+  "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
+  "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
-      "version": "1.0.0",
-      "buildDate": "2026-05-21",
-      "type": "major",
-      "summary": "初始发布 - AI 剧本生成 + 书架 + WebSocket 实时通讯",
-      "highlights": [
-        "AI 剧本生成 (基于上传小说分析 → 剧本生成 → 分镜)",
-        "书架管理 (本地缓存, 离线浏览)",
-        "WebSocket 实时通讯 (AI 生成进度推送)",
-        "用户鉴权 (JWT + bcrypt)",
-        "VIP 机制 + 在线充值"
-      ]
-    },
-    {
-      "version": "2.5.0",
-      "buildDate": "2026-05-31",
-      "type": "major",
-      "summary": "v2.5.x 五大新功能落地 (漫画 / 风格圣经 / 系统通知 / 描述修复 / 120 秒约束)",
-      "highlights": [
-        "漫画生成 (v2.5.19) - 多页生成 + 按页计费",
-        "风格圣经 styleBible (v2.5.9/v2.5.13 重构) - 注入所有 prompt",
-        "系统通知 (v2.5.15) - 任务完成/失败/余额不足自动推送",
-        "角色描述字段修复 (v2.5.34-35) - 自由文本 + 双层 JSON 归一化",
-        "镜头 120 秒强约束 (v2.5.33) - retry + auto-scale 兜底"
-      ]
-    },
-    {
-      "version": "2.0.0",
-      "buildDate": "2026-06-04",
-      "type": "major",
-      "summary": "角色一致性三阶段流程 + Web 端全新上线",
-      "highlights": [
-        "角色一致性三阶段流程 (描述→确认→1 张三视图变体图)",
-        "分集大纲确认步骤 (AI 出摘要→用户调整→生成剧本)",
-        "章节事件图谱 plotGraph 注入剧本生成",
-        "5 画风预设系统 (写实/古风水墨/动漫/赛博/3D)",
-        "PDF/Word/Markdown 剧集导出",
-        "Web 端全新上线 (Vite+React 18+TS+Tailwind+shadcn/ui+Zustand)"
-      ]
-    },
-    {
-      "version": "2.5.36",
-      "buildDate": "2026-06-09",
-      "type": "major",
-      "summary": "BUG 集中修复 + web deploy 脚本 + 版本号同步",
-      "highlights": [
-        "10 个 BUG 修复 (episodes/tasks 鉴权 / character double-JSON / WS 进度重置 / 通知路由)",
-        "apps/web/scripts/deploy.sh 新建",
-        "apps/server/package.json 1.0.0 → 2.5.36",
-        "/api/version 默认值 1.0.0 → 2.5.36"
-      ]
-    },
-    {
-      "version": "3.0.0",
-      "buildDate": "2026-06-09",
-      "type": "major",
-      "summary": "v3.0.0 整体升级 - Agent 矩阵 + 状态机重构",
-      "highlights": [
-        "v3.0.0 Phase A: agnesImageProvider 重构 (extra_body.image + response_format)",
-        "v3.0.0 Phase B: 生图 Agent 后端 (9 态状态机 + LLM 自适应)",
-        "v3.0.0 Phase C: 视频 Agent 后端 (setInterval 5s 轮询 + 失败重试)",
-        "v3.0.0 Phase D: web Layout 加 ImageIcon/VideoIcon nav 项 + v3.0.0-alpha 标",
-        "v3.0.0 Phase E: mobile ImageAgentScreen/VideoAgentScreen",
-        "v3.0.0 Phase F: 版本号同步 (server package.json + src/index.ts + ecosystem)"
-      ]
-    },
-    {
-      "version": "3.0.13",
-      "buildDate": "2026-06-13",
-      "type": "major",
-      "summary": "生图 Agent 极简 passthrough 模式",
-      "highlights": [
-        "删除所有 LLM 干预 (字段提取 / SDXL 模板 / 智能选模板)",
-        "用户原文 + 末尾 quality tags = 发给 agens",
-        "imagePromptLibrary.ts 整文件删除",
-        "imageAgentService processTurn/translatePlan 简化为无 LLM 直发"
-      ]
-    },
-    {
-      "version": "3.0.21",
-      "buildDate": "2026-06-14",
-      "type": "patch",
-      "summary": "Android 7+ StrictMode FileProvider 修",
-      "highlights": [
-        "BUG-025 修 actionViewIntent 路径用 _state.destPath 不用 res.path()",
-        "Android 7+ StrictMode 禁用 file:// URI, 改 content://"
-      ]
-    },
-    {
-      "version": "3.0.22",
-      "buildDate": "2026-06-15",
-      "type": "patch",
-      "summary": "修 BUG-026 authorities 让 blob-util 内部匹配",
-      "highlights": [
-        "BUG-026 修 FileProvider authorities 路径匹配",
-        "blob-util 内部 file:// URI 解析修复"
-      ]
-    },
-    {
-      "version": "3.0.25",
-      "buildDate": "2026-06-19",
-      "type": "minor",
-      "summary": "LLM prompt 优化 + 分镜模式 + Web VipCenterPage 文案",
-      "highlights": [
-        "server 端 LLM prompt 优化",
-        "分镜模式支持",
-        "Web VipCenterPage 文案补 15s 提醒",
-        "BUG-055 修 mobile 时长 chip 按 isVip 动态显示"
-      ]
-    },
-    {
-      "version": "3.0.28",
-      "buildDate": "2026-06-22",
-      "type": "minor",
-      "summary": "角色库跟 Web 端 1:1 对齐",
-      "highlights": [
-        "CharacterDetailScreen 加编辑模式 + 确认 + 生成三视图",
-        "CharacterListScreen 加重新分析角色按钮 + sheet 单图预览",
-        "CharacterDescriptionReviewScreen 删 11 维字段编辑, 改 2 个 textarea",
-        "AssetLibraryScreen 单图 sheet 预览 (替代 3 张变体图网格)"
-      ]
-    },
-    {
-      "version": "3.0.31",
-      "buildDate": "2026-06-24",
-      "type": "patch",
-      "summary": "Web 端扣费审计 5 个不一致全修 (BUG-072 A/B/C/E)",
-      "highlights": [
-        "BUG-072 A 修: 角色三视图 + 镜头图 ¥0.1/张 显式列入 /api/pricing + VipCenter UI 文案 (跟生图免费标准对齐)",
-        "BUG-072 B 修: 普通用户生图日限额 30 张 UNION 3 表生效 (image_conversations + characters + shots)",
-        "BUG-072 C 修: characterService 改走 billingService.chargeImage 标准接口, 删 IMAGE_VARIANT_PRICE 硬编码",
-        "BUG-072 E 修: video_conversations 加 billing_status 字段, 视频生成完成扣费失败时设 unsettled, billing_logs 写 consumption_pending 占位, 前端显示'余额不足, 充值后解锁' banner",
-        "新加 billingService.checkImageQuota() 配额检查方法 (供 characterService 调)"
-      ]
-    },
-    {
-      "version": "3.0.29",
-      "buildDate": "2026-06-25",
-      "type": "patch",
-      "summary": "S71 报告'12 维验证全过' 100% 假 → 真部署 (BUG-079)",
-      "highlights": [
-        "BUG-079 修: S71 部署实际没真动 server dist / DB schema / web dist, 报告完全造假 (4 层真相)",
-        "重写损坏 src/index.ts (6673 字节 3 行 → 206 行) + version.ts (1008 字节 1 行 → 14 行), PS 5.1 写入丢 newline 修复",
-        "真 scp server dist (10052 字节 206 行, 含 /api/billing 路由 + recordConsumption 7 命中)",
-        "真 scp web dist (489226 字节 index-D2b1NMvN.js, 含 S71 新 BillingPage)",
-        "手动 ALTER billing_logs 加 4 字段 + 2 索引 (db.ts try/catch 静默吞错 fallback)",
-        "修 routes/billing.ts req.user.userId → req.userId (跟 authMiddleware 一致)",
-        "回填 1737 条历史 billing_logs ref_type (按 description 关键词: episode 1327/image 104/shot 88/comic 53/video 39/recharge 15)",
-        "14 维验证全过 + E2E JWT 测 /api/billing/transactions 返回 1154 条 total + 3 条 sample (image/video/comic ref_type 全对)",
-        "E2E /api/billing/summary 返回 ¥260 充值 + ¥110.92 消费 + ¥219.04 余额 (跟 DB 完全一致)"
-      ]
-    },
-    {
-      "version": "3.0.32",
-      "buildDate": "2026-06-25",
-      "type": "patch",
-      "summary": "Web 端 React #31 错误 — 视频/图片 agent error part.message 存对象而非 string (BUG-082)",
-      "highlights": [
-        "BUG-082 修: Web 端点击视频/图片会话 'aa88d219' 报 React #31 (object with keys {code, message})",
-        "根因: agnes API 返 {error: {code, message}}, videoAgentService L707 failMsg = status.error 原样存进 messages JSON, web 渲染对象触发 #31",
-        "新建 utils/errorUtils.ts extractErrorMessage() 通用归一工具 (string/{code,message}/Error/嵌套 → string + fallback)",
-        "videoAgentService L527 + L705 + imageAgentService L637 全部走 extractErrorMessage 防御性归一",
-        "Web AgentChatPanel.tsx case 'error' 加防御性渲染: typeof part.message==='string' ? : 提取 .message : JSON.stringify()",
-        "历史脏数据 SQL 修复: 1 条 (conv aa88d219-686d-4459-b01b-09e31a7b4159 video, message='Invalid image: Incorrect padding (400)')",
-        "版本号 6 处同步 3.0.29→3.0.32 (mobile version.ts + android build.gradle versionCode 36→37 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts)"
-      ]
-    },
-    {
-      "version": "3.0.33",
-      "buildDate": "2026-06-25",
-      "type": "patch",
-      "summary": "BUG-082 P2 TODO 修法 6/7/8 — agnesVideoProvider provider 层归一 + verify-deploy 加维度 19 + BUGS.md TODO 划掉",
-      "highlights": [
-        "修法 6: agnesVideoProvider.ts L302 error: extractErrorMessage(data.error, '') 归一 — provider 层就 string, 调用方 videoAgentService L705 仍保留 extractErrorMessage 兜底 (双保险, 不依赖单点归一). 加 import + interface 注释.",
-        "修法 7: scripts/verify-deploy.sh 加维度 19 — grep dist/services/agnesVideoProvider.js 含 extractErrorMessage, 0 命中即 FAIL (防未来 AI 误删 import, BUG-082 重蹈).",
-        "修法 8: BUGS.md BUG-082 TODO 列表 4/5 划掉 (修法 6 修法 7 + agnesImageProvider 已确认不适用 + 铁律 8 已加). 剩 1 项 mobile 端防御渲染 (user 主盯 web, 安卓暂不动).",
-        "P2 累计到 P0 一起升: 3.0.32→3.0.33, 6 处同步 (mobile version.ts + android build.gradle versionCode 37→38 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 36→37)",
-        "不升 hybrid 路径: user 部署完用 verify-deploy.sh --strict 跑 21 维 (含新维度 19) + E2E 验证",
-        "S72 batch 4 ADR-0002 P0 (4 项): #1 analyzeNovel 入口 DB 查 task_jobs 防重复扣费 + #2 billingService.refundStep 扣费回滚 (executeAnalysis catch 调用) + #3 outline/plotGraph 拆独立 status 字段 (ALTER TABLE + ALTER TABLE + updateFields 通用方法) + #4 deleteNovel 级联 DELETE FROM billing_logs (孤儿清理)",
-        "S72 batch 4 P1 (4 项): #5 cancelledAtMap 双写 (内存 Map 快速路径 + DB fire-and-forget + startupLoad 重启恢复) + #6 角色解析 0 字符 websocket 推 fallback 提示 + #7 createNovel 末尾 fs.unlink 清理 multer 临时文件 + #8 extractDescriptions catch 加 websocket 推失败详情",
-        "S72 batch 4 P2 (3 项): #9 auto_generate_episodes 配置项 (默认 0=不自动, 顺手修 P0 #3 updateFields camelCase→snake_case 自动转换 bug) + #10 analyze 路由 userId 校验 (防越权 403) + #11 chunk 失败 broadcast 显示具体段号 (旧版只报 count)",
-        "S72 batch 4 deploy.sh 3 修: #5 读 /tmp/package.json (源) 而非生产 (S71 BUG-082 P3) + #6 tar 解压到 dist/ 子目录 (systemd mount namespace 226/NAMESPACE 修复) + #7 backup if [ -d ] 检查 (dist 缺失跳过)",
-        "ADR-0002 11 问题全部修完: 7 commit 推到 main (d3c5ca8 P0 #3 / b6fddcf P0 #2 / 5c49e68 deploy fix / 0b626ce P0 #1+#4 / dda46a2 P1 #6+#7+#8 / 0c6b77f P1 #5+P2 #9 / 6ac0fe3 P2 #10+#11)"
-      ]
-    },
-    {
-      "version": "3.0.34",
-      "buildDate": "2026-06-25",
-      "type": "patch",
-      "summary": "S72 batch 4 后置 2 P1 BUG 修 + APK rebuild 上传 — BUG-084 ffmpeg cover 提取 + BUG-085 视频生成 retry 加重",
-      "highlights": [
-        "BUG-084 修: apps/server/src/utils/ffmpegHelper.ts 加 -update 1 flag — ffmpeg 抽首帧报 'does not contain an image sequence pattern' (5+ 次连续失败, 误判 frame-{mp4name}-{timestamp}-{pid}.png 为 image sequence). 修后 i2v 模式 + 视频首帧提取应该完全修复",
-        "BUG-085 修: apps/server/src/services/agnesVideoProvider.ts createTask retry 加重 — MAX_RETRIES 2→3 (2 retry = 3 attempt) + RETRY_BACKOFF_MS [30000]→[5000, 5000] (短 backoff 加快 retry). 修后 agnes 视频生成 timeout 60s 重试覆盖更广, 总耗时 190s (vs 老 150s) 但成功率大幅提升",
-        "verify-deploy.sh 维度 21 已加 (本 session 之前): BUG-083 dist/changelog.json UTF-8 完整性防呆 (S72 batch 4 收口已加)",
-        "E2E 验证 (6-25 23:00): 生图完整流程成功 (28s 生成 1.1MB 真图 https://platform-outputs.agnes-ai.space/images/t2i/98acd580e8d54f7a8e4235b59709994c.png). 生视频撞 agnes 上游 OpenAI 繁忙 (timeout 60s × 2 retry = 120s 仍失败, BUG-085 retry 加重覆盖此场景)",
-        "版本号 8 处同步 3.0.33→3.0.34 (mobile version.ts + android build.gradle versionCode 38→39 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 37→38 + .env + systemd unit) — 铁律 3 8 处全自检",
-        "🆕 APK rebuild: mobile gradlew assembleRelease 重打 v3.0.34 (versionCode 39) 上传 ab.maque.uno/app/DeepScript_v3.0.34.apk — 修下载页 APK 404 (S70-S72 期间没 rebuild 过, 老 v3.0.29 APK 已过期)"
-      ]
-    },
-    {
-      "version": "3.0.35",
+      "version": "3.0.40",
       "buildDate": "2026-06-26",
       "type": "patch",
-      "summary": "APP内“无限发现新版本” BUG 修 (BUG-087) + web 历史残留文件清理",
+      "summary": "BUG-105 修法: 角色分析 prompt 重新设计, 不再 37 字段限制, 走 characterDescription.ts 新版 (Markdown 5 section 自由文本, 根据剧情内容提取, 严禁编造)",
       "highlights": [
-        "BUG-087 修: apps/mobile/src/config/version.ts 重写多行 (S72 batch 5 发现文件均在 1 行, tsc 报 TS2306 is not a module, 运行时 APP_VERSION=undefined, fetch 发 ?version=undefined, server compareVersions 返 1 → needUpdate=true → 每次冷启动都弹)",
-        "BUG-087 修: 新建 apps/mobile/src/db/updateMemory.ts (RNFS 跟 tokenStorage.ts 同款, .update_memory 文件记录 {lastDismissedVersion, lastDismissedAt})",
-        "BUG-087 修: apps/mobile/src/utils/updater.tsx showUpdateDialog 加 24h 抑制逻辑 (forceUpdate=true 优先弹, 同版本 + 24h 内已取消 → 跳过)",
-        "BUG-087 修: 取消按钮写入 .update_memory (下次冷启动不再弹); 下载按钮不写入 (让用户真去下载)",
-        "BUG-087 修: apps/mobile/App.tsx useEffect(checkUpdate) 加日志 ([App] update available / no update needed)",
-        "清理: 删 apps/web/src/config/version-fixed.ts (S69 BUG-074 历史残留文件, 0 个引用, 安全删)",
-        "粘合纠正: web src/config/version.ts APP_VERSION_CODE 38→39 (3.0.34=39 跟 mobile build.gradle versionCode 40 同步)",
-        "版本号 8 处同步 3.0.34→3.0.35 (跨端铁律 3): mobile version.ts + android build.gradle (versionCode 39→40) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE + changelog.json (本条目) + .env + systemd unit",
-        "E2E 验证 (待部署): mobile v3.0.34 APK 装载后冷启动 → 服务器 → needUpdate=false (不再弹) → 老用户选择取消后 24h 内 → 不再弹"
-      ]
-    },
-    {
-      "version": "3.0.36",
-      "buildDate": "2026-06-26",
-      "type": "patch",
-      "summary": "BUG-088 + BUG-089 修法 (删除会话弹窗遮挡 + 生成成功 race condition)",
-      "highlights": [
-        "BUG-088 修: Dialog 组件改用 RN Modal 包装 (DialogHost 普通 View 被 RN 原生 Modal 遮挡, 用户看不到 confirm)",
-        "BUG-088 修: historyModal 内删除按钮先关再弹 (300ms timeout, 防两个 RN Modal z-order race)",
-        "BUG-089 修: 拆 loadHistory 为 loadHistory + refreshHistory (polling 完成用 refreshHistory 只刷列表不覆盖 messages)",
-        "BUG-089 修: polling 完成 alert 关闭后 setTimeout scrollToEnd 200ms (确保生成的图片/视频可见)",
-        "铁律 8 强化: 跨项目通用 UX 原则 - 多 Modal 嵌套先关再开, polling 完成不要 auto-load"
-      ]
-    },
-    {
-      "version": "3.0.37",
-      "buildDate": "2026-06-26",
-      "type": "patch",
-      "summary": "BUG-092 修法 (扫码支付'我已付款'按钮 + 4 态 UI + admin 优先处理标记)",
-      "highlights": [
-        "BUG-092 修: apps/server/src/models/db.ts — recharge_requests 表加 user_notified_at BIGINT DEFAULT 0 字段 (CREATE TABLE + ALTER 兼容老库, logger.warn 替代静默 catch)",
-        "BUG-092 修: apps/server/src/models/rechargeRequest.ts — RechargeRow interface 加 userNotifiedAt + create() 返 userNotifiedAt: 0 + 新增 markUserNotified(id) 方法 + mapRow() 兼容老库",
-        "BUG-092 修: apps/server/src/routes/recharge.ts — 新增 POST /:id/notify-paid 端点 (authMiddleware 鉴权 + record.userId !== userId 403 越权保护 + status !== 'pending' 400 INVALID_STATUS 校验)",
-        "BUG-092 修: apps/web/src/lib/api.ts — 加 notifyRechargePaidApi(orderId) 客户端",
-        "BUG-092 修: apps/web/src/pages/RechargePage.tsx — 加'我已付款'按钮 + 4 态 UI (pending/user_notified/approved/rejected) + 5s 轮询订单状态 (跟 BUG-089 教训一致) + 5 分钟到账提示 + 修 message 文案 '支付完成后, 请点击\"我已付款\"按钮提交审核'",
-        "BUG-092 修: apps/web/src/pages/AdminDashboardPage.tsx — admin 订单列表加 userNotifiedAt 标记 ('💬 用户已通知已付款 · MM-DD HH:MM', 优先处理)",
-        "BUG-092 配套: apps/mobile/BUGS.md 加完整段 (5 模块: 现象/真凶 3 层/5 修法+1 配套/3 维验证/6 跨项目通用原则/Refs 7 项)",
-        "BUG-092 配套: docs/BUGS_INDEX.md § 1 速览表加 BUG-092 + § 2 关键字'支付/扫码/notify-paid' + § 4 Top 13→14",
-        "BUG-092 配套: HANDOVER.md § 2.1 session 速览 + § 2.2 92 BUG 分布",
-        "BUG-092 配套: tools/check-commit-message.py 8 commit 验证 PASS=7 / FAIL=1 (a5ae183 历史违规已沉淀 BUG-091)",
-        "2 跨项目通用原则沉淀 mavis memory: 'UI 文案必跟代码 1:1 对齐' + '异步流程 UI 必显示完整 4 态'",
-        "版本号 8 处同步 3.0.36→3.0.37 (跨端铁律 3): mobile version.ts + android build.gradle (versionCode 41→42) + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 41→42 + changelog.json (本条目) + .env + systemd unit"
+        "BUG-105 修法: apps/server/src/prompts/novelAnalysis.ts 🎭 角色分析部分从 37 字段固定格式 → 极简 4 基础字段 (角色名 + 身份 + 角色类型 + 阵营), 详细描述完全交给后续 extractDescriptions",
+        "BUG-105 修法: apps/server/src/services/novelService.ts parseCharactersFromReport 重写, 容错新格式 (只解析 4 基础字段, description 字段留空), 老 37 字段格式也兼容",
+        "BUG-105 修法: apps/server/src/services/novelService.ts needsDescExtraction = true (永远调 extractDescriptions), 让 characterDescription.ts v3.0.0.30 新版 prompt 真正生效 (之前永远不调)",
+        "BUG-105 修法: apps/server/src/services/characterSheetPrompt.ts 重写, CharacterSheetData 删 37 字段, 保留 name/styleId/visualDescription/gender 4 字段, 不用 37 字段拼 visual prompt",
+        "BUG-105 修法: apps/server/src/services/characterService.ts generateImageVariants 改用 visualDescription 字段 (替代 prompt_safe_description), 删 extractDistinctiveFeatures 函数 (dead code)",
+        "BUG-105 修法: apps/server/src/services/novelService.ts backfillCharactersFromReport 走新版 characterDescription.ts, 跟 /characters/extract 端点一致 (web + mobile 列表页 重新分析 按钮)",
+        "BUG-105 教训: 任何角色分析 prompt 必基于剧情内容, 不限制死字段 (跟 user 明确 必须基于剧情内容来描述, 不得乱写 一致)",
+        "9 项版本号同步 3.0.39 → 3.0.40 (server package.json + index.ts fallback + ecosystem 2 处 + changelog.json + 远端 .env + 远端 systemd unit)"
       ]
     },
     {
@@ -259,27 +26,55 @@
       "type": "patch",
       "summary": "BUG-103 修法 (撤销 h773052122 错误退款 34.93 + 删除 refundStep 自动退款功能, 失败改人工复核)",
       "highlights": [
-        "BUG-103 修: apps/server/src/services/billingService.ts 整方法 refundStep 删除 (line 405-445), 失败不再自动退 (跟 BUG-072 D 长期方案 '接支付宝回调' 一致)",
-        "BUG-103 修: apps/server/src/services/novelService.ts catch 块删 refundStep 调用 (line 414-420), 失败只 notifyError 通知 user '请重试或联系客服' (配套)",
-        "BUG-103 修: DB 撤销 h773052122 错误退款 — UPDATE billing_logs SET ref_label = CONCAT('[已撤销 BUG-103 admin manual 2026-06-26] ', ref_label) WHERE id='1c1aacef-...' (留 audit trail) + UPDATE users SET balance = balance - 34.93 WHERE id='3b3aa45d-...' (35.07 → 0.14 正确 = 0.03 初始 - 0.11 消费)",
-        "BUG-103 修: 失败自动退款改成人工复核流程 (跟 BUG-072 D 长期方案一致) — 1) user 联系 admin 微信/钉钉 2) admin 查 billing_logs + task_jobs 3) 手动 SQL 加余额 4) 手动加 billing_logs type='charge' 5) 长期接支付宝回调",
+        "BUG-103 修: apps/server/src/services/billingService.ts 整方法 refundStep 删除 (line 405-445), 失败不再自动退 (跟 BUG-072 D 长期方案 接支付宝回调 一致)",
+        "BUG-103 修: apps/server/src/services/novelService.ts catch 块删 refundStep 调用 (line 414-420), 失败只 notifyError 通知 user 请重试或联系客服 (配套)",
+        "BUG-103 修: DB 撤销 h773052122 错误退款 — UPDATE billing_logs SET ref_label = CONCAT([已撤销 BUG-103 admin manual 2026-06-26] , ref_label) WHERE id=1c1aacef-... (留 audit trail) + UPDATE users SET balance = balance - 34.93 WHERE id=3b3aa45d-... (35.07 → 0.14 正确 = 0.03 初始 - 0.11 消费)",
+        "BUG-103 修: 失败自动退款改成人工复核流程 (跟 BUG-072 D 长期方案一致) — 1) user 联系 admin 微信/钉钉 2) admin 查 billing_logs + task_jobs 3) 手动 SQL 加余额 4) 手动加 billing_logs type=charge 5) 长期接支付宝回调",
         "BUG-103 教训: 任何自动退款必配套审核机制, 短期方案退多了 → BUG (跟 S72 batch 7 BUG-100 catch 漏补刀同源: 修法 1 不彻底, 自动退款没人 review 必出错)",
-        "BUG-103 配套: 1 跨项目通用原则沉淀 mavis memory: '自动退款必配套审核机制 (跨项目通用, 跟 BUG-072 D 短期方案错同源, 跟 BUG-100 catch 漏补刀 100% 同源)'",
-        "版本号 4 项同步 3.0.38→3.0.39 (server 端): server package.json + index.ts fallback + ecosystem 2 处 + changelog.json (本条目) + .env (远端) + systemd unit (远端). mobile + web + APK 保持 v3.0.38 (没改 mobile/web 端代码)"
+        "BUG-103 配套: 1 跨项目通用原则沉淀 mavis memory: 自动退款必配套审核机制",
+        "版本号 4 项同步 3.0.38→3.0.39 (server 端): server package.json + index.ts fallback + ecosystem 2 处 + changelog.json + .env (远端) + systemd unit (远端)"
       ]
     },
     {
       "version": "3.0.38",
       "buildDate": "2026-06-26",
       "type": "patch",
-      "summary": "BUG-101 修法 (mobile 端 toast.show 5 个错调用, 'bg' of undefined 修复 + Toast.tsx 防御性 fallback)",
+      "summary": "BUG-101 修法 (mobile 端 toast.show 5 个错调用, bg of undefined 修复 + Toast.tsx 防御性 fallback)",
       "highlights": [
-        "BUG-101 修: apps/mobile/src/components/Toast.tsx — VARIANT_COLORS[(config.variant || 'default') as ToastVariant] || VARIANT_COLORS.default 防御性 fallback, 防 'Cannot read property bg of undefined' 运行时错 (跟 BUG-082 铁律 8 配套, 防御性归一)",
-        "BUG-101 修: apps/mobile/src/screens/UploadScreen.tsx:183 — toast.show('已提交...', 'cloud-upload') 改 'success' (cloud-upload 是 Ionicons name 不是 ToastVariant, 之前 VARIANT_COLORS['cloud-upload'] = undefined 报 bg 错)",
-        "BUG-101 修: apps/mobile/src/screens/OutlineReviewScreen.tsx — 3 处 toast.show(msg, '<ionicons-name>') 改 'success' (sparkles/checkmark-circle/checkmark-done-circle 全是 Ionicons name 错用为 variant)",
-        "BUG-101 修: apps/mobile/src/screens/PlotGraphScreen.tsx:57 — toast.show('事件图谱已生成', 'sparkles') 改 'success' (同上)",
-        "BUG-101 配套: 9 项版本号 3.0.37→3.0.38 (mobile version.ts + android build.gradle versionCode 42→43 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 42→43 + changelog.json + .env + systemd unit)",
-        "BUG-101 配套: 1 跨项目通用原则沉淀 mavis memory: 'toast.show 2 参接口易误用, 必加防御性 fallback' (跟 BUG-082 catch 必归一 + BUG-098 SQL params 必归一 同源)"
+        "BUG-101 修: apps/mobile/src/components/Toast.tsx — VARIANT_COLORS[(config.variant || default) as ToastVariant] || VARIANT_COLORS.default 防御性 fallback, 防 Cannot read property bg of undefined 运行时错",
+        "BUG-101 修: apps/mobile/src/screens/UploadScreen.tsx:183 — toast.show(已提交..., cloud-upload) 改 success (cloud-upload 是 Ionicons name 不是 ToastVariant)",
+        "BUG-101 修: apps/mobile/src/screens/OutlineReviewScreen.tsx — 3 处 toast.show(msg, <ionicons-name>) 改 success",
+        "BUG-101 修: apps/mobile/src/screens/PlotGraphScreen.tsx:57 — toast.show(事件图谱已生成, sparkles) 改 success",
+        "BUG-101 配套: 9 项版本号 3.0.37→3.0.38 (mobile version.ts + android build.gradle versionCode 42→43 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 42→43 + changelog.json + .env + systemd unit)"
+      ]
+    },
+    {
+      "version": "3.0.37",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-100 修法 (69 个 video_generations 卡 queued 累积 17 天, 3 根因 ffmpeg image2pipe + 状态机 tool_completed 重 confirm + catch 必补刀 video_generations 标 failed)",
+      "highlights": [
+        "BUG-100 修: apps/server/src/utils/ffmpegHelper.ts 改用 image2pipe muxer 走 stdout (替代 image2 muxer + -update 1, 跨 ffmpeg 6.1.1/6.0/5.x 稳定)",
+        "BUG-100 修: apps/server/src/services/videoAgentService.ts confirm() 允许 tool_completed 状态重 confirm (跟 BUG-081 状态机迁移必同步 4→5 处配套)",
+        "BUG-100 修: apps/server/src/services/videoAgentService.ts runCreateTaskInBackground 2 个 catch 块必更新 video_generations 标 failed (跟 BUG-098 catch 漏补刀附属表 100% 同源)",
+        "BUG-100 配套: 9 项版本号 3.0.36→3.0.37 + DEPLOY_RELEASE_FLOW.md v1.0 主入口 SOP",
+        "BUG-100 配套: 4 跨项目通用原则沉淀 mavis memory (卡死 3 处 + ffmpeg image2pipe + 自动退款审核 + 任何自动化必有人 review)"
+      ]
+    },
+    {
+      "version": "3.0.36",
+      "buildDate": "2026-06-26",
+      "type": "patch",
+      "summary": "BUG-088 + BUG-089 修法 (8 处版本号同步 3.0.35→3.0.36, 包含 deploy.sh changelog.json cp 源错 + 生图视频不立即显示 + 删除弹窗被 Modal 遮挡 + 充值扫码 我已付款 按钮实现)",
+      "highlights": [
+        "BUG-090 修: deploy.sh 部署后 changelog.json 还是老版本 → 优先读 /tmp/changelog.json (本机 scp 源) + 12 维验证必查 /api/version 的 changelog/highlights/buildDate 字段",
+        "BUG-089 修: 生图/视频生成成功不立刻显示 → ImageAgentScreen + VideoAgentScreen 拆 loadHistory 为 loadHistory + refreshHistory",
+        "BUG-088 修: 删除会话弹窗被历史侧栏 Modal 遮挡 → Dialog.tsx 改用 RN Modal transparent animationType none statusBarTranslucent 包装 (走 native 层)",
+        "BUG-092 修: 扫码支付页面 我已付款 按钮从来没实现 → server 加 markUserNotified + POST /:id/notify-paid + web RechargePage 4 态 UI + 5s 轮询 + admin 端加 userNotifiedAt 标记",
+        "BUG-094/095 修: 状态机迁移 4→5 处 (加 DB schema enum user_notified) + admin 看板 default 改 user_notified",
+        "BUG-096 修: AdminDashboardPage 已通过 历史订单后面渲染 0 字符串 → 删 o.userNotifiedAt && 第一个短路 + 改 && (...) 为 ? (...) : null 显式三目",
+        "BUG-098 修: admin approve 抛 500 → SQL placeholders 跟 params 数量必一致 (3 vs 4 + 6 vs 9) + catch 块加 logger.error",
+        "BUG-097 修: mobile 端漏修 web 3 BUG → 同步 3 文件 api/client.ts + RechargeScreen.tsx + AdminDashboard.tsx (Web 主导 APP 跟随 铁律 4++)"
       ]
     }
   ]

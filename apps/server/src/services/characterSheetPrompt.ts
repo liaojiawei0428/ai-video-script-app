@@ -1,144 +1,36 @@
-/**
- * 角色三视图提示词生成器 v3.1 (v2.5.13 风格感知重构)
- *
- * 核心改动:
- *  1. prompt_safe_description 作为 primary visual description (LLM 已按风格生成)
- *  2. 结构化字段作为 supplement (补充 LLM 可能遗漏的细节)
- *  3. 删除独立 STYLE_PRESETS, 统一用 styleBible.ts 的完整风格数据
- *  4. 负面提示按风格动态生成 (不再硬编码 anime/cartoon 等互相冲突的词)
- */
+// apps/server/src/services/characterSheetPrompt.ts
+// v3.0.0.40 BUG-105 重写: 不用 37 字段限制, 完全用 description 自由文本拼 prompt
+//
+// 之前 (v2.5.13 → v2.5.14): CharacterSheetData 37 字段 (face/eyes/eyebrows/nose/lips/hair_*/clothing_*/...)
+//   buildEnglishVisualDescription 按 37 字段拼 visual, buildChineseVisualDescription 同样
+//   → 跟 user 明确"必须基于剧情内容来描述, 不得乱写" 冲突 (逼 LLM 填不存在的字段)
+//   → 生图 prompt 跟 description 实际内容脱节
+//
+// 现在 (v3.0.0.40): CharacterSheetData 删 37 字段, 保留 4 个核心字段:
+//   - name: 角色名
+//   - styleId: 画风 (realistic/ancient/cyber/anime/3d)
+//   - visualDescription: 主要视觉描述 (从 description 提取的 Markdown 自由文本)
+//     ↑ 这个已经是 characterService 翻译后的英文 (中文→英文 promptTranslator.ts 翻译)
+//   - gender: 性别 (兜底字段, 兼容性保留)
+//
+// 生图 prompt 直接用 visualDescription 自由文本, 不再按 37 字段拼装
+// 跟 description 内容 1:1 对齐, 跟 user "根据剧情内容" 100% 一致
 
-import { StyleBible, StylePresetId, buildStyleAnchorPrefix, buildStyleNegativePrompt } from './styleBible';
+import { StyleBible, StylePresetId, buildStyleNegativePrompt } from './styleBible';
 
 export interface CharacterSheetData {
+  /** 角色名 */
   name: string;
-  gender?: string;
-  age?: string;
-  height?: string;
-  build?: string;
-  face?: string;
-  skin?: string;
-  eyes?: string;
-  eyebrows?: string;
-  nose?: string;
-  lips?: string;
-  hair_color?: string;
-  hair_style?: string;
-  hair_length?: string;
-  hair_texture?: string;
-  hair_accessories?: string;
-  clothing_top?: string;
-  clothing_bottom?: string;
-  clothing_outer?: string;
-  clothing_shoes?: string;
-  clothing_underwear?: string;
-  clothing_socks?: string;
-  accessories_neck?: string;
-  accessories_ears?: string;
-  accessories_hands?: string;
-  accessories_waist?: string;
-  accessories_other?: string;
-  props?: string;
-  distinctive_features?: string;
-  do_not_change?: string;
-  makeup?: string;
-  default_expression?: string;
-  emotional_range?: string;
-  body_language?: string;
-  personality_visual?: string;
-  social_class_visual?: string;
-  prompt_safe_description?: string;
-  negative_prompt_suggestion?: string;
+  /** 画风 ID (realistic / ancient / cyber / anime / 3d) */
   styleId?: string;
-}
-
-function buildEnglishVisualDescription(data: CharacterSheetData): string {
-  const parts: string[] = [];
-  if (data.gender) parts.push(`a ${data.gender === '男' ? 'male' : 'female'} character`);
-  if (data.age) parts.push(`aged ${data.age}`);
-  if (data.height) parts.push(`${data.height} tall`);
-  if (data.build) parts.push(`with ${data.build} body type`);
-
-  const faceParts: string[] = [];
-  if (data.face) faceParts.push(`${data.face} face shape`);
-  if (data.eyes) faceParts.push(`${data.eyes} eyes`);
-  if (data.eyebrows) faceParts.push(`${data.eyebrows} eyebrows`);
-  if (data.nose) faceParts.push(`${data.nose} nose`);
-  if (data.lips) faceParts.push(`${data.lips} lips`);
-  if (data.skin) faceParts.push(`${data.skin} skin`);
-  if (faceParts.length > 0) parts.push(faceParts.join(', '));
-
-  const hairParts: string[] = [];
-  if (data.hair_color) hairParts.push(`${data.hair_color} hair color`);
-  if (data.hair_style) hairParts.push(`${data.hair_style} hairstyle`);
-  if (data.hair_length) hairParts.push(`${data.hair_length} length`);
-  if (data.hair_texture) hairParts.push(`${data.hair_texture} hair texture`);
-  if (data.hair_accessories) hairParts.push(`wearing ${data.hair_accessories}`);
-  if (hairParts.length > 0) parts.push(hairParts.join(', '));
-
-  const clothingParts: string[] = [];
-  if (data.clothing_top) clothingParts.push(`top: ${data.clothing_top}`);
-  if (data.clothing_bottom) clothingParts.push(`bottom: ${data.clothing_bottom}`);
-  if (data.clothing_outer) clothingParts.push(`outerwear: ${data.clothing_outer}`);
-  if (data.clothing_shoes) clothingParts.push(`shoes: ${data.clothing_shoes}`);
-  if (clothingParts.length > 0) parts.push(`wearing ${clothingParts.join('; ')}`);
-
-  const accessoryParts: string[] = [];
-  if (data.accessories_neck) accessoryParts.push(`neck: ${data.accessories_neck}`);
-  if (data.accessories_ears) accessoryParts.push(`ears: ${data.accessories_ears}`);
-  if (data.accessories_hands) accessoryParts.push(`hands: ${data.accessories_hands}`);
-  if (data.accessories_waist) accessoryParts.push(`waist: ${data.accessories_waist}`);
-  if (data.accessories_other) accessoryParts.push(`other: ${data.accessories_other}`);
-  if (accessoryParts.length > 0) parts.push(`accessories - ${accessoryParts.join('; ')}`);
-
-  if (data.props) parts.push(`holding or near ${data.props}`);
-  if (data.distinctive_features) parts.push(`distinctive features: ${data.distinctive_features}`);
-  if (data.makeup) parts.push(`makeup: ${data.makeup}`);
-  if (data.default_expression) parts.push(`expression: ${data.default_expression}`);
-
-  return parts.join(', ');
-}
-
-function buildChineseVisualDescription(data: CharacterSheetData): string {
-  const parts: string[] = [];
-  const headParts: string[] = [];
-  if (data.face) headParts.push(`${data.face}脸型`);
-  if (data.eyes) headParts.push(`${data.eyes}眼睛`);
-  if (data.eyebrows) headParts.push(`${data.eyebrows}眉毛`);
-  if (data.nose) headParts.push(`${data.nose}鼻子`);
-  if (data.lips) headParts.push(`${data.lips}嘴唇`);
-  if (data.skin) headParts.push(`${data.skin}肤色`);
-  if (headParts.length > 0) parts.push(`面部：${headParts.join('，')}`);
-
-  const hairParts: string[] = [];
-  if (data.hair_color) hairParts.push(`${data.hair_color}发色`);
-  if (data.hair_style) hairParts.push(`${data.hair_style}`);
-  if (data.hair_length) hairParts.push(`${data.hair_length}长度`);
-  if (data.hair_texture) hairParts.push(`${data.hair_texture}发质`);
-  if (data.hair_accessories) hairParts.push(`佩戴${data.hair_accessories}`);
-  if (hairParts.length > 0) parts.push(`发型：${hairParts.join('，')}`);
-
-  const clothingParts: string[] = [];
-  if (data.clothing_top) clothingParts.push(`上衣：${data.clothing_top}`);
-  if (data.clothing_bottom) clothingParts.push(`下装：${data.clothing_bottom}`);
-  if (data.clothing_outer) clothingParts.push(`外套：${data.clothing_outer}`);
-  if (data.clothing_shoes) clothingParts.push(`鞋子：${data.clothing_shoes}`);
-  if (clothingParts.length > 0) parts.push(`服装：${clothingParts.join('；')}`);
-
-  const accessoryParts: string[] = [];
-  if (data.accessories_neck) accessoryParts.push(`颈部：${data.accessories_neck}`);
-  if (data.accessories_ears) accessoryParts.push(`耳部：${data.accessories_ears}`);
-  if (data.accessories_hands) accessoryParts.push(`手部：${data.accessories_hands}`);
-  if (data.accessories_waist) accessoryParts.push(`腰部：${data.accessories_waist}`);
-  if (data.accessories_other) accessoryParts.push(`其他：${data.accessories_other}`);
-  if (accessoryParts.length > 0) parts.push(`配饰：${accessoryParts.join('；')}`);
-
-  if (data.props) parts.push(`随身道具：${data.props}`);
-  if (data.distinctive_features) parts.push(`标志性特征：${data.distinctive_features}`);
-  if (data.makeup) parts.push(`妆容：${data.makeup}`);
-  if (data.default_expression) parts.push(`默认表情：${data.default_expression}`);
-
-  return parts.join('。\n');
+  /**
+   * v3.0.0.40 BUG-105: 主要视觉描述 (Markdown 自由文本)
+   * 来自 characterService.generateImageVariants 翻译后的英文
+   * (原文: characters.description 字段, characterDescription.ts 新版 prompt 生成的 Markdown 5 section)
+   */
+  visualDescription?: string;
+  /** 性别 (兜底字段, 兼容性保留) */
+  gender?: string;
 }
 
 const CONSISTENCY_KEYWORDS_EN = [
@@ -161,7 +53,7 @@ const CONSISTENCY_KEYWORDS_ZH = [
 ];
 
 /**
- * v2.5.13 — 动态负面提示 (按风格排除, 不硬编码互相冲突的词)
+ * v3.0.0.40 BUG-105: 动态负面提示 (按风格排除, 不硬编码互相冲突的词)
  */
 function buildDynamicNegativeKeywords(styleId?: string): string[] {
   const base = [
@@ -194,24 +86,28 @@ function buildDynamicNegativeKeywords(styleId?: string): string[] {
 }
 
 /**
- * v2.5.13 — 核心改动: prompt_safe_description 作为主要视觉描述
- *
- * 之前: 只用 buildEnglishVisualDescription() 手动拼接 → 遗漏 prompt_safe_description
- * 现在: prompt_safe_description 为主体, 结构化字段为补充
+ * v3.0.0.40 BUG-105: 主要 visual block 直接用 visualDescription 自由文本
+ * 之前: buildEnglishVisualDescription 按 37 字段拼装, 跟 description 脱节
+ * 现在: 完全用 characterDescription.ts 生成的 Markdown 内容, 1:1 对齐
  */
 function buildPrimaryVisualBlock(data: CharacterSheetData): string {
-  if (data.prompt_safe_description) {
-    // prompt_safe_description 是 LLM 按风格生成的最完整描述, 优先使用
-    const supplemental = buildEnglishVisualDescription(data);
-    if (supplemental && supplemental !== data.prompt_safe_description) {
-      return `${data.prompt_safe_description}\n\nAdditional structured details: ${supplemental}`;
-    }
-    return data.prompt_safe_description;
+  if (data.visualDescription) {
+    return data.visualDescription;
   }
-  // fallback: 没有 prompt_safe_description 时用结构化字段
-  return buildEnglishVisualDescription(data);
+  // 兜底: 没有 visualDescription 时, 退到只描述"角色名 + 性别" (避免空 prompt)
+  const fallback: string[] = [];
+  if (data.gender) {
+    fallback.push(`a ${data.gender === '男' ? 'male' : 'female'} character`);
+  }
+  if (data.name) {
+    fallback.push(`named ${data.name}`);
+  }
+  return fallback.join(', ') || 'a character';
 }
 
+/**
+ * v3.0.0.40 BUG-105: 拼三视图 prompt (完全用 description 自由文本)
+ */
 export function buildCharacterSheetPrompt(data: CharacterSheetData, styleBible?: StyleBible | null): string {
   const styleId = (data.styleId as StylePresetId) || 'realistic';
 
@@ -224,24 +120,16 @@ export function buildCharacterSheetPrompt(data: CharacterSheetData, styleBible?:
   const ethnicity = styleBible?.visual.ethnicity || 'east asian';
   const rendererEn = styleBible?.visual.renderer_en || '';
 
+  // v3.0.0.40 BUG-105: 主要 visual block = visualDescription 自由文本 (不再按 37 字段拼)
   const primaryVisual = buildPrimaryVisualBlock(data);
-  const zhVisual = buildChineseVisualDescription(data);
 
   const identityParts: string[] = [];
   if (data.name) identityParts.push(`character name: ${data.name}`);
   if (data.gender) identityParts.push(`gender: ${data.gender === '男' ? 'male' : 'female'}`);
-  if (data.age) identityParts.push(`age: ${data.age}`);
-  if (data.height) identityParts.push(`height: ${data.height}`);
-  if (data.build) identityParts.push(`build: ${data.build}`);
-  if (data.makeup) identityParts.push(`makeup style: ${data.makeup}`);
 
-  const doNotChangeParts: string[] = [];
-  if (data.do_not_change) doNotChangeParts.push(data.do_not_change);
-  if (data.distinctive_features) doNotChangeParts.push(data.distinctive_features);
-
-  // v2.5.13: 渲染语言指令 (如 "use brush-and-paper language, NOT photographic terms")
   const rendererNote = rendererEn ? `\n[renderer: ${rendererEn}]` : '';
 
+  // v3.0.0.40 BUG-105: 简化 jsonLikeStructure, 不再列 37 字段
   const jsonLikeStructure = [
     `[task: character_turnaround_portrait]`,
     `[style: ${genreEn}]`,
@@ -254,9 +142,9 @@ export function buildCharacterSheetPrompt(data: CharacterSheetData, styleBible?:
     `[camera_setup: portrait 85mm + body 50mm]`,
     `[identity: ${identityParts.join(', ')}]`,
     `[ethnicity: ${ethnicity}]`,
+    // v3.0.0.40 BUG-105: 关键改动 - 整段 description 自由文本作为 face details
     `[face details: ${primaryVisual}]`,
-    `[do_not_change: ${doNotChangeParts.join(' / ') || 'face shape, hairstyle, outfit, accessories'}]`,
-    `[expression: ${data.default_expression || 'neutral calm gaze'}]`,
+    `[expression: neutral calm gaze]`,
   ].join('\n');
 
   const crossModelPrompt = `character sheet, turnaround, multiple views of the same person, ${primaryVisual}
@@ -265,7 +153,8 @@ ${genreEn}, ${qualityEn}, ${lightingEn}, ${colorEn}, ${backgroundEn}
 
 ${CONSISTENCY_KEYWORDS_EN.join(', ')}`;
 
-  const chinesePart = `\n\n中文描述：\n${zhVisual}\n${CONSISTENCY_KEYWORDS_ZH.join('，')}`;
+  // v3.0.0.40 BUG-105: 简化 chinesePart, 不再按 37 字段拼 (用 visualDescription 原文)
+  const chinesePart = `\n\n中文描述：\n${primaryVisual}\n${CONSISTENCY_KEYWORDS_ZH.join('，')}`;
 
   const negativeKeywords = buildDynamicNegativeKeywords(styleId);
   const embeddedNegative = `\n\n[AVOID: ${negativeKeywords.join(', ')}]`;
@@ -280,6 +169,9 @@ ${CONSISTENCY_KEYWORDS_EN.join(', ')}`;
   return fullPrompt.length > 3900 ? fullPrompt.slice(0, 3897) + '...' : fullPrompt;
 }
 
+/**
+ * v3.0.0.40 BUG-105: 单角度 prompt (跟三视图同源, 简化)
+ */
 export function buildSingleAnglePrompt(
   data: CharacterSheetData,
   angle: 'front_bust' | 'side_bust' | 'full_body',
@@ -291,8 +183,8 @@ export function buildSingleAnglePrompt(
   const colorEn = styleBible?.visual.colorStyle_en || 'natural color grading';
   const backgroundEn = styleBible?.visual.background_en || 'clean backdrop';
 
+  // v3.0.0.40 BUG-105: 主要 visual block = visualDescription 自由文本
   const primaryVisual = buildPrimaryVisualBlock(data);
-  const zhVisual = buildChineseVisualDescription(data);
 
   const angleDescEn: Record<string, string> = {
     front_bust: `close-up portrait, chest up, front facing the camera, 85mm lens, shallow depth of field`,
@@ -306,16 +198,9 @@ export function buildSingleAnglePrompt(
     full_body: `正面全身站立照，全身居中，自然站姿，50mm镜头效果`,
   };
 
-  const angleNote: Record<string, string> = {
-    front_bust: `focus on facial features, eyes, expression ${data.default_expression || 'neutral calm gaze'}`,
-    side_bust: `focus on side profile, silhouette, hair style, side clothing details`,
-    full_body: `focus on full outfit, accessories, body proportions, overall look`,
-  };
-
   const identityParts: string[] = [];
   if (data.name) identityParts.push(`character name: ${data.name}`);
   if (data.gender) identityParts.push(`gender: ${data.gender === '男' ? 'male' : 'female'}`);
-  if (data.age) identityParts.push(`age: ${data.age}`);
 
   const styleNegative = styleBible?.negativePrompt
     ? `\n\n[STYLE NEGATIVE: ${styleBible.negativePrompt.join(', ')}]`
@@ -331,11 +216,10 @@ ${genreEn}, ${qualityEn}
 ${lightingEn}, ${backgroundEn}, ${colorEn}
 
 identity: ${identityParts.join(', ')}
-${angleNote[angle]}
 
 ${CONSISTENCY_KEYWORDS_EN.slice(0, 3).join(', ')}
 
-中文：${angleDescZh[angle]}，${zhVisual}，${CONSISTENCY_KEYWORDS_ZH[0]}
+中文：${angleDescZh[angle]}，${primaryVisual}，${CONSISTENCY_KEYWORDS_ZH[0]}
 
 [AVOID: ${buildDynamicNegativeKeywords(data.styleId).slice(0, 15).join(', ')}]${styleNegative}`;
 
