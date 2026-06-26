@@ -1,8 +1,9 @@
 # apps/server/AGENTS.md — Server 端 AI Agent 必读 (S70 更新: 走 systemd + 宝塔 Node 项目)
 
 > **本文件**: server 端 (Node + Express + MySQL + **systemd unit**) AI Agent 独有规范. 跟根 AGENTS.md + mobile AGENTS.md 对称.
-> **必读顺序** (S68 收口后, S70 加宝塔路径):
+> **必读顺序** (S68 收口后, S70 加宝塔路径, S72 batch 7 加 🆕 部署主入口):
 > 0. **[`../../AGENTS.md`](../../AGENTS.md)** — 跨端统一总入口 (中文/Persistence/铁律/工作流, **必先读**)
+> 0.5. **[`../../docs/DEPLOY_RELEASE_FLOW.md`](../../docs/DEPLOY_RELEASE_FLOW.md)** — 🆕 **S72 batch 7 部署 + 发布主入口 SOP (14 段 + 24 维验证 + 9 已知坑, 跨端统一)**
 > 1. 本文件 — server 端独有 (部署 5 项 + 8 铁律 + 5 类任务 SOP + 代码架构)
 > 2. **[`../../docs/BAOTA_NODE_PROJECT_DEPLOY.md`](../../docs/BAOTA_NODE_PROJECT_DEPLOY.md)** — 🆕 **S70 宝塔 Node 项目部署 SOP (5 步流程 + 12 维验证 + 9 坑, BUG-077 修法)**
 > 3. **[`../../docs/VERSION_MANAGEMENT.md`](../../docs/VERSION_MANAGEMENT.md)** — 跨端版本管理 (含 § 5.0 活跃任务部署)
@@ -12,7 +13,7 @@
 > 7. **[`../../docs/PM2_GUIDE.md`](../../docs/PM2_GUIDE.md)** — PM2 + ecosystem 历史规范 (S70 起 deprecated, 仅供考古)
 > 8. **[`../../docs/DB_MIGRATION.md`](../../docs/DB_MIGRATION.md)** — DB schema 迁移 SOP
 > 9. **[`../../docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md`](../../docs/notes/DEPLOYMENT_AND_BACKEND_RULES.md)** — 后端 worker 9 条实战约束
-> 10. **[`../../apps/mobile/BUGS.md`](../../apps/mobile/BUGS.md)** — 跨端共用 BUG 案例库 (**BUG-076/077 必读**)
+> 10. **[`../../apps/mobile/BUGS.md`](../../apps/mobile/BUGS.md)** — 跨端共用 BUG 案例库 (**BUG-076/077/079/082/090/094/095/096/097/098/099 必读**)
 > 11. **[`../../docs/standards/ADR/`](../../docs/standards/ADR/)** — 架构决策追溯
 > 12. **[`../../docs/STANDARDS_EVOLUTION.md`](../../docs/STANDARDS_EVOLUTION.md)** — 规范自迭代 SOP
 

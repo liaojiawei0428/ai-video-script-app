@@ -1,9 +1,11 @@
 # AGENTS.md — shipin-APP AI Agent 总入口 (跨端统一)
 
 > **本文件**: shipin-APP 项目的 AI Agent 必读总入口 (跨端统一规范).
-> **版本**: v2.9 (2026-06-25 S72 batch 4 收口, 加 铁律 9 🔍 思考链 + 工具调用流必 visible, 跨端 6→9 铁律)
-> **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有)
+> **版本**: v2.12 (2026-06-26 S72 batch 7 后, 加 🆕 [`docs/DEPLOY_RELEASE_FLOW.md`](./docs/DEPLOY_RELEASE_FLOW.md) 主入口 SOP)
+> **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有) + `apps/web/AGENTS.md` (web 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
+
+> **🆕 部署 + 发布主入口**: 任何部署 / 发布 / APK rebuild 前必读 [`docs/DEPLOY_RELEASE_FLOW.md`](./docs/DEPLOY_RELEASE_FLOW.md) (14 段 SOP + 24 维验证 + 9 已知坑 + 5 步跨端同步 + 11 工具脚本)
 
 ---
 

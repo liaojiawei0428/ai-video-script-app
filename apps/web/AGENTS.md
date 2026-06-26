@@ -1,8 +1,9 @@
-# apps/web/AGENTS.md — Web 端 AI Agent 必读 (S72 v1.0 新建)
+# apps/web/AGENTS.md — Web 端 AI Agent 必读 (S72 v1.1 加部署主入口)
 
 > **本文件**: web 端 (React + Vite) AI Agent 独有规范. 跟根 AGENTS.md + mobile AGENTS.md + server AGENTS.md 对称.
-> **必读顺序** (S72 起):
+> **必读顺序** (S72 batch 7 加 🆕 部署主入口):
 > 0. **[`../../AGENTS.md`](../../AGENTS.md)** — 跨端统一总入口 (中文/Persistence/铁律/工作流, **必先读**)
+> 0.5. **[`../../docs/DEPLOY_RELEASE_FLOW.md`](../../docs/DEPLOY_RELEASE_FLOW.md)** — 🆕 **S72 batch 7 部署 + 发布主入口 SOP (跨端统一, 含 web 部署 § 3 + BUG-099 web dist 破坏 应急处理 § 12.1)**
 > 1. 本文件 — web 端独有 (React 栈 + 3 个已知 GAP + 部署)
 > 2. **[`./DEPLOY.md`](./DEPLOY.md)** — web 端部署 (本地 build + scp + nginx)
 > 3. **[`../../docs/VERSION_MANAGEMENT.md`](../../docs/VERSION_MANAGEMENT.md)** — 跨端版本管理 (含 § 5 发版 SOP)
