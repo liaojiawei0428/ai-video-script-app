@@ -747,6 +747,42 @@ rm test.txt
 
 ---
 
+### 8.13 BUG-104: server bump 3.0.39 漏 rebuild APK, user 升级弹窗 APK 404 (v3.0.39 mobile 同步, 2026-06-26)
+
+- **根因**: BUG-103 修法只 bump server 端 (package.json + index.ts + ecosystem + .env + systemd + changelog), **漏 rebuild APK + scp**, 公网 `https://ab.maque.uno/app/DeepScript_v3.0.39.apk` HTTP/2 404. user 装 v3.0.38 APK → App.tsx useEffect(checkUpdate) → updater.tsx 调 /api/version?version=3.0.38 → server 返 3.0.39 → compareVersions=-1 → needUpdate=true → 弹升级窗 → user 点下载 → 404 → user 卡住. 跟 BUG-097 mobile 端漏修 web 3 BUG 100% 同源, 跟 BUG-103 删 server 自动退款漏刷 APK 100% 同源
+- **修法** (4 步走完, v3.0.39 mobile 端跟上, commit `ecd297f`):
+  1. **bump mobile build.gradle + version.ts**:
+     - `apps/mobile/android/app/build.gradle`: `versionCode 43→44` + `versionName "3.0.38"→"3.0.39"`
+     - `apps/mobile/src/config/version.ts`: `APP_VERSION '3.0.38'→'3.0.39'` + `APP_VERSION_CODE 43→44`
+  2. **bump web version.ts** (跨端 UX 一致):
+     - `apps/web/src/config/version.ts`: `APP_VERSION '3.0.38'→'3.0.39'` + `APP_VERSION_CODE 43→44`
+  3. **rebuild APK + scp** (44s, mobile 端没改 src 但 version 改了 → bundle 重 build → 新 SHA256):
+     - `cd apps/mobile/android && ./gradlew assembleRelease` → app-release.apk 30,077,287 bytes, SHA256 `3F188A109C055369E314542809C11AB53C8F368A1CE5FE3A59E5517CCA6CDEC5`
+     - `scp -i test2 app-release.apk root@159.75.16.110:/www/wwwroot/shipin-APP/public/DeepScript_v3.0.39.apk`
+     - 公网 SHA256 跟本机一致 (vite/RN deterministic)
+  4. **web build + scp** (3.10s, version.ts 改了 → vite inline 重 build → 新 hash):
+     - `cd apps/web && npm run build` → dist/assets/index-Bnh837h2.js 480.43 kB (新 hash, 跟 v3.0.37 `BwxcAQbo.js` 不同)
+     - `scp -i test2 -r dist root@159.75.16.110:/www/wwwroot/ab.maque.uno/dist` + nginx reload
+- **9 项版本号同步** (跟铁律 3 + 4++ 配套, BUG-104 扩 8→9 项):
+  1. mobile `version.ts` APP_VERSION (3.0.38→3.0.39) + APP_VERSION_CODE (43→44)
+  2. mobile `build.gradle` versionCode (43→44) + versionName (3.0.38→3.0.39)
+  3. web `version.ts` APP_VERSION (3.0.38→3.0.39) + APP_VERSION_CODE (43→44)
+  4. server `package.json` (已是 3.0.39, BUG-103 修过)
+  5. server `index.ts` fallback (已是 3.0.39, BUG-103 修过)
+  6. server `ecosystem.config.js` 2 处 (已是 3.0.39, BUG-103 修过)
+  7. 远端 `.env` APP_VERSION (已是 3.0.39, BUG-103 修过)
+  8. 远端 systemd unit `Environment=APP_VERSION=3.0.39` (BUG-103 修过)
+  9. server `changelog.json` v3.0.39 entry (已是 7 highlights BUG-103 修法, 不变)
+- **教训** (跨项目通用, 跟 BUG-097/103/090/099 100% 同源):
+  1. **server bump 必 rebuild APK + scp** (跟 BUG-097 mobile 漏修 web 100% 同源, 跟 BUG-103 删自动退款漏刷 APK 100% 同源)
+  2. **9 项版本号同步必加 mobile build.gradle versionCode** (跟铁律 3 扩 6→9 项, 跟铁律 4++ 跨端同步配套)
+  3. **部署 SOP 必加"模拟 user 升级链路"端到端验证** (跟 BUG-100 修法 1 必加端到端验证 100% 同源)
+  4. **任何公网下载链接必须在 deploy 阶段实测 HTTP 200** (跟 S54 BUG-073 silent fail 跑老 .js 同源)
+  5. **APK SHA256 vite/RN deterministic** (跟 BUG-099 web dist hash deterministic 同源: 同样 source 同样 SHA256)
+- **配套工具** (永久化): `apps/server/scripts/simulate-v3038-to-v3039-upgrade.sh` (10 步模拟升级链路: compareVersions=-1, needUpdate=true, APK 200, SHA256 一致, install 后 compareVersions=0, needUpdate=false) + `scripts/verify-deploy.sh` 维度 24 强制 grep APK bundle 命中 + 4 件套 v3.0.39 验证 (server `/api/version` + 公网 APK SHA256 + web dist hash + 9 项版本号 grep 100%)
+
+---
+
 ## § 9. 工具脚本清单 (永久工具, 跨项目通用)
 
 | 路径 | 用途 | 触发时机 |

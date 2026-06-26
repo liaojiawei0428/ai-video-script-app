@@ -4244,3 +4244,114 @@ WHERE id = '3b3aa45d-54d0-449a-bc99-7a804ab9d62e';
 - [BUG-079 S71 鍚庣疆鍋囨姤鍛?12 缁村叏杩?100% 鍋嘳(bug-079) 鈥?BUG-103 鑷姩鍖栨病浜?review 璺熷亣鎶ュ憡蹇冩€佸悓婧?- [BUG-098 S72 batch 7 admin approve 鎶?500](bug-098) 鈥?BUG-103 catch 婕忚ˉ鍒€ audit 璺?BUG-098 SQL 閿?100% 鍚屾簮
 - [BUG-100 S72 batch 8 69 video_generations 鍗?queued 17 澶(bug-100) 鈥?BUG-103 鑷姩閫€娆炬病 review 璺?BUG-100 catch 婕忚ˉ鍒€ 100% 鍚屾簮
 - [BUG-101 S72 batch 8 APP 涓婁紶鍒嗘瀽 upload 閿橾(bug-101) 鈥?閰嶅: BUG-101 mobile 绔?5 閿欒皟鐢? BUG-103 server 绔嚜鍔ㄩ€€娆?1 閿欒皟鐢?
+
+---
+
+## BUG-104 (S72 batch 8 收口, 2026-06-26)
+
+**server bump 3.0.39 漏 rebuild APK, user 触发升级弹窗但 APK 404** (跨项目通用教训)
+
+### 现象
+- 2026-06-26 17:11 模拟 v3.0.38 user 升级到 v3.0.39 server 链路, 发现下载 URL `https://ab.maque.uno/app/DeepScript_v3.0.39.apk` **HTTP/2 404**
+- 公网目录实际只有 v3.0.38 APK (commit `03331ed` 上传), v3.0.39 APK 一直没 rebuild + scp
+- 实际场景: v3.0.38 user 启动 mobile → `App.tsx useEffect(checkUpdate)` 触发 → `updater.tsx` 调 `/api/version?version=3.0.38` → server 返 `version=3.0.39` → `compareVersions(3.0.38, 3.0.39) = -1` → `needUpdate = true` → 弹升级窗 → user 点下载 → 404 → user 卡住
+- 跟 BUG-100 catch 漏补刀 (3 修法 1 批次) 100% 同源: 跨端同步缺一就崩
+
+### 根因
+**server bump 跟 APK release 解耦, 缺强制同步检查** (跟 BUG-097 "mobile 端漏修 web 3 BUG" 100% 同源, 跟 BUG-103 删 server 自动退款但没刷 APK 同源):
+- server `changelog.json` v3.0.39 entry 写好 + systemd + .env sed 改完 → /api/version 立刻返 3.0.39 → user 端立刻需要 3.0.39 APK
+- 但 mobile 端 `build.gradle versionCode 43` 还是 v3.0.38, gradle 不会自动 build
+- 没强制检查: "server 改了, mobile build.gradle 必改" 这条规则没在 9 项版本号同步清单里
+- 跟 BUG-090 deploy.sh changelog.json cp 源错同源: 部署 SOP 缺一环就崩
+
+### 修法 (4 步走完, v3.0.39 mobile 端跟上, commit `ecd297f`)
+
+#### Fix 1: bump mobile build.gradle + version.ts (跟 server 同步)
+```gradle
+// apps/mobile/android/app/build.gradle
+android {
+    defaultConfig {
+        applicationId "com.aiscriptmobile"
+        minSdkVersion 24
+        targetSdkVersion 34
+        versionCode 44  // BUG-104: 43→44, 跟 server v3.0.39 同步
+        versionName "3.0.39"  // BUG-104: "3.0.38"→"3.0.39"
+        ...
+    }
+}
+```
+
+```typescript
+// apps/mobile/src/config/version.ts
+export const APP_VERSION = '3.0.39';  // BUG-104: '3.0.38'→'3.0.39'
+export const APP_VERSION_CODE = 44;  // BUG-104: 43→44
+```
+
+#### Fix 2: bump web version.ts (跨端 UX 一致)
+```typescript
+// apps/web/src/config/version.ts
+export const APP_VERSION = '3.0.39';  // BUG-104: '3.0.38'→'3.0.39'
+export const APP_VERSION_CODE = 44;  // BUG-104: 43→44
+```
+
+#### Fix 3: rebuild APK + scp + web dist 同步
+```bash
+# 1. gradle rebuild APK (44s, mobile 端没改 src 但 version 改了 → bundle 重 build → 新 SHA256)
+cd apps/mobile/android && ./gradlew assembleRelease
+# output: app-release.apk 30,077,287 bytes, SHA256 3F188A109C055369E314542809C11AB53C8F368A1CE5FE3A59E5517CCA6CDEC5
+
+# 2. scp 到公网
+scp -i test2 app-release.apk root@159.75.16.110:/www/wwwroot/shipin-APP/public/DeepScript_v3.0.39.apk
+# 公网 SHA256 跟本机一致 (vite/RN deterministic)
+
+# 3. web build + scp
+cd apps/web && npm run build
+# output: dist/assets/index-Bnh837h2.js 480.43 kB (新 hash, version.ts 改了 → vite inline 重 build)
+scp -i test2 -r dist root@159.75.16.110:/www/wwwroot/ab.maque.uno/dist
+```
+
+#### Fix 4: 9 项版本号同步 (跟铁律 3 + 4++ 配套)
+1. mobile `version.ts` APP_VERSION (3.0.38→3.0.39) + APP_VERSION_CODE (43→44)
+2. mobile `build.gradle` versionCode (43→44) + versionName (3.0.38→3.0.39)
+3. web `version.ts` APP_VERSION (3.0.38→3.0.39) + APP_VERSION_CODE (43→44)
+4. server `package.json` (已是 3.0.39, 不变)
+5. server `index.ts` fallback (已是 3.0.39, 不变)
+6. server `ecosystem.config.js` 2 处 (已是 3.0.39, 不变)
+7. 远端 `.env` APP_VERSION (已是 3.0.39, 不变)
+8. 远端 systemd unit Environment=APP_VERSION (已是 3.0.39, 不变)
+9. server `changelog.json` v3.0.39 entry (已是 7 highlights, BUG-103 修法, 不变)
+
+### 配套工具 (永久化)
+- `apps/server/scripts/simulate-v3038-to-v3039-upgrade.sh` — 模拟 v3.0.38 user 升级到 v3.0.39 server 端到端链路 (10 步, 验证: compareVersions=-1, needUpdate=true, APK 200, SHA256 一致, install 后 compareVersions=0, needUpdate=false)
+- `scripts/verify-deploy.sh` 维度 24 强制 grep APK bundle 命中关键字符串 (notifyRechargePaid / user_notified / adminOrders)
+- 4 件套 v3.0.39 验证: server `/api/version` 返 3.0.39 + 公网 APK SHA256 一致 + web dist hash 跟 git 一致 + 9 项版本号 grep 100%
+
+### 教训 (跨项目通用, 跟 BUG-097/103 同源)
+1. **server bump 必 rebuild APK + scp** (跟 BUG-097 mobile 漏修 web 100% 同源, 跟 BUG-103 删自动退款漏刷 APK 100% 同源)
+2. **9 项版本号同步必加 mobile build.gradle versionCode** (跟铁律 3 扩 6→9 项, 跟铁律 4++ 跨端同步配套)
+3. **部署 SOP 必加"模拟 user 升级链路"端到端验证** (跟 BUG-100 修法 1 必加端到端验证 100% 同源, 跟 BUG-098 catch 必加二次验证 100% 同源)
+4. **任何公网下载链接必须在 deploy 阶段实测 HTTP 200** (跟 S54 BUG-073 silent fail 跑老 .js 同源: 部署 ≠ 成功, 必跑 24 维 + 模拟链路)
+5. **APK SHA256 vite/RN deterministic** (跟 BUG-099 web dist hash deterministic 同源: 同样 source 同样 SHA256, 远端比对 = 一致性金标准)
+
+### Refs
+- `AGENTS.md` § 4 铁律 3 (9 项版本号同步, BUG-104 扩 8→9 项)
+- `AGENTS.md` § 4 铁律 4++ (Web→APP 同步, BUG-104 跟 server bump APK 同步配套)
+- `apps/mobile/android/app/build.gradle` (versionCode 44 + versionName 3.0.39, BUG-104 修后)
+- `apps/mobile/src/config/version.ts` (APP_VERSION 3.0.39 + APP_VERSION_CODE 44)
+- `apps/web/src/config/version.ts` (APP_VERSION 3.0.39 + APP_VERSION_CODE 44)
+- `apps/server/scripts/simulate-v3038-to-v3039-upgrade.sh` (10 步模拟升级链路)
+- `docs/DEPLOY_RELEASE_FLOW.md` § 8.13 (BUG-104 完整段)
+- mavis memory: `server bump 必 rebuild APK (跨项目通用, 跟 BUG-097 mobile 漏修 web 同源, 跟 BUG-103 删自动退款漏刷 APK 同源)` (本 session 沉淀)
+
+### 前置 BUG (跨项目通用: 跨端同步缺一就崩)
+- [BUG-090 S72 batch 6 deploy.sh changelog.json cp 源错](bug-090) — 100% 同源: BUG-090 deploy 缺一环 (changelog) 就崩, BUG-104 部署缺一环 (APK) 就崩
+- [BUG-097 S72 batch 7 mobile 端漏修 web 3 BUG](bug-097) — 100% 同源: BUG-097 跨端同步缺一就崩, BUG-104 server→mobile 同步缺一就崩
+- [BUG-099 S72 batch 7 web dist index-*.js 被破坏](bug-099) — 100% 同源: BUG-099 web dist hash 破坏, BUG-104 APK SHA256 vite/RN deterministic 配套
+- [BUG-103 S72 batch 8 refundStep 自动退款退多 34.93 元](bug-103) — 100% 同源: BUG-103 删自动退款漏刷 APK, BUG-104 server 改漏刷 APK 配套 (修法一致)
+
+### 收口更新
+- BUG-104 修法 commit: `ecd297f` v3.0.39 (bump mobile + web 9 项 + rebuild APK + scp)
+- BUG-104 沉淀 commit: 见 BUG-104 文档沉淀 commit
+- 铁律 6 自检: PASS=10/10
+- 4 件套 v3.0.39 100% 同步: server / web / mobile / 公网 APK
+- 24 维 1-22 + 维度 14 (web 实际加载 JS hash) + 维度 24 (APK bundle grep) 全 PASS
