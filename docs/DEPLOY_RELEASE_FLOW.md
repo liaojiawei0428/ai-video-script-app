@@ -819,6 +819,23 @@ rm test.txt
 - 配套工具: tools/verify-mobile-characterUtils.js (5/5 PASS 脚本, 跨端改 utils 时必跑) + apps/server/scripts/deploy-bug105-mobile-sync.sh (远端部署脚本, 6 步 bump + restart) + docs/BUGS_INDEX.md § 1 BUG-105 行 + Top 25 + 1 mavis memory: web→mobile utils 同步必须移植 (跟 BUG-097 mobile 漏修 web 100% 同源)
 : "角色分析 prompt 必基于剧情内容, 不限制死字段, 严禁编造 (跨项目通用, 跟 BUG-079 TS 编译过 ≠ 运行时正确 100% 同源)"
 
+### 8.14.2 BUG-106: verify-deploy-24d.sh 自身 5 子 bug (v3.0.41 收口, 2026-06-26 S72 batch 9)
+
+> 必读: 任何"自动验证/部署后自检"脚本跑前必先跑一遍脚本自身, **"100% PASS" ≠ 实际有效** (跟 BUG-079 假报告 100% 同源). 这是 § 9 工具脚本清单的实战案例 + Top 26 BUG-106 通用铁律的具体应用.
+
+- 根因 (5 子 bug 同时存在): S72 batch 8 加 verify-deploy-24d.sh wrapper (引用 /tmp/verify-deploy.sh) + 维度 23a/23b/24 mobile 端同步自检, 但底层 verify-deploy.sh (B73 24 维全过承诺) 自身存在 5 个 silent bug, 跑 53 行就 fail, **B73 S72 batch 7 报"24 维全过" 100% 假**:
+  1. **urllib API 错误 (维度 22)**: `__import__('urllib.request', fromlist=['urlopen']).request.urlopen` AttributeError. urllib.request 没有 .request 子属性, 应直接 `urllib.request.urlopen(url)`. 实测: `AttributeError: module 'urllib.request' has no attribute 'request'`
+  2. **f-string 内嵌 bash 变量 (维度 22 changelog 字段)**: bash 单行 python `python3 -c "import json...f'...env={$APP_VERSION}...'"` 被 python 解析为 `env=3.0.41` 表达式, SyntaxError. 实测: `SyntaxError: invalid syntax: 'env=' + 3.0.41`
+  3. **bash 算术多行 grep 输出 (维度 24 APK bundle)**: `$((V24_NOTIFY + V24_PAID + V24_STAGE))` 在 `grep -c` 输出多行时 syntax error. 实测: `syntax error in expression (error token is "11\n3\n...")` (grep -c 多文件输出每行一个数字)
+  4. **awk -F: 处理单文件 grep -c (维度 23a/23b)**: `grep -c 'userNotifiedAt>' file.js` 单文件输出无 filename prefix (只有 `0` 数字), awk `-F: '{s+=$2}'` 拆错 (空字符串). 实测: PASS 错误变 FAIL (永远 s=0)
+  5. **web dist 路径错 (维度 23 a/b)**: 脚本写死老路径 `/www/wwwroot/ab.maque.uno/dist/assets` (S72 batch 6 老位置), 但 S72 batch 8 改 `/www/wwwroot/web-app/dist/assets` (index-B1XyyGhQ.js 当前). 实测: WEB_DIST_DIR 不存在 → skip 跳过 (但 23a/23b 应该 FAIL, 错失 BUG-096 拦截机会)
+- 修法 (v3.0.41 收口): 1) `apps/server/scripts/verify-deploy.sh` 入仓 33080 bytes 605 行 (24 维全修复) — urllib.request.urlopen 替代 .request.urlopen / f-string 改字符串拼接避免 bash 变量 / grep -c 改 grep -ao + wc -l / awk -F: 改 awk '{s+=$1}' / WEB_DIST_DIR 改 /www/wwwroot/web-app/dist/assets 2) `verify-deploy-24d.sh` 改 wrapper 引用 `$(dirname "$0")/verify-deploy.sh` 相对路径 (S72 batch 9 抛弃 /tmp/ 绝对路径, 跟 web dist 路径反转同源) 3) 远端实测 27 PASS + 0 FAIL + 0 SKIP (维度 1-22 + 23a userNotifiedAt 修法 + 23b 反模式 0 命中 + 24 APK bundle 同步 3 关键 API/UI 元素)
+- 端到端验证: 1) 远端 ssh bash scripts/verify-deploy-24d.sh 跑出 "PASS: 27 / FAIL: 0 / SKIP: 0" + "全部通过, shipin-APP 部署健康" 2) BlueStacks 5 装 v3.0.41 APK + 启动 MainActivity + 登录态保留 (q378685504/wuliao) + 走 书架 → ScriptDetail → CharacterList → CharacterDetail 截图, 看到 11 字段 objectToText 兼容显示 (无 [object Object] 乱码, 100% 跟 web 端显示一致) 3) 4 步自检: 维度 22 /api/version 4 字段 OK (version=3.0.41 changelog=8 highlights 14 字 buildDate=2026-06-26) + 维度 23a userNotifiedAt> 修法命中 + 维度 23b userNotifiedAt&& 反模式 0 命中 (BUG-096 已清) + 维度 24 APK bundle 同步 3 元素 ≥1
+- 教训 (跨项目通用铁律, 跟 BUG-079 假报告 100% 同源, 跟 BUG-090 deploy.sh cp 源错 100% 同源): 1) **verify 脚本跑前必先跑一遍脚本自身** — "100% PASS" ≠ 实际有效, verify 脚本自身 silent fail 让你 100% PASS 但实际是 0 行真验证 2) **python f-string 禁止内嵌 bash 变量** — 必用字符串拼接 `'...env=' + '$APP_VERSION' + '...'` 避免 SyntaxError, 或先 `APP_VERSION_PY=$APP_VERSION` 提取再 f-string, 或直接走 bash 命令外传 3) **bash 算术必强制单行数字** — 改 `grep -ao pattern | wc -l` (强制单行数字) + `${VAR:-0}` 默认值 fallback 4) **awk 处理 grep -c 必带 -h flag** — 单文件用 `grep -hc ... | awk '{s+=$1}'` (h 抑制 filename) 或多文件保留 filename + `awk -F: '{s+=$2}'` 5) **写死的路径必从 `DEPLOY_DIR` 自动 derive** — 不写死 `/www/wwwroot/ab.maque.uno/dist/assets`, 走 `ls /www/wwwroot/*/dist/assets` 自检或 nginx config 读
+- 防呆 SOP: 1) 写完 verify 脚本必先单独跑一遍确认绿, 再集成到 deploy.sh / CI 2) commit verify-deploy.sh 必跑 `bash scripts/verify-deploy-24d.sh --strict` 端到端验证, 任何 FAIL 必修 3) wrapper 引用必用 `$(dirname "$0")/verify-deploy.sh` 相对路径, 兼容本地 / 远端 4) BUG-106 沉淀到 docs/BUGS_INDEX.md § 1 速览 + Top 26 + docs/DEPLOY_RELEASE_FLOW.md § 8.14.2 (本段) + 1 mavis memory (跨项目通用)
+- 配套工具: `apps/server/scripts/verify-deploy.sh` (33080 bytes 605 行 24 维全过) + `apps/server/scripts/verify-deploy-24d.sh` (wrapper 引用相对路径) + `docs/BUGS_INDEX.md` § 1 BUG-106 速览行 + Top 26 + § 4.5 + 1 mavis memory: verify 脚本 5 子 bug pattern (跨项目通用) + BlueStacks 5 端到端截图 (BookshelfScreen → ScriptDetailScreen → CharacterListScreen → CharacterDetailScreen)
+: "verify 脚本自身 5 子 bug pattern, 跑前必先跑一遍脚本自身, 100% PASS ≠ 实际有效 (跨项目通用, 跟 BUG-079 假报告 100% 同源)"
+
 ---
 
 ## § 9. 工具脚本清单 (永久工具, 跨项目通用)
