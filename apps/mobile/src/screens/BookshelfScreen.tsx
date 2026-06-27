@@ -141,7 +141,10 @@ export function BookshelfScreen(): React.JSX.Element {
 
     // 1. 优先加载本地数据（离线可用，仅在登录状态下）
     const local = await getLocalNovels().catch(() => []);
-    if (local.length > 0) setNovels(local);
+    if (local.length > 0) {
+      setNovels(local);
+      setLoading(false); // 🆕 S72 batch 16 v3.0.45 BUG-115 A.4: 本地有数据立即停止 loading (秒开)
+    }
 
     // 2. 从服务端同步最新数据
     try {
