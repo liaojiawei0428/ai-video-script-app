@@ -155,7 +155,12 @@ export function BookshelfScreen(): React.JSX.Element {
       // 减少 90% 无效 re-render + 减少 90% 写 SQLite
       const { changed } = await diffNovelsByHash(serverNovels);
 
-      if (changed.length > 0) {
+      // 🆕 S72 batch 17 v3.0.46 BUG-116 缓存方案 B.4: ETag/304 短路检查
+      // axios interceptor 收到 304 时构造 status=200 + x-cache=HIT-304 header (从 cache_meta 返 body)
+      // 这里检查响应 headers['x-cache'] === 'HIT-304', 跳过 hash 比对 (已经是缓存命中)
+      const fromCache = serverRes?.headers?.['x-cache'] === 'HIT-304';
+
+      if (changed.length > 0 && !fromCache) {
         // 有数据变化: setState 触发 re-render + saveNovelIfChanged 写 SQLite
         setNovels(serverNovels);
         for (const n of changed) {
@@ -168,7 +173,7 @@ export function BookshelfScreen(): React.JSX.Element {
           }).catch(() => {});
         }
       }
-      // else: server 数据完全跟本地一致, 不 setState 不写 SQLite (性能优化)
+      // else: 304 命中 或 hash 完全一致 → skip setState 避免 re-render
     } catch {
       // 服务端不可用时，已显示本地数据
     }

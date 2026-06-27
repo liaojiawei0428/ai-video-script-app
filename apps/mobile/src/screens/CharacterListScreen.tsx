@@ -58,13 +58,13 @@ export function CharacterListScreen(): React.JSX.Element {
         getStylePresets().catch(() => ({ data: { data: { presets: [] } } })),
       ]);
       const serverChars = charRes.data?.data?.characters || [];
-      // 🆕 缓存方案 A.4: 用 hash 比对判断是否需要 setState (避免无效 re-render)
-      // 简单实现: 对比本地第一条 hash (从 characters 表里拿, A.3 的 novel_hashes 表不能直接复用, 这里用 character.id+updated_at 拼)
-      // 暂时简化: setState + saveCharactersDb 全部数据 (后续 A.6 加更精细 hash)
-      if (serverChars.length > 0 || local.length === 0) {
+      // 🆕 S72 batch 17 v3.0.46 BUG-116 缓存方案 B.4: ETag/304 短路检查
+      const fromCache = (charRes as any)?.headers?.['x-cache'] === 'HIT-304';
+      if (!fromCache && (serverChars.length > 0 || local.length === 0)) {
         setCharacters(serverChars);
         await saveCharactersDb(serverChars).catch(() => {});
       }
+      // else: 304 命中 → skip setState + skip saveDb (server 数据没变)
       setStylePresets(styleRes.data?.data?.presets || []);
     } catch (e) {
       console.warn('Load characters failed', e);
