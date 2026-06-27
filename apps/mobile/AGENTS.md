@@ -88,6 +88,102 @@
    - mobile 视角: `version.ts` + `build.gradle` (versionCode + versionName) + 6 处其他 (server package.json / index.ts / ecosystem / web version.ts / .env / systemd unit)
    - 必跑 `node tools/verify-version-8-points.js` (本地 6 + 远程 2)
 
+## § 6.5 v3.0.43 Stage 2 新增: 本地媒体缓存规范 (S72 batch 11 Stage 2)
+
+> **新增 2026-06-27 (S72 batch 11 v3.0.43 Stage 2)**: 解决 5Mbps 带宽 + 图片/视频加载慢 (10-20 秒).
+> **背景**: shipin-APP 没本地缓存层, 每次都重新下载, 重复看同一张图要等 N 次.
+
+### § 6.5.1 缓存架构 (3 层)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Layer 1: useCachedMedia hook (apps/mobile/src/hooks/)    │
+│  - mount 查 SQLite media_cache 表                         │
+│  - 命中 → 用本地 file:// 路径 (省 10s 网络)              │
+│  - 未命中 → 用原 URL + onLoaded 触发 cacheFromUrl         │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 依赖
+┌──────────────────────────────────────────────────────────┐
+│  Layer 2: mediaCache 工具 (apps/mobile/src/utils/)        │
+│  - 文件存储: RNFS.DocumentDirectoryPath/media-cache/{img,video}/{hash}.{ext}
+│  - 索引存储: SQLite media_cache.db (单表)                  │
+│  - Hash 命名: djb2 + reverse (32 chars hex, 跟 web 1:1)   │
+│  - LRU 淘汰: 500MB / 1000 文件, 删到 90% 阈值            │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 依赖
+┌──────────────────────────────────────────────────────────┐
+│  Layer 3: SQLite + RNFS (项目已装, 无 NDK 依赖)          │
+│  - react-native-sqlite-storage v6.0.1 (跟 models/db.ts 同架构)
+│  - react-native-fs v2.20.0 (跟 shipin-APP 现有用法一致)   │
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.5.2 替代方案决策 (踩坑教训, 跨项目通用铁律)
+
+| 方案 | 状态 | 原因 |
+|---|---|---|
+| MMKV 4.x | ❌ 失败 | 需要 nitro + RN 0.85 (shipin-APP RN 0.73 不兼容) |
+| MMKV 2.12.2 | ❌ 失败 | 需要 NDK build, shipin-APP NDK 没装 `source.properties` ([CXX1101] 错误) |
+| AsyncStorage | ⚠️ 备选 | 0 新依赖, 但查询慢 30x (跟 MMKV 比) |
+| **react-native-sqlite-storage v6.0.1** | ✅ **采用** | 项目已装, 跟 models/db.ts 集成, 无 NDK 依赖, 性能 < 5ms |
+
+**跨项目铁律**: 缓存方案选型必先验证 native 依赖 (peerDeps + engines + NDK + 跑 build 验证 5 步).
+
+### § 6.5.3 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| Hook API | `useCachedMedia(url) → { source, onLoaded, refresh }` | 同左 | ✅ |
+| Hash 算法 | djb2 + reverse (32 chars hex) | 同左 | ✅ |
+| LRU 阈值 | 500MB / 1000 文件 | 同左 | ✅ |
+| 索引存储 | IndexedDB `media-cache-v3` | SQLite `media-cache-v3.db` | 概念一致, 实现不同 |
+| 文件 hash 命名 | djb2(url) | djb2(url) | ✅ |
+
+### § 6.5.4 使用规范
+
+1. **新组件加图片必用 useCachedMedia**, 不要直接用 `<Image source={{ uri }} />`:
+   ```tsx
+   import { useCachedMedia } from '../hooks/useCachedMedia';
+   const { source } = useCachedMedia(imageUrl);
+   return <ImageWithLoading src={source || imageUrl} ... />;
+   ```
+
+2. **不要手动改 media_cache 表**, 走 mediaCache.ts 提供的 API:
+   - `getCached(url) → string | null` (查缓存)
+   - `cacheFromUrl(url) → string` (下载 + 存)
+   - `refresh(url) → string` (强删 + 重 GET)
+   - `clearAll() → void` (用户手动清)
+   - `getStats() → CacheStats` (统计)
+
+3. **改 hash 算法必 web + mobile 同步**, 跑 `tools/verify-bug109-media-cache.js` 验证 (8 维).
+
+4. **LRU 阈值变更必双端同步**, 跑 verify 脚本验证.
+
+5. **不要在 cacheFromUrl 内部 try/catch swallow 错误** — 失败必须 throw, 让上层 retry 触发.
+
+### § 6.5.5 跨项目通用 (跟 BUG-079 假报告 + BUG-097 mobile 漏修 web 100% 同源)
+
+- **改 utils 必 100% 移植含缓存** — Stage 1 加 UI 但没缓存 = 假修, Stage 2 补完整 (跟 BUG-079 100% 同源)
+- **跨端铁律 4++ 缓存必 1:1 镜像** — API / hash / LRU 三一致, 缺一就是 漏修
+- **Hash 命名是版本同步核心** — SHA256(url), server 改 URL 自动失效, 不依赖 server 配合 (跟 BUG-104 100% 同源)
+- **server ETag 跟 client cache 配套** — server ETag + Cache-Control, 客户端 If-None-Match 命中 → 304
+- **LRU 必加** — 500MB / 1000 文件 + lastAccessed 删到 90% 阈值, 防用户磁盘占满
+- **Cache key 必 1:1** — web djb2 = mobile djb2, 跨端不可用不同 hash 算法
+
+### § 6.5.6 验证脚本 (跟 shipin-APP 历史 verify 一致)
+
+`tools/verify-bug109-media-cache.js` (8 维验证):
+1. djb2 hash 32 chars hex (跟 web 1:1 算法)
+2. ext 推断 (.jpg/.png/.mp4/.webm)
+3. hash 失效机制 (server 改 URL 参数 → 自动 miss)
+4. LRU 淘汰算法 (按 lastAccessed ASC 排序)
+5. LRU 阈值 (500MB / 1000 文件上限)
+6. 跨端 hook API 一致 (web + mobile 都返回 {source, onLoaded, refresh})
+7. server ETag 中间件 (响应 JSON hash + 304 处理)
+8. Stage 2 集成 POC (web + mobile 各 1 处 useCachedMedia wrap)
+
+跑法: `node tools/verify-bug109-media-cache.js` (期望 PASS: 8 / FAIL: 0)
+
 ## § 7. 跨端铁律 4 (升级链路 mobile 独有, 跟 server 视角区分)
 
 > **跨端铁律 4 在 server 端 = "走 systemd 不用 PM2" (S70 BUG-077), mobile 端不适用**.
