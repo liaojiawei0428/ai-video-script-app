@@ -164,6 +164,44 @@ export async function saveCharacters(characters: any[]): Promise<void> {
   await txPromise(tx);
 }
 
+// ── cache_meta (S72 batch 17 v3.0.46 BUG-116 缓存方案 B.5, 跟 mobile cache_meta 表 1:1) ──
+
+export async function setCachedResponse(url: string, etag: string, body: string, statusCode: number = 200): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('cache_meta', 'readwrite');
+  tx.objectStore('cache_meta').put({ url, etag, body, status_code: statusCode, updated_at: Date.now() });
+  await txPromise(tx);
+}
+
+export async function getCachedETag(url: string): Promise<string | null> {
+  const db = await openDb();
+  const tx = db.transaction('cache_meta', 'readonly');
+  const row: any = await reqPromise(tx.objectStore('cache_meta').get(url));
+  return row ? row.etag : null;
+}
+
+export async function getCachedBody(url: string): Promise<{ etag: string; body: string; statusCode: number } | null> {
+  const db = await openDb();
+  const tx = db.transaction('cache_meta', 'readonly');
+  const row: any = await reqPromise(tx.objectStore('cache_meta').get(url));
+  if (!row) return null;
+  return { etag: row.etag, body: row.body, statusCode: row.status_code };
+}
+
+export async function deleteCachedResponse(url: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('cache_meta', 'readwrite');
+  tx.objectStore('cache_meta').delete(url);
+  await txPromise(tx);
+}
+
+export async function clearAllCacheMeta(): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('cache_meta', 'readwrite');
+  tx.objectStore('cache_meta').clear();
+  await txPromise(tx);
+}
+
 // ── clearAll (用于调试 + 用户手动清缓存) ──
 
 export async function clearAllLocalData(): Promise<void> {

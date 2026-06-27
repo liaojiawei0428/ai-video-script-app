@@ -1,23 +1,84 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/auth';
+import { getCachedETag, getCachedBody, setCachedResponse } from '../db/indexedDb';
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 // v3.0.0: 5 分钟超时 (LLM 多轮 + agnes image/video 真生成可能 1-3 分钟, 原来 30s 必超时)
 export const apiClient = axios.create({ baseURL, timeout: 300000 });
 
-apiClient.interceptors.request.use((config) => {
+// ======== S72 batch 17 v3.0.46 BUG-116 缓存方案 B.5: ETag/304 axios interceptor ========
+// 跨端铁律 4++ (跟 mobile api/client.ts 1:1 镜像, 跟 B.3 同步)
+
+// 构造完整 URL 作为 cache key (包括 query string)
+function getCacheKey(config: any): string | null {
+  if (!config.url) return null;
+  const method = (config.method || 'get').toLowerCase();
+  if (method !== 'get' && method !== 'head') return null;
+  const baseURL = config.baseURL || '';
+  const url = config.url.startsWith('http') ? config.url : baseURL + (config.url.startsWith('/') ? config.url : '/' + config.url);
+  return url + (config.params ? '?' + new URLSearchParams(config.params).toString() : '');
+}
+
+apiClient.interceptors.request.use(async (config) => {
   // v2.5.17: 如果请求已自带 Authorization (如 admin token), 不覆盖
   if (!config.headers.Authorization) {
     const token = useAuthStore.getState().token;
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // 🆕 BUG-116 B.5: GET 请求自动带 If-None-Match
+  const cacheKey = getCacheKey(config);
+  if (cacheKey) {
+    try {
+      const etag = await getCachedETag(cacheKey);
+      if (etag) {
+        config.headers['If-None-Match'] = etag;
+      }
+    } catch (e) {
+      console.warn('[apiClient] getCachedETag failed', cacheKey, e);
+    }
+  }
+
   return config;
 });
 
 apiClient.interceptors.response.use(
-  (r) => r,
-  (err) => {
+  async (r) => {
+    // 🆕 BUG-116 B.5: 200 响应自动存 ETag + body 到 IndexedDB cache_meta
+    const cacheKey = getCacheKey(r.config);
+    const etag = r.headers.etag;
+    if (cacheKey && etag && r.data !== undefined) {
+      try {
+        await setCachedResponse(cacheKey, etag, JSON.stringify(r.data), r.status);
+      } catch (e) {
+        console.warn('[apiClient] setCachedResponse failed', cacheKey, e);
+      }
+    }
+    return r;
+  },
+  async (err) => {
+    // 🆕 BUG-116 B.5: 304 响应自动从 IndexedDB cache_meta 返 body
+    if (err?.response?.status === 304) {
+      const cacheKey = getCacheKey(err.response.config);
+      if (cacheKey) {
+        try {
+          const cached = await getCachedBody(cacheKey);
+          if (cached) {
+            return Promise.resolve({
+              ...err.response,
+              status: 200,
+              statusText: 'OK (from cache_meta 304)',
+              data: JSON.parse(cached.body),
+              headers: { ...err.response.headers, etag: cached.etag, 'x-cache': 'HIT-304' },
+            } as any);
+          }
+        } catch (e) {
+          console.warn('[apiClient] getCachedBody failed', cacheKey, e);
+        }
+      }
+    }
+
     if (err?.response?.status === 401) {
       useAuthStore.getState().logout();
     }

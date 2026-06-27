@@ -46,14 +46,17 @@ export function BookshelfPage() {
       setLoading(false); // 本地有数据就立即显示
     }
     try {
-      const serverNovels = (await getNovelsApi()).data?.data?.novels || [];
+      const serverRes = await getNovelsApi();
+      const serverNovels = serverRes.data?.data?.novels || [];
       // hash 比对: 没变不 setState + 不写 IndexedDB
       const { changed } = await diffNovelsByHash(serverNovels);
-      if (changed.length > 0) {
+      // 🆕 S72 batch 17 v3.0.46 BUG-116 缓存方案 B.5: ETag/304 短路检查
+      const fromCache = (serverRes as any)?.headers?.['x-cache'] === 'HIT-304';
+      if (changed.length > 0 && !fromCache) {
         setNovels(serverNovels);
         for (const n of changed) await saveNovelIfChanged(n).catch(() => {});
       }
-      // else: server 数据跟本地一致, 不 setState 不写 IndexedDB
+      // else: 304 命中 或 hash 一致 → skip setState 避免 re-render
     } catch {
       // server 不可达, 已显示本地数据
     }
