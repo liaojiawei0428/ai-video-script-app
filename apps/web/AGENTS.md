@@ -34,10 +34,14 @@
 - **影响**: 重复代码 ~300 行, 改一处要同步两处
 - **修法**: 抽 `packages/shared-utils/src/apiClient.ts` (axios + 401 拦截 + token 注入) + `websocketClient.ts` (重连 + 心跳) + `characterUtils.ts`, web + mobile 都引用
 
-### § 2.2 [GAP] M-5: 独立组件缺失
-- **现状**: 没找到独立 `Sidebar / AssetCard / CharacterImage / EpisodeCard / StatusBadge / UploadDialog / OutlineEditor / CharacterDescriptionEditor / ResponsiveGuard` 组件
-- **影响**: 功能直接写在 page 里, 复用性差
-- **修法**: 等用户提需求"想要更可复用"时再做
+### § 2.2 ✅ 已修 (S72 batch 10 v3.0.43): 独立组件缺失 — Skeleton / ImageWithLoading 等
+- **修法**: 新建 `apps/web/src/components/ui/` (跟 mobile 端 components/ui/ 1:1 镜像):
+  - `skeleton.tsx` — 通用骨架屏组件 (shadcn 风格)
+  - `skeleton-presets.tsx` — SkeletonCard / SkeletonImage / SkeletonText 预制
+  - `image-with-loading.tsx` — 3 态图片组件 (loading→ready→error + LQIP 占位 + shimmer)
+  - `index.ts` — barrel export
+- **配套**: `apps/web/src/lib/utils.ts` (cn 工具) + `tailwind-merge` 依赖 + `tailwind.config.js` shimmer keyframes + `.skeleton-shimmer` 工具类
+- **剩余 GAP**: `Sidebar / AssetCard / CharacterImage / EpisodeCard / StatusBadge / UploadDialog / OutlineEditor / CharacterDescriptionEditor / ResponsiveGuard` 仍待抽, 等用户提需求再做
 
 ### § 2.3 [GAP] M-7.2: 响应式引导缺失
 - **现状**: <1024px 应该显示"请使用 App 扫码下载" + 二维码, 但没找到 ResponsiveGuard 组件
@@ -60,7 +64,11 @@
 
 > **跨端铁律 4 / 5 / 8 跨端通用, web 端独有 4 条强化**:
 
-1. **不引入 shadcn/ui** — 当前 17 个 page 全 Tailwind 手写, 一致性好. 引入 shadcn 会破坏一致性 + 增 bundle size
+1. **✅ 已修 (S72 batch 10 v3.0.43) 允许 tailwind-merge + cn() 工具 + components/ui/ 独立目录**:
+   - 17 个 page 全 Tailwind 手写 维持不变 (历史包袱, 不强求统一)
+   - 新建 `apps/web/src/components/ui/` 装 Skeleton / ImageWithLoading 等独立组件 (shadcn 风格, 跟 mobile 端 components/ui/ 1:1 镜像, 跨端铁律 4++)
+   - 用 `cn()` 工具 (来自 `apps/web/src/lib/utils.ts`, 整合 clsx + tailwind-merge) 替代裸 clsx, 自动去重 Tailwind 类冲突
+   - [GAP] M-5 独立组件缺失 已填平 (S72 batch 10 v3.0.43)
 2. **状态管理只用 Zustand** — 跟 mobile 端同款, 一致性. ❌ 不用 Redux / Recoil / Context
 3. **路由守卫在 App.tsx 集中** — `Protected` 检查 token + `AdminProtected` 检查 token (TODO: 加 role 检查, 当前只检查 token 存在)
 4. **bundle hash 必带** — `vite.config.ts` 默认带 query hash, 部署后浏览器自动拉新版本, 不用手动删旧 bundle

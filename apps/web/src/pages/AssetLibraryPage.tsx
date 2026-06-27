@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { listAssetsApi } from '../lib/api';
 import { ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { ImageWithLoading } from '../components/ui';
 
 interface Asset { id: string; name: string; gender?: string; imageVariants: { imageData?: string }[]; }
 
@@ -35,7 +36,12 @@ export function AssetLibraryPage() {
                 {(a.imageVariants || []).slice(0, 3).map((v, i) => (
                   <div key={i} className="aspect-square rounded-lg overflow-hidden bg-bg-tertiary">
                     {v.imageData ? (
-                      <img src={v.imageData.startsWith('data:') ? v.imageData : `data:image/svg+xml;base64,${v.imageData}`} alt="" className="w-full h-full object-cover" />
+                      <ImageWithLoading
+                        src={v.imageData.startsWith('data:') ? v.imageData : `data:image/svg+xml;base64,${v.imageData}`}
+                        alt=""
+                        containerClassName="w-full h-full"
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center"><ImageIcon size={20} className="text-text-tertiary" /></div>
                     )}

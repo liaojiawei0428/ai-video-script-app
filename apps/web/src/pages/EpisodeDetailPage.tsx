@@ -8,6 +8,7 @@ import {
 } from '../lib/api';
 import { useTaskProgressStore } from '../store/taskProgress';
 import { useAuthStore } from '../store/auth';
+import { ImageWithLoading } from '../components/ui';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
@@ -736,11 +737,11 @@ export function EpisodeDetailPage() {
                 )}
                 {/* 单张漫画图 (整张图, 不是切碎) */}
                 <div className="p-2 bg-black/20">
-                  <img
+                  <ImageWithLoading
                     src={comicImageSrc(url)}
                     alt={`第 ${pageIdx + 1} 页漫画 (${comicLayout} 网格)`}
-                    className="w-full h-auto object-contain rounded"
-                    loading="lazy"
+                    containerClassName="w-full h-auto rounded overflow-hidden"
+                    className="w-full h-auto object-contain"
                   />
                 </div>
                 {/* 图下方说明: 这张图内部包含 N 个分镜 */}

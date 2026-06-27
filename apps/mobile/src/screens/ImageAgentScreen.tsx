@@ -15,6 +15,7 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
+import { ImageWithLoading } from '../components/ui';
 import {
   imageAgentCreateConversationApi, imageAgentChatApi, imageAgentConfirmApi,
   imageAgentHistoryApi, imageAgentGetApi, imageAgentDeleteApi,
@@ -398,7 +399,14 @@ export function ImageAgentScreen(): React.JSX.Element {
         <View key={idx} style={styles.imageBox}>
           {part.role === 'reference' ? (
             <View style={styles.refImageRow}>
-              <Image source={{ uri: imgUrl }} style={styles.refImage} resizeMode="cover" />
+              <ImageWithLoading
+                src={imgUrl}
+                alt="参考图"
+                width={80}
+                height={80}
+                containerStyle={{ width: 80, height: 80 }}
+                style={{ width: 80, height: 80 }}
+              />
               <View style={styles.refImageMeta}>
                 <Ionicons name="document" size={12} color={colors.text.tertiary} />
                 <Text style={styles.refImageLabel}>参考图</Text>
@@ -406,7 +414,14 @@ export function ImageAgentScreen(): React.JSX.Element {
             </View>
           ) : (
             <View>
-              <Image source={{ uri: imgUrl }} style={styles.resultImage} resizeMode="contain" />
+              <ImageWithLoading
+                src={imgUrl}
+                alt="生成结果图"
+                width={320}
+                height={320}
+                containerStyle={{ width: 320, height: 320, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg.primary }}
+                style={{ width: 320, height: 320 }}
+              />
               <View style={styles.imageActions}>
                 <TouchableOpacity
                   style={styles.downloadBtn}

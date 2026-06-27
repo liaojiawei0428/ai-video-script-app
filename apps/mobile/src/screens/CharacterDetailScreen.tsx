@@ -30,6 +30,7 @@ import { colors, spacing, radii, typography } from '../theme';
 import { surface, text, gradient, getStatusInfo, getRoleColor } from '../theme/character';
 import type { Character } from '@ai-script/shared-types';
 import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, LinearGradientView as LinearGradient } from '../components';
+import { ImageWithLoading } from '../components/ui';
 import { extractDescriptionText } from '../utils/characterUtils'; // v3.0.41 (BUG-105 mobile sync): 走统一 utils, 4 种格式兼容 (JSON 字符串 / 自由文本 / JSON 对象 / 双层 JSON)
 
 const ROLE_TYPES = [
@@ -386,7 +387,14 @@ export function CharacterDetailScreen() {
               <Text style={styles.sectionTitle}>三视图</Text>
             </View>
             <View style={styles.sheetContainer}>
-              <Image source={{ uri: sheetImgUrl }} style={styles.sheetImage} resizeMode="contain" />
+              <ImageWithLoading
+                src={sheetImgUrl}
+                alt="角色三视图"
+                width="100%"
+                height={300}
+                containerStyle={styles.sheetImage}
+                style={{ width: '100%', height: '100%' }}
+              />
               {/* 角标: 三视图标签 */}
               <View style={styles.sheetBadge}>
                 <Ionicons name="cube" size={12} color="#fff" />

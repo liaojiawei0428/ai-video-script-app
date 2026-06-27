@@ -24,6 +24,13 @@
   .gradient-text {
     @apply bg-gradient-to-r from-primary via-accent to-purple-400 bg-clip-text text-transparent;
   }
+  /* Shimmer 骨架屏动画 (从左到右滑过浅色渐变, 跟 shadcn/Skeleton 配套) */
+  .skeleton-shimmer {
+    @apply relative overflow-hidden bg-bg-tertiary/60 rounded-md;
+    background: linear-gradient(90deg, rgba(51, 65, 85, 0.4) 0%, rgba(71, 85, 105, 0.7) 50%, rgba(51, 65, 85, 0.4) 100%);
+    background-size: 1000px 100%;
+    animation: shimmer 2s linear infinite;
+  }
 }
 
 /* 自定义滚动条 */

@@ -13,6 +13,7 @@ import {
   Edit2, Save, X, User, BookOpen,
 } from 'lucide-react';
 import { extractDescriptionText } from '../lib/characterUtils';
+import { ImageWithLoading } from '../components/ui';
 
 interface CharacterDetail {
   id: string; novelId: string;
@@ -270,7 +271,13 @@ export function CharacterDetailPage() {
             <ImageIcon size={16} className="text-blue-400" />
             三视图预览
           </h2>
-          <img src={sheetImg.url} alt="character sheet" className="w-full rounded border border-border" />
+          <ImageWithLoading
+            src={sheetImg.url}
+            alt="character sheet"
+            aspectRatio="3/4"
+            containerClassName="rounded border border-border overflow-hidden"
+            className="w-full h-full object-contain"
+          />
         </div>
       )}
 
