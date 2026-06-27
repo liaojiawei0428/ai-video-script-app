@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getNovelsApi, uploadNovelApi, deleteNovelApi } from '../lib/api';
+import { getLocalNovels, saveNovelIfChanged, diffNovelsByHash } from '../db/indexedDb';
 import { Search, Upload, BookOpen, Filter, X, Trash2 } from 'lucide-react';
 
 interface Novel { id: string; title: string; author: string; status: string; totalChars?: number; createdAt: number; styleId?: string; }
@@ -36,9 +37,27 @@ export function BookshelfPage() {
   const [deleteTarget, setDeleteTarget] = useState<Novel | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const refreshNovels = () => {
+  const refreshNovels = async () => {
     setLoading(true);
-    getNovelsApi().then(r => setNovels(r.data?.data?.novels || [])).finally(() => setLoading(false));
+    // 🆕 S72 batch 16 v3.0.45 BUG-115 缓存方案 A.5: 本地优先 + hash 比对 (跨端铁律 4++ 跟 mobile BookshelfScreen 1:1)
+    const local = await getLocalNovels().catch(() => []);
+    if (local.length > 0) {
+      setNovels(local);
+      setLoading(false); // 本地有数据就立即显示
+    }
+    try {
+      const serverNovels = (await getNovelsApi()).data?.data?.novels || [];
+      // hash 比对: 没变不 setState + 不写 IndexedDB
+      const { changed } = await diffNovelsByHash(serverNovels);
+      if (changed.length > 0) {
+        setNovels(serverNovels);
+        for (const n of changed) await saveNovelIfChanged(n).catch(() => {});
+      }
+      // else: server 数据跟本地一致, 不 setState 不写 IndexedDB
+    } catch {
+      // server 不可达, 已显示本地数据
+    }
+    setLoading(false);
   };
 
   const handleDelete = async () => {
