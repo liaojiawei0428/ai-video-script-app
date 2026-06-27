@@ -43,14 +43,19 @@ async function createTables(): Promise<void> {
     )
   `);
 
-  // Migrate old tables: add missing columns
+  // Migrate old tables: add missing columns (SQLite 不支持 ALTER ADD COLUMN IF NOT EXISTS, 用 try/catch 兜底)
+  // 跨项目铁律 (BUG-113 教训): 移动端升级时 db schema 应有 try/catch 保护, 避免 duplicate column 错误
+  // 跟 BUG-115 characters ALTER 一致 (本文件 line 116-118 也用 try/catch)
   const migrations = [
     "ALTER TABLE novels ADD COLUMN summary TEXT DEFAULT ''",
     "ALTER TABLE novels ADD COLUMN scenes TEXT DEFAULT '[]'",
     "ALTER TABLE novels ADD COLUMN plot_points TEXT DEFAULT '[]'",
   ];
   for (const sql of migrations) {
-    try { await db.executeSql(sql); } catch { /* column may already exist */ }
+    try { await db.executeSql(sql); } catch (err) {
+      // 老数据兼容: column may already exist (跟 BUG-113 重复 column 错一致, 静默跳过)
+      console.warn('[sqlite] ALTER skipped (column may exist):', sql, err.message);
+    }
   }
 
   await db.executeSql(`
@@ -114,7 +119,10 @@ async function createTables(): Promise<void> {
     "ALTER TABLE characters ADD COLUMN updated_at INTEGER DEFAULT 0",
   ];
   for (const sql of characterMigrations) {
-    try { await db.executeSql(sql); } catch { /* column may already exist (跟 novels ALTER 一致) */ }
+    try { await db.executeSql(sql); } catch (err) {
+      // 老数据兼容: column may already exist (跟 BUG-113 logcat duplicate column 错一致, 静默跳过)
+      console.warn('[sqlite] ALTER skipped (column may exist):', sql, err.message);
+    }
   }
 
   await db.executeSql(`

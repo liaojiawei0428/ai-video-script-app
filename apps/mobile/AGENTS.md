@@ -253,5 +253,192 @@ useMediaLoader (Stage 3)  ← 高阶封装, 4 态 + retry
 
 **🆕 S68 收口 + S71 后置**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md). S71 后加铁律 4+ / 8 / 3-8 处, **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律, 跟 server 视角统一**.
 
-> **最后更新**: 2026-06-27 (S72 batch 11 v3.0.43 Stage 3, 加 § 6.6 GeneratingLoader + useMediaLoader 跨端 1:1 规范, 跟根 AGENTS.md v2.12 同步)
+---
+
+## § 6.7 v3.0.45 新增: 缓存方案 A — 本地优先 + novel_hashes + djb2 hash (S72 batch 16 BUG-115)
+
+> **新增 2026-06-27 (S72 batch 16 v3.0.45 BUG-115)**: 解决"用户每次进 app 都重新 fetch 整本小说, 浪费带宽 + SQLite re-render 副作用".
+
+### § 6.7.1 背景
+
+Stage 2 (BUG-109) 加了媒体缓存 (图片/视频本地化), 但**整本小说数据**还是每次都全量 fetch + 全量 setState + 全量 INSERT OR REPLACE 写 SQLite:
+- `fetchNovels()` 每 10/30s re-fetch → 即使 server 没变
+- 全量 setState → UI re-render 副作用 (Skeleton 闪烁 / 图片重载)
+- 全量 INSERT OR REPLACE → SQLite 写锁 + re-render
+
+### § 6.7.2 缓存架构 (3 层 + djb2 hash)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Layer 1: screens fetch 流程 (BookshelfScreen + CharacterListScreen) │
+│  - mount → getLocalNovels() / getLocalCharacters() (本地优先)          │
+│  - 同时 → fetchNovels() / fetchCharacters() 后台异步 (秒级响应)      │
+│  - 后台 fetch 完 → diffNovelsByHash() 比对, 只写 SQLite 变化的         │
+│  - 没变 → 不写 SQLite → 不触发 re-render                              │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 依赖
+┌──────────────────────────────────────────────────────────┐
+│  Layer 2: hashNovel + diffNovelsByHash (apps/mobile/src/db/sqlite.ts)  │
+│  - hashNovel(title, status, updatedAt, totalChars, summary, ...)        │
+│  - 算法: djb2 + reverse (32 chars hex, 跟 web 1:1 算法)                 │
+│  - diffNovelsByHash(serverNovels) → { changed: [], unchanged: [] }     │
+│  - 没变 → 不写 SQLite, 跳过 INSERT OR REPLACE                          │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 依赖
+┌──────────────────────────────────────────────────────────┐
+│  Layer 3: SQLite novel_hashes 表 (id PK + hash + updated_at)           │
+│  - CREATE TABLE IF NOT EXISTS novel_hashes (...)                        │
+│  - saveNovelHash(id, hash, updated_at) → INSERT OR REPLACE              │
+│  - getNovelHash(id) → hash | null                                       │
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.7.3 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | mobile 端 | web 端 | 一致性 |
+|---|---|---|---|
+| Hash 算法 | djb2 + reverse (32 chars hex) | 同左 | ✅ 1:1 |
+| Hash 输入字段 | title + status + updatedAt + totalChars + summary.length + genre/theme/style/tone | 同左 | ✅ 1:1 |
+| 本地存储 | SQLite `novel_hashes` 表 + `characters` 表 (description/extra_description/updated_at) | IndexedDB `novel_hashes` store + `characters` store | 概念一致, 实现不同 |
+| diff 函数 | diffNovelsByHash(serverNovels) | diffNovelsByHash(serverNovels) | ✅ 1:1 |
+| Server ALTER | `ALTER TABLE characters ADD COLUMN description/extra_description/updated_at` (BUG-115 A.1) | 跟 mobile 同步 | ✅ 1:1 |
+
+### § 6.7.4 使用规范
+
+1. **新 screen 必先 getLocalData 再 fetch**, 走"本地优先 + diff" 模式 (跟 BookshelfScreen 1:1)
+2. **fetchNovels / fetchCharacters 必带 diffNovelsByHash 检查**, 没变不写 SQLite
+3. **hash 算法 djb2 + reverse 不可改**, 改必 web + mobile 同步, 跑 verify-cache-local-data.js (8 维 38 子项)
+4. **server 表必加 updated_at 字段**, 跟 mobile cache_meta 配套 (BUG-115 A.1 ALTER)
+5. **server model create/update 必维护 updated_at = Date.now()** (BUG-115 A.1), ETag/304 依赖
+6. **新接口必返完整字段** (description/extra_description/updated_at), 漏字段走 silent fail (跟 BUG-105/115 同源)
+
+### § 6.7.5 跨项目通用 (跟 BUG-079/097/115 100% 同源)
+
+- **本地优先必先 server 表 schema 配套** — mobile saveCharacters 跟 server characters 表 1:1, 漏字段丢数据
+- **djb2 hash 不可改** — 跨端不可用不同 hash 算法, 改必双端同步
+- **fetchInterval 必设上限** — 10/30s 太频繁, 改 5min 后台 polling + mount 即时本地
+- **server updated_at 自动维护** — model create/update 不维护 → ETag/304 失效 (跟 BUG-115 A.1 同源)
+- **verify-cache-local-data.js 必跑** — 8 维 38 子项: server ALTER 6 + mobile ALTER 3 + mobile characters 函数 4 + mobile novel_hashes 5 + mobile screens 5 + web IndexedDB 8 + 跨端 hash 3 + 跨项目铁律 4
+
+### § 6.7.6 验证脚本 (S72 batch 16 BUG-115 A.6)
+
+`tools/verify-cache-local-data.js` (8 维 38 子项 PASS):
+1. server characters ALTER 6 字段 (description/extra_description/updated_at + INDEX)
+2. server shots ALTER updated_at + INDEX
+3. server characterModel.create/update 自动维护 updated_at
+4. mobile characters 表 ALTER 3 字段
+5. mobile characters 函数 4 个 (saveCharacters/getCharacters/updateCharacter/deleteCharactersByNovel)
+6. mobile novel_hashes 表 + hashNovel/diffNovelsByHash/saveNovelIfChanged 5 函数
+7. mobile screens 接入 (BookshelfScreen + CharacterListScreen 本地优先)
+8. web IndexedDB 8 维 + 跨端 hash djb2 1:1
+
+跑法: `node tools/verify-cache-local-data.js` (期望 PASS: 38 / FAIL: 0)
+
+---
+
+## § 6.8 v3.0.46 新增: 缓存方案 B — cache_meta + ETag/304 + axios interceptor (S72 batch 17 BUG-116)
+
+> **新增 2026-06-27 (S72 batch 17 v3.0.46 BUG-116)**: 解决"服务器变了才重新加载"核心痛点, ETag/304 短路带宽 + axios interceptor 自动管理缓存.
+
+### § 6.8.1 背景
+
+Stage 2 (BUG-109) + 缓存方案 A (BUG-115) 解决了"本地优先"和"减少 SQLite 写", 但**只要 fetch 就走全量**:
+- 列表页 mount → fetchNovels() 必下载整本 (即使 5 分钟前刚下过)
+- server 没变也照样下载, 浪费 5Mbps 带宽
+- 跨端 Web→App 同步缺统一缓存层 (axios 都各自处理)
+
+**Etag/304** 标准 HTTP 缓存机制: server 响应 ETag header, 客户端下次 fetch 带 If-None-Match, server 比对 ETag 没变 → 返 304 不传 body. 跨项目通用, 老牌可靠.
+
+### § 6.8.2 缓存架构 (cache_meta + axios interceptor)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Layer 1: screens fetch 流程 (BookshelfScreen + CharacterListScreen) │
+│  - mount → getLocalData (本地优先)                                       │
+│  - fetchNovels / fetchCharacters → client.get('/api/novels')             │
+│  - response.headers['x-cache'] === 'HIT-304' → skip setState + skip saveDb│
+│  - 没变化 → 不写 SQLite + 不 re-render (跟 BUG-115 闭环)                  │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 依赖
+┌──────────────────────────────────────────────────────────┐
+│  Layer 2: axios interceptor (apps/mobile/src/api/client.ts)              │
+│  - request interceptor: 自动从 cache_meta 读 ETag → If-None-Match header │
+│  - response 200: 存 ETag + body 到 cache_meta (setCachedResponse)        │
+│  - response 304: 构造假 200, 返 cached body + x-cache: HIT-304 header    │
+│  - 401 跨端同步 (跟 web 端 1:1, BUG-082 铁律 8 配套)                    │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 依赖
+┌──────────────────────────────────────────────────────────┐
+│  Layer 3: cache_meta 表 (SQLite) + cacheMeta.ts 7 API                     │
+│  - url PK + etag TEXT + body TEXT + status_code + updated_at              │
+│  - INDEX idx_cache_meta_updated_at                                       │
+│  - 7 API: setCachedResponse/getCachedETag/getCachedBody/deleteCachedResponse│
+│           clearAllCacheMeta/trimCacheMeta/getCacheMetaStats              │
+└──────────────────────────────────────────────────────────┘
+                          ↑ 配套
+┌──────────────────────────────────────────────────────────┐
+│  server 端: etagMiddleware (apps/server/src/middleware/etag.ts)          │
+│  - 11 个 routes 加 etagMiddleware (novels/tasks/episodes/chat/users/...) │
+│  - SHA-256 前 16 hex → setHeader('ETag', 'W/"<16hex>"')                  │
+│  - Cache-Control: private, must-revalidate, max-age=0                    │
+│  - If-None-Match 命中 → 304 不传 body                                    │
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.8.3 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | mobile 端 | web 端 | 一致性 |
+|---|---|---|---|
+| Interceptor | axios interceptor in `src/api/client.ts` | axios interceptor in `src/lib/api.ts` | ✅ 1:1 |
+| Cache 存储 | SQLite `cache_meta` 表 + IndexedDB `cache_meta` store | IndexedDB `cache_meta` store + (本地 file) | ✅ 1:1 |
+| Cache key | `client.getCacheKey(url)` (method + url + params) | 同左 | ✅ 1:1 |
+| ETag 头 | `If-None-Match` + `x-cache: HIT-304` | 同左 | ✅ 1:1 |
+| Cache API | setCachedResponse/getCachedETag/getCachedBody/deleteCachedResponse/clearAllCacheMeta/trimCacheMeta/getCacheMetaStats | 同左 7 API | ✅ 1:1 |
+| Server ETag | `etagMiddleware` (SHA-256 前 16 hex) | 同左 | ✅ 1:1 |
+
+### § 6.8.4 使用规范
+
+1. **fetch API 必走 axios interceptor**, 不要直接 fetch/RNFetchBlob (跟 BUG-117 公网 APK 教训一致, **fetch 是盲查**)
+2. **response 必查 x-cache header**: `HIT-304` → skip setState + skip saveDb (跟 BUG-115 diffNovelsByHash 闭环)
+3. **cache_meta 必加 INDEX** (`idx_cache_meta_updated_at`) — 大数据量 LRU 淘汰时查询 < 5ms
+4. **server 必返 ETag + Cache-Control 头** — 缺一个 ETag/304 机制废
+5. **新增 route 必加 etagMiddleware** — 11 个 routes 是基线, 新增必跟 deploy SOP 同步 (BUG-117 教训)
+6. **client.getCacheKey 必 method + url + params** — 缺任一参数 cache key 错位
+
+### § 6.8.5 跨项目通用 (跟 BUG-079/090/097/104/115/116 100% 同源)
+
+- **fetch 必走 axios interceptor** — 不要直接 fetch/RNFetchBlob, interceptor 自动管 ETag + cache_meta
+- **server etagMiddleware 必加** — 任何新 route 必同步加, 否则客户端 ETag 永远不命中
+- **cache_meta 必加 INDEX** — 大数据量 LRU 淘汰查询慢 30x
+- **fromCache 检查必 skip setState + skip saveDb** — 不 skip 等于没缓存 (跟 BUG-079 假报告 100% 同源)
+- **verify-cache-etag.js 必跑** — 8 维 49 子项: server etagMiddleware 12 + etag.ts 4 + /api/version 字段 2 + mobile cache_meta 8 + mobile axios 5 + mobile screens 3 + web axios+IndexedDB 9 + 跨端 1:1 6
+- **deploy.py 必加 scp 4 件套 + 公网 HEAD 验证 (BUG-117)** — 跨项目通用铁律, deploy.py 必同步升级 deploy.sh 路径 (scp APK + nginx reload + 公网 200 OK + Content-Type + Content-Length)
+
+### § 6.8.6 验证脚本 (S72 batch 17 BUG-116 B.6)
+
+`tools/verify-cache-etag.js` (8 维 49 子项 PASS):
+1. server etagMiddleware 12 routes (novels/tasks/episodes/chat/users/recharge/admin/feedback/notifications/characters/pricing/billing)
+2. server etag.ts 4 函数 (computeETag/etagMiddleware/setCacheControl/setETagHeader)
+3. server /api/version 字段 2 (latestVersion + highlights)
+4. mobile cache_meta 表 schema 8 (url PK + etag + body + status_code + updated_at + INDEX)
+5. mobile cacheMeta.ts 5 API (setCachedResponse/getCachedETag/getCachedBody/deleteCachedResponse/getCacheMetaStats)
+6. mobile axios interceptor 5 (request If-None-Match + response 200 存 + response 304 读 + x-cache header + 401 同步)
+7. mobile screens 3 (BookshelfScreen + CharacterListScreen + fromCache check)
+8. web axios + IndexedDB 9 (跟 mobile 1:1)
+
+跑法: `node tools/verify-cache-etag.js` (期望 PASS: 49 / FAIL: 0)
+
+### § 6.8.7 跟其他 BUG 关系
+
+- **BUG-090** deploy.sh changelog.json cp 源错 (cp 用生产目录不是 /tmp/) — BUG-116 deploy.py 也跟 deploy.sh 配套升级
+- **BUG-097** mobile 漏修 web — BUG-116 web + mobile 同步 (跨端铁律 4++)
+- **BUG-104** server bump 漏 rebuild APK — BUG-117 公网 APK 教训, deploy.py 必加 scp 4 件套
+- **BUG-115** 缓存方案 A (本地优先) — BUG-116 缓存方案 B (cache_meta + ETag/304) 是 A 的闭环
+- **BUG-117** deploy.py 漏 scp APK — deploy.py v3.0 重写, scp 4 件套 + 公网 HEAD 验证
+
+---
+
+**🆕 S68 收口 + S71 后置 + S72 batch 16/17 缓存方案 A+B**: 跨端通用规范 + 缓存方案完整闭环. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8 跨端规范, 跟 server 视角统一**.
+
+> **最后更新**: 2026-06-27 (S72 batch 17 v3.0.46 BUG-116, 加 § 6.7 v3.0.45 缓存方案 A + § 6.8 v3.0.46 缓存方案 B 规范, 跟根 AGENTS.md v2.13 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时
