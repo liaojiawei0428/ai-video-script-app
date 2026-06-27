@@ -436,9 +436,9 @@ if [ "$SERVER_ONLY" != "true" ]; then
   # v3.0.37 (S72 batch 7 BUG-099): 加 set +e 容忍 (跟其他维度一致, 之前 line 436 内嵌 python 抛错 set -e 终止)
   set +e
   V22_RESULT=$(python3 -c "
-import json, sys, re
+import json, sys, re, urllib.request
 try:
-    d = json.loads(__import__('urllib.request', fromlist=['urlopen']).request.urlopen('${API_BASE}/api/version', timeout=3).read())
+    d = json.loads(urllib.request.urlopen('${API_BASE}/api/version', timeout=3).read())
     data = d.get('data', {})
     version = data.get('version', '')
     changelog = data.get('changelog', '')
@@ -448,7 +448,7 @@ try:
     # 校验 4 字段
     errors = []
     if version != '$APP_VERSION':
-        errors.append(f'version mismatch: server={version} env={$APP_VERSION}')
+        errors.append(f'version mismatch: server={version} env=$APP_VERSION')
     if not changelog or changelog in ('优化性能，修复已知问题', '本次更新优化性能，修复已知问题', 'New features and improvements'):
         errors.append(f'changelog 通用文案: {changelog[:30]}')
     if len(highlights) < 3:
@@ -492,7 +492,8 @@ if [ "$SERVER_ONLY" != "true" ]; then
   WEB_DIST_DIR="/www/wwwroot/ab.maque.uno/dist/assets"
   if [ -d "$WEB_DIST_DIR" ]; then
     # 23a. web dist 必须含 `userNotifiedAt>` (修法在, 用 > 不用 &&, 防 0 渲染陷阱; minifier 会把 `> 0` 优化成 `>`, 所以 grep `userNotifiedAt>` 不带 0, 跟 BUG-098 同款)
-    V23A=$(grep -c 'userNotifiedAt>' "$WEB_DIST_DIR"/*.js 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
+    # v3.0.43 (S72 batch 12 BUG-111): 改用 grep -ho + wc -l, 之前 awk -F: 假设 `filename:N` 格式, 单文件实际只有 `N\n` 导致 $2 空 = 0
+    V23A=$(grep -ho 'userNotifiedAt>' "$WEB_DIST_DIR"/*.js 2>/dev/null | wc -l)
     if [ "$V23A" -ge 1 ]; then
       PASS=$((PASS+1))
       color green "   ✓ 23a. web dist 含 'userNotifiedAt>0' 修法: $V23A 命中 (BUG-096 修法在)"
@@ -503,7 +504,8 @@ if [ "$SERVER_ONLY" != "true" ]; then
     fi
 
     # 23b. web dist 不能含 `userNotifiedAt&&` (老修法 0 渲染陷阱, 未来 AI 误加 && 立即 catch)
-    V23B=$(grep -c 'userNotifiedAt&&' "$WEB_DIST_DIR"/*.js 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
+    # v3.0.43 (S72 batch 12 BUG-111): 同样改用 grep -ho + wc -l
+    V23B=$(grep -ho 'userNotifiedAt&&' "$WEB_DIST_DIR"/*.js 2>/dev/null | wc -l)
     if [ "$V23B" = "0" ]; then
       PASS=$((PASS+1))
       color green "   ✓ 23b. web dist 无 'userNotifiedAt&&' 反模式: 0 命中 (0 渲染陷阱已清)"
@@ -554,9 +556,12 @@ if [ "$SERVER_ONLY" != "true" ]; then
     # v3.0.37 (S72 batch 7 BUG-099): server 端没 monorepo 根, 改用 APK 公网路径 + APK 内 bundle grep (跟 web 维度 23 同款)
     APK_PUBLIC="/www/wwwroot/shipin-APP/public/DeepScript_v3.0.37.apk"
     if [ -f "$APK_PUBLIC" ]; then
-      V24_NOTIFY=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c 'notifyRechargePaid' || echo 0)
-      V24_PAID=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c '我已付款' || echo 0)
-      V24_STAGE=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c 'user_notified' || echo 0)
+      V24_NOTIFY=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c 'notifyRechargePaid' 2>/dev/null; true)
+      V24_NOTIFY=${V24_NOTIFY:-0}
+      V24_PAID=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c '我已付款' 2>/dev/null; true)
+      V24_PAID=${V24_PAID:-0}
+      V24_STAGE=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -c 'user_notified' 2>/dev/null; true)
+      V24_STAGE=${V24_STAGE:-0}
       V24_TOTAL=$((V24_NOTIFY + V24_PAID + V24_STAGE))
       if [ "$V24_TOTAL" -ge 1 ]; then
         PASS=$((PASS+1))

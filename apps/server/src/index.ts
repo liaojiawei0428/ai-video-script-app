@@ -71,7 +71,7 @@ app.get('/health', (req, res) => {
 // APP 版本检�?(公开接口)
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
 import { readChangelog } from './shared/changelog';
-app.get('/api/version', etagMiddleware(), (req, res) => {
+app.get('/api/version', etagMiddleware, (req, res) => {
   const currentVersion = process.env.APP_VERSION || '3.0.43';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;

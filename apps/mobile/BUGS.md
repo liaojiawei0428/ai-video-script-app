@@ -4824,3 +4824,69 @@ ode tools/verify-bug110-media-loader.js (期望 PASS: 8 / FAIL: 0)
 - pps/mobile/AGENTS.md § 6.6 Stage 3 规范 (新加)
 - pps/web/AGENTS.md § 5 Stage 3 规范 (新加)
 - 1 mavis memory (shipin-APP Lottie NDK 失败教训 + 跨项目通用: native 模块选型 5 步验证)
+
+---
+
+## BUG-111 (v3.0.43 hotfix): ETag middleware ERR_HTTP_HEADERS_SENT (S72 batch 12 v3.0.43 hotfix, 2026-06-27)
+
+### 问题
+Stage 2 v3.0.43 BUG-109 引入的 server etag.ts middleware 在生产 server 启动后立即 crash:
+\\\
+Error [ERR_HTTP_HEADERS_SENT]: Cannot set headers after they are sent to the client
+    at ServerResponse.setHeader (node:_http_outgoing:700:11)
+    at ServerResponse.<anonymous> (/www/wwwroot/shipin-APP/dist/middleware/etag.js:62:17)
+\\\
+
+### 根因 (BUG-111, 跟 BUG-079/097 100% 同源: 没考虑下游约束)
+etag.ts 用 \es.on('finish', () => { res.setHeader(...) })\ 反模式 — Node.js 在 'finish' 事件触发时**已经把 header flush 到 socket**, 此时 setHeader 抛 ERR_HTTP_HEADERS_SENT, 整个 Node 进程 crash, systemd RestartSec=10 + StartLimitBurst=5 把 5 次 retry 用完, service 进入 failed 状态, nginx 反代 6000 返 502 Bad Gateway.
+
+### 修法 (S72 batch 12 v3.0.43 hotfix)
+**错误做法 (v3.0.43 BUG-109 引入)**: 在 res.on('finish') 里 setHeader
+\\\	s
+res.on('finish', () => {
+  res.setHeader('ETag', tag);  // ERR_HTTP_HEADERS_SENT
+});
+\\\
+
+**正确做法 (v3.0.43 BUG-111 修)**: 在 res.json override 里 (body 发送前) setHeader
+\\\	s
+res.json = function(body) {
+  if (bodyStr) {
+    res.setHeader('ETag', tag);  // body 发送前 OK
+    if (clientTag === tag) return res.status(304).end();
+  }
+  return originalJson(body);
+};
+\\\
+
+### 修法 SOP (跟 BUG-079/097/098 同源, 跨项目通用)
+1. **优先用官方 API**: Express middleware 拦截 res.json / res.send, 在 body 发送前 setHeader (跟 Express bodyParser / helmet 同款)
+2. **永远不在 res.on('finish') 后 setHeader**: 'finish' 时 socket 已经 flush, setHeader 必抛 ERR_HTTP_HEADERS_SENT
+3. **304 处理必须在 body 发送前**: \es.status(304).end()\ 不能在 finish 后调
+4. **修法必本地 build + 远端跑 deploy.sh + verify-deploy 27/27 PASS 才算完成**
+
+### 验证脚本
+\	ools/verify-bug111-etag-hotfix.js\ (8 维验证):
+1. etag.ts 代码不再用 res.on('finish') (排除注释)
+2. etag.ts 改成在 res.json override 里 setHeader
+3. etag.ts 304 处理完整
+4. etag.ts 只对 GET 生效
+5. dist/etag.js 已无 finish listener (排除注释)
+6. /api/version 接入 etagMiddleware (不带括号)
+7. verify-deploy.sh 修 3 个 bug (22 urllib + 23a grep -ho + 24 grep -c fallback)
+8. changelog 记录 v3.0.43 + 远端 verify-deploy 27/27 PASS
+
+跑法: \
+ode tools/verify-bug111-etag-hotfix.js\ (期望 PASS: 8 / FAIL: 0)
+
+### 端到端
+- 远端: \ash scripts/verify-deploy.sh\ **PASS: 27 / FAIL: 0**
+- 远端: \curl https://ab.maque.uno/api/version\ 返 3.0.43 + 4 字段 (version + changelog + highlights + buildDate)
+- 远端: APK 公网 HTTP/2 200 + SHA256 一致 (999b96d9...)
+
+### 沉淀
+- \pps/server/src/middleware/etag.ts\ 重写 (res.json override, 修 ERR_HTTP_HEADERS_SENT)
+- \pps/server/src/index.ts\ line 74 etagMiddleware() → etagMiddleware (不带括号)
+- \scripts/verify-deploy.sh\ 修 3 bug (22 + 23a + 24)
+- \	ools/verify-bug111-etag-hotfix.js\ 新增 (8/8 PASS)
+- 1 mavis memory (etag.ts res.on('finish') 反模式 + 跨项目通用: middleware setHeader 必在 body 发送前)
