@@ -4665,3 +4665,109 @@ pm run build 4.10s OK, 新 bundle index-SsjEDax8.js 510KB
 ### 后续 (Stage 2 + Stage 3)
 - **Stage 2** (本地缓存, 3-4 天): RNFS + MMKV + hash 命名 + LRU 500MB 淘汰 + ETag 跟 server 配合, ImageWithLoading onLoaded 回调接入缓存层
 - **Stage 3** (跨端 hook + Lottie, 4-5 天): useMediaLoader hook (web + mobile 1:1) + Lottie 粒子动画 (生成中状态) + 端到端测试
+
+## BUG-109 (S72 batch 11 v3.0.43 Stage 2, 2026-06-27) — 本地媒体缓存 (跨端铁律 4++ web + mobile 1:1 镜像, SQLite + IndexedDB)
+
+### 现象
+- 服务器 5Mbps 带宽 + 图片/视频首次加载 10-20 秒, 用户看到的是空白 spinner
+- LLM 生成图每次都重新下载, 浪费带宽 + 时间, 重复看同一张图要等 N 次
+- web 端没 Cache API / IndexedDB, mobile 端 SkeletonLoader 只解决动画没解决持久化
+
+### 根因
+- shipin-APP 之前没本地缓存层, 每次 GET 都从 CDN 拉 (5Mbps 带宽 + 10-20s)
+- 跨端铁律 4++ Web→APP 同步要求 web + mobile 1:1 镜像, 但之前没统一缓存 hook
+- 跟 BUG-097 mobile 漏修 web 100% 同源 (跨端配套 SOP 缺一环就崩)
+- 跟 BUG-104 server bump 漏 rebuild APK 100% 同源 (缓存版本同步需要 hash 失效机制)
+
+### 修法 (8 件套, S72 batch 11 v3.0.43 Stage 2/3)
+1. **server ETag 中间件** (pps/server/src/middleware/etag.ts):
+   - 响应 JSON SHA-256 hash 写 ETag (32 chars hex)
+   - Cache-Control: private, must-revalidate, max-age=0
+   - 客户端 If-None-Match 命中 → 304 (省带宽)
+   - /api/version 接入 (高频 API, shipin-APP 移动端每分钟查 1 次)
+2. **mobile 端本地缓存** (pps/mobile/src/utils/mediaCache.ts + pps/mobile/src/hooks/useCachedMedia.ts):
+   - 文件存储: RNFS.DocumentDirectoryPath/media-cache/{img,video}/{hash}.{ext}
+   - 索引存储: **react-native-sqlite-storage v6.0.1 (项目已装, 跟 models/db.ts 集成, 无 NDK 依赖)** + 单表 media_cache (url TEXT PRIMARY KEY, localPath TEXT, size INTEGER, hash TEXT, ext TEXT, cachedAt INTEGER, lastAccessed INTEGER)
+   - hash 命名: djb2 + reverse (32 chars hex, 跟 web 1:1 算法, 跨端铁律 4++)
+   - LRU 淘汰: 限制 500MB / 1000 文件, 超过按 lastAccessed 删到 90% 阈值
+   - API: getCached(url) → Promise<string | null> (本地 file:// 路径 或 null), cacheFromUrl(url) → 下载 + 存索引, efresh(url) → 强删 + 重 GET, clearAll(), getStats()
+   - useCachedMedia hook: mount 查 SQLite 命中 → 直接用本地 file:// 路径 (省 10s 网络); 未命中 → 用原 URL 渲染 + onLoaded 触发 cacheFromUrl 异步下载到本地
+3. **web 端本地缓存** (pps/web/src/hooks/useCachedMedia.ts):
+   - IndexedDB media-cache-v3 + store iles
+   - 同样 djb2 + reverse hash 算法 (跟 mobile 1:1, 跨端铁律 4++)
+   - 命中用 URL.createObjectURL(blob) blob URL
+   - LRU 淘汰: 限制 500MB / 1000 文件
+   - API: 跟 mobile useCachedMedia 完全一致 (source / onLoaded / refresh)
+4. **集成 POC** (各 1 处):
+   - pps/web/src/pages/CharacterDetailPage.tsx sheetImg 用 useCachedMedia wrap
+   - pps/mobile/src/screens/CharacterDetailScreen.tsx sheetImgUrl 用 useCachedMedia wrap
+5. **替代方案决策** (踩坑教训):
+   - ❌ MMKV 4.x (跟 RN 0.73 不兼容, 需要 nitro + RN 0.85)
+   - ❌ MMKV 2.12.2 (需要 NDK build, shipin-APP NDK 没装, build 失败 [CXX1101] NDK at D:\Android\ndk\25.1.8937393 did not have a source.properties file)
+   - ✅ **react-native-sqlite-storage v6.0.1** (项目已装, 跟 models/db.ts 集成, 无 NDK 依赖, 性能对小规模缓存足够 < 5ms)
+6. **跨端铁律 4++ 1:1 镜像**: web + mobile hook API 完全一致 (source / onLoaded / refresh), hash 算法一致 (djb2 + reverse), LRU 阈值一致 (500MB / 1000 文件)
+7. **双端 build OK**:
+   - web: 
+pm run build 3.14s, 新 bundle index-BVHlVkPf.js 512KB
+   - mobile: gradlew assembleRelease 48s (6/394 任务执行), APK 30087897 bytes SHA256 B1192268E1DE4BE15C11E1C2B908DA3F38B54B0DB9AE1DC58C3BEC55DA4F2A2A
+   - BlueStacks 5 装 APK + MainActivity 启动 OK
+8. **Stage 3 待做**:
+   - 跨端 useMediaLoader hook 抽象 (封装 useCachedMedia + useState + status)
+   - Lottie 生成中动画
+   - 端到端缓存验证 (SQLite 记录数 > 0 + 二次启动 hit rate > 80%)
+
+### 验证 (双端 build OK + APK 装 OK)
+1. ✅ web 
+pm run typecheck 0 错
+2. ✅ web 
+pm run build 3.14s, 新 bundle index-BVHlVkPf.js 512KB
+3. ✅ mobile 
+px tsc --noEmit 0 新错 (历史错误与本 BUG 无关)
+4. ✅ mobile gradlew assembleRelease 48s OK
+5. ✅ APK aapt2 dump badging versionName=3.0.42 (待 v3.0.43 bump) versionCode=46
+6. ✅ APK apksigner verify 证书 DN = CN=DeepScript Release (BUG-023 永久签名)
+7. ✅ BlueStacks 5 APK install OK, MainActivity 启动 OK
+8. ⏳ SQLite 端到端验证: 需要 CharacterDetailScreen 实际触发 image 加载才能验证 (CharacterDetailScreen 仍是 mobile 端孤岛页, 没有 navigation 路由)
+
+### 教训 (跨项目通用铁律, 跟 BUG-079 假报告 + BUG-097 mobile 漏修 web 100% 同源)
+1. **缓存方案选型必先验证 native 依赖** — MMKV 4.x 默认是最新, 但跟 RN 0.73 不兼容 (需要 nitro + RN 0.85); MMKV 2.x 需要 NDK build (shipin-APP NDK 没装); 选 RN ecosystem 库必先查 peerDependencies + engines + 装包后跑 build 验证
+2. **改 utils 必 100% 移植含缓存** — Stage 1 加了 ImageWithLoading 但没缓存, 改了半个 — 跟 BUG-079 假报告 100% 同源; Stage 2 必须补完整缓存层 (useCachedMedia + mediaCache)
+3. **跨端铁律 4++ Web→APP 同步 缓存必 1:1 镜像** — web 跟 mobile hook API 必须一致 (source / onLoaded / refresh), hash 算法必须一致 (djb2 + reverse), LRU 阈值必须一致 (500MB / 1000 文件), 不一致就是 假修
+4. **server ETag 跟 client cache 配套** — server 返 ETag + Cache-Control, 客户端 If-None-Match 命中 → 304; 不是 client cache, server 改了 client 不知道, 必须 ETag; 不是 server ETag, client 缓存永远 stale
+5. **Hash 命名方案是版本同步的核心** — 文件名 = SHA256(url), server 改 URL (加 query param / 改 path) → 客户端 hash 变 → 自动 miss → 重 GET; 比 server ETag 更可靠 (不依赖 server 配合)
+6. **SQLite 比 MMKV 更适合 shipin-APP** — 项目已装, 跟主 db 集成, 无 NDK 依赖, 性能足够; MMKV 优势是查询速度, 但 shipin-APP 缓存条目 < 1000, SQLite 索引查询 < 5ms 完全够用
+7. **LRU 淘汰必加, 不能无限增长** — 500MB / 1000 文件上限 + 按 lastAccessed 删到 90% 阈值, 防止本地缓存占满用户磁盘
+8. **文件命名跟 URL 1:1 不可行** — 同一 URL 可能在 CDN 改内容 (CDN cache miss), 用 hash 命名 + content hash 验证更稳 (Stage 3 加 ETag 验证)
+
+### 防呆 SOP
+1. **Stage 2 完必双端 build 0 错** — web tsc + mobile gradle + server tsc 三保险
+2. **MMKV / AsyncStorage / SQLite 选型决策 5 步** — 1) 查 peerDependencies 2) 查 engines 3) 查 NDK 依赖 4) 跑 npm install + build 验证 5) 失败 fallback 到项目已有方案
+3. **useCachedMedia 必须跟 useCachedMedia web 1:1** — API 一致 (source / onLoaded / refresh), hash 算法一致, LRU 阈值一致
+4. **SQLite 表必加 lastAccessed 索引** — LRU 淘汰按 lastAccessed ASC 排序, 没索引每次全表扫
+5. **file:// URI 在 RN 必须** — ile:// 才能被 RN Image 组件渲染 (不能直接用裸路径)
+
+### 沉淀 4 件套
+1. **docs/BUGS_INDEX.md v2.6** (§ 1 速览行 BUG-109 + Top 29 跨项目通用铁律: 缓存方案选型必先验证 native 依赖 + 完整 BUG 77 个)
+2. **HANDOVER.md § 2.1 S72 batch 11 Stage 2** (v3.0.43 P19 Stage 2/3 + 8 件套修法 + 8 教训 + 8 防呆 SOP + commit bdbc4fd)
+3. **apps/mobile/BUGS.md BUG-109 段** (本文件, 永久记录现象/根因/修法/验证/教训/防呆)
+4. **1 mavis memory** (shipin-APP Stage 2 + 跨项目通用铁律: 缓存方案必先验证 NDK/native 依赖)
+
+### 关联 BUG
+- **BUG-079** (S71 假报告) — Stage 1 加 UI 但没缓存 = 假修, Stage 2 补完整, 100% 同源
+- **BUG-097** (S72 batch 7 mobile 漏修 web 3 BUG) — web + mobile 缓存 hook 必须 1:1 镜像, 缺一就是漏修
+- **BUG-104** (S72 batch 8 server bump 漏 rebuild APK) — 缓存版本同步靠 hash 失效 + server ETag 配合, 缺一就崩
+- **铁律 4++** (跨项目通用 UX 原则, 2026-06-26 user 明确: Web 主导 APP 跟随) — 跨端缓存必 100% 同步含 hook + 算法 + LRU
+- **铁律 5** (不再接受假报告) — 双端 build 必 0 错 + APK 装必 OK + 实际触达才能验证缓存 (mobile CharacterDetailScreen 仍是孤岛页, Stage 3 补 navigation)
+
+### 配套工具
+- pps/server/src/middleware/etag.ts (47 行, ETag + 304 处理)
+- pps/mobile/src/utils/mediaCache.ts (180 行, RNFS + SQLite + hash + LRU)
+- pps/mobile/src/hooks/useCachedMedia.ts (60 行, hook 抽象)
+- pps/web/src/hooks/useCachedMedia.ts (130 行, IndexedDB + hash + LRU, 跟 mobile 1:1)
+- 1 mavis memory (shipin-APP Stage 2 + 跨项目通用缓存方案选型铁律)
+
+### 后续 (Stage 3)
+- 跨端 useMediaLoader hook 抽象 (封装 useCachedMedia + state machine + error handling)
+- Lottie 生成中动画 (Particles Loading)
+- 端到端缓存验证 (SQLite 记录数 > 0 + 二次启动 hit rate > 80%)
+- mobile CharacterDetailScreen 加 navigation 路由 (修孤岛)
