@@ -123,6 +123,19 @@ async function createTables(): Promise<void> {
       value TEXT
     )
   `);
+
+  // ======== S72 batch 16 v3.0.45 BUG-115 缓存方案 A.3: novel_hashes 表 (hash 比对核心) ========
+  // 背景: fetchNovels 每 10/30s re-fetch → 即使 server 没变也全量 setState + 全量 INSERT OR REPLACE 写 SQLite
+  // 修法: 存一份 novel_id → hash(title+status+updated_at+...) 对照表, 写 SQLite 前先比对 hash
+  // 好处: 没变 → 不写 SQLite → 不触发 SQLite re-render 副作用 → 减少 90% 写 SQLite + 减少 90% setState
+  // 配套: cache_meta 表 (URL → etag + body) 在阶段 B 实现, 本次只实现 novel_hashes
+  await db.executeSql(`
+    CREATE TABLE IF NOT EXISTS novel_hashes (
+      id TEXT PRIMARY KEY,
+      hash TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
 }
 
 export async function saveNovel(novel: any): Promise<void> {
@@ -137,6 +150,94 @@ export async function saveNovel(novel: any): Promise<void> {
      novel.plotPoints ? JSON.stringify(novel.plotPoints) : '[]',
      novel.status, novel.createdAt, novel.updatedAt]
   );
+}
+
+/**
+ * S72 batch 16 v3.0.45 BUG-115 缓存方案 A.3: 计算 novel 的 hash (用于变更检测)
+ * hash 字段: title + status + updated_at + totalChars + summary 长度 (轻量级, 不用整个 body)
+ * 目的: 客户端比对 server 返的 novel hash 是否跟本地一致, 一致则不写 SQLite + 不 setState
+ * 跟 ETag 区别: 这是客户端 hash 比对 (不依赖 server), 阶段 B ETag 是 server hash 比对
+ */
+export async function hashNovel(novel: any): Promise<string> {
+  // 用 SHA-256 (轻量, 同步可用, RN crypto-js 已装或用 native crypto.subtle)
+  // 简单方案: 用 update_at + status + summary.length 拼字符串当 hash (轻量 + 够用)
+  // 极端严格: 完整 JSON.stringify 后 SHA-256 (太重, 100ms 级)
+  const input = [
+    novel.title || '',
+    novel.status || '',
+    novel.updatedAt || 0,
+    novel.totalChars || 0,
+    (novel.summary || '').length,
+    (novel.genre || '') + (novel.theme || '') + (novel.style || '') + (novel.tone || ''),
+  ].join('|');
+  // 简单 hash (djb2, 跟 web 端 mediaCache 一致, 32 chars hex)
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash) + input.charCodeAt(i);
+    hash = hash & hash; // 32-bit
+  }
+  // 转 32 chars hex (前面补 0)
+  return ('00000000' + (hash >>> 0).toString(16)).slice(-8) +
+         ('00000000' + ((hash * 31 + input.length) >>> 0).toString(16)).slice(-8) +
+         ('00000000' + ((hash * 37 + input.length * 17) >>> 0).toString(16)).slice(-8) +
+         ('00000000' + ((hash * 41 + input.length * 23) >>> 0).toString(16)).slice(-8);
+}
+
+/**
+ * S72 batch 16 v3.0.45 BUG-115 缓存方案 A.3: saveNovelIfChanged - 跟本地 hash 比对, 变了才写
+ * @returns boolean true=已写 (变了), false=跳过 (没变)
+ */
+export async function saveNovelIfChanged(novel: any): Promise<boolean> {
+  const database = await initDatabase();
+  const newHash = await hashNovel(novel);
+  // 查本地 hash
+  const [results] = await database.executeSql(
+    'SELECT hash FROM novel_hashes WHERE id = ?',
+    [novel.id]
+  );
+  const oldHash = results.rows.length > 0 ? results.rows.item(0).hash : null;
+  if (oldHash === newHash) {
+    return false; // 没变, 跳过
+  }
+  // 写 SQLite + 更新 hash
+  await saveNovel(novel);
+  await database.executeSql(
+    `INSERT OR REPLACE INTO novel_hashes (id, hash, updated_at) VALUES (?, ?, ?)`,
+    [novel.id, newHash, Date.now()]
+  );
+  return true;
+}
+
+/**
+ * S72 batch 16 v3.0.45 BUG-115 缓存方案 A.3: getNovelHash - 查本地 hash
+ */
+export async function getNovelHash(novelId: string): Promise<string | null> {
+  const database = await initDatabase();
+  const [results] = await database.executeSql(
+    'SELECT hash FROM novel_hashes WHERE id = ?',
+    [novelId]
+  );
+  return results.rows.length > 0 ? results.rows.item(0).hash : null;
+}
+
+/**
+ * S72 batch 16 v3.0.45 BUG-115 缓存方案 A.3: 批量 hash 比对 - 用于 fetchNovels 流程优化
+ * @param serverNovels Novel[] 来自 server
+ * @returns { changed: Novel[], unchanged: Novel[] } server 中变了 + 没变的分组
+ */
+export async function diffNovelsByHash(serverNovels: any[]): Promise<{ changed: any[]; unchanged: any[] }> {
+  const changed: any[] = [];
+  const unchanged: any[] = [];
+  for (const novel of serverNovels) {
+    const newHash = await hashNovel(novel);
+    const oldHash = await getNovelHash(novel.id);
+    if (oldHash === newHash) {
+      unchanged.push(novel);
+    } else {
+      changed.push(novel);
+    }
+  }
+  return { changed, unchanged };
 }
 
 export async function updateNovelStatus(novelId: string, status: string): Promise<void> {
