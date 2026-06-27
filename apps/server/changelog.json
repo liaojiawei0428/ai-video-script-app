@@ -8,20 +8,24 @@
       "version": "3.0.44",
       "buildDate": "2026-06-27",
       "type": "patch",
-      "summary": "BUG-112 修法: ErrorBoundary 跨端 1:1 兜底 + useCachedMedia 三层防御 + load() 3s 超时, 修 v3.0.43 Stage 2 引入 SQLite native module 抛错导致角色库白屏",
+      "summary": "BUG-112 修法 (ErrorBoundary 跨端 1:1 兜底 + useCachedMedia 三层防御 + load() 3s 超时) + BUG-113 真机回归 hotfix (React Hooks 规则违反, useCachedMedia 移到 early return 之前), 修角色库白屏 + 角色详情页 fallback UI",
       "highlights": [
-        "BUG-112 修: apps/mobile/src/components/ErrorBoundary.tsx 新增 (RN class component + static getDerivedStateFromError + componentDidCatch + dev console.error)",
-        "BUG-112 修: apps/web/src/components/ui/error-boundary.tsx 新增 (React class component, 跨端铁律 4++ 跟 mobile 1:1 API 镜像)",
-        "BUG-112 修: apps/mobile/src/hooks/useCachedMedia.ts 加固 (dynamic require mediaCache + safeSetSource + .then callback 全 try/catch 三层防御, SQLite native module throw 不冒泡)",
-        "BUG-112 修: apps/web/src/hooks/useCachedMedia.ts 加固 (safeSetSource + IndexedDB undefined check + .then callback 全 try/catch, 跨端 1:1)",
-        "BUG-112 修: apps/mobile/src/screens/CharacterDetailScreen.tsx load() 3s 超时 (Promise.race + setTimeout reject) + 末尾加 CharacterDetailScreenWithBoundary export",
-        "BUG-112 修: apps/web/src/pages/CharacterDetailPage.tsx load() 3s 超时 (跨端 1:1)",
-        "BUG-112 修: apps/mobile/App.tsx Stack.Screen 用 CharacterDetailScreenWithBoundary wrap (注册 ErrorBoundary)",
-        "BUG-112 修: apps/web/src/App.tsx Route '/characters/:id' 用 ErrorBoundary wrap (跨端 1:1)",
-        "BUG-112 修: apps/mobile/src/components/index.ts 加 ErrorBoundary export (跟现有 Toast/CharacterAvatar 同层)",
-        "BUG-112 教训: v3.0.43 Stage 2 引入 react-native-sqlite-storage native module 没装真机跑过就发版 (本地 verify-bug109 PASS 但 native module release build 兼容性未验证, 跟 BUG-079/097 100% 同源), 跨项目通用: Stage N 引入 native dep 必装真机跑过 + verify 8 维加 1 维 '真机白屏回归'",
-        "verify 1 件: tools/verify-bug112-error-boundary.js (8/8 PASS, 含 ErrorBoundary 文件/API/wrap/useCachedMedia 加固/load 超时/跨端铁律 4++/fallback UI/import 接入 8 维)",
-        "8 项版本号同步 3.0.43→3.0.44 (mobile version.ts + build.gradle versionCode 47→48 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 47→48 + changelog.json)"
+        "BUG-112 ✅ apps/mobile/src/components/ErrorBoundary.tsx 新增 (RN class component + static getDerivedStateFromError + componentDidCatch + dev console.error)",
+        "BUG-112 ✅ apps/web/src/components/ui/error-boundary.tsx 新增 (React class component, 跨端铁律 4++ 跟 mobile 1:1 API 镜像)",
+        "BUG-112 ✅ apps/mobile/src/hooks/useCachedMedia.ts 加固 (dynamic require mediaCache + safeSetSource + .then callback 全 try/catch 三层防御, SQLite native module throw 不冒泡)",
+        "BUG-112 ✅ apps/web/src/hooks/useCachedMedia.ts 加固 (safeSetSource + IndexedDB undefined check + .then callback 全 try/catch, 跨端 1:1)",
+        "BUG-112 ✅ apps/mobile/src/screens/CharacterDetailScreen.tsx load() 3s 超时 (Promise.race + setTimeout reject) + 末尾加 CharacterDetailScreenWithBoundary export",
+        "BUG-112 ✅ apps/web/src/pages/CharacterDetailPage.tsx load() 3s 超时 (跨端 1:1)",
+        "BUG-112 ✅ apps/mobile/App.tsx Stack.Screen 用 CharacterDetailScreenWithBoundary wrap (注册 ErrorBoundary)",
+        "BUG-112 ✅ apps/web/src/App.tsx Route '/characters/:id' 用 ErrorBoundary wrap (跨端 1:1)",
+        "BUG-112 ✅ apps/mobile/src/components/index.ts 加 ErrorBoundary export (跟现有 Toast/CharacterAvatar 同层)",
+        "BUG-112 教训: v3.0.43 Stage 2 引入 react-native-sqlite-storage native module 没装真机跑过就发版 (本地 verify-bug109 PASS ≠ native module release build 兼容性未验证, 跟 BUG-079/097 100% 同源), 跨项目通用: Stage N 引入 native dep 必装真机跑过 + verify 8 维加 1 维 '真机白屏回归'",
+        "verify 1 个: tools/verify-bug112-error-boundary.js (8/8 PASS, 含 ErrorBoundary 文件/API/wrap/useCachedMedia 加固/load 超时/跨端铁律 4++/fallback UI/import 接入 8 维)",
+        "8 项版本号同步 3.0.43→3.0.44 (mobile version.ts + build.gradle versionCode 47→48 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 47→48 + changelog.json)",
+        "BUG-113 ✅ apps/mobile/src/screens/CharacterDetailScreen.tsx line 92-97 加 _sheetImgUrl 可选链 + useCachedMedia 移到 early return (line 206) 之前, 删原 line 222 调用, hook count 稳定 = 12 (修 React Hooks 规则违反)",
+        "BUG-113 教训: ErrorBoundary 兜住 throw ≠ 修好, 必须从 throw stack 找真根因 (这里是 React Hooks 规则违反, 不是 BUG-112 推断的 native module 抛错) + tsc 不查 hooks 规则 + web 没事 ≠ mobile 没事 (跨端 1:1 镜像失效案例) + 必装真机回归",
+        "BUG-113 跨项目通用铁律 (跟 BUG-079/097/103/112 同源, 加深): 任何 hook 调用必在 conditional return 之前 + tsc 0 错 ≠ 运行 0 错 + 真机回归 SOP (adb install + am start + input tap + screencap + logcat grep)",
+        "verify 1 个: 真机回归 5 维 (BlueStacks 5 + adb, 截图验证角色详情页真 UI 渲染, 无白屏 + 无 ErrorBoundary fallback UI + 无 React Hooks error)"
       ]
     },
     {
@@ -140,5 +144,6 @@
         "8 项版本号同步 3.0.41 → 3.0.42 (mobile version.ts + build.gradle versionCode 45→46 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 45→46 + changelog.json + 远端 .env + 远端 systemd unit)"
       ]
     }
-  ]
+  ],
+  "latest_version": "3.0.44"
 }
