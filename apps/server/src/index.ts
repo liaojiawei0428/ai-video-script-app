@@ -12,6 +12,7 @@ import { config } from './config';
 import { logger } from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
 import { errorHandler } from './middleware/errorHandler';
+import { etagMiddleware } from './middleware/etag';
 import { websocketService } from './services/websocket';
 
 const app = express();
@@ -70,7 +71,7 @@ app.get('/health', (req, res) => {
 // APP 版本检�?(公开接口)
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
 import { readChangelog } from './shared/changelog';
-app.get('/api/version', (req, res) => {
+app.get('/api/version', etagMiddleware(), (req, res) => {
   const currentVersion = process.env.APP_VERSION || '3.0.42';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;

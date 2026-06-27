@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { extractDescriptionText } from '../lib/characterUtils';
 import { ImageWithLoading } from '../components/ui';
+import { useCachedMedia } from '../hooks/useCachedMedia';
 
 interface CharacterDetail {
   id: string; novelId: string;
@@ -34,6 +35,9 @@ export function CharacterDetailPage() {
   const [confirming, setConfirming] = useState(false);
   const [generatingImages, setGeneratingImages] = useState(false);
   const [generatingResult, setGeneratingResult] = useState<string>('');
+
+  // v3.0.43 Stage 2: 缓存 sheet image (查 IndexedDB 命中直接用 blob URL, 省 10s 网络)
+  const sheetImgCached = useCachedMedia(character?.imageVariants?.find((v: any) => v.angle === 'sheet')?.url);
 
   // 编辑模式
   const [editing, setEditing] = useState(false);
@@ -272,7 +276,7 @@ export function CharacterDetailPage() {
             三视图预览
           </h2>
           <ImageWithLoading
-            src={sheetImg.url}
+            src={sheetImgCached.source || sheetImg.url}
             alt="character sheet"
             aspectRatio="3/4"
             containerClassName="rounded border border-border overflow-hidden"

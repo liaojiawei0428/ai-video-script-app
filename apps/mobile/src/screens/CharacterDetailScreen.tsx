@@ -26,6 +26,7 @@ import {
   getCharacter, generateCharacterImages, confirmCharacter, updateCharacterFullApi,
 } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
+import { useCachedMedia } from '../hooks/useCachedMedia';
 import { colors, spacing, radii, typography } from '../theme';
 import { surface, text, gradient, getStatusInfo, getRoleColor } from '../theme/character';
 import type { Character } from '@ai-script/shared-types';
@@ -209,6 +210,9 @@ export function CharacterDetailScreen() {
   const sheetImgUrl = (sheetVariant as any)?.imageData || (sheetVariant as any)?.url;
   const hasSheet = !!sheetImgUrl;
   const status = getStatusInfo(character);
+
+  // v3.0.43 Stage 2: 缓存 sheet image (查 SQLite media-cache.db 命中直接用 file://, 省 10s 网络)
+  const sheetImgCached = useCachedMedia(hasSheet ? sheetImgUrl : undefined);
   const role = getRoleColor(character.roleType);
 
   return (
@@ -388,7 +392,7 @@ export function CharacterDetailScreen() {
             </View>
             <View style={styles.sheetContainer}>
               <ImageWithLoading
-                src={sheetImgUrl}
+                src={sheetImgCached.source || sheetImgUrl}
                 alt="角色三视图"
                 width="100%"
                 height={300}
