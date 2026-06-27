@@ -91,6 +91,15 @@ export function CharacterDetailScreen() {
   const [generating, setGenerating] = useState(false);
   const [roleTypeModal, setRoleTypeModal] = useState(false);
 
+  // v3.0.44 BUG-113 修法: useCachedMedia 必须在 early return (line 206) 之前调用
+  // (loading=true 时 hook count = 11, loading=false 时 hook count = 12 → "Rendered more hooks than during the previous render" → React unmount)
+  // 跨端铁律 4++ 修法: 跟其他 11 个 useState 一起无条件调用, hook count 稳定 = 12
+  // useCachedMedia 内部已 try/catch 兜底 (BUG-112 三层防御), 即使 SQLite 抛错也不会让 screen unmount
+  // 计算 sheetImgUrl (character 可能为 null, 所以用可选链 + fallback 到 undefined)
+  const _sheetImgUrl = (character as any)?.imageVariants?.find?.((v: any) => v.angle === 'sheet')?.imageData
+    ?? (character as any)?.imageVariants?.find?.((v: any) => v.angle === 'sheet')?.url;
+  const sheetImgCached = useCachedMedia(_sheetImgUrl);
+
   const load = useCallback(async () => {
     if (!characterId) return;
     setLoading(true);
@@ -217,9 +226,6 @@ export function CharacterDetailScreen() {
   const sheetImgUrl = (sheetVariant as any)?.imageData || (sheetVariant as any)?.url;
   const hasSheet = !!sheetImgUrl;
   const status = getStatusInfo(character);
-
-  // v3.0.43 Stage 2: 缓存 sheet image (查 SQLite media-cache.db 命中直接用 file://, 省 10s 网络)
-  const sheetImgCached = useCachedMedia(hasSheet ? sheetImgUrl : undefined);
   const role = getRoleColor(character.roleType);
 
   return (
