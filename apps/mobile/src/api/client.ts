@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
+import { getCachedETag, getCachedBody, setCachedResponse } from '../db/cacheMeta';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -18,18 +19,92 @@ export function getAuthToken(): string | null {
   return _authToken;
 }
 
-// 请求拦截器自动带 token
-apiClient.interceptors.request.use((config) => {
+// ======== S72 batch 17 v3.0.46 BUG-116 缓存方案 B.3: ETag/304 axios interceptor ========
+// 跨端铁律 4++ (跟 web 端 axios interceptor 1:1 镜像)
+//
+// 流程:
+//   1. 请求拦截器: GET 请求自动带 If-None-Match (从 cache_meta 读上次 ETag)
+//   2. 响应拦截器:
+//      a) 收到 200 → 存 ETag + body 到 cache_meta (下次可命中)
+//      b) 收到 304 → 从 cache_meta 读上次 body, 构造假 200 响应返给调用方
+//
+// 配套 (跨端铁律 4++ 跟 web 1:1):
+//   - web 端 axios interceptor 实现相同逻辑 (B.5 阶段)
+//   - cache_meta schema/API 1:1 (B.2 阶段已实现)
+//   - 阶段 A hash 比对 + 阶段 B ETag/304 双保险 (client-side + server-side)
+
+// 构造完整 URL 作为 cache key (包括 query string)
+function getCacheKey(config: any): string | null {
+  if (!config.url) return null;
+  const baseURL = config.baseURL || '';
+  // 跳过 POST/PUT/DELETE 等非幂等操作
+  const method = (config.method || 'get').toLowerCase();
+  if (method !== 'get' && method !== 'head') return null;
+  const url = config.url.startsWith('http') ? config.url : baseURL + (config.url.startsWith('/') ? config.url : '/' + config.url);
+  return url + (config.params ? '?' + new URLSearchParams(config.params).toString() : '');
+}
+
+// 请求拦截器: 自动带 If-None-Match (从 cache_meta 读)
+apiClient.interceptors.request.use(async (config) => {
   if (_authToken) {
     config.headers.Authorization = `Bearer ${_authToken}`;
   }
+
+  // 🆕 BUG-116 B.3: GET 请求自动带 If-None-Match
+  const cacheKey = getCacheKey(config);
+  if (cacheKey) {
+    try {
+      const etag = await getCachedETag(cacheKey);
+      if (etag) {
+        config.headers['If-None-Match'] = etag;
+      }
+    } catch (e) {
+      // cache_meta 读取失败不影响正常请求
+      console.warn('[apiClient] getCachedETag failed', cacheKey, e);
+    }
+  }
+
   return config;
 });
 
-// 响应拦截器：401 清除登录状态+本地书架数据
+// 响应拦截器: 处理 ETag/304 + 401
 apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  async (response) => {
+    // 🆕 BUG-116 B.3: 200 响应自动存 ETag + body 到 cache_meta
+    const cacheKey = getCacheKey(response.config);
+    const etag = response.headers.etag;
+    if (cacheKey && etag && response.data !== undefined) {
+      try {
+        await setCachedResponse(cacheKey, etag, JSON.stringify(response.data), response.status);
+      } catch (e) {
+        console.warn('[apiClient] setCachedResponse failed', cacheKey, e);
+      }
+    }
+    return response;
+  },
+  async (error) => {
+    // 🆕 BUG-116 B.3: 304 响应自动从 cache_meta 返 body (server 不传 body)
+    if (error?.response?.status === 304) {
+      const cacheKey = getCacheKey(error.response.config);
+      if (cacheKey) {
+        try {
+          const cached = await getCachedBody(cacheKey);
+          if (cached) {
+            // 构造 axios response 对象, status 200 + 用缓存 body 解析
+            return Promise.resolve({
+              ...error.response,
+              status: 200,
+              statusText: 'OK (from cache_meta 304)',
+              data: JSON.parse(cached.body),
+              headers: { ...error.response.headers, etag: cached.etag, 'x-cache': 'HIT-304' },
+            } as any);
+          }
+        } catch (e) {
+          console.warn('[apiClient] getCachedBody failed', cacheKey, e);
+        }
+      }
+    }
+
     if (error?.response?.status === 401 && _authToken) {
       _authToken = null;
       try {
@@ -41,7 +116,6 @@ apiClient.interceptors.response.use(
       try {
         require('../db/sqlite').clearAllLocalData().catch(() => {});
       } catch {}
-      // 不清除SQLite token，让App.tsx重启后可重新验证
     }
     return Promise.reject(error);
   }
