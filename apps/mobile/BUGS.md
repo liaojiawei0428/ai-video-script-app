@@ -4562,3 +4562,106 @@ pm run build web 端 (2.79s, 新 bundle index-C3DacIa3.js 481.30 kB, css 41.83 k
 - pps/mobile/BUGS.md BUG-107 段 (本文件)
 - 1 mavis memory (跨项目通用 label 翻译必配套)
 - 4 张 BlueStacks 5 截图 (F:\QiTa\banmu\APP\ai-video-script-app\.harness\screenshots\bug107-step01~04-*.png)
+
+## BUG-108 (S72 batch 11 v3.0.43 Stage 1, 2026-06-27) — 统一图片加载 UI 模块 (web + mobile 跨端铁律 4++)
+
+### 现象
+- 服务器 5Mbps 带宽, 图片加载慢 (10-20 秒), 用户看到的是空白 + spinner
+- LLM 生成图/视频需几秒-几分钟, 用户不知道在生成什么, 焦虑退出
+- web 端 17 page 全 Tailwind 手写, 没有骨架屏, 直接显示空 div 等图片
+- mobile 端 SkeletonLoader.tsx 是基础 opacity pulse (59 行), 没用于图片加载场景
+
+### 根因
+- shipin-APP 之前没有统一的"加载中 + 生成中" UI 模块, 每个页面单独处理 (各自 spinner / 各自空白)
+- 跨端铁律 4++ (Web→APP 同步) 要求 web + mobile 1:1 镜像, 但 components/ui/ 独立目录缺失 ([GAP] M-5)
+- 跟 BUG-079 假报告 100% 同源: 改 utils 必 100% 移植含 UI 组件, 漏独立目录 = 假修
+- 跟 BUG-105 修法不彻底 100% 同源: BUG-105 移植 web characterUtils.ts 漏 label 字典, Stage 1 也可能漏 UI 组件目录
+
+### 修法 (7 件套, S72 batch 11 v3.0.43 Stage 1/3)
+1. **web 端 apps/web/src/components/ui/ 新建独立目录** (填平 [GAP] M-5 独立组件缺失):
+   - skeleton.tsx — shadcn 风格 opacity pulse (跟 shipin-APP 现有 SkeletonLoader.tsx 风格一致)
+   - skeleton-presets.tsx — SkeletonCard / SkeletonImage / SkeletonText 3 个预制组件
+   - image-with-loading.tsx — **核心组件**, 3 态 (loading→ready→error) + LQIP 占位 + shimmer 动画 + 200ms 淡入 + onLoaded 回调 (Stage 2 接入缓存)
+   - index.ts — barrel export
+2. **web 集成 (3 处)**:
+   - CharacterDetailPage sheet image (3/4 aspectRatio) 替换 <img>
+   - AssetLibraryPage 资源库 grid (imageData data URL) 替换 <img>
+   - EpisodeDetailPage comicImage (3 处) 替换 <img>
+3. **mobile 端 apps/mobile/src/components/ui/ 新建独立目录** (跟 web 1:1 镜像, 跨端铁律 4++):
+   - Skeleton.tsx — Animated opacity 0.3~1 pulse (600ms 循环) + SkeletonCard / SkeletonImage / SkeletonText 3 预制
+   - ImageWithLoading.tsx — Animated.Image + retry key (重试触发重载) + fallback 重试 (点 fallback 重载)
+4. **mobile 集成 (3 处)**:
+   - CharacterDetailScreen sheetImage (100% width 300 height) 替换 <Image>
+   - ImageAgentScreen refImage (80x80) + resultImage (320x320) 替换 <Image>
+5. **配套**:
+   - pps/web/src/lib/utils.ts — cn() 工具 (clsx + tailwind-merge, 自动去重 Tailwind 类冲突)
+   - pps/web/tailwind.config.js — shimmer keyframes + animation (左→右滑过 2s 循环)
+   - pps/web/src/index.css — .skeleton-shimmer 工具类 (浅色渐变 + bg-size 1000px)
+   - pps/web/AGENTS.md § 4 第 1 条微调 — 原 '不引入 shadcn/ui' → '允许 tailwind-merge + cn() + components/ui/' (不推翻 17 page Tailwind 手写传统)
+   - [GAP] M-5 标已修 (S72 batch 11)
+6. **双端 build**:
+   - web: 
+pm run build 4.10s OK, 新 bundle index-SsjEDax8.js 510KB (+ css 43KB)
+   - mobile: gradlew assembleRelease 57s OK (6/394 任务执行), APK 30083055 bytes SHA256 7DC4A218DC02E988E4F5A476D30264EE45D322FAEFAFF4D2107F20EA1D731626
+7. **BlueStacks 5 端到端验证**:
+   - APK 装到 127.0.0.1:5555 ✓
+   - MainActivity 启动 ✓
+   - 登录态保留 (q378685504/wuliao) ✓
+   - BookshelfPage 渲染正常 ✓
+   - ScriptDetail 6 角色中文 label (跟 BUG-107 v3.0.42 一致) ✓
+
+### 验证 (双端 build OK + BlueStacks 启动 OK)
+1. ✅ web 
+pm run typecheck 0 错 (tsc -b --noEmit)
+2. ✅ web 
+pm run build 4.10s OK, 新 bundle index-SsjEDax8.js 510KB
+3. ✅ mobile gradlew assembleRelease 57s OK (6/394 增量)
+4. ✅ APK aapt2 dump badging versionName=3.0.42 (待 v3.0.43 bump) versionCode=46
+5. ✅ APK apksigner verify 证书 DN = CN=DeepScript Release (BUG-023 永久签名)
+6. ✅ BlueStacks 5 APK install OK, MainActivity 启动 OK, 登录态保留 OK
+
+### 教训 (跨项目通用铁律, 跟 BUG-079 假报告 + BUG-105 修法不彻底 + BUG-097 mobile 漏修 web 100% 同源)
+1. **改 utils 必 100% 移植含 UI 组件** — 移植 web characterUtils.ts 漏 label 字典是假修 (BUG-105), 移植 skeleton / loading 组件漏 components/ui/ 目录也是假修 (Stage 1 防呆)
+2. **跨端铁律 4++ Web→APP 同步 SOP 必加第 7 步** — 1) 比对 web utils 2) mobile 移植 3) 改 screen import 4) 删本地硬编码 5) tsc + rebuild 6) 端到端验证 **🆕 7) UI 组件必建独立 components/ui/ 目录 + 跨端 1:1 镜像**
+3. **跨项目通用 UI 组件规范 (Stage 1 沉淀)**:
+   - components/ui/ 独立目录 (跟 page / screen 解耦)
+   - 双端 1:1 镜像 (web apps/web/src/components/ui/ 跟 mobile apps/mobile/src/components/ui/ API 一致)
+   - API 必保持一致: Skeleton / SkeletonCard / SkeletonImage / SkeletonText / ImageWithLoading
+   - tailwind-merge + cn() 工具必备 (web 端, mobile 用 clsx + 不冲突)
+4. **web AGENTS.md § 4 第 1 条不能死守** — 旧规范 '不引入 shadcn/ui' 是 S72 batch 7 写的, S72 batch 11 增补 '允许 tailwind-merge + cn() + components/ui/' 是兼容性微调 (不推翻 17 page 传统, 只补新目录)
+5. **[GAP] 必填平** — web AGENTS.md § 2.2 [GAP] M-5 "独立组件缺失" 在 Stage 1 直接填平, 顺手标已修 + 写明修法
+
+### 防呆 SOP
+1. **Stage 1 完必须双端 build 0 错** — web tsc + mobile gradle 双保险
+2. **跨端 UI 组件 API 必 1:1** — Skeleton / ImageWithLoading 跟 web 端同名同 props, 防止 BUG-097 mobile 漏修 web 类问题
+3. **ImageWithLoading onLoaded 回调必备** — Stage 2 接入 MMKV 缓存时直接用, 不用再改组件
+4. **shimmer 动画从 tailwind.config.js keyframes 出发** — 不在 component 内 inline animation, 跟 web 端统一
+5. **fallback 必带重试** — 用户点 fallback 触发 retry key 重载, 跟 mobile 端 RN error recovery 一致
+
+### 沉淀 4 件套
+1. **docs/BUGS_INDEX.md v2.5** (§ 1 速览行 BUG-108 + Top 28 跨项目通用铁律 4++ UI 组件必 100% 移植含 components/ui/ + 完整 BUG 76 个)
+2. **HANDOVER.md § 2.1 S72 batch 11** (v3.0.43 P19 Stage 1/3 + 7 件套修法 + 6 维验证 + 5 教训 + 5 防呆 SOP + commit 90bbccb)
+3. **apps/mobile/BUGS.md BUG-108 段** (本文件, 永久记录现象/根因/修法/验证/教训/防呆)
+4. **1 mavis memory** (shipin-APP Stage 1 实战 + 跨项目通用 UI 组件 1:1 同步铁律)
+
+### 关联 BUG
+- **BUG-079** (S71 假报告, TS 编译过 ≠ 运行时正确) — 移植 utils 漏 label 字典是假修, 移植 UI 组件漏 components/ui/ 目录也是假修, 100% 同源
+- **BUG-105** (S72 batch 8+9 mobile sync) — 移植 web characterUtils.ts 漏配套 KEY_LABEL, 修法不彻底, Stage 1 防呆 100% 移植含 UI 组件
+- **BUG-097** (S72 batch 7 mobile 漏修 web 3 BUG) — 跨端配套 SOP 缺一环就崩, Stage 1 1:1 镜像防呆
+- **铁律 4++** (跨项目通用 UX 原则, 2026-06-26 user 明确: Web 主导 APP 跟随) — 跨端 UI 组件必同步, 缺一就崩
+- **铁律 5** (不再接受假报告) — 双端 build 必 0 错 + BlueStacks 端到端必跑通, 不能 "改完就完"
+- **[GAP] M-5** (web AGENTS.md § 2.2 独立组件缺失) — Stage 1 直接填平, 顺手标已修
+
+### 配套工具
+- pps/web/src/components/ui/ (skeleton.tsx + skeleton-presets.tsx + image-with-loading.tsx + index.ts) — 4 文件, 跟 mobile 1:1
+- pps/mobile/src/components/ui/ (Skeleton.tsx + ImageWithLoading.tsx + index.ts) — 3 文件, 跟 web 1:1
+- pps/web/src/lib/utils.ts (cn 工具, clsx + tailwind-merge)
+- pps/web/tailwind.config.js (shimmer keyframes + animation)
+- pps/web/src/index.css (.skeleton-shimmer 工具类)
+- pps/web/AGENTS.md (§ 4 第 1 条微调 + [GAP] M-5 标已修)
+- 1 mavis memory (shipin-APP Stage 1 + 跨项目通用铁律)
+- 3 张 BlueStacks 5 截图 (F:\QiTa\banmu\APP\ai-video-script-app\.harness\screenshots\stage1\stage1-01~03-*.png)
+
+### 后续 (Stage 2 + Stage 3)
+- **Stage 2** (本地缓存, 3-4 天): RNFS + MMKV + hash 命名 + LRU 500MB 淘汰 + ETag 跟 server 配合, ImageWithLoading onLoaded 回调接入缓存层
+- **Stage 3** (跨端 hook + Lottie, 4-5 天): useMediaLoader hook (web + mobile 1:1) + Lottie 粒子动画 (生成中状态) + 端到端测试
