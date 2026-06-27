@@ -8,6 +8,7 @@ import {
   ArrowLeft, Play, Sparkles, Users, Network, Image as ImageIcon, ListTree, Activity, RefreshCw, Loader,
   Edit2, Check, X, BookOpen, Palette, Target, Heart, FileText, ChevronDown, ChevronUp, Save,
 } from 'lucide-react';
+import { GeneratingLoader } from '../components/ui';
 
 interface Novel {
   id: string; title: string; author: string; status: string;
@@ -173,7 +174,14 @@ export function ScriptDetailPage() {
     } finally { setSectionSaving(false); }
   };
 
-  if (loading) return <div className="text-center py-20 text-text-tertiary">加载中...</div>;
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <GeneratingLoader size="lg" label="正在加载剧集..." />
+        <div className="text-sm text-text-tertiary">首次加载可能需要几秒钟</div>
+      </div>
+    );
+  }
   if (!novel) return <div className="text-center py-20 text-text-tertiary">小说不存在</div>;
 
   const parsed = parseReport(novel.analysisReport);

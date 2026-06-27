@@ -1,4 +1,4 @@
-# HANDOVER.md — shipin-APP 项目交接文档 (跨 AI 协作)
+﻿# HANDOVER.md — shipin-APP 项目交接文档 (跨 AI 协作)
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
@@ -388,3 +388,29 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **坑 2**: BUG-082 mobile 端 AgentChatPanel typeof 防御渲染还没做 (跟 web 端 BUG-082 同源, mobile fetch 也可能撞 {code, message} 对象, 防患未然)
 - **坑 3**: tools/check-commit-message.py (S72 batch 6 新建) 还没集成到 husky pre-commit hook, 下次 S73 必做 (BUG-091 防呆自动化)
 
+
+
+### § 2.2 S72 batch 11 Stage 3 (2026-06-27, v3.0.43)
+
+**Stage 3 范围**: GeneratingLoader + useMediaLoader 跨端 1:1 镜像.
+
+**新增文件**:
+- pps/web/src/components/ui/generating-loader.tsx (CSS spinner 1s + border-t-blue-500)
+- pps/mobile/src/components/ui/GeneratingLoader.tsx (Animated spinner 1000ms + #3b82f6)
+- pps/web/src/hooks/useMediaLoader.ts (4 态 + retry + MAX_RETRIES 3)
+- pps/mobile/src/hooks/useMediaLoader.ts (4 态 + retry + MAX_RETRIES 3, 跟 web 1:1)
+
+**集成点**:
+- pps/mobile/src/screens/ScriptDetailScreen.tsx line 154 — GeneratingLoader 替代 ActivityIndicator
+- pps/web/src/pages/ScriptDetailPage.tsx line 177 — GeneratingLoader 替代 "加载中..." 文本
+
+**踩坑 (跨项目通用铁律)**:
+1. lottie-react 不支持 path (要 animationData + fetch) → web 走 fallback CSS spinner
+2. lottie-react-native 需要 NDK build → mobile 走 fallback Animated spinner
+3. mobile dynamic import TS1323 错 → 改静态 import
+
+**验证脚本**: 	ools/verify-bug110-media-loader.js (8 维验证 8/8 PASS)
+
+**commit**: 待 push
+
+**内存写入**: 1 mavis memory (Lottie NDK 失败教训 + native 模块选型 5 步验证)

@@ -3,3 +3,4 @@
  */
 export { Skeleton, SkeletonCard, SkeletonImage, SkeletonText } from './Skeleton';
 export { ImageWithLoading } from './ImageWithLoading';
+export { GeneratingLoader } from './GeneratingLoader';

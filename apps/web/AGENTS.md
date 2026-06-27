@@ -1,4 +1,4 @@
-# apps/web/AGENTS.md — Web 端 AI Agent 必读 (S72 v1.1 加部署主入口)
+﻿# apps/web/AGENTS.md — Web 端 AI Agent 必读 (S72 v1.1 加部署主入口)
 
 > **本文件**: web 端 (React + Vite) AI Agent 独有规范. 跟根 AGENTS.md + mobile AGENTS.md + server AGENTS.md 对称.
 > **必读顺序** (S72 batch 7 加 🆕 部署主入口):
@@ -81,5 +81,63 @@
 **server 端独有 (web 共享 API)** → [`../../apps/server/AGENTS.md`](../../apps/server/AGENTS.md)
 **跨端统一规范 (S68 收口核心)** → [`../../AGENTS.md`](../../AGENTS.md)
 
-> **最后更新**: 2026-06-26 (S72 batch 7 v1.1, 加铁律 4++ (Web 主导, APP 跟随) — 改 web 端必同步 app 端 5 步 SOP, 跟根 AGENTS.md v2.11 + mobile AGENTS.md v1.3 同步)
+> **最后更新**: 2026-06-27 (S72 batch 11 v3.0.43 Stage 3, 加 § 5 GeneratingLoader + useMediaLoader 跨端 1:1 规范, 跟 mobile AGENTS.md § 6.6 同步)
 > **下次 review**: web 端有架构变更 / 新 GAP / 独立部署时
+
+
+---
+
+## § 5. v3.0.43 Stage 3 新增: GeneratingLoader + useMediaLoader 跨端 1:1 (S72 batch 11 Stage 3)
+
+> **新增 2026-06-27 (S72 batch 11 v3.0.43 Stage 3)**: AI 生成中动画 + 跨端 1:1 媒体加载抽象.
+
+### § 5.1 跨端 1:1 镜像 (跟 mobile 端 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| 组件 | components/ui/generating-loader.tsx | components/ui/GeneratingLoader.tsx | ✅ 1:1 |
+| Hook | hooks/useMediaLoader.ts | hooks/useMediaLoader.ts | ✅ 1:1 |
+| 4 态 type | idle/loading/ready/error | 同左 | ✅ 1:1 |
+| Hook 返回 | {source, state, error, retry, refresh, onLoaded, retryCount} | 同左 | ✅ 1:1 |
+| Spinner 风格 | CSS order-t-blue-500 + nimationDuration: 1s | Animated orderTopColor: #3b82f6 + duration: 1000 | ✅ 1:1 |
+| MAX_RETRIES | 3 | 3 | ✅ 1:1 |
+
+### § 5.2 useMediaLoader 跟 useCachedMedia 的关系
+
+`
+useMediaLoader (Stage 3)  ← 高阶封装, 4 态 + retry
+   └─ useCachedMedia (Stage 2)  ← 单一职责, 缓存 + URL state
+       └─ IndexedDB (web) / SQLite (mobile)
+`
+
+### § 5.3 集成示范 (跨端 1:1)
+
+- web: ScriptDetailPage.tsx line 177 用 <GeneratingLoader size="lg" label="正在加载剧集..." /> 替代原 "加载中..." 文本
+- mobile: ScriptDetailScreen.tsx line 154 用 <GeneratingLoader size="lg" label="正在加载剧集..." /> 替代原 ActivityIndicator
+
+### § 5.4 使用规范
+
+1. **AI 生成中/loading 场景必用 GeneratingLoader**, 替代原 ActivityIndicator / "加载中..." 文本
+2. **跨端 1:1 风格** — 不要 web 用一种, mobile 用另一种, 都要走 GeneratingLoader
+3. **MAX_RETRIES / 1s 周期 / 蓝色 跨端一致** — 改阈值必双端同步
+4. **Lottie 暂时走 fallback spinner** — lottie-react 需要 animationData (Stage 3.5 接入)
+
+### § 5.5 跨项目通用 (跟 BUG-079/097 100% 同源)
+
+- **跨端铁律 4++ 必 web + mobile 同步** — Stage 3 跨端 1:1 8 维一致
+- **改 hook 必 100% 移植 4 态 + retry + 集成点** — 缺一就是漏修
+
+### § 5.6 验证脚本 (跟 shipin-APP 历史 verify 一致)
+
+	ools/verify-bug110-media-loader.js (8 维验证, 跟 mobile AGENTS.md § 6.6.6 同源):
+1. GeneratingLoader 跨端文件存在 (web + mobile 1:1)
+2. useMediaLoader 跨端 hook 文件存在 (封装 useCachedMedia + 4 态 + retry)
+3. useMediaLoader 跨端 API 1:1 (返回 {source, state, error, retry, refresh, onLoaded, retryCount})
+4. 4 态 type 一致 (idle/loading/ready/error 跨端 1:1)
+5. MAX_RETRIES 阈值一致 (web + mobile 都 3)
+6. 集成 ScriptDetailScreen (mobile) + ScriptDetailPage (web) 用 GeneratingLoader
+7. CSS spinner + Animated spinner 1:1 风格 (1s 周期 + 蓝色 + 轨道)
+8. components/ui/index.ts 跨端 barrel export GeneratingLoader (跨端铁律 4++)
+
+跑法: 
+ode tools/verify-bug110-media-loader.js (期望 PASS: 8 / FAIL: 0)

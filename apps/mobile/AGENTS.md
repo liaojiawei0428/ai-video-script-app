@@ -1,4 +1,4 @@
-# apps/mobile/AGENTS.md — Mobile 端 AI Agent 必读 (S68 瘦身, S72 batch 7 加部署主入口)
+﻿# apps/mobile/AGENTS.md — Mobile 端 AI Agent 必读 (S68 瘦身, S72 batch 7 加部署主入口)
 
 > **本文件**: mobile 端 (React Native) AI Agent 独有规范. 跟根 AGENTS.md + server AGENTS.md 对称.
 > **必读顺序** (S68 收口后, S72 batch 7 加 🆕 部署主入口 + 铁律 4++ Web→APP 同步):
@@ -184,10 +184,64 @@
 
 跑法: `node tools/verify-bug109-media-cache.js` (期望 PASS: 8 / FAIL: 0)
 
-## § 7. 跨端铁律 4 (升级链路 mobile 独有, 跟 server 视角区分)
+## § 6.6 v3.0.43 Stage 3 新增: GeneratingLoader + useMediaLoader 跨端 1:1 (S72 batch 11 Stage 3)
 
-> **跨端铁律 4 在 server 端 = "走 systemd 不用 PM2" (S70 BUG-077), mobile 端不适用**.
-> mobile 视角铁律 4 = 升级链路 7 条铁律, 见 § 4 (上面).
+> **新增 2026-06-27 (S72 batch 11 v3.0.43 Stage 3)**: AI 生成中动画 + 跨端 1:1 媒体加载抽象.
+
+### § 6.6.1 跨端 1:1 镜像 (跟 web 端 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| 组件 | `components/ui/generating-loader.tsx` | `components/ui/GeneratingLoader.tsx` | ✅ 1:1 |
+| Hook | `hooks/useMediaLoader.ts` | `hooks/useMediaLoader.ts` | ✅ 1:1 |
+| 4 态 type | `idle/loading/ready/error` | 同左 | ✅ 1:1 |
+| Hook 返回 | `{source, state, error, retry, refresh, onLoaded, retryCount}` | 同左 | ✅ 1:1 |
+| Spinner 风格 | CSS `border-t-blue-500` + `animationDuration: 1s` | Animated `borderTopColor: #3b82f6` + `duration: 1000` | ✅ 1:1 |
+| MAX_RETRIES | 3 | 3 | ✅ 1:1 |
+
+### § 6.6.2 useMediaLoader 跟 useCachedMedia 的关系
+
+```
+useMediaLoader (Stage 3)  ← 高阶封装, 4 态 + retry
+   └─ useCachedMedia (Stage 2)  ← 单一职责, 缓存 + URL state
+       └─ mediaCache (mobile SQLite / web IndexedDB)
+```
+
+**不要直接用 useMediaLoader 当 cache hook** — 只在 UI 层需要 4 态显示时用. 纯缓存场景用 useCachedMedia 即可.
+
+### § 6.6.3 集成示范 (跨端 1:1)
+
+- mobile: `ScriptDetailScreen.tsx` line 154 用 `<GeneratingLoader size="lg" label="正在加载剧集..." />` 替代原 ActivityIndicator
+- web: `ScriptDetailPage.tsx` line 177 用 `<GeneratingLoader size="lg" label="正在加载剧集..." />` 替代原 "加载中..." 文本
+
+### § 6.6.4 使用规范
+
+1. **AI 生成中/loading 场景必用 GeneratingLoader**, 替代原 ActivityIndicator / "加载中..." 文本
+2. **跨端 1:1 风格** — 不要 web 用一种, mobile 用另一种, 都要走 GeneratingLoader
+3. **MAX_RETRIES / 1s 周期 / 蓝色 跨端一致** — 改阈值必双端同步
+4. **Lottie 暂时走 fallback spinner** — lottie-react-native 需要 NDK build 验证 (Stage 3.5 接入)
+
+### § 6.6.5 跨项目通用 (跟 BUG-079/097 100% 同源)
+
+- **跨端铁律 4++ 必 web + mobile 同步** — Stage 3 跨端 1:1 8 维一致
+- **改 hook 必 100% 移植 4 态 + retry + 集成点** — 缺一就是漏修
+- **Lottie 接入 5 步验证** — 1) peerDeps 2) engines 3) NDK 4) build 5) fallback 兜底
+
+### § 6.6.6 验证脚本 (跟 shipin-APP 历史 verify 一致)
+
+`tools/verify-bug110-media-loader.js` (8 维验证):
+1. GeneratingLoader 跨端文件存在 (web + mobile 1:1)
+2. useMediaLoader 跨端 hook 文件存在 (封装 useCachedMedia + 4 态 + retry)
+3. useMediaLoader 跨端 API 1:1 (返回 {source, state, error, retry, refresh, onLoaded, retryCount})
+4. 4 态 type 一致 (idle/loading/ready/error 跨端 1:1)
+5. MAX_RETRIES 阈值一致 (web + mobile 都 3)
+6. 集成 ScriptDetailScreen (mobile) + ScriptDetailPage (web) 用 GeneratingLoader
+7. CSS spinner + Animated spinner 1:1 风格 (1s 周期 + 蓝色 + 轨道)
+8. components/ui/index.ts 跨端 barrel export GeneratingLoader (跨端铁律 4++)
+
+跑法: `node tools/verify-bug110-media-loader.js` (期望 PASS: 8 / FAIL: 0)
+
+## § 7. 跨端铁律 4 (升级链路 mobile 独有, 跟 server 视角区分)
 > **不冲突**: 跨端铁律是数字共享, 但内容按端类型分场景.
 
 ---
@@ -199,5 +253,5 @@
 
 **🆕 S68 收口 + S71 后置**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md). S71 后加铁律 4+ / 8 / 3-8 处, **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律, 跟 server 视角统一**.
 
-> **最后更新**: 2026-06-26 (S72 batch 7 v1.3, 加铁律 4++ (Web 主导, APP 跟随) + 删 "主盯 web, 安卓暂不动" 旧原则, 跟根 AGENTS.md v2.11 同步)
+> **最后更新**: 2026-06-27 (S72 batch 11 v3.0.43 Stage 3, 加 § 6.6 GeneratingLoader + useMediaLoader 跨端 1:1 规范, 跟根 AGENTS.md v2.12 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时

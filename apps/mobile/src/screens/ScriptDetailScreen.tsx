@@ -7,6 +7,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getEpisodes, getEpisode, getNovelAnalysis, updateNovel, updateCharacter } from '../api/client';
 import { saveEpisodes, getEpisodes as getLocalEpisodes } from '../db/sqlite';
 import { GlassCard, Tag, SkeletonLoader } from '../components';
+import { GeneratingLoader } from '../components/ui';
 import { colors, spacing, radii, typography } from '../theme';
 import type { NavigationProp, ScriptDetailRouteProp } from '../types/navigation';
 
@@ -151,9 +152,8 @@ export function ScriptDetailScreen(): React.JSX.Element {
     return (
       <View style={styles.container}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={{ ...typography.body, marginTop: 16, color: colors.text.tertiary }}>正在加载剧集...</Text>
-          <Text style={{ ...typography.caption, marginTop: 8, color: colors.text.tertiary }}>{loadError || '首次加载可能需要几秒钟'}</Text>
+          <GeneratingLoader size="lg" label="正在加载剧集..." />
+          <Text style={{ ...typography.caption, marginTop: 16, color: colors.text.tertiary }}>{loadError || '首次加载可能需要几秒钟'}</Text>
         </View>
       </View>
     );
