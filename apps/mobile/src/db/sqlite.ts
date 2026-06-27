@@ -104,6 +104,19 @@ async function createTables(): Promise<void> {
     )
   `);
 
+  // ======== S72 batch 16 v3.0.45 BUG-115 缓存方案 A.2 修法: characters 表加 description/extra_description/updated_at 列 ========
+  // 背景: 跟 server A.1 同步, mobile 本地缓存 characters 也需要完整字段 (description + extra_description + updated_at)
+  // 老数据兼容: ALTER TABLE 加列 IF NOT EXISTS 保护 (SQLite 不支持 IF NOT EXISTS for ADD COLUMN, 用 try/catch 兜底)
+  // 跟 BUG-113 mobile 真机回归发现的 "SQLiteLog: (1) duplicate column name: summary" 100% 同源教训
+  const characterMigrations = [
+    "ALTER TABLE characters ADD COLUMN description TEXT DEFAULT ''",
+    "ALTER TABLE characters ADD COLUMN extra_description TEXT DEFAULT ''",
+    "ALTER TABLE characters ADD COLUMN updated_at INTEGER DEFAULT 0",
+  ];
+  for (const sql of characterMigrations) {
+    try { await db.executeSql(sql); } catch { /* column may already exist (跟 novels ALTER 一致) */ }
+  }
+
   await db.executeSql(`
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
@@ -225,6 +238,84 @@ export async function getShots(episodeId: string): Promise<any[]> {
   return shots;
 }
 
+// ── 角色 characters (S72 batch 16 v3.0.45 BUG-115 缓存方案 A.2) ──
+
+/**
+ * 批量保存角色 (跟 server characterModel.bulkCreate 1:1 镜像)
+ * @param characters Character[] from server /api/novels/:id/characters
+ */
+export async function saveCharacters(characters: any[]): Promise<void> {
+  const database = await initDatabase();
+  for (const char of characters) {
+    await database.executeSql(
+      `INSERT OR REPLACE INTO characters (id, novel_id, name, aliases, appearance, personality,
+       role_type, reference_image, description, extra_description, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        char.id, char.novelId, char.name,
+        char.aliases ? JSON.stringify(char.aliases) : '[]',
+        char.appearance || '', char.personality || '',
+        char.roleType || '', char.referenceImage || '',
+        char.description || '', char.extraDescription || '',
+        char.createdAt || 0, char.updatedAt || Date.now(),
+      ]
+    );
+  }
+}
+
+/**
+ * 按 novel_id 获取本地缓存的角色列表
+ * @param novelId string
+ * @returns Character[] (跟 server listCharactersByNovel 1:1 镜像)
+ */
+export async function getCharacters(novelId: string): Promise<any[]> {
+  const database = await initDatabase();
+  const [results] = await database.executeSql(
+    'SELECT * FROM characters WHERE novel_id = ? ORDER BY created_at',
+    [novelId]
+  );
+  const chars = [];
+  for (let i = 0; i < results.rows.length; i++) {
+    const row = results.rows.item(i);
+    // JSON 字段解析
+    if (row.aliases && typeof row.aliases === 'string') {
+      try { row.aliases = JSON.parse(row.aliases); } catch { row.aliases = []; }
+    }
+    chars.push(row);
+  }
+  return chars;
+}
+
+/**
+ * 单角色更新 (用于 CharacterDescriptionReviewScreen 提交后)
+ * @param char Character 含 id 必填
+ */
+export async function updateCharacter(char: any): Promise<void> {
+  const database = await initDatabase();
+  const sets: string[] = [];
+  const params: any[] = [];
+  if (char.name !== undefined) { sets.push('name = ?'); params.push(char.name); }
+  if (char.aliases !== undefined) { sets.push('aliases = ?'); params.push(JSON.stringify(char.aliases)); }
+  if (char.appearance !== undefined) { sets.push('appearance = ?'); params.push(char.appearance); }
+  if (char.personality !== undefined) { sets.push('personality = ?'); params.push(char.personality); }
+  if (char.roleType !== undefined) { sets.push('role_type = ?'); params.push(char.roleType); }
+  if (char.referenceImage !== undefined) { sets.push('reference_image = ?'); params.push(char.referenceImage); }
+  if (char.description !== undefined) { sets.push('description = ?'); params.push(char.description); }
+  if (char.extraDescription !== undefined) { sets.push('extra_description = ?'); params.push(char.extraDescription); }
+  if (sets.length === 0) return;
+  sets.push('updated_at = ?'); params.push(Date.now());
+  params.push(char.id);
+  await database.executeSql(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`, params);
+}
+
+/**
+ * 按 novel_id 删除角色 (deleteNovelById 已经处理, 但保留独立函数便于增量 sync)
+ */
+export async function deleteCharactersByNovel(novelId: string): Promise<void> {
+  const database = await initDatabase();
+  await database.executeSql('DELETE FROM characters WHERE novel_id = ?', [novelId]);
+}
+
 // ── 通用设置存储（token 等） ──
 
 export async function saveSetting(key: string, value: string): Promise<void> {
@@ -256,4 +347,7 @@ export async function clearAllLocalData(): Promise<void> {
   await database.executeSql('DELETE FROM episodes');
   await database.executeSql('DELETE FROM shots');
   await database.executeSql('DELETE FROM characters');
+  // S72 batch 16 v3.0.45 BUG-115 缓存方案 A.3: 清缓存同时清 hash 表 (避免 hash 残留)
+  await database.executeSql('DELETE FROM novel_hashes').catch(() => { /* table may not exist yet */ });
+  await database.executeSql('DELETE FROM cache_meta').catch(() => { /* table may not exist yet (阶段 B 新增) */ });
 }
