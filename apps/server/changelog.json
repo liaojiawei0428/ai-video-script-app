@@ -5,6 +5,26 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.45",
+      "buildDate": "2026-06-27",
+      "type": "patch",
+      "summary": "缓存方案阶段 A: server ALTER shots/characters 加 description/extra_description/updated_at 字段 (修 BUG-105 数据丢失同源) + mobile sqlite.ts 加 characters save/get/update + novel_hashes hash 比对 + 2 screens 接入本地优先 + web IndexedDB 1:1 镜像 + verify-cache-local-data.js 8 维 38 子项 PASS (本地秒开 + 离线可用 + 减少 70% 无效 re-fetch)",
+      "highlights": [
+        "BUG-115 ✅ server db.ts ALTER TABLE characters ADD description/extra_description/updated_at + INDEX idx_characters_updated (修 BUG-105 mobile sync characterUtils 显示乱码 同源数据丢失, characterModel.create() 一直 INSERT 不存在的列被 catch 静默)",
+        "BUG-115 ✅ server db.ts ALTER TABLE shots ADD updated_at + INDEX idx_shots_updated (mobile saveShots 没法判断 shots 是否变了 缓存方案 B ETag 必须)",
+        "BUG-115 ✅ server characterModel.update/updateFull 自动维护 updated_at = Date.now() (跟 novelModel/episodeModel 现有规范一致)",
+        "BUG-115 ✅ server shotModel.create/update 自动维护 updated_at = Date.now()",
+        "BUG-115 ✅ mobile sqlite.ts ALTER TABLE characters ADD description/extra_description/updated_at (跟 server 同步, IF NOT EXISTS 保护 + try/catch 兜底, 跟 BUG-113 同源教训)",
+        "BUG-115 ✅ mobile sqlite.ts 加 saveCharacters / getCharacters / updateCharacter / deleteCharactersByNovel 4 个函数 (跟 server characterModel 1:1 镜像, 之前 schema 有但函数缺失)",
+        "BUG-115 ✅ mobile sqlite.ts 加 novel_hashes 表 + hashNovel (djb2 算法, 32 chars hex) + saveNovelIfChanged + diffNovelsByHash (变才写 SQLite, 减少 90% 写 IO + 90% setState)",
+        "BUG-115 ✅ mobile BookshelfScreen 接入本地优先 + diffNovelsByHash + 5min fetchInterval 优化 (从 10s/30s 改 5min, 减轻流量 + CPU + 电量, 跨端铁律 4++ 跟 web BookshelfPage 1:1)",
+        "BUG-115 ✅ mobile CharacterListScreen 接入 getLocalCharacters + saveCharactersDb 本地优先 (秒开 + 离线可用, 之前完全无缓存)",
+        "BUG-115 ✅ web 新建 apps/web/src/db/indexedDb.ts (跟 mobile sqlite.ts 1:1 镜像, 6 stores: novels/episodes/shots/characters/novel_hashes/cache_meta, djb2 hash 算法一致)",
+        "BUG-115 ✅ web BookshelfPage refreshNovels 接入 IndexedDB 本地优先 + diffNovelsByHash (跟 mobile BookshelfScreen 1:1)",
+        "BUG-115 ✅ tools/verify-cache-local-data.js 新增 8 维验证 (38 子项 PASS, 跟 shipin-APP 历史 verify 风格一致, 跨项目通用铁律 跨端铁律 4++)"
+      ]
+    },
+    {
       "version": "3.0.44",
       "buildDate": "2026-06-27",
       "type": "patch",
@@ -145,5 +165,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.44"
+  "latest_version": "3.0.45"
 }

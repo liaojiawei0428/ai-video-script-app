@@ -8,7 +8,7 @@
       env: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '3.0.44',
+        APP_VERSION: '3.0.45',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',
@@ -20,7 +20,7 @@
       env_production: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '3.0.44',
+        APP_VERSION: '3.0.45',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',

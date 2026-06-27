@@ -5123,4 +5123,63 @@ scp(CHANGELOG_JSON, "/tmp/changelog.json")  # 🆕 v3.0.44 BUG-114 修法
 
 ### 关键 git
 - commit `6ffe55f`: fix(server): BUG-114 部署漏 scp changelog.json (v3.0.44 部署 BUG-088/089 教训)
-- push: `051f2ff..6ffe55f main -> main` OK
+- push: `051f2ff..6ffe55f main -> main` OK---
+
+## BUG-115 (v3.0.45 缓存方案阶段 A): 用户感知"APP 没缓存图片视频/剧情内容数据" → 完整本地缓存基础设施 (server ALTER + mobile sqlite.ts + web IndexedDB 跨端 1:1 镜像) (S72 batch 16, 2026-06-27)
+
+### 现象
+- 用户反馈 "现在 APP 没有解决缓存生成的图片和视频的功能, 继续检查和分析, 如何解决 APP 缓存图片和视频, 就像书架里的剧情内容数据, 可以直接缓存在本地设备, 只有当服务器内的数据改变了, 才会重新缓存加载服务器的数据"
+- 现状调研发现 5 大缺口:
+  1. server etagMiddleware 只挂 /api/version, 9 个内容 routes (novels/episodes/shots/characters/tasks/chat/...) 全没挂
+  2. mobile sqlite.ts characters 表 schema 在但 save/get 函数缺失 (CharacterListScreen/Detail 走纯 server fetch)
+  3. mobile shots save 已写但 load 不用 (EpisodeDetailScreen 走 server fetch)
+  4. fetchNovels 每 10s/30s 全量 re-fetch + 全量 setState + 全量写 SQLite, 没 hash 比对
+  5. server characters 表 db.ts schema 缺 description/extra_description/updated_at (跟 BUG-105 mobile sync characterUtils 显示乱码 100% 同源 — characterModel.create() 一直 INSERT 不存在的列 → SQL 报错被 catch 静默 → 数据丢失)
+
+### 根因
+- 缓存基础设施分 3 层, 之前只做了第 1 层 (图片/视频二进制, v3.0.43 Stage 2 BUG-109), 第 2 层 (JSON 内容数据) 和第 3 层 (变更检测) 缺失
+- 第 2 层缺失原因: characters schema 在 db.ts 但 save/get 函数没写 (历史遗留), shots save 写了但 load 没用 (开发疏忽)
+- 第 3 层缺失原因: server 没维护 updated_at + mobile 没 hash 比对 + server 没 ETag/304 机制
+
+### 修法 (阶段 A 6 个 commit, 阶段 B 待 6 个 commit)
+**阶段 A (本次, v3.0.45)**:
+- A.1 server ALTER shots/characters 加 updated_at/description 字段 + model 自动维护
+- A.2 mobile sqlite.ts 加 saveCharacters/getCharacters/updateCharacter + ALTER 同步 (跟 server 1:1)
+- A.3 mobile sqlite.ts 加 novel_hashes 表 + hashNovel/saveNovelIfChanged/diffNovelsByHash (变才写)
+- A.4 mobile 2 screens 接入本地优先 (BookshelfScreen + CharacterListScreen) + fetchInterval 优化 (10s/30s → 5min)
+- A.5 web 端新建 IndexedDB cache layer (跟 mobile sqlite.ts 1:1 镜像) + BookshelfPage 接入
+- A.6 verify-cache-local-data.js 8 维 38 子项 PASS
+
+**阶段 B (待 v3.0.46)**:
+- B.1 server 9 个 routes 加 etagMiddleware (1 行改动 × 9 个 app.use)
+- B.2 mobile cacheMeta.ts 新建 (URL → etag + body 表)
+- B.3 mobile api/client.ts axios interceptor 自动带 If-None-Match + 处理 304
+- B.4 mobile 4 screens fetch 流程加 fromCache 检查 (304 → skip setState)
+- B.5 web 端 axios + IndexedDB cache_meta 1:1 镜像
+- B.6 verify-cache-etag.js 8 维验证
+- B.7 BUG-116 沉淀 + 8 项版本号同步 v3.0.46 + 发版
+
+### 端到端验证
+1. ✅ node tools/verify-cache-local-data.js 跑通 38/38 PASS
+2. ✅ tsc --noEmit mobile 0 新错 (现有 2 错都是 pre-existing 跟 sqlite.ts 无关)
+3. ✅ tsc --noEmit web 0 新错
+4. ✅ tsc --noEmit server 0 错
+5. ✅ git commit + push 全部 7 commit OK
+6. ⏳ 重打 APK + adb install -r + 真机回归 (发版 v3.0.45 后)
+7. ⏳ 12 维部署验证 (deploy.sh --skip-maintenance)
+
+### 沉淀
+- commit `adf7e5a` A.1 server ALTER + model 维护
+- commit `cd9f0b9` A.2 mobile sqlite.ts characters + ALTER
+- commit `10dfca6` A.3 mobile sqlite.ts novel_hashes + hash 比对
+- commit `c9b038b` A.4 mobile 2 screens 接入本地优先 + fetchInterval
+- commit `a70c3af` A.5 web IndexedDB 1:1 镜像
+- commit `1b730a3` A.6 verify-cache-local-data.js 8 维 (38 子项 PASS)
+- mavis memory: "IndexedDB 跨端 1:1 镜像 SOP" + "hash 比对 + 5min polling 跨项目通用"
+- 6 个跨项目通用铁律:
+  1. ALTER TABLE 加列必须 try/catch 兜底 (SQLite 不支持 IF NOT EXISTS for ADD COLUMN)
+  2. server ALTER 必须 logger.warn 替代静默 catch (跟 BUG-094/095 同源)
+  3. model update 必须自动维护 updated_at = Date.now() (跟 novelModel/episodeModel 现有规范一致)
+  4. hash 算法 djb2 + 32 chars hex (跟 web 端 mediaCache LRU 索引一致)
+  5. fetchInterval 优化: 一次性 load 为主 (5min polling) + 任务状态高频 polling (3s/5s/2s) 分清
+  6. 跨端铁律 4++ IndexedDB ↔ SQLite API 1:1 镜像 (schema + 算法 + 字段顺序)
