@@ -5239,4 +5239,71 @@ scp(CHANGELOG_JSON, "/tmp/changelog.json")  # 🆕 v3.0.44 BUG-114 修法
 |---|---|---|---|---|
 | 阶段 A | v3.0.45 | 本地缓存基础设施缺失 | server ALTER + mobile sqlite.ts + web IndexedDB + hash 比对 | 启动秒开 + 离线可用 + 减少 70% re-fetch |
 | 阶段 B | v3.0.46 | 服务器变了才重新加载 | server ETag/304 + cache_meta + axios interceptor | 减少 95%+ 无效流量 + 90% 写 SQLite + 90% setState |
-| 阶段 C (未来) | v3.0.47+ | 增量同步 + 关联失效 | /api/sync/diff + cache_invalidation + LRU 业务维度 | 完整离线 + 关联失效 + 老数据自动清 |
+| 阶段 C (未来) | v3.0.47+ | 增量同步 + 关联失效 | /api/sync/diff + cache_invalidation + LRU 业务维度 | 完整离线 + 关联失效 + 老数据自动清 |---
+
+## BUG-117 (v3.0.46 APP 内升级问题): 用户点击升级弹窗 APP 内下载 → DownloadManager Status Code 16 ERROR_HTTP_DATA_ERROR, 公网 APK 实际 404 Not Found (deploy 漏推 APK 到 nginx) (S72 batch 18, 2026-06-27)
+
+### 现象
+- 用户装机 v3.0.43 后启 app, 自动弹升级弹窗 "紧急升级 v3.0.46" (forceUpdate=true)
+- 用户点 "APP 内下载" 按钮 → 弹错误:
+  ```
+  下载失败
+  Download manager failed to download from https://ab.maque.uno/app/DeepScript_v3.0.46.apk. Status Code = 16
+  ```
+- Status Code 16 = `ERROR_HTTP_DATA_ERROR` (HTTP 数据处理错误)
+- 期望: 下载成功, 30MB APK 完整下载到 /sdcard/Download/DeepScript_v3.0.46.apk
+
+### 根因 (跟 BUG-114 deploy SOP 漏 changelog 同源!)
+- **公网 `/www/wwwroot/shipin-APP/public/DeepScript_v3.0.46.apk` 不存在!**
+- 公网 curl 验证:
+  ```
+  HTTP/1.1 404 Not Found
+  Content-Type: text/html (511 bytes HTML 错误页)
+  ```
+- DownloadManager 当 APK 下载, 解析 HTML 失败 → Status Code 16
+- 公网只到 v3.0.44 APK (Jun 27 17:36), v3.0.45 (Jun 27 16:11) — **v3.0.46 从未推到 nginx!**
+- **根本原因**: deploy.py (v3.0.45 fix2) 用写死的 v3.0.45 文件名 scp + cp, 没改通用版本号路径 → v3.0.46 APK 一直在本机, 没推到公网
+- shipin-app 服务端的 /api/version 已经返 v3.0.46 latestVersion (deploy.sh 跑了), 但公网 APK 路径还是 v3.0.45 部署时的旧版本
+
+### 修法 (3 处)
+1. **立即**: scp 本机 v3.0.46 APK (SHA256=ef0878ebc04a8a37c0273ec049344fbfc66cd677fc630b09423b3d1543dc8ba2) → 远端 /tmp/DeepScript_v3.0.46.apk
+2. **立即**: 远端 cp /tmp/DeepScript_v3.0.46.apk → /www/wwwroot/shipin-APP/public/ (chmod 644 + chown root:root)
+3. **立即**: 写 sha256 校验文件 `/www/wwwroot/shipin-APP/public/DeepScript_v3.0.46.apk.sha256`
+4. **立即**: nginx -t + nginx -s reload (宝塔 nginx reload 不影响 shipin-app 服务)
+
+### 端到端验证
+1. ✅ 公网 HTTPS HEAD:
+   ```
+   HTTP Status: 200
+   Content-Type: application/vnd.android.package-archive  ✅
+   Content-Length: 30228776  ✅
+   ETag: "6a3fa228-1cd4128"
+   Accept-Ranges: bytes  ✅
+   ```
+2. ✅ 远端 sha256 = 本机 sha256 = ef0878ebc04a8a37c0273ec049344fbfc66cd677fc630b09423b3d1543dc8ba2
+3. ✅ adb 真机回归:
+   - uninstall v3.0.46 + install v3.0.43 (旧版)
+   - 启 app → 弹"紧急升级 v3.0.46"弹窗 (forceUpdate=true)
+   - tap "APP 内下载" (真实坐标 540,1146, 之前 tap 935 错位)
+   - logcat 抓 [Updater] start called + RNFetchBlob.fetch() returned task + DownloadManager [15] Starting
+   - 下载完成 → /sdcard/Download/DeepScript_v3.0.46.apk **30,228,776 bytes**
+   - adb shell sha256sum 验证 = ef0878ebc04a8a37c0273ec049344fbfc66cd677fc630b09423b3d1543dc8ba2 (跟公网一致)
+4. ✅ Android 系统提示 "禁止安装来自此来源的未知应用" (Android 安全机制, 用户首次安装需在系统设置 → 安装未知应用 → 允许 Deep剧本, **不是 shipin-APP bug**)
+
+### 沉淀 (跨项目通用铁律, 跟 BUG-114/073/088/089/098 同源)
+1. **deploy.py 必加 scp 4 件套**: dist.tar.gz + package.json + changelog.json + **🆕 APK** (跨端铁律 4++)
+2. **deploy.py 必用通用版本号路径**: 不能写死 v3.0.45 (因为会忘记改)
+3. **deploy 后必查公网 APK 路径**: `curl -I https://ab.maque.uno/app/DeepScript_v${version}.apk` 验 200 OK + Content-Type + Content-Length
+4. **sha256 校验文件必写**: `/www/wwwroot/shipin-APP/public/DeepScript_v${version}.apk.sha256` (客户端可下载校验)
+5. **nginx -s reload 必跑**: 宝塔 nginx reload 不影响 shipin-app 服务 (shipin-app 是 systemd unit)
+6. **Status Code 16 = ERROR_HTTP_DATA_ERROR**: 99% 是公网 404 HTML 错误页当成 APK 下载 → 修法是先验证公网 200 OK + Content-Type
+7. **Android 系统"安装未知应用"提示**: 标准安全机制, 用户首次安装需在系统设置 → 应用 → 特殊权限 → 安装未知应用 → 允许 Deep剧本 (1 次设置, 后续不再提示)
+
+### 关键 git
+- commit: BUG-117 待追加 (修 deploy.py 加 scp APK + 公网 HEAD 验证维度, 跨端铁律 4++)
+- BUG-114 (deploy SOP 漏 changelog) + BUG-117 (deploy SOP 漏 APK) 同源, 都是 deploy.py 没跟上 deploy.sh 升级
+
+### 教训
+- **deploy.sh BUG-088/089 加了 "changelog.json 优先读 /tmp/" 机制, 但 deploy.py 没同步升级加 scp changelog.json** (BUG-114)
+- **这次**: deploy.sh 自带的 "scp APK 到 nginx" 机制根本**不存在** → v3.0.46 APK 从未部署
+- **修法**: deploy.py 重写, 走通用版本号路径, 加 4 件套 scp (dist + package.json + changelog.json + APK), 加公网 HEAD 验证维度
