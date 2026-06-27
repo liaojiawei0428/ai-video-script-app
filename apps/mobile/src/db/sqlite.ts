@@ -136,6 +136,21 @@ async function createTables(): Promise<void> {
       updated_at INTEGER NOT NULL
     )
   `);
+
+  // ======== S72 batch 17 v3.0.46 BUG-116 缓存方案 B.2: cache_meta 表 (ETag/304 核心) ========
+  // 背景: server etagMiddleware 算 ETag, 客户端带 If-None-Match 命中 → server 返 304 不传 body
+  // 必须从客户端本地读上次缓存的 body 返给 axios 调用方 (axios 拦截器处理)
+  // 跨端铁律 4++ (跟 web IndexedDB cache_meta 1:1 镜像)
+  await db.executeSql(`
+    CREATE TABLE IF NOT EXISTS cache_meta (
+      url TEXT PRIMARY KEY,
+      etag TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status_code INTEGER DEFAULT 200,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  try { await db.executeSql('CREATE INDEX IF NOT EXISTS idx_cache_meta_updated_at ON cache_meta(updated_at)'); } catch { /* index may already exist */ }
 }
 
 export async function saveNovel(novel: any): Promise<void> {
