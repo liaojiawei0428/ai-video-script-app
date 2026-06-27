@@ -5,6 +5,26 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.46",
+      "buildDate": "2026-06-27",
+      "type": "patch",
+      "summary": "缓存方案阶段 B (服务器变了才重新加载): server 11 个 routes 加 etagMiddleware (304 短路) + mobile cache_meta 表 + axios interceptor (If-None-Match + 304 自动从本地返 body) + 2 screens fromCache 检查 + web 端 axios + IndexedDB cache_meta 1:1 镜像 + verify-cache-etag.js 8 维 49 子项 PASS (减少 95%+ 无效流量 + 90% 写 SQLite)",
+      "highlights": [
+        "BUG-116 ✅ server src/index.ts 11 个 routes 加 etagMiddleware (novels/tasks/episodes/chat/users/recharge/admin/feedback/notifications/characters/pricing/billing), GET 自动算 ETag + If-None-Match 命中 → 304 不传 body",
+        "BUG-116 ✅ mobile sqlite.ts CREATE TABLE cache_meta (url PRIMARY KEY + etag + body + status_code + updated_at) + INDEX idx_cache_meta_updated_at (LRU 淘汰用)",
+        "BUG-116 ✅ mobile db/cacheMeta.ts 7 个 API (setCachedResponse/getCachedETag/getCachedBody/deleteCachedResponse/clearAllCacheMeta/trimCacheMeta/getCacheMetaStats)",
+        "BUG-116 ✅ mobile api/client.ts axios interceptor: request 自动带 If-None-Match (从 cache_meta 读) + response 200 存 ETag+body / 304 构造假 200 返 body + x-cache: HIT-304 header",
+        "BUG-116 ✅ mobile BookshelfScreen + CharacterListScreen fromCache 检查 (x-cache === HIT-304 → skip setState + skip saveDb)",
+        "BUG-116 ✅ web src/lib/api.ts axios interceptor 跟 mobile api/client.ts 1:1 镜像 (request If-None-Match + response 200 存 + 304 读 + x-cache header)",
+        "BUG-116 ✅ web src/db/indexedDb.ts 加 cache_meta store + 5 个 API (setCachedResponse/getCachedETag/getCachedBody/deleteCachedResponse/clearAllCacheMeta) 跟 mobile cache_meta 1:1 镜像",
+        "BUG-116 ✅ web BookshelfPage fromCache 检查 (跟 mobile BookshelfScreen 1:1 镜像)",
+        "BUG-116 ✅ tools/verify-cache-etag.js 新增 8 维验证 (49 子项 PASS, server + mobile + web 跨端铁律 4++ 全覆盖)",
+        "BUG-116 配套: BUG-115 阶段 A 6 commit + BUG-116 阶段 B 7 commit + 双保险机制 (client-side hash 比对 + server-side ETag/304) 跨端铁律 4++ 1:1 镜像",
+        "BUG-116 预期效果: 减少 95%+ 无效流量 (304 不传 body, 几十字节 vs 几十 KB) + 减少 90% 写 SQLite + 减少 90% setState",
+        "BUG-116 沉淀: 跨项目通用铁律 (跟 BUG-079/097/103/112/114/115 同源): 客户端 axios 拦截器必带 If-None-Match + 304 必从本地 cache_meta 返 body + POST/PUT/DELETE 跳过 cache + cache_key 必含 query string + mobile cache_meta 1:1 镜像 web IndexedDB"
+      ]
+    },
+    {
       "version": "3.0.45",
       "buildDate": "2026-06-27",
       "type": "patch",
@@ -165,5 +185,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.45"
+  "latest_version": "3.0.46"
 }

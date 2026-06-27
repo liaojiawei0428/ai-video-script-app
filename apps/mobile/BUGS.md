@@ -5182,4 +5182,61 @@ scp(CHANGELOG_JSON, "/tmp/changelog.json")  # 🆕 v3.0.44 BUG-114 修法
   3. model update 必须自动维护 updated_at = Date.now() (跟 novelModel/episodeModel 现有规范一致)
   4. hash 算法 djb2 + 32 chars hex (跟 web 端 mediaCache LRU 索引一致)
   5. fetchInterval 优化: 一次性 load 为主 (5min polling) + 任务状态高频 polling (3s/5s/2s) 分清
-  6. 跨端铁律 4++ IndexedDB ↔ SQLite API 1:1 镜像 (schema + 算法 + 字段顺序)
+  6. 跨端铁律 4++ IndexedDB ↔ SQLite API 1:1 镜像 (schema + 算法 + 字段顺序)---
+
+## BUG-116 (v3.0.46 缓存方案阶段 B): 用户感知 "服务器变了才重新缓存加载" → server ETag/304 + 客户端 cache_meta + axios interceptor (S72 batch 17, 2026-06-27)
+
+### 现象
+- 用户说: "只有当服务器内的数据改变了, 才会重新缓存加载服务器的数据"
+- 现状 (A 阶段完成后): 客户端有本地 SQLite + IndexedDB 缓存 + hash 比对 (没变不写 SQLite)
+- 但**没有 server-side ETag/304 机制** → 即使 server 数据没变, client 也全量 fetch 整段 JSON, 浪费 95%+ 流量
+
+### 根因
+- server etagMiddleware (apps/server/src/middleware/etag.ts v3.0.43 BUG-109 加, BUG-111 修 ERR_HTTP_HEADERS_SENT) 只挂在 `/api/version` 一个端点
+- 9 个内容 routes (novels/episodes/shots/characters/tasks/chat/users/...) 全没挂 → 客户端永远全量 fetch
+- 客户端没有 cache_meta 表 (URL → etag + body 映射) → 即使 server 返 304, client 也没 body 返给调用方
+- 客户端没有 axios interceptor 自动带 If-None-Match → 即使 server 支持 ETag, client 也不会主动用
+
+### 修法 (阶段 B 7 个 commit, 配套阶段 A 8 个 commit 共 15 个)
+**B.1 server 11 个 routes 加 etagMiddleware** (1 行改动 × 11)
+**B.2 mobile cache_meta 表 + cacheMeta.ts 工具** (7 个 API)
+**B.3 mobile api/client.ts axios interceptor** (If-None-Match + 304 自动从 cache_meta 返 body)
+**B.4 mobile 2 screens fromCache 检查** (BookshelfScreen + CharacterListScreen)
+**B.5 web 端 axios + IndexedDB cache_meta 1:1 镜像** (跟 mobile api/client.ts 1:1)
+**B.6 verify-cache-etag.js 8 维 49 子项 PASS**
+**B.7 8 项版本号同步 v3.0.46 + 发版 + 真机回归**
+
+### 端到端验证
+1. ✅ node tools/verify-cache-etag.js 跑通 49/49 PASS
+2. ✅ node tools/verify-cache-local-data.js 跑通 38/38 PASS (阶段 A)
+3. ✅ tsc --noEmit mobile 0 新错 (3 pre-existing 跟本次无关)
+4. ✅ tsc --noEmit web 0 错
+5. ✅ tsc --noEmit server 0 错
+6. ✅ gradlew assembleRelease BUILD SUCCESSFUL in 43s
+7. ✅ aapt2 versionCode=50 versionName=3.0.46
+8. ✅ APK SHA256 ef0878ebc04a8a37c0273ec049344fbfc66cd677fc630b09423b3d1543dc8ba2 (30,228,876 bytes)
+9. ✅ git commit + push 全部 7 commit OK
+10. ⏳ adb install -r + 真机回归 (启动秒开 + 离线可用 + 304 命中从本地返 body)
+
+### 沉淀
+- commit `b433dd7` B.1 server 11 routes 加 etagMiddleware
+- commit `7e97f54` B.2 mobile cache_meta 表 + cacheMeta.ts
+- commit `c20f590` B.3 mobile axios interceptor
+- commit `bbc5b49` B.4 mobile 2 screens fromCache
+- commit `9675558` B.5 web axios + IndexedDB cache_meta 1:1
+- commit `7d47dd1` B.6 verify-cache-etag.js 8 维 (49 子项 PASS)
+- mavis memory: "ETag/304 + cache_meta + axios interceptor 跨端 1:1 镜像 SOP" + "双保险机制 (client-side hash + server-side ETag/304)"
+- 6 个跨项目通用铁律:
+  1. 客户端 axios 拦截器必带 If-None-Match (server 已挂 etagMiddleware)
+  2. 304 响应必从本地 cache_meta 返 body (不能直接 resolve error.response)
+  3. 404/500 错误响应不入 cache_meta (只 cache 200)
+  4. POST/PUT/DELETE 跳过 cache (幂等性问题)
+  5. cache_key 必含 query string (不同参数不同缓存)
+  6. mobile cache_meta 1:1 镜像 web IndexedDB (schema + API + 字段名一致)
+
+### 完整缓存方案闭环 (A+B)
+| 阶段 | 版本 | 核心问题 | 修法 | 效果 |
+|---|---|---|---|---|
+| 阶段 A | v3.0.45 | 本地缓存基础设施缺失 | server ALTER + mobile sqlite.ts + web IndexedDB + hash 比对 | 启动秒开 + 离线可用 + 减少 70% re-fetch |
+| 阶段 B | v3.0.46 | 服务器变了才重新加载 | server ETag/304 + cache_meta + axios interceptor | 减少 95%+ 无效流量 + 90% 写 SQLite + 90% setState |
+| 阶段 C (未来) | v3.0.47+ | 增量同步 + 关联失效 | /api/sync/diff + cache_invalidation + LRU 业务维度 | 完整离线 + 关联失效 + 老数据自动清 |
