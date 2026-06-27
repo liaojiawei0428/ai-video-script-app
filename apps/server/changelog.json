@@ -91,6 +91,19 @@
         "BUG-105 mobile 端 sync 教训: server 端改 description 格式 (Markdown 自由文本) 必同步 web + mobile 两端 utils, 三端配套不齐必崩",
         "8 项版本号同步 3.0.40 → 3.0.41 (mobile version.ts + build.gradle versionCode 44→45 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 44→45 + changelog.json + 远端 .env + 远端 systemd unit)"
       ]
+    },
+    {
+      "version": "3.0.42",
+      "buildDate": "2026-06-26",
+      "summary": "BUG-107 修中英夹杂 (跨端铁律 4++ web + mobile objectToText 加 KEY_LABEL 中文 label, 跟 server v2.5.35 KEY_LABEL 1:1 对齐, 14 字段英文 key 翻译成中文)",
+      "type": "patch",
+      "highlights": [
+        "BUG-107 修中英夹杂: apps/web/src/lib/characterUtils.ts 加 KEY_LABEL 字典 (37 字段英文 key → 中文 label, 跟 server characterService.ts v2.5.35 1:1 对齐), objectToText 替换 ${k} 为 ${KEY_LABEL[k] || k.replace(/_/g, ' ')}",
+        "BUG-107 修中英夹杂: apps/mobile/src/utils/characterUtils.ts 同步加 KEY_LABEL 字典 (跟 web 端 1:1, 跨端铁律 4++ 配套), 3 个 screen 显示 description 不再有 role_type/gender/age 等英文 key 中英夹杂",
+        "BUG-107 修中英夹杂 教训: 跨端 utils 同步必包含 label 翻译 (跟 BUG-079 假报告 100% 同源: 修了一半留中英夹杂, 跟 BUG-105 mobile sync 修法不彻底同源), 任何 server prompt 英文字段 key 必在 utils 端配套中文 label, 严禁中英夹杂",
+        "BUG-107 修中英夹杂 实战: 装 v3.0.42 APK 进角色详情 (苏蓉蓉), description 改 '角色类型: 主角 / 性别: 女 / 年龄: 17岁 / 身高: 163厘米左右 / 体型: ...' (全中文, 14 字段 100% 中文 label, 无 role_type/gender/age 英文 key)",
+        "8 项版本号同步 3.0.41 → 3.0.42 (mobile version.ts + build.gradle versionCode 45→46 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 45→46 + changelog.json + 远端 .env + 远端 systemd unit)"
+      ]
     }
   ]
 }

@@ -71,7 +71,7 @@ app.get('/health', (req, res) => {
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
 import { readChangelog } from './shared/changelog';
 app.get('/api/version', (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.41';
+  const currentVersion = process.env.APP_VERSION || '3.0.42';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
   const changelogEntry = readChangelog(currentVersion);

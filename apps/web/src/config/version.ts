@@ -7,8 +7,8 @@
 // - BUGS.md BUG-067 (web 端硬编码版本号)
 // - BUG-079 S71 后置: web version.ts PS 5.1 写入丢 newline 导致 tsc -b 编译挂
 // - CODING_STANDARDS.md § 31 条 (web/mobile/server 各自维护 version.ts, 不要跨端 shared)
-export const APP_VERSION = '3.0.41';
-export const APP_VERSION_CODE = 45; // 跟 mobile android/app/build.gradle versionCode 同步 (3.0.39=44, 3.0.40=44, 3.0.41=45)
+export const APP_VERSION = '3.0.42';
+export const APP_VERSION_CODE = 46; // 跟 mobile android/app/build.gradle versionCode 同步 (3.0.39=44, 3.0.40=44, 3.0.41=45, 3.0.42=46)
 export const APP_NAME = 'Deep\u5267\u672c';
 export const APP_DISPLAY_NAME = `${APP_NAME} v${APP_VERSION}`;
 export const APP_BUILD_DATE = '2026-06-26';
