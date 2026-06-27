@@ -3,18 +3,20 @@ import { Shot } from '../shared/types';
 
 export class ShotModel {
   async create(shot: Shot): Promise<void> {
+    const now = Date.now();
     await execute(
       `INSERT INTO shots (id, episode_id, shot_number, scene_type, location, time_of_day,
        description, camera_angle, camera_move, lighting, duration_sec, audio_note,
-       dialogue, action, status, image_url, character_ids, style_id, image_prompt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       dialogue, action, status, image_url, character_ids, style_id, image_prompt, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [shot.id, shot.episodeId, shot.shotNumber, shot.sceneType, shot.location || '',
        shot.timeOfDay, shot.description || '', shot.cameraAngle, shot.cameraMove, shot.lighting || '',
        shot.durationSec, shot.audioNote || '', shot.dialogue || '', shot.action || '', shot.status,
        (shot as any).imageUrl || '',
        JSON.stringify((shot as any).characterIds || []),
        (shot as any).styleId || null,
-       (shot as any).imagePrompt || null]
+       (shot as any).imagePrompt || null,
+       now]
     );
   }
 
@@ -51,6 +53,7 @@ export class ShotModel {
     if ((data as any).imagePrompt !== undefined) { fields.push('image_prompt = ?'); values.push((data as any).imagePrompt); }
     if ((data as any).imageGeneratedAt !== undefined) { fields.push('image_generated_at = ?'); values.push((data as any).imageGeneratedAt); }
     if (fields.length === 0) return;
+    fields.push('updated_at = ?'); values.push(Date.now());  // S72 batch 16 v3.0.45 BUG-115 缓存方案 A.1: 自动维护 updated_at
     values.push(id);
     await execute(`UPDATE shots SET ${fields.join(', ')} WHERE id = ?`, values);
   }

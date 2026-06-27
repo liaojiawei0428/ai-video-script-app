@@ -18,12 +18,12 @@ export class CharacterModel {
 
     await execute(
       `INSERT INTO characters (id, novel_id, name, aliases, appearance, personality,
-       role_type, relationships, reference_image, description, extra_description, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       role_type, relationships, reference_image, description, extra_description, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [character.id, character.novelId, character.name, JSON.stringify(character.aliases),
        character.appearance || '', character.personality || '', character.roleType,
        JSON.stringify(character.relationships), character.referenceImage || '',
-       descStr, extraDescStr, character.createdAt]
+       descStr, extraDescStr, character.createdAt, character.createdAt]
     );
   }
 
@@ -52,6 +52,7 @@ export class CharacterModel {
     if (data.personality !== undefined) { sets.push('personality = ?'); params.push(data.personality); }
     if (data.roleType !== undefined) { sets.push('role_type = ?'); params.push(data.roleType); }
     if (sets.length === 0) return;
+    sets.push('updated_at = ?'); params.push(Date.now());  // S72 batch 16 v3.0.45 BUG-115 缓存方案 A.1: 自动维护 updated_at
     params.push(id);
     await execute(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`, params);
   }
@@ -87,6 +88,7 @@ export class CharacterModel {
       params.push(typeof data.extraDescription === 'string' ? data.extraDescription : String(data.extraDescription || ''));
     }
     if (sets.length === 0) return;
+    sets.push('updated_at = ?'); params.push(Date.now());  // S72 batch 16 v3.0.45 BUG-115 缓存方案 A.1: 自动维护 updated_at
     params.push(id);
     await execute(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`, params);
   }

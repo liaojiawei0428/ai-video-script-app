@@ -128,6 +128,34 @@ async function initTables(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // ======== S72 batch 16 v3.0.45 BUG-115 缓存方案 A.1 修法: characters 表加 description/extra_description/updated_at 字段 ========
+  // 背景: characterModel.create() 一直 INSERT description/extra_description 列, 但 db.ts CREATE TABLE 没声明 → SQL 报错被 catch 静默 → 数据丢失
+  // 跟 BUG-105 mobile sync characterUtils 显示乱码 100% 同源: server 根本没存上 description 字段
+  // 修法: ALTER TABLE 加列 (跟 S72 batch 7 BUG-094/095 recharge_requests.user_notified_at 修法一致, 必须 logger.warn 替代静默 catch)
+  // 配套: characterModel.update/updateFull 自动维护 updated_at = Date.now() (跟 novelModel / episodeModel 一致)
+  try { await db.execute("ALTER TABLE characters ADD COLUMN description LONGTEXT"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN description' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN extra_description LONGTEXT"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN extra_description' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD COLUMN updated_at BIGINT DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN updated_at' });
+  }
+  try { await db.execute("ALTER TABLE characters ADD INDEX idx_characters_updated (updated_at)"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD INDEX idx_characters_updated' });
+  }
+
+  // ======== S72 batch 16 v3.0.45 BUG-115 缓存方案 A.1 修法: shots 表加 updated_at 字段 ========
+  // 背景: shots 表 db.ts schema 没 updated_at, mobile 端 saveShots 没法判断 shots 是否变了 (缓存方案 B ETag 必须)
+  // 修法: ALTER TABLE shots ADD COLUMN updated_at BIGINT DEFAULT 0 (跟 characters 修复一致)
+  try { await db.execute("ALTER TABLE shots ADD COLUMN updated_at BIGINT DEFAULT 0"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD COLUMN updated_at' });
+  }
+  try { await db.execute("ALTER TABLE shots ADD INDEX idx_shots_updated (updated_at)"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE shots ADD INDEX idx_shots_updated' });
+  }
+
   // Migration: add full_summary column for chunk pipeline
   try {
     await db.execute(`ALTER TABLE novels ADD COLUMN full_summary LONGTEXT`);
