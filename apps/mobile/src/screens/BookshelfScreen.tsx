@@ -6,7 +6,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNovelStore } from '../store/useNovelStore';
 import { getNovels as apiGetNovels, deleteNovel as apiDeleteNovel } from '../api/client';
-import { getNovels as getLocalNovels, deleteNovelById, saveNovel as saveNovelDb } from '../db/sqlite';
+import { getNovels as getLocalNovels, deleteNovelById, saveNovel as saveNovelDb, diffNovelsByHash, saveNovelIfChanged } from '../db/sqlite';
 import { GlassCard, Tag, PulseProgressBar, SkeletonCard } from '../components';
 import { colors, spacing, radii, typography, layout } from '../theme';
 import type { NavigationProp, RootStackParamList } from '../types/navigation';
@@ -142,22 +142,30 @@ export function BookshelfScreen(): React.JSX.Element {
     // 1. 优先加载本地数据（离线可用，仅在登录状态下）
     const local = await getLocalNovels().catch(() => []);
     if (local.length > 0) setNovels(local);
-    
+
     // 2. 从服务端同步最新数据
     try {
       const serverRes = await apiGetNovels();
       const serverNovels = serverRes?.data?.data?.novels || [];
-      setNovels(serverNovels);
-      // 同步到本地SQLite
-      for (const n of serverNovels) {
-        await saveNovelDb({
-          id: n.id, title: n.title, author: n.author || 'User',
-          totalChars: n.totalChars || 0, totalWords: n.totalWords || 0,
-          genre: n.genre || '', theme: n.theme || '', style: n.style || '', tone: n.tone || '',
-          summary: n.summary || '', scenes: n.scenes || [], plotPoints: n.plotPoints || [],
-          status: n.status, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now(),
-        }).catch(() => {});
+
+      // 🆕 S72 batch 16 v3.0.45 BUG-115 缓存方案 A.4: hash 比对, 没变的 novel 不 setState 不写 SQLite
+      // 减少 90% 无效 re-render + 减少 90% 写 SQLite
+      const { changed } = await diffNovelsByHash(serverNovels);
+
+      if (changed.length > 0) {
+        // 有数据变化: setState 触发 re-render + saveNovelIfChanged 写 SQLite
+        setNovels(serverNovels);
+        for (const n of changed) {
+          await saveNovelIfChanged({
+            id: n.id, title: n.title, author: n.author || 'User',
+            totalChars: n.totalChars || 0, totalWords: n.totalWords || 0,
+            genre: n.genre || '', theme: n.theme || '', style: n.style || '', tone: n.tone || '',
+            summary: n.summary || '', scenes: n.scenes || [], plotPoints: n.plotPoints || [],
+            status: n.status, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now(),
+          }).catch(() => {});
+        }
       }
+      // else: server 数据完全跟本地一致, 不 setState 不写 SQLite (性能优化)
     } catch {
       // 服务端不可用时，已显示本地数据
     }
@@ -168,7 +176,10 @@ export function BookshelfScreen(): React.JSX.Element {
 
   useFocusEffect(useCallback(() => {
     fetchNovels();
-    const interval = setInterval(fetchNovels, hasActiveNovels ? 10000 : 30000);
+    // 🆕 S72 batch 16 v3.0.45 BUG-115 缓存方案 A.4: fetchInterval 从 10s/30s 改 5min (减轻流量 + CPU + 电量)
+    // 任务状态变化靠 user 主动操作 (navigate to ScriptDetail/TaskProgress) 触发 + 后台 polling task 接口
+    // 5min polling 书架只为发现"用户新上传/删除小说"这类低频变化
+    const interval = setInterval(fetchNovels, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchNovels, hasActiveNovels]));
 

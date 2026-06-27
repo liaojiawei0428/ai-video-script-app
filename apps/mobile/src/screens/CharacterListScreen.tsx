@@ -21,6 +21,7 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { listCharactersByNovel, getStylePresets, backfillCharactersApi } from '../api/client';
+import { getCharacters as getLocalCharacters, saveCharacters as saveCharactersDb } from '../db/sqlite';
 import type { Character, StylePreset } from '@ai-script/shared-types';
 import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, EmptyState, LinearGradientView as LinearGradient } from '../components';
 import { colors, spacing, radii, typography } from '../theme';
@@ -42,12 +43,28 @@ export function CharacterListScreen(): React.JSX.Element {
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // 🆕 S72 batch 16 v3.0.45 BUG-115 缓存方案 A.4: 本地优先 + server 同步
+    // 1. 优先加载本地数据 (秒开 + 离线可用)
+    const local = await getLocalCharacters(novelId).catch(() => []);
+    if (local.length > 0) {
+      setCharacters(local);
+      setLoading(false); // 本地有数据就停止 loading
+    }
+
+    // 2. 从服务端同步最新数据
     try {
       const [charRes, styleRes] = await Promise.all([
         listCharactersByNovel(novelId),
         getStylePresets().catch(() => ({ data: { data: { presets: [] } } })),
       ]);
-      setCharacters(charRes.data?.data?.characters || []);
+      const serverChars = charRes.data?.data?.characters || [];
+      // 🆕 缓存方案 A.4: 用 hash 比对判断是否需要 setState (避免无效 re-render)
+      // 简单实现: 对比本地第一条 hash (从 characters 表里拿, A.3 的 novel_hashes 表不能直接复用, 这里用 character.id+updated_at 拼)
+      // 暂时简化: setState + saveCharactersDb 全部数据 (后续 A.6 加更精细 hash)
+      if (serverChars.length > 0 || local.length === 0) {
+        setCharacters(serverChars);
+        await saveCharactersDb(serverChars).catch(() => {});
+      }
       setStylePresets(styleRes.data?.data?.presets || []);
     } catch (e) {
       console.warn('Load characters failed', e);
