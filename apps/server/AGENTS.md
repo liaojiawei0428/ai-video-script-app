@@ -1,4 +1,4 @@
-# apps/server/AGENTS.md — Server 端 AI Agent 必读 (S70 更新: 走 systemd + 宝塔 Node 项目)
+﻿# apps/server/AGENTS.md — Server 端 AI Agent 必读 (S70 更新: 走 systemd + 宝塔 Node 项目)
 
 > **本文件**: server 端 (Node + Express + MySQL + **systemd unit**) AI Agent 独有规范. 跟根 AGENTS.md + mobile AGENTS.md 对称.
 > **必读顺序** (S68 收口后, S70 加宝塔路径, S72 batch 7 加 🆕 部署主入口):
@@ -221,5 +221,5 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 
 **🆕 S68 收口 + S70 重构**: 跨端通用规范 (中文/Persistence/铁律/工作流) 已收口到根 [`../../AGENTS.md`](../../AGENTS.md). S70 BUG-077 重构 shipin-APP 部署路径 (PM2 → systemd + 宝塔 Node 项目), **未来 AI 必走 systemd 路径**, 详细 SOP 在 [`../../docs/BAOTA_NODE_PROJECT_DEPLOY.md`](../../docs/BAOTA_NODE_PROJECT_DEPLOY.md).
 
-> **最后更新**: 2026-06-25 (S71 v2.1, deploy.sh 加 .env + systemd unit APP_VERSION 同步, 6→8 处自检, S71 BUG-082 P3 配套)
+> **最后更新**: 2026-06-27 (S72 batch 11+12 v2.2, 加 BUG-111 ETag ERR_HTTP_HEADERS_SENT 修法 SOP + § 4 铁律 3 补 跨项目通用 middleware setHeader 必在 body 发送前 + verify-deploy.sh 27 维 (含 BUG-079/080/082/090/111 防呆), 跟根 AGENTS.md v2.12 + mobile v1.4 + web v1.2 同步)
 > **下次 review**: server 端有架构变更 / 新流程 / 维护模式机制变化时
