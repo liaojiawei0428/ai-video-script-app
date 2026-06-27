@@ -125,19 +125,19 @@ import avatarRoutes from './routes/avatar';             // v3.0.2 (S57) 个人�
 import pricingRoutes from './routes/pricing';           // v3.0.1 (S56) 个人中心 - 收费标准端点
 import billingRoutes from './routes/billing';           // v3.0.32 (S71 BUG-078) 账单明细 API (web "账单明细" �?
 
-app.use('/api/novels', novelRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/episodes', episodeRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/users/avatar', avatarRoutes);   // v3.0.2 (S57) 头像上传 (/api/users/avatar/upload, /api/users/avatar/file/...) - 必须放在 /api/users 之前
-app.use('/api/users', userRoutes);
-app.use('/api/recharge', rechargeRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/feedback', feedbackRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api', characterRoutes);
-app.use('/api/pricing', pricingRoutes);     // v3.0.1 (S56) 公开计费矩阵端点 (必须放在 outlineRoutes 之前, 否则�?outline 全局 authMiddleware 拦截)
-app.use('/api/billing', billingRoutes);     // v3.0.32 BUG-078 S71: 账单明细 (auth 内置, �?/api/recharge/my 一�? 不被 outline 全局 authMiddleware 拦截)
+app.use('/api/novels', etagMiddleware, novelRoutes);
+app.use('/api/tasks', etagMiddleware, taskRoutes);
+app.use('/api/episodes', etagMiddleware, episodeRoutes);
+app.use('/api/chat', etagMiddleware, chatRoutes);
+app.use('/api/users/avatar', avatarRoutes);
+app.use('/api/users', etagMiddleware, userRoutes);
+app.use('/api/recharge', etagMiddleware, rechargeRoutes);
+app.use('/api/admin', etagMiddleware, adminRoutes);
+app.use('/api/feedback', etagMiddleware, feedbackRoutes);
+app.use('/api/notifications', etagMiddleware, notificationRoutes);
+app.use('/api', etagMiddleware, characterRoutes);
+app.use('/api/pricing', etagMiddleware, pricingRoutes);
+app.use('/api/billing', etagMiddleware, billingRoutes);
 app.use('/api', outlineRoutes);
 
 // v3.0.0 Agent 矩阵路由
