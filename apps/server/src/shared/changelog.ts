@@ -37,9 +37,15 @@ const DEFAULT_ENTRY: ChangelogEntry = {
   type: 'patch',
 };
 
-let _cache: Map<string, ChangelogEntry> | null = null;
+let _cache: { entries: Map<string, ChangelogEntry>; latestVersion: string } | null = null;
 
-function loadChangelog(): Map<string, ChangelogEntry> {
+/**
+ * S72 batch 16 v3.0.45 BUG-115 缓存方案 A.7.1 修法: loadChangelog 改为返 { entries: Map, latestVersion: string }
+ * 让 /api/version 响应可以返回 latestVersion 字段 (跟 APP_VERSION 区分)
+ * 跨项目通用铁律: latestVersion 是 changelog.json 的 latest_version 字段 (反映历史最新), version 是 server 当前
+ * 一般情况两者一致, 但调试 / 灰度 / 测试时可能不一样
+ */
+export function loadChangelog(): { entries: Map<string, ChangelogEntry>; latestVersion: string } {
   if (_cache) return _cache;
 
   // 兼容 4 种路径: dist root (deploy.sh SOP, S72 batch 4 修) + dist/shared + src/shared + cwd
@@ -56,14 +62,17 @@ function loadChangelog(): Map<string, ChangelogEntry> {
     if (existsSync(path)) {
       try {
         const raw = readFileSync(path, 'utf-8');
-        const data = JSON.parse(raw) as { entries: ChangelogEntry[] };
+        const data = JSON.parse(raw) as { entries: ChangelogEntry[]; latest_version?: string };
         const map = new Map<string, ChangelogEntry>();
         for (const e of data.entries ?? []) {
           map.set(e.version, e);
         }
-        _cache = map;
-        console.log(`[changelog] loaded ${map.size} entries from ${path}`);
-        return map;
+        _cache = {
+          entries: map,
+          latestVersion: data.latest_version || (data.entries?.[0]?.version ?? DEFAULT_ENTRY.version),
+        };
+        console.log(`[changelog] loaded ${map.size} entries (latest=${_cache.latestVersion}) from ${path}`);
+        return _cache;
       } catch (err) {
         console.warn(`[changelog] failed to parse ${path}:`, err);
       }
@@ -71,12 +80,18 @@ function loadChangelog(): Map<string, ChangelogEntry> {
   }
 
   console.warn('[changelog] no changelog.json found, using DEFAULT_ENTRY');
-  _cache = new Map([[DEFAULT_ENTRY.version, DEFAULT_ENTRY]]);
+  _cache = { entries: new Map([[DEFAULT_ENTRY.version, DEFAULT_ENTRY]]), latestVersion: DEFAULT_ENTRY.version };
   return _cache;
 }
 
+// 兼容老调用方: loadChangelog() 之前返 Map, 现在返 { entries, latestVersion }
+// 加一个 helper 让 readChangelog 内部仍按 Map 找
+function _entriesMap(): Map<string, ChangelogEntry> {
+  return loadChangelog().entries;
+}
+
 export function readChangelog(version: string): ChangelogEntry {
-  const map = loadChangelog();
+  const map = _entriesMap();
   return (
     map.get(version) ?? {
       ...DEFAULT_ENTRY,
@@ -88,7 +103,7 @@ export function readChangelog(version: string): ChangelogEntry {
 }
 
 export function listChangelog(): ChangelogEntry[] {
-  const map = loadChangelog();
+  const map = _entriesMap();
   return Array.from(map.values()).sort((a, b) =>
     b.version.localeCompare(a.version, undefined, { numeric: true }),
   );

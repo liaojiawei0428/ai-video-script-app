@@ -70,16 +70,21 @@ app.get('/health', (req, res) => {
 
 // APP 版本检�?(公开接口)
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
-import { readChangelog } from './shared/changelog';
+import { readChangelog, loadChangelog } from './shared/changelog';
 app.get('/api/version', etagMiddleware, (req, res) => {
   const currentVersion = process.env.APP_VERSION || '3.0.45';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
   const changelogEntry = readChangelog(currentVersion);
+  // S72 batch 16 v3.0.45 BUG-115 缓存方案 A.7.1 修法: /api/version 加 latest_version 字段响应 (changelog.json 有但没读)
+  // 跨端铁律 4++ 跨项目通用: client 端 verify-deploy / 监控 / 升级弹窗都用这个字段 (跟 version 字段区分: version 是 server 当前, latest_version 是 changelog.json 的 latest)
+  const allChangelog = loadChangelog();
+  const latestVersion = (allChangelog as any).latestVersion || currentVersion;
   res.json({
     success: true,
     data: {
       version: currentVersion,
+      latestVersion,
       downloadUrl: 'https://ab.maque.uno/app/DeepScript_v' + currentVersion + '.apk',
       changelog: changelogEntry.summary,
       highlights: changelogEntry.highlights,
