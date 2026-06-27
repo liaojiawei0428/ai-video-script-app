@@ -4975,4 +4975,95 @@ ode tools/verify-bug111-etag-hotfix.js\ (期望 PASS: 8 / FAIL: 0)
 - `apps/web/src/App.tsx` Route wrap ErrorBoundary
 - `apps/mobile/src/components/index.ts` 加 ErrorBoundary export
 - `tools/verify-bug112-error-boundary.js` 新增 (8/8 PASS)
-- 1 mavis memory (BUG-112 三重防御 SOP + 跨项目通用: Stage 2 引入 native module 必装真机跑过才发版, 跟 BUG-079/097 同源)
+- 1 mavis memory (BUG-112 三重防御 SOP + 跨项目通用: Stage 2 引入 native module 必装真机跑过才发版, 跟 BUG-079/097 同源)---
+
+## BUG-113 (v3.0.44 真机回归 hotfix): React Hooks 规则违反, useCachedMedia 在 early return 之后调用, hook count 从 11 变 12 → React unmount → ErrorBoundary 兜住 (S72 batch 14 v3.0.44 hotfix, 2026-06-27)
+
+### 现象
+- 用户装机 v3.0.44 APK (Stage 2 BUG-112 修法) 到 BlueStacks 5 模拟器, 启动 app → Bookshelf → 已完成小说 → ScriptDetail → "角色库" tab → CharacterList → tap 角色 (苏蓉蓉/谭尚宫等) → **角色详情页显示 ErrorBoundary fallback UI** (⚠️ 出错了 + 页面加载失败, 请重试或返回 + 重试 按钮), **不是真正的角色详情页**
+- 期望: 角色详情页正常渲染 (头像 + 基本信息 + 角色描述 + 补充描述 + 编辑/确认描述/生成三视图 按钮)
+
+### 根因 (跟 BUG-112 "Stage 2 native module 抛错" 推断完全不同!)
+- **真根因是 React Hooks 规则违反**, 不是 SQLite native module
+- `apps/mobile/src/screens/CharacterDetailScreen.tsx` line 206-212 有 early return:
+  ```tsx
+  if (loading || !character) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+  ```
+- line 222 (原版 v3.0.43): `const sheetImgCached = useCachedMedia(hasSheet ? sheetImgUrl : undefined);` — **在 early return 之后调 hook**!
+- Render 1 (loading=true): line 77-92 调 11 个 useState, line 206 early return → **hook count = 11**
+- Render 2 (loading=false, character OK): line 77-92 调 11 个 useState, line 222 调 useCachedMedia → **hook count = 12**
+- React 检测到 "Rendered more hooks than during the previous render" → unmount 整个 component tree → ErrorBoundary (v3.0.44 新增) 兜住显示 ⚠️ fallback UI
+- **ErrorBoundary v3.0.44 兜底真的生效了** (没白屏, 显示 "出错了" + "重试" 按钮), 但**根因不是 native module**, 是 React Hooks 规则违反
+- ADB logcat 完整 throw stack 证据:
+  ```
+  06-27 15:28:36.232  6698  6717 E ReactNativeJS: Error: Rendered more hooks than during the previous render.
+  06-27 15:28:36.232  6698  6717 E ReactNativeJS:     in CharacterDetailScreen
+  06-27 15:28:36.232  6698  6717 E ReactNativeJS:     in ErrorBoundary
+  06-27 15:28:36.232  6698  6717 E ReactNativeJS:     in CharacterDetailScreenWithBoundary
+  06-27 15:28:36.235  6698  6718 E unknown:ReactNative: useCachedMedia@102825:40
+  ```
+
+### 错误做法 (v3.0.43 原版)
+```tsx
+// hooks 在 conditional return 之后调用 ❌
+const [character, setCharacter] = useState<Character | null>(null);
+const [loading, setLoading] = useState(true);
+// ... 9 个 useState ...
+if (loading || !character) {
+  return <ActivityIndicator />;
+}
+const sheetImgCached = useCachedMedia(hasSheet ? sheetImgUrl : undefined); // ❌ 在 early return 后!
+```
+
+### 正确做法 (v3.0.44 hotfix)
+```tsx
+// hooks 全部无条件调用, 在 early return 之前 ✅
+// React Hooks 规则: 同一个 hook 在每次 render 调用的次数必须一致 (参数可以不同)
+const _sheetImgUrl = (character as any)?.imageVariants?.find?.((v: any) => v.angle === 'sheet')?.imageData
+  ?? (character as any)?.imageVariants?.find?.((v: any) => v.angle === 'sheet')?.url;
+const sheetImgCached = useCachedMedia(_sheetImgUrl); // ✅ 在所有 useState 之后, early return 之前
+
+// ... load() callback ...
+if (loading || !character) {
+  return <ActivityIndicator />;
+}
+// 删掉 line 222 的 useCachedMedia 调用 (避免重复 hook 调用)
+```
+
+### 验证脚本
+- `tools/verify-bug113-hooks-rules.js` 新增 (8 维) — TODO (本次 BUG-113 没写脚本, 改用 ADB 真机回归)
+- **真机回归 SOP** (新铁律, 跟 BUG-079/097 同源):
+  1. `adb -s 127.0.0.1:5555 install -r app-release.apk`
+  2. `adb shell am start -n com.aiscriptmobile/.MainActivity`
+  3. `adb shell input tap X Y` 模拟用户操作, navigate 到目标 screen
+  4. `adb shell screencap -p /sdcard/s.png` + `adb pull`
+  5. 肉眼读 PNG + `adb logcat -d -t 1000 | grep ReactNativeJS` 看 throw stack
+  6. 验证 fallback UI 跟真 UI 区分 (header title + 内容丰富度)
+
+### 端到端 (真机回归流程)
+1. APK 重打: `gradlew assembleRelease` BUILD SUCCESSFUL in 33s (修 BUG-113 后)
+2. adb install -r: Success
+3. 重启 app: `adb shell am start -n com.aiscriptmobile/.MainActivity`
+4. 导航: Bookshelf → (270, 900) 左下已完成小说 → ScriptDetail
+5. 下滑找"角色库"tab → (130, 230) → CharacterList (共9角色: 兰烟/谭尚宫/独孤琰/苏蓉蓉/金枝/陆婕妤/秋霞/陈美人...)
+6. tap 角色 (540, 760) → CharacterDetailScreen
+7. ✅ 截图 screen_18: 角色详情页**正常渲染** (头像 + 基本信息 + 角色描述 51 字符 + 补充描述 0 字符 + 编辑/确认描述/生成三视图 按钮), **没白屏, 没 ErrorBoundary fallback UI, 无 React Hooks error**
+
+### 沉淀
+- `apps/mobile/src/screens/CharacterDetailScreen.tsx` line 92-97 加 `_sheetImgUrl` 可选链 + `useCachedMedia(_sheetImgUrl)` 在 early return 之前; line 222 原 useCachedMedia 调用删除
+- **新增跨项目通用铁律** (跟 BUG-079/097/103/112 同源):
+  - **任何 hook 调用必在 conditional return 之前** (不论 web 还是 mobile)
+  - **tsc 不查 hooks 规则**, 必须真机回归 / 测试覆盖才能发现
+  - **web 没事 ≠ mobile 没事** (跨端铁律 4++ 镜像失效案例) — web CharacterDetailPage.tsx line 41 已正确 (useCachedMedia 在 line 145/148 early return 之前), 但 mobile CharacterDetailScreen.tsx line 222 错了
+  - **真机回归 SOP 必装 v3.0.43 阶段就加进 verify-bug112-error-boundary.js** (待补: 加 1 维 "真机 navigate 核心 screen 验不白屏 + 验不显示 ErrorBoundary fallback UI")
+- mavis memory (TODO): "React Hooks 规则违反真机回归 SOP" (跟 BUG-112 配套)
+
+### 关键 git
+- commit b372a21: fix(mobile): BUG-113 真机回归发现 React Hooks 规则违反 (load 完后 useCachedMedia 在 early return 之后调用, hook count 从 11 变 12)
+- push: e152223..b372a21 main -> main OK
