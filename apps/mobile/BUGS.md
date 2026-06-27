@@ -5066,4 +5066,61 @@ if (loading || !character) {
 
 ### 关键 git
 - commit b372a21: fix(mobile): BUG-113 真机回归发现 React Hooks 规则违反 (load 完后 useCachedMedia 在 early return 之后调用, hook count 从 11 变 12)
-- push: e152223..b372a21 main -> main OK
+- push: e152223..b372a21 main -> main OK---
+
+## BUG-114 (v3.0.44 部署 SOP): deploy.py 漏 scp changelog.json 到 /tmp/ (跟 BUG-088/089/073/098 同源, deploy.sh 已修 deploy.py 未同步, S72 batch 15, 2026-06-27)
+
+### 现象
+- v3.0.44 BUG-112 部署完成后, shipin-app active + APK 公网 HTTPS 200 + APK SHA256 匹配 + shipin-app PID 30607, **但 /api/version 返 highlights=[] + buildDate=1970-01-01 + changelog="本次更新优化性能，修复已知问�?**
+- 期望: highlights=16 (含 BUG-112 12 + BUG-113 4) + buildDate=2026-06-27 + changelog 含 BUG-112+BUG-113 完整描述
+
+### 根因 (跟 BUG-088/089/073/098 同源!)
+- **deploy.py 漏 scp `apps/server/changelog.json` 到远端 `/tmp/changelog.json`**
+- deploy.sh (S72 v3.0.36 batch 6 修复, BUG-088/089) 改用 `优先读 /tmp/changelog.json`:
+  ```bash
+  if [ -f "/tmp/changelog.json" ]; then
+    cp -f /tmp/changelog.json ${DIST_DIR}/dist/changelog.json  # 优先 /tmp/ (新版)
+    cp -f /tmp/changelog.json ${DIST_DIR}/changelog.json
+  elif [ -f "${DIST_DIR}/changelog.json" ]; then
+    cp -f ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json  # fallback 旧版
+  ```
+- **deploy.py 没同步升级**: 没 scp 本机 changelog.json 到远端 /tmp/, deploy.sh 走 fallback `cp ${DIST_DIR}/changelog.json ${DIST_DIR}/dist/changelog.json`, **结果是生产目录的旧版 changelog.json** (entries.length=8, 不含 v3.0.44)
+- shipin-app 加载 8 entries, readChangelog('3.0.44') 找不到 → 用 DEFAULT_ENTRY (buildDate=1970-01-01 + highlights=[] + changelog=通用文案)
+
+### 错误做法 (deploy.py 漏 scp)
+```python
+# step 2: scp server dist.tar.gz 到远端 /tmp/dist.tar.gz
+scp(TAR_GZ, "/tmp/dist.tar.gz")
+scp(PKG_JSON, "/tmp/package.json")  # 只有 2 件套, 漏 changelog.json
+```
+
+### 正确做法 (deploy.py v2.0, 含 scp 3 件套)
+```python
+# step 2: scp 3 件套 (dist + package.json + changelog.json, deploy.sh BUG-088/089 fix 必加)
+scp(TAR_GZ, "/tmp/dist.tar.gz")
+scp(PKG_JSON, "/tmp/package.json")
+scp(CHANGELOG_JSON, "/tmp/changelog.json")  # 🆕 v3.0.44 BUG-114 修法
+```
+
+### 端到端 (deploy + verify + 真机回归)
+1. deploy.sh 跑完 → shipin-app active ✅ + APK 公网 200 ✅ + APK SHA256 匹配 ✅
+2. **但 /api/version highlights=[] buildDate=1970-01-01** ← BUG-114 暴露
+3. 修法: deploy.py v2.0 加 scp changelog.json → 跑一次 deploy.sh → /api/version 16 highlights + 2026-06-27 ✅
+4. ADB 装 v3.0.43 APK → 启 app → **弹"紧急升级 v3.0.44"** (forceUpdate=true 2 按钮 APP 内下载/浏览器下载) ✅
+5. ADB uninstall + install v3.0.44 → 启 app → **不弹窗** (mobile=server=3.0.44) ✅
+
+### 沉淀
+- `apps/server/changelog.json` latest_version="3.0.44" + entries[0] 16 highlights + summary 含 BUG-112+BUG-113
+- `F:\tmp\deploy_v3.0.44_bug113.py` 终极 deploy 脚本 (含 scp 3 件套)
+- commit `6ffe55f` fix(server): BUG-114 部署漏 scp changelog.json (v3.0.44 部署 BUG-088/089 教训) + push `051f2ff..6ffe55f main -> main` OK
+- 跨项目通用铁律 (跟 BUG-073/088/089/098 同源, 加深):
+  - **deploy SOP 必加 scp 3 件套**: dist.tar.gz + package.json + changelog.json (deploy.sh 优先读 /tmp/)
+  - **tsc 不复制 json, server dist/ 必手动 cp changelog.json** (已踩)
+  - **changelog.json 走 /tmp/ 是 v3.0.36 BUG-088/089 fix 关键**: deploy.py 必须同步, 不然 deploy.sh fallback 到旧版
+  - **验证 deploy 必查 /api/version highlights.length > 0**: server 端部署后一定要验, 不能只验 APM 服务 (verify-deploy.sh 加 1 维)
+  - **deploy.sh 跟 deploy.py 必同步升级**: deploy.sh 加新逻辑时, deploy.py 必须同步加 scp 配套
+- 1 mavis memory: "deploy SOP 必加 scp 3 件套" (跟 BUG-073/088/089/098 同源, 加深)
+
+### 关键 git
+- commit `6ffe55f`: fix(server): BUG-114 部署漏 scp changelog.json (v3.0.44 部署 BUG-088/089 教训)
+- push: `051f2ff..6ffe55f main -> main` OK
