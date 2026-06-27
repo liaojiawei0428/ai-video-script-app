@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { extractDescriptionText } from '../lib/characterUtils';
 import { ImageWithLoading } from '../components/ui';
+import { ErrorBoundary } from '../components/ui/error-boundary';
 import { useCachedMedia } from '../hooks/useCachedMedia';
 
 interface CharacterDetail {
@@ -54,7 +55,11 @@ export function CharacterDetailPage() {
   const load = () => {
     if (!id) return;
     setLoading(true);
-    getCharacterApi(id)
+    // BUG-112 防御: 3 秒超时, 避免网络卡死导致页面永远 loading (白屏)
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('加载超时 (3 秒), 请检查网络')), 3000)
+    );
+    Promise.race([getCharacterApi(id), timeoutPromise])
       .then(r => {
         const c = r.data?.data || r.data;
         setCharacter(c);

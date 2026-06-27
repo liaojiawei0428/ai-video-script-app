@@ -36,7 +36,7 @@ import { TasksScreen } from './src/screens/TasksScreen';
 import { VipCenterScreen } from './src/screens/VipCenterScreen';
 import { NotificationScreen } from './src/screens/NotificationScreen';
 import { CharacterDescriptionReviewScreen } from './src/screens/CharacterDescriptionReviewScreen';
-import { CharacterDetailScreen } from './src/screens/CharacterDetailScreen';
+import { CharacterDetailScreen, CharacterDetailScreenWithBoundary } from './src/screens/CharacterDetailScreen';
 import { CharacterListScreen } from './src/screens/CharacterListScreen';
 import { OutlineReviewScreen } from './src/screens/OutlineReviewScreen';
 import { PlotGraphScreen } from './src/screens/PlotGraphScreen';
@@ -259,7 +259,7 @@ function UserStack() {
       <Stack.Screen name="Billing" component={BillingScreen} options={detailOptions('交易记录')} />
       <Stack.Screen name="Recharge" component={RechargeScreen} options={detailOptions('充值')} />
       <Stack.Screen name="CharacterDescriptionReview" component={CharacterDescriptionReviewScreen} options={detailOptions('角色描述确认')} />
-      <Stack.Screen name="CharacterDetail" component={CharacterDetailScreen} options={detailOptions('角色详情')} />
+      <Stack.Screen name="CharacterDetail" component={CharacterDetailScreenWithBoundary} options={detailOptions('角色详情')} />
       <Stack.Screen name="CharacterList" component={CharacterListScreen} options={detailOptions('角色列表')} />
       <Stack.Screen name="OutlineReview" component={OutlineReviewScreen} options={detailOptions('分集大纲')} />
       <Stack.Screen name="PlotGraph" component={PlotGraphScreen} options={detailOptions('事件图谱')} />

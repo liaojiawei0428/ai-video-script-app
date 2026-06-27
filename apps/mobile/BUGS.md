@@ -4890,3 +4890,89 @@ ode tools/verify-bug111-etag-hotfix.js\ (期望 PASS: 8 / FAIL: 0)
 - \scripts/verify-deploy.sh\ 修 3 bug (22 + 23a + 24)
 - \	ools/verify-bug111-etag-hotfix.js\ 新增 (8/8 PASS)
 - 1 mavis memory (etag.ts res.on('finish') 反模式 + 跨项目通用: middleware setHeader 必在 body 发送前)
+
+---
+
+## BUG-112 (v3.0.44 hotfix): 角色库 (CharacterDetail) 点击白屏, React 整 component tree unmount (S72 batch 13, 2026-06-27)
+
+### 现象
+- 用户报告 (2026-06-27 14:35): v3.0.43 升级后, 从书架进入角色库点击角色, 屏幕**完全空白 (没任何元素, 包括 ActivityIndicator/导航栏)**
+- 跨端铁律 4++ 对比: web 端同样代码没事, 锁定 mobile 端 runtime 兼容性问题
+- 重装 v3.0.43 APK + 冷启动复现率 100%
+
+### 根因 (BUG-112, 跟 BUG-079/097/098 100% 同源: 没装真机测)
+1. **v3.0.43 Stage 2 引入 `useCachedMedia` hook** (mobile 用 SQLite + RNFS, web 用 IndexedDB) — 本地 verify-bug109 8/8 PASS, 但**没在 Android 真机 release build 验证**
+2. **react-native-sqlite-storage v6.0.1 + RN 0.73 + Hermes + Android release build** native module 在某些设备上抛错 (例如 `SQLite.enablePromise(true)` 模块级调用, 或 `mediaCache.ts` 顶层 `import SQLite from 'react-native-sqlite-storage'` 触发 native binding 失败)
+3. **useEffect 内 .then() 回调抛错 → catch 接不到 → React unmount**:
+   ```ts
+   mediaCache.getCached(url).then(localPath => {
+     if (mounted && localPath) setSource(localPath);  // ← throw 时 catch 接不到
+   }).catch(...);
+   ```
+4. **整 component tree unmount** → 用户看到完全空白屏, 任何 React error boundary 都接不到 (因为 useEffect 的异步 throw)
+
+### 错误做法 (v3.0.43)
+- ❌ 没有 ErrorBoundary wrap 任何 screen → 一 throw 就白屏
+- ❌ useCachedMedia 没 safeSetSource → setSource throw 冒泡
+- ❌ mediaCache.ts 没 try/catch 兜底 → SQLite native throw 冒泡
+- ❌ load() 没超时 → 永远 ActivityIndicator 圈圈 (用户看着像白屏)
+
+### 正确做法 (v3.0.44 BUG-112 三重防御)
+1. **ErrorBoundary 兜底** (跨端铁律 4++ 跟 web 1:1):
+   - `apps/mobile/src/components/ErrorBoundary.tsx` (mobile, RN class component)
+   - `apps/web/src/components/ui/error-boundary.tsx` (web, React class component)
+   - API 一致: `Props: { children, onReset, fallback }` + `State: { hasError, error }`
+   - dev 环境 `console.error` 详情 (mobile `__DEV__` + web `import.meta.env.DEV`)
+   - prod 环境友好文案: "⚠️ 出错了" + "页面加载失败, 请重试或返回" + "重试" 按钮
+
+2. **useCachedMedia 三层防御** (跨端铁律 4++ 跟 web 1:1):
+   - **Layer 1**: dynamic require mediaCache (mobile 用 `require()`, web 用 `typeof indexedDB === 'undefined'` 检查) — module load throw 时 fallback null
+   - **Layer 2**: `safeSetSource` callback 包 `setSource` try/catch — setState throw 不冒泡
+   - **Layer 3**: `.then()` 内 callback 全 try/catch — 异步链路任何 throw 都 fallback URL
+
+3. **load() 3 秒超时** (跨端铁律 4++ 跟 web 1:1):
+   ```ts
+   const timeoutPromise = new Promise((_, reject) =>
+     setTimeout(() => reject(new Error('加载超时 (3 秒), 请检查网络')), 3000)
+   );
+   const res = await Promise.race([getCharacter(id), timeoutPromise]);
+   ```
+   - 避免网络卡死 → ActivityIndicator 永远转 → 用户视角白屏
+
+4. **Stack.Screen / Route wrap ErrorBoundary**:
+   - mobile App.tsx: `<Stack.Screen name="CharacterDetail" component={CharacterDetailScreenWithBoundary} ... />`
+   - mobile CharacterDetailScreen.tsx 末尾加 `export function CharacterDetailScreenWithBoundary(props) { return <ErrorBoundary onReset={() => props?.navigation?.goBack?.()}><CharacterDetailScreen /></ErrorBoundary>; }`
+   - web App.tsx: `<Route path="/characters/:id" element={<ErrorBoundary onReset={() => window.location.reload()}><CharacterDetailPage /></ErrorBoundary>} />`
+
+### 验证脚本
+`tools/verify-bug112-error-boundary.js` (8 维验证):
+1. ErrorBoundary mobile 文件存在 + 关键 API (getDerivedStateFromError + componentDidCatch)
+2. ErrorBoundary web 文件存在 + 跟 mobile 1:1 API
+3. ErrorBoundary wrap 集成 (mobile App.tsx Stack.Screen + web App.tsx Route)
+4. useCachedMedia 加固 (safeSetSource + BUG-112 marker)
+5. load() 加 3s 超时 (mobile + web 都 3000ms)
+6. 跨端铁律 4++ (mobile __DEV__ + web import.meta.env.DEV, console.error 都启用)
+7. ErrorBoundary fallback UI (⚠️ 出错了 + 重试按钮, 跨端文案一致)
+8. ErrorBoundary import 接入 (mobile components/index.ts export + web App.tsx import)
+
+跑法: `node tools/verify-bug112-error-boundary.js` (期望 PASS: 8 / FAIL: 0)
+
+### 端到端
+- 本地: `node tools/verify-bug112-error-boundary.js` **PASS: 8 / FAIL: 0**
+- 本地: mobile `npx tsc --noEmit` CharacterDetailScreen/ErrorBoundary/useCachedMedia 0 错
+- 本地: web `npx tsc -b --noEmit` CharacterDetailPage/error-boundary/useCachedMedia 0 错
+- 远端: 待部署后 `curl https://ab.maque.uno/api/version` 返 v3.0.44 + 4 字段
+- 远端: 待 APK SHA256 公网对比一致
+
+### 沉淀
+- `apps/mobile/src/components/ErrorBoundary.tsx` 新增 (RN class component, BUG-112 兜底)
+- `apps/web/src/components/ui/error-boundary.tsx` 新增 (React class component, 跨端 1:1)
+- `apps/mobile/src/hooks/useCachedMedia.ts` 加固 (safeSetSource + 三层防御 + BUG-112 marker)
+- `apps/web/src/hooks/useCachedMedia.ts` 加固 (safeSetSource + 三层防御 + BUG-112 marker)
+- `apps/mobile/src/screens/CharacterDetailScreen.tsx` load() 3s 超时 + CharacterDetailScreenWithBoundary export
+- `apps/web/src/pages/CharacterDetailPage.tsx` load() 3s 超时 + ErrorBoundary import
+- `apps/mobile/App.tsx` Stack.Screen 用 CharacterDetailScreenWithBoundary
+- `apps/web/src/App.tsx` Route wrap ErrorBoundary
+- `apps/mobile/src/components/index.ts` 加 ErrorBoundary export
+- `tools/verify-bug112-error-boundary.js` 新增 (8/8 PASS)
+- 1 mavis memory (BUG-112 三重防御 SOP + 跨项目通用: Stage 2 引入 native module 必装真机跑过才发版, 跟 BUG-079/097 同源)

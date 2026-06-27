@@ -30,7 +30,7 @@ import { useCachedMedia } from '../hooks/useCachedMedia';
 import { colors, spacing, radii, typography } from '../theme';
 import { surface, text, gradient, getStatusInfo, getRoleColor } from '../theme/character';
 import type { Character } from '@ai-script/shared-types';
-import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, LinearGradientView as LinearGradient } from '../components';
+import { showToast, CharacterAvatar, RoleChip, StatusChip, StyleChip, LinearGradientView as LinearGradient, ErrorBoundary } from '../components';
 import { ImageWithLoading } from '../components/ui';
 import { extractDescriptionText } from '../utils/characterUtils'; // v3.0.41 (BUG-105 mobile sync): 走统一 utils, 4 种格式兼容 (JSON 字符串 / 自由文本 / JSON 对象 / 双层 JSON)
 
@@ -95,7 +95,14 @@ export function CharacterDetailScreen() {
     if (!characterId) return;
     setLoading(true);
     try {
-      const res = await getCharacter(characterId);
+      // BUG-112 防御: 3 秒超时, 避免 SQLite/RNFS native module 卡住导致 ActivityIndicator 永远转 (白屏)
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('加载超时 (3 秒), 请检查网络')), 3000)
+      );
+      const res: any = await Promise.race([
+        getCharacter(characterId),
+        timeoutPromise,
+      ]);
       const c: any = res.data?.data || null;
       setCharacter(c);
       setNameDraft(c?.name || '');
@@ -104,7 +111,7 @@ export function CharacterDetailScreen() {
       setDescriptionDraft(extractDescriptionText(c?.description));
       setExtraDescriptionDraft(extractDescriptionText(c?.extraDescription));
     } catch (err: any) {
-      showToast({ message: '加载失败: ' + (err?.response?.data?.error?.message || err?.message), variant: 'error' });
+      showToast({ message: '加载失败: ' + (err?.response?.data?.error?.message || err?.message || '未知错误'), variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -533,6 +540,26 @@ export function CharacterDetailScreen() {
 
 function roleLabelOf(v: string) {
   return ROLE_TYPES.find(r => r.value === v)?.label || v || '配角';
+}
+
+/**
+ * v3.0.44 BUG-112 防御: ErrorBoundary wrap 版, 任何 throw 不再让 component tree unmount → 白屏
+ * 用法: App.tsx <Stack.Screen component={CharacterDetailScreenWithBoundary} ... />
+ */
+export function CharacterDetailScreenWithBoundary(props: any) {
+  return (
+    <ErrorBoundary
+      onReset={() => {
+        try {
+          props?.navigation?.goBack?.();
+        } catch {
+          // ignore
+        }
+      }}
+    >
+      <CharacterDetailScreen />
+    </ErrorBoundary>
+  );
 }
 
 const styles = StyleSheet.create({

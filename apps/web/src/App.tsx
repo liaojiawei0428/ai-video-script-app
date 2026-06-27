@@ -10,6 +10,7 @@ import { AccountPage } from './pages/AccountPage';
 import { AIAssistantPage } from './pages/AIAssistantPage';
 import { CharacterListPage } from './pages/CharacterListPage';
 import { CharacterDetailPage } from './pages/CharacterDetailPage';
+import { ErrorBoundary } from './components/ui/error-boundary';
 import { OutlinePage } from './pages/OutlinePage';
 import { PlotGraphPage } from './pages/PlotGraphPage';
 import { AssetLibraryPage } from './pages/AssetLibraryPage';
@@ -53,7 +54,7 @@ export default function App() {
         <Route path="/" element={<BookshelfPage />} />
         <Route path="/novels/:id" element={<ScriptDetailPage />} />
         <Route path="/novels/:id/characters" element={<CharacterListPage />} />
-        <Route path="/characters/:id" element={<CharacterDetailPage />} />
+        <Route path="/characters/:id" element={<ErrorBoundary onReset={() => window.location.reload()}><CharacterDetailPage /></ErrorBoundary>} />
         <Route path="/novels/:id/outline" element={<OutlinePage />} />
         <Route path="/novels/:id/plot-graph" element={<PlotGraphPage />} />
         <Route path="/novels/:id/assets" element={<AssetLibraryPage />} />
