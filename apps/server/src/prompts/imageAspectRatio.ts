@@ -4,10 +4,15 @@
  * 用户常用各种方式表达比例:
  *   - "16:9" / "9:16" / "4:3" / "3:4" / "1:1" / "2:3" / "3:2"
  *   - "2048x2048" / "1280*720" / "1024 × 768"
- *   - "4K" / "2K" / "8K"
+ *   - "2K" (4K/8K v3.0.54 移除, agens API 不支持 2048+ 分辨率)
  *
  * LLM 经常漏掉这个字段 (因为 aspectRatio 不在 plan_fields 10 字段里),
  * server 端主动 parse user message 提取, 不依赖 LLM
+ *
+ * v3.0.54 (BUG-124): 移除 4K / 8K 选项
+ *   - 4K/8K 标称 2048², agnes API 实际生成时不支持 (4K 报错 / 8K 与 4K 同 2048² 重复)
+ *   - 移除后用户无法选, 简化 UI 避免误导
+ *   - parseAspectToDims / parseAspectRatioFromText 仍能解析 "4K"/"8K" 输入 → 降级到 'auto' (即使用户手输入, 也能正常工作)
  */
 
 export const SUPPORTED_RATIOS: Record<string, [number, number]> = {
@@ -19,16 +24,17 @@ export const SUPPORTED_RATIOS: Record<string, [number, number]> = {
   '9:16': [768, 1152],
   '16:9': [1152, 768],
   '2K': [1280, 1280],       // 1440x1440 实际 2K
-  '4K': [2048, 2048],       // 3840x2160 4K 简化
-  '8K': [2048, 2048],       // agens 限制 2048 max
+  // v3.0.54 (BUG-124): 4K / 8K 移除 (agens 不支持 2048+ 分辨率)
 };
 
 /**
- * v3.0.0.17: 把 aspectRatio 字符串 (支持 '16:9' / '4K' / '8K' / '1152x768' / '1280*720') 解析为 [w, h]
+ * v3.0.0.17: 把 aspectRatio 字符串 (支持 '16:9' / '1152x768' / '1280*720') 解析为 [w, h]
  *   - 失败返回 null
  *   - 是 SUPPORTED_RATIOS 的 key → 查表
  *   - 是 WxH / W*H / W×H 格式 → 解析数字
  *   - 是 'auto' / 空 / null → 返回 null (调用方用 default)
+ *
+ *   v3.0.54 (BUG-124): 用户输入 "4K"/"8K" 仍能解析 (降级到 'auto')
  */
 export function parseAspectToDims(ratio: string | null | undefined): [number, number] | null {
   if (!ratio) return null;

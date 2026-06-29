@@ -12,8 +12,8 @@
  *  - 2:3 → 768×1152 (人像)
  *  - 3:2 → 1152×768 (风景)
  *  - 2K → 1280×1280
- *  - 4K → 2048×2048
- *  - 8K → 2048×2048
+ *
+ * v3.0.54 (BUG-124): 移除 4K / 8K (agens 不支持 2048+ 分辨率生成)
  *
  * 默认 (auto / 空): image 走 1:1, video 走 16:9
  * 显示缩放: 实际 dims 太大, 缩到 1/3 展示 (e.g. 1024×1024 → 341×341 显示), 仍然保持比例
@@ -35,8 +35,7 @@ export const ASPECT_RATIO_DIMS: Record<string, AspectDims> = {
   '9:16': { w: 768, h: 1152 },
   '16:9': { w: 1152, h: 768 },
   '2K': { w: 1280, h: 1280 },
-  '4K': { w: 2048, h: 2048 },
-  '8K': { w: 2048, h: 2048 },
+  // v3.0.54 (BUG-124): 4K / 8K 移除 (agens 不支持 2048+ 分辨率)
 };
 
 /** 默认比例: image 1:1, video 16:9 */
@@ -58,7 +57,8 @@ export function parseAspectDims(
     const k = defaultRatioForKind(kind);
     return ASPECT_RATIO_DIMS[k];
   }
-  // 1) '16:9' / '2K' / '4K' etc
+  // 1) '16:9' / '2K' / '1:1' etc (查 ASPECT_RATIO_DIMS)
+  //    v3.0.54 (BUG-124): 4K / 8K 已移除, 但 parseAspectDims 容错处理 (老 conv / 文本输入仍走 fallback)
   if (ASPECT_RATIO_DIMS[r]) {
     return ASPECT_RATIO_DIMS[r];
   }

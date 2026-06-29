@@ -92,9 +92,8 @@ plan_cn_ready (LLM 已判断场景 + 填好关键字段):
 - 用户说"比例换成4:3" → "1024x768"
 - 用户说"比例换成1:1" / "方形" / "头像" → "1024x1024"
 - 用户说"比例换成2K" → "1280x1280"
-- 用户说"比例换成4K" → "2048x2048"
-- 用户说"比例换成8K" → "2048x2048"
 - 用户说"2048x2048" / "1280*720" → 直接用
+- v3.0.54 (BUG-124): 4K / 8K 移除 (agens 不支持 2048+ 分辨率), 用户说"4K"/"8K" 自动降级到默认 1024x1024
 - 默认 "1024x1024"
 - **重要**: aspect_ratio 在 plan 对象里, **不在 plan_fields 里**, 不要加到 plan_fields 字段中!
 
@@ -102,9 +101,9 @@ plan_cn_ready (LLM 已判断场景 + 填好关键字段):
 clarify (问场景): {"status":"clarify","missing_field":"scene_type","question":"你这次想生成什么类型的图? 1️⃣ 人物 2️⃣ LOGO 3️⃣ 风景 4️⃣ 产品 5️⃣ 概念图 6️⃣ 其他","partial_fields":{}}
 clarify (问 logo 字段): {"status":"clarify","missing_field":"subject","question":"你的品牌名是? (中英文)","partial_fields":{"scene_type":"logo"}}
 
-plan_cn_ready (LOGO): {"status":"plan_cn_ready","plan_fields":{"scene_type":"logo","subject":"麻雀逻辑 MAQUE","appearance":"极简现代设计, 融合汉字与英文","environment":"纯白背景","lighting":"均匀无影布光","composition":"居中构图, 特写","style":"极简主义矢量图形, 扁平化设计","quality":"矢量图, 8K 高清, 专业设计稿","negative":"复杂背景, 阴影, 低质量, 模糊, 多余元素"},"aspect_ratio":"1024x1024","ref_image_urls":[]}
+plan_cn_ready (LOGO): {"status":"plan_cn_ready","plan_fields":{"scene_type":"logo","subject":"麻雀逻辑 MAQUE","appearance":"极简现代设计, 融合汉字与英文","environment":"纯白背景","lighting":"均匀无影布光","composition":"居中构图, 特写","style":"极简主义矢量图形, 扁平化设计","quality":"矢量图, 高清, 专业设计稿","negative":"复杂背景, 阴影, 低质量, 模糊, 多余元素"},"aspect_ratio":"1024x1024","ref_image_urls":[]}
 
-plan_cn_ready (人物): {"status":"plan_cn_ready","plan_fields":{"scene_type":"character","subject":"一只橘猫","action":"在阳光窗台上打盹","appearance":"橘色虎斑花纹, 蓬松的毛","expression":"闭眼安详","environment":"现代公寓窗台, 窗外有秋日街道","lighting":"柔和自然光, 下午 4 点","composition":"中景, 平视","style":"写实摄影风","quality":"8K 超细节","negative":"模糊, 变形"},"aspect_ratio":"1152x768","ref_image_urls":[]}
+plan_cn_ready (人物): {"status":"plan_cn_ready","plan_fields":{"scene_type":"character","subject":"一只橘猫","action":"在阳光窗台上打盹","appearance":"橘色虎斑花纹, 蓬松的毛","expression":"闭眼安详","environment":"现代公寓窗台, 窗外有秋日街道","lighting":"柔和自然光, 下午 4 点","composition":"中景, 平视","style":"写实摄影风","quality":"超细节","negative":"模糊, 变形"},"aspect_ratio":"1152x768","ref_image_urls":[]}
 `;
 
 /** LLM 输出 schema (v3.0.0.8: 加 scene_type) */

@@ -33,8 +33,9 @@ const SUGGESTIONS = [
   '赛博朋克夜城, 霓虹',
 ];
 
-// v3.0.25: 跟 web RATIO_OPTIONS 1:1 对齐 (11 选项)
-// 历史: mobile 只有 6 个 (auto/1:1/16:9/9:16/4:3/3:4), 漏 2:3/3:2/2K/4K/8K
+// v3.0.25: 跟 web RATIO_OPTIONS 1:1 对齐 (9 选项, v3.0.54 BUG-124 移除 4K/8K)
+// 历史: mobile 只有 6 个 (auto/1:1/16:9/9:16/4:3/3:4), 漏 2:3/3:2/2K, 后补
+// v3.0.54 (BUG-124): 4K / 8K 移除 (agens 不支持 2048+ 分辨率生成)
 const ASPECT_RATIOS = [
   { value: '',        label: '自动', icon: 'help-circle-outline' },
   { value: '1:1',     label: '1:1',  icon: 'square-outline' },
@@ -45,8 +46,6 @@ const ASPECT_RATIOS = [
   { value: '2:3',     label: '2:3',  icon: 'phone-portrait-outline' },
   { value: '3:2',     label: '3:2',  icon: 'tablet-landscape-outline' },
   { value: '2K',      label: '2K',   icon: 'square-outline' },
-  { value: '4K',      label: '4K',   icon: 'square-outline' },
-  { value: '8K',      label: '8K',   icon: 'square-outline' },
 ];
 
 /**

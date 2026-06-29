@@ -230,7 +230,8 @@ export class VideoAgentService {
     const aspectRatio = aspectRatioFromClient
       || parsePlan(conv.plan)?.aspectRatio
       || DEFAULT_ASPECT;
-    // v3.0.0.20: 视频降级 — 用户传 8K/4K/2K (老 web 端 / curl 绕过) 降级到 16:9 默认, 视频 2048² 文件 50MB+ 用户扛不住
+    // v3.0.0.20: 视频降级 — 用户传 2K (老 web 端 / curl 绕过) 降级到 16:9 默认, 视频 1280² 文件 30MB+ 用户扛不住
+    // v3.0.54 (BUG-124): 4K / 8K 已从 UI 移除, 但服务端仍做兜底 (老 conv data / 用户文本输入)
     const VIDEO_HEAVY_RATIOS = new Set(['2K', '4K', '8K', '2048x2048', '1280x1280']);
     let finalAspect = VIDEO_HEAVY_RATIOS.has(aspectRatio) ? DEFAULT_ASPECT : aspectRatio;
     // v3.0.0.22: 文字比例解析 (9:16/16:9/2:3/3:2/4:3/3:4/1:1) → WxH. ASPECT_DIMENSIONS 表只存 WxH 格式, 文字 key 需先转

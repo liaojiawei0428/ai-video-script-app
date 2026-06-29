@@ -5893,3 +5893,103 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 - 用户测试时如果提交间隔 > 47s (avgDurationMs), 不会触发排队, 但 UI 现在会显示 "等待资源: 当前 N/M 在跑" (跟 BUG-079 假修区别: 透明度 ≠ 静默)
 
 ---
+
+## BUG-124 (v3.0.54 删 4K/8K 选项): agnes 不支持 2048+ 分辨率生成, UI 选项移除避免误导用户 (跟 BUG-079/097/103/115-123 跨项目通用铁律同源, UI 选项必对齐后端能力) (S72 batch 26, 2026-06-29)
+
+### 现象 (审计)
+用户反馈: 4K 和 8K 选项没有对应的尺寸可以生成. 审查 shipin-APP 端代码 + agnes API 实际能力:
+- **ASPECT_RATIO_DIMS 4K / 8K 都映射到 [2048, 2048]**: agnes image API 不支持 2048² 分辨率生成 (老 4K 选项标 2048² 但生成时报错, 8K 跟 4K 完全重复, UI 误导用户)
+- **3 端 aspectRatio.ts 文件 1:1 镜像**: server `imageAspectRatio.ts` SUPPORTED_RATIOS + mobile `aspectRatio.ts` ASPECT_RATIO_DIMS + web `aspectRatio.ts` ASPECT_RATIO_DIMS 都有 4K/8K
+- **2 个 UI 下拉选项**: web `AgentChatPanel.tsx` RATIO_OPTIONS (11 项含 4K/8K) + mobile `ImageAgentScreen.tsx` ASPECT_RATIOS (11 项含 4K/8K)
+- **LLM 提示词示例引用 4K/8K**: server `imageAgentSystem.ts` prompt 智能规则 + plan_cn_ready 示例都引用 "4K 高清/8K 超细节", 即使 UI 删了选项, LLM 仍可能建议 4K/8K
+- **server `videoAgentService.ts` VIDEO_HEAVY_RATIOS 含 4K/8K**: 兜底降级逻辑保留 (老 conv data / 用户文本输入仍能工作)
+
+### 修法 (5 文件 + 8 处版本号 + 1 changelog + 跨端 UI 1:1)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  server `apps/server/src/prompts/imageAspectRatio.ts`            │
+│  - SUPPORTED_RATIOS 删 '4K' / '8K' (留 8 项: 1:1/2:3/3:2/3:4/4:3/9:16/16:9/2K) │
+│  - parseAspectToDims / parseAspectRatioFromText 注释说明              │
+│    4K/8K 仍能解析 (老 conv data / 用户文本输入 → 降级到 'auto')       │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  mobile `apps/mobile/src/utils/aspectRatio.ts` (跟 server 1:1)    │
+│  - ASPECT_RATIO_DIMS 删 '4K' / '8K'                              │
+│  - parseAspectDims 容错 fallback                                  │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  web `apps/web/src/lib/aspectRatio.ts` (跟 server + mobile 1:1)   │
+│  - ASPECT_RATIO_DIMS 删 '4K' / '8K'                              │
+│  - parseAspectDims 容错 fallback                                  │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  web `AgentChatPanel.tsx` RATIO_OPTIONS (11 → 9 项)              │
+│  - 删 { value: '4K', label: '4K 高清 (2048²)' }                    │
+│  - 删 { value: '8K', label: '8K 极致 (2048²)' }                    │
+│  - tooltip '8K/4K/2K 大图生成更慢' → '2K 大图生成更慢'             │
+│  - video title '8K/4K/2K 不推荐' → '2K+ 视频不推荐'                │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  mobile `ImageAgentScreen.tsx` ASPECT_RATIOS (11 → 9 项)          │
+│  - 删 4K / 8K 项                                                  │
+│  - 跟 web 1:1 镜像 (跨端铁律 4++)                                  │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  server `imageAgentSystem.ts` prompt 删 4K/8K 引用              │
+│  - 智能规则: 删 "用户说"比例换成4K" / "用户说"比例换成8K" 两行        │
+│  - 示例 plan_cn_ready quality 字段: 删 "8K 高清/8K 超细节"          │
+│  - 加注释 "v3.0.54 (BUG-124): 4K / 8K 移除, 用户说"4K"/"8K" 自动降级到默认" │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  server `videoAgentService.ts` VIDEO_HEAVY_RATIOS 保留 4K/8K     │
+│  - 兜底降级逻辑保留 (老 conv / curl 绕过 / 用户文本输入仍能工作) │
+│  - 加注释说明 BUG-124                                             │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115-123 100% 同源)
+1. **UI 选项必对齐后端能力**: 前端标 4K 后端不支持 = 假功能, 跟 BUG-079 假报告同源. UI 选项 = 后端实际能力, 不能误导用户
+2. **删功能必删前后端 + prompt + UI 4 处 1:1 镜像**: server aspectRatio map + mobile UI + web UI + LLM prompt 4 处必同步, 缺一就是漏改
+3. **兜底兼容老数据**: parseAspectDims / parseAspectToDims 仍能处理 '4K'/'8K' 输入 (走 fallback default), 老 conv data / 用户文本输入不会崩
+4. **改 aspectRatio 必 3 端 + 2 UI 同步**: server imageAspectRatio.ts + mobile aspectRatio.ts + web aspectRatio.ts + web AgentChatPanel + mobile ImageAgentScreen 5 处必同步 (跨端铁律 4++)
+5. **加 BUG 编号注释标记 v3.0.54**: 跟 BUG-122 拆企业 key 沉淀一致, 后续 AI 改代码能看到历史决策
+6. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 + 重打 mobile APK**: 哪怕只删 2 行, 必走 v3.0.54 流程 (跨端铁律 3+4++)
+7. **删 UI 选项要同时删 prompt 示例**: LLM 仍可能建议已删的选项, 删 UI 不删 prompt = 后端行为不一致
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-124 同样 "前端 UI 跟后端能力不匹配 = 假功能". v3.0.53 之前 4K 选项用户能选但实际生成失败 = 假功能
+- **BUG-097** mobile 漏修 web — BUG-124 web + mobile 1:1 镜像 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-124 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-124 跨项目通用铁律同源
+- **BUG-118** 细分 status label UI — 跟 BUG-124 同样 "UI 选项跟实际能力对齐"
+- **BUG-119/120/121/122/123** — 跟 BUG-124 跨项目通用铁律同源 (改 1 处必同步多处, 沉淀规范)
+
+### E2E 验证 (deploy 后实测)
+- ✅ /api/version: 3.0.54, latestVersion=3.0.54
+- ✅ 12 维验证全过 (systemd active + 6000 LISTEN + /health 200 + /api/version 3.0.54 + APK HTTP/2 200 + 宝塔 shipin_APP run=True)
+- ✅ ASPECT_RATIO_DIMS 跨端 1:1 镜像: server 8 项 (1:1/2:3/3:2/3:4/4:3/9:16/16:9/2K) = mobile 8 项 = web 8 项 (跟 v3.0.53 之前 10 项对比, 删 4K/8K)
+- ✅ RATIO_OPTIONS 跨端 1:1 镜像: web 9 项 (auto + 8 ratio) = mobile 9 项
+- ✅ 容错: parseAspectDims 输入 '4K'/'8K' 走 fallback 到 default (不崩)
+- ✅ 公网 APK v3.0.54 下载: HTTPS HTTP/2 200, size=30233895 bytes
+- ✅ 公网 sha256: 1885DA8ED37F9F5CD587EE14CA4ABD1A7F6AF4FBF43D6CA289710873807CD8CF (本机跟远端 1:1 一致)
+- ✅ web dist 部署: index-DhzCbW9s.js (522KB) + index-DHc58t4G.css (44KB), https://ab.maque.uno/ HTTP/2 200
+
+### 关键 git
+- commit: BUG-124 v3.0.54 删 (5 文件 4K/8K 移除 + 2 UI 选项删 + 2 tooltip 改 + prompt 改 + 8 处版本号 + 1 changelog)
+- 改文件: server imageAspectRatio.ts + server imageAgentSystem.ts + server videoAgentService.ts + mobile aspectRatio.ts + mobile ImageAgentScreen.tsx + web aspectRatio.ts + web AgentChatPanel.tsx (7 文件, 加 changelog 8)
+- push main
+- deploy: server systemd shipin-app PID 6646 + APK DeepScript_v3.0.54.apk (30233895 bytes) shipin-APP/public/ + web dist index-DhzCbW9s.js (522KB) /www/wwwroot/web-app/dist/
+
+### 已知遗留
+- server VIDEO_HEAVY_RATIOS 兜底逻辑保留 (4K/8K 输入自动降级到 default), 老 conv / curl 绕过 / 用户文本输入仍能工作
+- mobile/web UI 不再显示 4K/8K 选项, 但用户文本输入 "换成4K"/"换成8K" 仍能解析 (走 fallback 1:1 1024²)
+- LLM prompt 智能规则删 4K/8K 行 + 加注释说明降级行为
+
+---

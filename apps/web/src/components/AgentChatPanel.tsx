@@ -129,10 +129,9 @@ const RATIO_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '2:3', label: '2:3 人像 (768×1152)' },
   { value: '3:2', label: '3:2 风景 (1152×768)' },
   { value: '2K', label: '2K 高清 (1280²)' },
-  { value: '4K', label: '4K 高清 (2048²)' },
-  { value: '8K', label: '8K 极致 (2048²)' },
+  // v3.0.54 (BUG-124): 4K / 8K 移除 (agens 不支持 2048+ 分辨率生成)
 ];
-// v3.0.0.20: 视频专属比例 (8K/4K/2K 视频不推荐, 文件 50MB+ 用户扛不住, 移除)
+// v3.0.0.20: 视频专属比例 (视频不推荐 2K+ 大图, 文件 50MB+ 用户扛不住, 移除)
 // 视频推荐: 横屏/竖屏各 2 种, 方形 1 种, 经典 2 种
 const VIDEO_RATIO_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'auto', label: '📐 自动' },
@@ -959,7 +958,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
               <span className="text-[10px] text-text-secondary opacity-60">
                 {kind === 'video'
                   ? `视频比例 ${selectedRatio} — 推荐 16:9 横屏 / 9:16 竖屏`
-                  : `图片比例 ${selectedRatio} — 8K/4K/2K 大图生成更慢`}
+                  : `图片比例 ${selectedRatio} — 2K 大图生成更慢`}
               </span>
             </div>
           )}
@@ -1022,7 +1021,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
               onChange={e => setSelectedRatio(e.target.value)}
               disabled={!conversationId || loading || status === 'plan_translating' || status === 'tool_queued' || status === 'tool_executing'}
               className="bg-bg-tertiary rounded-lg px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 cursor-pointer"
-              title={kind === 'video' ? '选择视频比例 (8K/4K/2K 不推荐, 视频文件太大)' : '选择图片比例'}
+              title={kind === 'video' ? '选择视频比例 (2K+ 视频不推荐, 文件太大)' : '选择图片比例'}
             >
                 {(kind === 'video' ? VIDEO_RATIO_OPTIONS : RATIO_OPTIONS).map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>

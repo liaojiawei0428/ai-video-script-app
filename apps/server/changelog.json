@@ -5,6 +5,23 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.54",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-124 删 4K/8K 选项: agnes 不支持 2048+ 分辨率生成, UI 选项移除避免误导用户 (跟 BUG-079/097/103/115-123 跨项目通用铁律同源, UI 选项必对齐后端能力)",
+      "highlights": [
+        "BUG-124 ✅ 修前根因: ASPECT_RATIO_DIMS 4K / 8K 都映射到 [2048, 2048], agens 实际生成时不支持 2048² 分辨率 (老 4K 选项标 2048² 但生成时报错 / 8K 跟 4K 完全重复, UI 误导用户)",
+        "BUG-124 ✅ 删 4 个文件 4K/8K 引用: server `imageAspectRatio.ts` SUPPORTED_RATIOS + mobile `aspectRatio.ts` ASPECT_RATIO_DIMS + web `aspectRatio.ts` ASPECT_RATIO_DIMS (3 个 map 跨端铁律 4++ 1:1 镜像同步)",
+        "BUG-124 ✅ 删 2 个 UI 下拉选项: web `AgentChatPanel.tsx` RATIO_OPTIONS (11 → 9 项, 跟 VIDEO_RATIO_OPTIONS 注释对齐 '8K/4K/2K 不推荐') + mobile `ImageAgentScreen.tsx` ASPECT_RATIOS (11 → 9 项, 跟 web 1:1 镜像)",
+        "BUG-124 ✅ 修 tooltip: web AgentChatPanel 提示文案 '8K/4K/2K 大图生成更慢' → '2K 大图生成更慢' + video 下拉 title '8K/4K/2K 不推荐, 视频文件太大' → '2K+ 视频不推荐, 文件太大'",
+        "BUG-124 ✅ server `imageAgentSystem.ts` prompt 删 4K/8K 行 + 示例 quality 字段删 '8K 高清/8K 超细节' (LLM 不再建议 4K/8K, 改为 '高清/超细节'), 配合 UI 删选项让 LLM 行为一致",
+        "BUG-124 ✅ server `videoAgentService.ts` VIDEO_HEAVY_RATIOS 保留 4K/8K (服务端兜底降级, 老 conv data / 用户文本输入仍能工作), 加注释说明 BUG-124",
+        "BUG-124 ✅ 容错处理: web + mobile `parseAspectDims` 仍能处理 '4K'/'8K' 输入 (走 ASPECT_RATIO_DIMS fallback 到 default), 老 conv / 用户文本输入不会崩",
+        "BUG-124 ✅ 跨端铁律 4++ 1:1 镜像: 3 个 aspectRatio.ts 文件 + 2 个 UI 下拉选项 + 2 个 tooltip 改动完全一致, 跨端规范沉淀 (跟 BUG-119/120/121 同样改 ASPECT_RATIO 必三端同步)",
+        "BUG-124 跨项目通用铁律 (跟 BUG-079/097/103/115-123 100% 同源): UI 选项必对齐后端能力 (前端标 4K 后端不支持 = 假功能, 跟 BUG-079 假报告同源); 删功能必删前后端 + prompt + UI 4 处 1:1 镜像; 兜底兼容老数据 (parseAspectDims fallback); 改 aspectRatio 必 3 端 + 2 UI 同步; 加 BUG 编号注释标记 v3.0.54 (跟 BUG-122 拆企业 key 沉淀一致)"
+      ]
+    },
+    {
       "version": "3.0.53",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -294,5 +311,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.53"
+  "latest_version": "3.0.54"
 }
