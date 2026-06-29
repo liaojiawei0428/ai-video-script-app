@@ -5,6 +5,22 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.53",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-123 hotfix 修排队 UI 用户看不到: 3 状态显示 (排队中 amber / 等待资源 blue / 正常) + useQueueStatus 持续轮询不早停 + 修测试发现早期版本 inQueue=false 时 clearInterval 早停 polling 导致用户看不到系统负载, 实战用户 3 个视频因间隔 > 47s 没触发排队但 UI 完全静默 (跟 BUG-079 假报告同源)",
+      "highlights": [
+        "BUG-123 hotfix ✅ 修前根因: v3.0.52 早期 useQueueStatus hook 在 inQueue=false 时 clearInterval 早停 polling, 用户提交视频后 (inQueue=false 因为已经 acquire slot), hook 立即停轮询, 后续系统负载变化 (active=2/2) 完全看不到 — UI 只显示默认 label 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'",
+        "BUG-123 hotfix ✅ E2E 实测验证 (admin 模拟 3 个并发 confirm): rate-limit-status 返回 active=2 waiting=1 (跟预期一致), conv1 position=1 etaSeconds=29; 用户的 3 个视频 (cee040d2/cf5b7faa/9f361028) avgDurationMs=47015 即 47s/任务, 因提交间隔 > 47s 没触发排队, 这是用户看不到排队 UI 的根因",
+        "BUG-123 hotfix ✅ web useQueueStatus hook: 持续轮询不早停 (删除 clearInterval inQueue=false 分支), 让 UI 能持续看到 global 状态变化 (active 0→1→2)",
+        "BUG-123 hotfix ✅ web StreamingCard 改 3 状态 UI: (1) 排队中 (position>0) amber '⏳ 排队中: 第 N 位 · 预计 X 秒 · 生视频 2 次/分钟' (2) 等待资源 (global.active>0 && !inQueue) blue '⏳ 等待资源: 当前 N/M 在跑 · 平均 Xs/任务 · 生视频 2 次/分钟' (3) 正常 (active=0) 默认 label",
+        "BUG-123 hotfix ✅ mobile useQueueStatus hook 1:1 镜像 web, mobile StreamingCard (VideoAgentScreen) + StreamingCardImage (ImageAgentScreen) 1:1 加 3 状态 UI (amber 排队 + blue 等待资源 + 正常), 配色跟 web 1:1 (Tailwind amber-50/100/800 = #fef3c7/#fbbf24/#92400e, blue-50/100/800 = #dbeafe/#60a5fa/#1e40af)",
+        "BUG-123 hotfix ✅ 跨端铁律 4++ 1:1 镜像: web useQueueStatus hook API + QueueStatus type + StreamingCard 3 状态 UI + 配色 4 维跟 mobile 1:1 (跟 BUG-119/120 同样改 hook 必 100% 移植集成点)",
+        "BUG-123 hotfix ✅ 升 v3.0.53 (8 处版本号 + mobile build.gradle versionCode 56→57), 跟 BUG-121/122 同样必走版本号同步 (跨端铁律 3)",
+        "BUG-123 hotfix 跨项目通用铁律 (跟 BUG-079/097/103/115-122 100% 同源): hook polling 不能早停 (inQueue=false 也要继续, 让 UI 能看到系统负载变化); 等待资源也是资源 (用户在等, 必须显示透明度); 排队 UI 不只在 '真在队列' 时显示, '在系统中跑' 也要显示; E2E 实测必做 (admin 模拟并发验证 limiter 实际行为); 早期版本遗漏必通过实测发现, 不能只测代码正确性"
+      ]
+    },
+    {
       "version": "3.0.52",
       "buildDate": "2026-06-29",
       "type": "minor",
@@ -278,5 +294,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.52"
+  "latest_version": "3.0.53"
 }

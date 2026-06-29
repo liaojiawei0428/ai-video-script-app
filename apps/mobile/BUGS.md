@@ -5820,4 +5820,76 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 
 ---
 
+## BUG-123 hotfix (v3.0.53 修排队 UI 用户看不到): 3 状态显示 (排队中 amber / 等待资源 blue / 正常) + useQueueStatus 持续轮询不早停 — 用户实战测试 3 个视频没看到排队, 实际是 v3.0.52 useQueueStatus hook 在 inQueue=false 时早停 polling, 即使系统负载 2/2 用户也看不到, 跟 BUG-079 假报告同源 (S72 batch 25, 2026-06-29)
+
+### 现象 (审计)
+用户实测 v3.0.52 部署后, 生成了 3 个视频但没看到排队时间, 流式卡片只显示 "AI 正在渲染视频, 通常 1-3 分钟, 别关页面...". 审查 shipin-APP 代码 + E2E 实测:
+- **用户 3 个视频 timing**: cee040d2 (创建早于 06:58), cf5b7faa (创建早于 06:59:30), 9f361028 (创建早于 06:59:40) — 总跨度 ~2 分钟
+- **rate limiter 记录的 avgDurationMs = 47015** (47s/任务), 3 个视频间隔 > 47s, **每次都能拿到 slot, 队列永远空** — 这是用户看不到排队的根因 1
+- **rate limiter hook 早停 bug**: v3.0.52 useQueueStatus hook 在 `inQueue=false` 时调用 `clearInterval` 早停 polling — 即使系统负载 (active=2/2) 用户也看不到, 因为 hook 不再 polling — 这是用户看不到排队的根因 2
+- **E2E 实测验证**: admin 模拟 3 个并发 confirm 后, rate-limit-status 返回 active=2 waiting=1 limit=2, conv3 (第 3 个) 返回 inQueue=true position=1 etaSeconds=26 — limiter 后端完全工作, 唯一问题是前端 hook + UI
+
+**双根因**:
+1. **用户 3 个视频间隔 > 47s** — 没有触发排队 (rate limiter 工作正常, 但用户操作没达到触发条件)
+2. **v3.0.52 UI 早停 bug** — 即使系统真有 2/2 在跑, 用户的 UI 完全静默, 看不到 "当前 N/M 在跑" 等透明度信息
+
+### 修法 (1 文件 + 6 处 + 8 处版本号 + 1 changelog + 跨端 UI 3 状态)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  apps/web/src/hooks/useQueueStatus.ts + mobile hook 1:1            │
+│  - 修前: inQueue=false 时 clearInterval 早停 polling            │
+│  - 修后: 持续轮询 (3s), 让 UI 能看到 global 状态变化         │
+│  - UI 决定显示什么 (3 状态由 StreamingCard 判断)              │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  web StreamingCard + mobile StreamingCard/StreamingCardImage       │
+│  - 3 状态显示:                                                  │
+│    1. 排队中 (position > 0):                                   │
+│       "⏳ 排队中: 第 N 位 · 预计 X 秒 · 生视频 2 次/分钟" (amber) │
+│    2. 等待资源 (global.active > 0 && !inQueue):               │
+│       "⏳ 等待资源: 当前 N/M 在跑 · 平均 Xs/任务 · ..." (blue)  │
+│    3. 正常 (active == 0): 默认 GeneratingLoader label         │
+│  - 跨端铁律 4++ 1:1 镜像 (web Tailwind 配色 = mobile hex 配色)   │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115-122 100% 同源)
+1. **hook polling 不能早停** (BUG-123 hotfix 核心): `inQueue=false` 也要继续 polling, 让 UI 能看到系统负载变化. 早停 polling = 用户看不到系统状态 = 假修 (跟 BUG-079 假报告同源)
+2. **等待资源也是资源**: 用户在等 slot 释放, 必须显示透明度 ("当前 N/M 在跑"), 不能静默
+3. **排队 UI 不只在 '真在队列' 时显示**: '在系统中跑' (active > 0) 也要显示. 用户决策需要完整上下文
+4. **E2E 实测必做**: admin 模拟并发验证 limiter 实际行为 (跟 BUG-121/122 同样). 早期 v3.0.52 单测代码正确但没测 "用户提交视频后能立即看到系统状态"
+5. **跨端 UI 必 1:1 镜像**: web Tailwind 配色 amber-50=#fef3c7/amber-100=#fbbf24/amber-800=#92400e = mobile hex #fef3c7/#fbbf24/#92400e; blue 同样 1:1
+6. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 + 重打 mobile APK**: 哪怕只改 hook 早停 1 行, 也必走 v3.0.53 流程 (跨端铁律 3+4++)
+7. **新部署后必做 user 实际场景模拟**: 单测能通过不代表实际用户能看到. admin 模拟 3 个并发 confirm 才是真验证
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-123 hotfix 同样 "功能实装但用户看不到 = 假修". v3.0.52 hook 早停导致用户完全看不到排队信息
+- **BUG-097** mobile 漏修 web — BUG-123 hotfix web + mobile 1:1 镜像 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-123 hotfix 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-123 hotfix 跨项目通用铁律同源
+- **BUG-118** 细分 status label UI — BUG-123 hotfix 排队 UI 配色 amber 跟 BUG-118 限流暂停 orange 体系一致
+- **BUG-119/120/121/122** — BUG-123 hotfix 跟 BUG-123 早期 v3.0.52 配套, hotfix 修早期 UI 3 状态缺失 + hook 早停
+
+### E2E 验证 (deploy 后实测)
+- ✅ /api/version: 3.0.53, latestVersion=3.0.53
+- ✅ 12 维验证全过 (systemd active + 6000 LISTEN + /health 200 + /api/version 3.0.53 + APK HTTP/2 200 + 宝塔 shipin_APP run=True)
+- ✅ 3 个并发 confirm: 2 个立即 acquire + 1 个排队 (position=1, etaSeconds=26)
+- ✅ global status: active=2, waiting=1, limit=2 (跟 v3.0.52 一致)
+- ✅ conv3 (排队) inQueue=true position=1
+- ✅ conv1/2 (立即) inQueue=false 但 global.active=2 → UI 显示 "等待资源: 当前 2/2 在跑"
+- ✅ 公网 APK v3.0.53 下载: HTTPS HTTP/2 200, size=30233905 bytes
+- ✅ 公网 sha256: C228DF55AF42260FA568AC2CEB61D58C46BF7F5D362BAF9E755779E1E1095B6A (本机跟远端 1:1 一致)
+- ✅ web dist 部署: index-ClG2vMwX.js (522KB) + index-DHc58t4G.css (44KB), https://ab.maque.uno/ HTTP/2 200
+
+### 关键 git
+- commit: BUG-123 hotfix v3.0.53 修 (2 hook 持续轮询 + 3 StreamingCard 3 状态 + 2 styles 配色 + 8 处版本号 + 1 changelog)
+- 改文件: apps/web/src/hooks/useQueueStatus.ts + apps/web/src/components/AgentChatPanel.tsx (StreamingCard) + apps/mobile/src/hooks/useQueueStatus.ts + apps/mobile/src/screens/VideoAgentScreen.tsx (StreamingCard + styles) + apps/mobile/src/screens/ImageAgentScreen.tsx (StreamingCardImage + styles)
+- push main
+- deploy: server systemd shipin-app PID 33034 + APK DeepScript_v3.0.53.apk (30233905 bytes) shipin-APP/public/ + web dist index-ClG2vMwX.js (522KB) /www/wwwroot/web-app/dist/
+
+### 已知遗留
+- 用户测试时如果提交间隔 > 47s (avgDurationMs), 不会触发排队, 但 UI 现在会显示 "等待资源: 当前 N/M 在跑" (跟 BUG-079 假修区别: 透明度 ≠ 静默)
+
 ---

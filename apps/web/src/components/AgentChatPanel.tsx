@@ -1125,7 +1125,10 @@ function safeStr(v: any, fallback: string = ''): string {
 /**
  * v3.0.52 (BUG-123): 流式卡片子组件, 集成 GeneratingLoader + 排队状态
  *  - useQueueStatus 自动 polling /api/tasks/:taskId/queue (3s 间隔)
- *  - 排队时在 GeneratingLoader 下方显示 "排队中 第 N 位 / 预计 X 秒"
+ *  - 3 种状态显示:
+ *    1. 排队中: position > 0 → "⏳ 排队中: 第 N 位 · 预计 X 秒 (生视频 2 次/分钟)" (amber)
+ *    2. 等待资源中: global.active > 0 && position == null → "⏳ 等待资源: 当前 N/M 在跑, 平均 Xs/任务" (blue)
+ *    3. 正常: global.active == 0 → 只显示 GeneratingLoader 默认 label
  *  - 跨端铁律 4++ 镜像 mobile VideoAgentScreen/ImageAgentScreen 1:1
  */
 function StreamingCard({ aspectStyle, stage, kind, isUser, conversationId }: {
@@ -1139,7 +1142,13 @@ function StreamingCard({ aspectStyle, stage, kind, isUser, conversationId }: {
 
   // 选对应 kind 的队列信息
   const queueInfo = kind === 'video' ? queueStatus?.video : queueStatus?.image;
+  const globalInfo = queueStatus?.global ? (kind === 'video' ? queueStatus.global.video : queueStatus.global.image) : null;
+
   const inQueue = queueInfo?.position !== null && queueInfo?.position !== undefined && (queueInfo?.position ?? 0) > 0;
+  // 等待资源: 系统中已经有任务在跑 (active > 0), 但这个请求不在队列 (立即拿到 slot)
+  const waitingForResource = !inQueue && (globalInfo?.active ?? 0) > 0;
+
+  const kindLabel = kind === 'image' ? '生图 40 次/分钟' : '生视频 2 次/分钟';
 
   return (
     <div
@@ -1166,9 +1175,22 @@ function StreamingCard({ aspectStyle, stage, kind, isUser, conversationId }: {
           第 <span className="font-bold">{queueInfo.position}</span> 位
           {' · '}
           预计 <span className="font-bold">{queueInfo.etaSeconds}</span> 秒
-          {kind === 'image'
-            ? ' (生图 40 次/分钟)'
-            : ' (生视频 2 次/分钟)'}
+          {' · '}
+          {kindLabel}
+        </div>
+      )}
+      {!inQueue && waitingForResource && globalInfo && (
+        <div className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded px-2 py-1 mt-1">
+          <span className="font-medium">⏳ 等待资源:</span>{' '}
+          当前 <span className="font-bold">{globalInfo.active}/{globalInfo.limit}</span> 在跑
+          {globalInfo.avgDurationMs > 0 && (
+            <>
+              {' · '}
+              平均 <span className="font-bold">{Math.round(globalInfo.avgDurationMs / 1000)}</span>s/任务
+            </>
+          )}
+          {' · '}
+          {kindLabel}
         </div>
       )}
     </div>

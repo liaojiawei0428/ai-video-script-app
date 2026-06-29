@@ -691,6 +691,21 @@ const styles = StyleSheet.create({
   },
   queueText: { fontSize: 12, color: '#92400e' },
   queueTextBold: { fontSize: 12, color: '#92400e', fontWeight: '700' },
+  // v3.0.52.1 (BUG-123): 等待资源样式 (蓝色)
+  waitingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#dbeafe',
+    borderColor: '#60a5fa',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+    alignSelf: 'center',
+  },
+  waitingText: { fontSize: 12, color: '#1e40af' },
+  waitingTextBold: { fontSize: 12, color: '#1e40af', fontWeight: '700' },
   toolbar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
@@ -789,6 +804,7 @@ const styles = StyleSheet.create({
 });
 
 // v3.0.52 (BUG-123): 流式卡片子组件, 集成 GeneratingLoader + 排队状态 (跨端铁律 4++ 镜像 web StreamingCard + VideoAgentScreen StreamingCard 1:1)
+// v3.0.52.1: 增加 "等待资源" 状态 — 即使 inQueue=false, 只要 global.active > 0 就显示系统负载
 function StreamingCardImage({ part, aspectStyle, conversationId }: {
   part: AgentPart;
   aspectStyle: { aspectRatio: number; width: number; height: number };
@@ -796,7 +812,10 @@ function StreamingCardImage({ part, aspectStyle, conversationId }: {
 }) {
   const { status: queueStatus } = useQueueStatus(conversationId, { enabled: !!conversationId, intervalMs: 3000 });
   const queueInfo = queueStatus?.image;
+  const globalInfo = queueStatus?.global?.image;
+
   const inQueue = queueInfo?.position != null && (queueInfo?.position ?? 0) > 0;
+  const waitingForResource = !inQueue && (globalInfo?.active ?? 0) > 0;
 
   return (
     <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
@@ -807,7 +826,20 @@ function StreamingCardImage({ part, aspectStyle, conversationId }: {
       {inQueue && queueInfo && (
         <View style={styles.queueBox}>
           <Text style={styles.queueText}>
-            ⏳ 排队中: 第 <Text style={styles.queueTextBold}>{queueInfo.position}</Text> 位 · 预计 <Text style={styles.queueTextBold}>{queueInfo.etaSeconds}</Text> 秒 (生图 40 次/分钟)
+            ⏳ 排队中: 第 <Text style={styles.queueTextBold}>{queueInfo.position}</Text> 位 · 预计 <Text style={styles.queueTextBold}>{queueInfo.etaSeconds}</Text> 秒 · 生图 40 次/分钟
+          </Text>
+        </View>
+      )}
+      {!inQueue && waitingForResource && globalInfo && (
+        <View style={styles.waitingBox}>
+          <Text style={styles.waitingText}>
+            ⏳ 等待资源: 当前 <Text style={styles.waitingTextBold}>{globalInfo.active}/{globalInfo.limit}</Text> 在跑
+            {globalInfo.avgDurationMs > 0 && (
+              <>
+                {' · '}平均 <Text style={styles.waitingTextBold}>{Math.round(globalInfo.avgDurationMs / 1000)}</Text>s/任务
+              </>
+            )}
+            {' · '}生图 40 次/分钟
           </Text>
         </View>
       )}
