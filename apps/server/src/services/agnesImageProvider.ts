@@ -104,7 +104,12 @@ export class AgnesImageProvider implements ImageProvider {
       // v3.0.0.1: /api/agent/uploads/ URL 带鉴权, agnes 拉不到 (它没 JWT) → 读盘转 base64 data URL
       refImg = await this.inlineIfLocal(refImg);
 
-      body.extra_body.image = refImg;
+      // BUG-121 (v3.0.50): 文档要求 extra_body.image 必须是 string[] 数组 (8.3/8.4/8.5 三个例子)
+      // 修前: body.extra_body.image = refImg (传 string, agens API 容错接受)
+      // 修后: body.extra_body.image = [refImg] (传 array, 严格按文档)
+      // shipin-APP 单次只取 1 张主角参考图, 但 API 仍要求 array 形式
+      // (跟 BUG-118/119/120 教训同源: API 容错不能当文档不一致挡箭牌, 必对齐)
+      body.extra_body.image = [refImg];
       // v2.5.29: 弱化参考图权重, 让 prompt 主导
       // 旧版 "Strictly follow" 强指令导致 agnes 把图当成主体, 输出"角色图"而非剧情
       // 改用 "soft anchor": 只用于身份匹配, 不影响场景构图

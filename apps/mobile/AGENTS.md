@@ -518,7 +518,66 @@ Stage 2 (BUG-109) + 缓存方案 A (BUG-115) 解决了"本地优先"和"减少 S
 
 ---
 
-**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19/20/21 缓存方案 A+B + BUG-118 细分 + BUG-119 跨端 retry 清理 + 动画补齐 + BUG-120 等待卡片按比例显示**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分 + retry 边界清理 + 1:1 动画补齐 + ratio 维度补齐. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9/6.10/6.11 跨端规范, 跟 server 视角统一**.
+**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19/20/21/22 缓存方案 A+B + BUG-118 细分 + BUG-119 跨端 retry 清理 + 动画补齐 + BUG-120 等待卡片按比例显示 + BUG-121 agens-image image 数组对齐**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分 + retry 边界清理 + 1:1 动画补齐 + ratio 维度补齐 + 文档字段格式对齐. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9/6.10/6.11/6.12 跨端规范, 跟 server 视角统一**.
+
+## § 6.12 v3.0.50 新增: agens-image-2.1-flash 图生图 image 字段从 string 改成 string[] 数组 (S72 batch 22 BUG-121)
+
+> **新增 2026-06-29 (S72 batch 22 v3.0.50 BUG-121)**: 修 agnesImageProvider.ts:107 `body.extra_body.image = refImg` 改成 `body.extra_body.image = [refImg]` — 严格按文档 (8.3/8.4/8.5 三个例子) extra_body.image 必须是 string[] 数组, shipin-APP 单次只取 1 张主角参考图但 API 仍要求 array 形式.
+
+### § 6.12.1 背景
+
+用户审查 Agnes Image 2.1 Flash 最新文档 (https://wiki.agnes-ai.com/llms.txt),发现 shipin-APP agnesImageProvider.ts:107 传单 string, 文档明确要求 `image: ["url"]` array. 实际 agens API 容错接受 string 形式 (跑了 1 年没 400), 但严格按文档是 array 形式.
+
+### § 6.12.2 修法架构 (1 行 server 修复 + 8 处版本号)
+
+```
+apps/server/src/services/agnesImageProvider.ts (line 107)
+├─ 修前: body.extra_body.image = refImg;            (传 string, 1 年没 400)
+└─ 修后: body.extra_body.image = [refImg];          (传 array, 严格按文档 8.3/8.4/8.5)
+
+调用方链保持不变 (string[] 接口 → agnesImageProvider 单层取第 1 张后包成 array):
+├─ imageProvider.ts:21 interface ImageGenOptions.referenceImages?: string[]
+├─ imageAgentService.ts:581 referenceImages: refImages?.slice(0, 1)         (传 string[])
+├─ comicService.ts:255 referenceImages: referenceImage ? [referenceImage] : undefined (传 string[])
+├─ scriptService.ts:1175 referenceImages: referenceImages.length > 0 ? ... : undefined (传 string[])
+├─ agnesImageProvider.ts:102 let refImg = options.referenceImages[0]            (取第 1 张, shipin-APP 业务保持"1 张图"逻辑)
+└─ agnesImageProvider.ts:107 body.extra_body.image = [refImg]                 (BUG-121 修, 改传 array)
+```
+
+### § 6.12.3 跨端铁律 4++ 镜像
+
+| 维度 | server 端 (修法源) | mobile/web 端 | 一致性 |
+|---|---|---|---|
+| 调用方接口 `referenceImages?: string[]` | `imageProvider.ts:21` | n/a (shipin-APP API 字段) | ✅ 跟 BUG-118 调用方链保持一致 |
+| API 字段 `image: string[]` (8.3/8.4/8.5 文档) | `agnesImageProvider.ts:107` 修 | n/a | ✅ 1:1 镜像文档 |
+| shipin-APP 业务"1 张图" | `options.referenceImages[0]` 取第 1 张 | n/a | ✅ 业务逻辑不变, 只改 API 字段格式 |
+
+### § 6.12.4 使用规范
+
+1. **API 容错不能当文档不一致挡箭牌, 必对齐**: agens 接受单 string 形式跑了 1 年没 400, 但严格按文档是 array 形式, 修后避免 agens 升级严格校验时突然 400 报错
+2. **文档改了必同步改代码 (跟 BUG-118 v3.0.0 fix 字段路径同源)**: 5 年前修过 1 次"response_format/image 必须在 extra_body 内" 的字段路径 bug, 这次是同源"image 必须是 array" 的字段格式 bug
+3. **调用方接口 string[] 跟 API 字段 image string[] 双向对齐**: `imageProvider.ts:21` 接口定义 `referenceImages?: string[]` 已经是数组, 但 `agnesImageProvider.ts:107` 这一层取了第 1 张后传单 string, 修后包成 array 保持双向一致
+4. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 (跨端铁律 3)**: 哪怕只是 1 行 bug 修复, 也必走 v3.0.50 流程
+5. **mobile 代码无变化也必重打 APK (跨端铁律 4++)**: versionCode 53→54 必走, 否则公网 404, shipin-APP 强制流程
+6. **图生图 image 字段必走数组 (跟 BUG-118 v3.0.0 fix 字段路径同源)**: shipin-APP 业务"1 张图" + API 字段"array 数组" 双向对齐
+
+### § 6.12.5 跨项目通用 (跟 BUG-079/082/096/097/103/115/116/117/118/119/120 100% 同源)
+
+- **API 容错不能当文档不一致挡箭牌, 必对齐**: 跨项目通用铁律, 容错久了不修 = 风险
+- **文档改了必同步改代码**: 跨项目通用铁律, 跟 BUG-118 同源
+- **调用方接口跟 API 字段双向对齐**: 跨项目通用铁律, 缺一就是 bug
+- **改了 server 端代码必升 v3.0.X + 8 处版本号同步**: 跨端铁律 3
+- **mobile 代码无变化也必重打 APK**: 跨端铁律 4++
+
+### § 6.12.6 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — 跟 BUG-121 API 容错接受 string 形式但严格按文档应 array 100% 同源
+- **BUG-097** mobile 漏修 web — BUG-121 web + mobile 同步 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-121 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-121 跨项目通用铁律同源
+- **BUG-118** v3.0.0 fix 字段路径 (response_format/image 必须在 extra_body 内) — BUG-121 教训同源 "文档改了必同步改代码"
+- **BUG-119** retry 清理 + GeneratingLoader 全屏集成 — 跟 BUG-121 跨项目通用铁律同源
+- **BUG-120** 等待动画卡片按比例显示 — 跟 BUG-121 跨项目通用铁律同源
 
 ## § 6.11 v3.0.49 新增: 等待动画卡片按用户选的比例显示 (S72 batch 21 BUG-120)
 

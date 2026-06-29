@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.50",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-121 修 agens-image-2.1-flash 图生图 image 字段从 string 改成 string[] 数组: 严格按文档 (8.3/8.4/8.5 三个例子) extra_body.image 必须是数组, shipin-APP 单次只取 1 张主角参考图但 API 仍要求 array 形式 (跟 BUG-118/119/120 教训同源, API 容错不能当文档不一致挡箭牌)",
+      "highlights": [
+        "BUG-121 ✅ 修前根因: agnesImageProvider.ts:107 body.extra_body.image = refImg (传 string), 文档 (8.3/8.4/8.5) 明确要求 image: [url] string[] 数组, 修后 body.extra_body.image = [refImg] (传 array, 严格按文档)",
+        "BUG-121 ✅ 修前 agens API 容错接受 string 形式 (跑了 1 年没 400), 修后严格按文档, 避免 agens 升级严格校验时突然 400 报错",
+        "BUG-121 ✅ 调用方链保持不变: imageProvider.ts:21 referenceImages?: string[] 接口定义, imageAgentService.ts:581 + comicService.ts:255 + scriptService.ts:1175 调用方传 string[] 数组 (符合规范), agnesImageProvider.ts:102 取第一张 refImg = options.referenceImages[0] 后传 [refImg] 数组",
+        "BUG-121 ✅ 文档 vs 代码一致性: 核心调用链路 100% 一致 (URL/auth/headers/model/prompt/size/extra_body.response_format/response 数据字段/3 次 429 retry + 5min timeout), 仅 image 字段从 string 改成 array 1 行差异",
+        "BUG-121 ✅ shipin-APP 单次只取 1 张参考图 (line 102 注释: 'agnes-image-2.1-flash 单次只接受 1 张图, 取主角参考图'), 但 API 仍要求 array 形式, shipin-APP 业务保持 '1 张图' 逻辑不变",
+        "BUG-121 跨项目通用铁律 (跟 BUG-079/082/096/097/103/115/116/117/118/119/120 100% 同源): API 容错不能当文档不一致挡箭牌, 必对齐; 文档改了必同步改代码 (跟 BUG-118 v3.0.0 fix 字段路径同源); 调用方接口 string[] 跟 API 字段 image string[] 双向对齐"
+      ]
+    },
+    {
       "version": "3.0.49",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -233,5 +247,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.49"
+  "latest_version": "3.0.50"
 }

@@ -5556,3 +5556,72 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 
 ### 已知遗留
 - 无
+
+---
+
+## BUG-121 (v3.0.50 agens-image-2.1-flash 图生图 image 字段从 string 改成 string[] 数组): 严格按文档 (8.3/8.4/8.5 三个例子) extra_body.image 必须是 string[] 数组, shipin-APP 单次只取 1 张主角参考图但 API 仍要求 array 形式 (跟 BUG-118/119/120 教训同源, API 容错不能当文档不一致挡箭牌) (S72 batch 22, 2026-06-29)
+
+### 现象 (审计)
+用户审查 Agnes Image 2.1 Flash 最新文档 (https://wiki.agnes-ai.com/llms.txt),发现 shipin-APP agnesImageProvider.ts:107 传 `body.extra_body.image = refImg` (string), 文档 (8.3/8.4/8.5 三个图生图例子) 明确要求 `image: ["url"]` string[] 数组. 实际 agens API 容错接受 string 形式 (shipin-APP 跑了 1 年没 400), 但严格按文档是 array 形式.
+
+### 修前根因
+- 修前 `agnesImageProvider.ts:107` 传单 string: `body.extra_body.image = refImg;`
+- 文档 (8.3 图生图 URL 输入 + URL 输出 / 8.4 图生图 URL 输入 + Base64 输出 / 8.5 图生图 Data URI Base64 输入) **3 个例子全部用 array 形式**:
+  ```json
+  "extra_body": {
+    "image": ["https://example.com/input-image.png"],
+    "response_format": "url"
+  }
+  ```
+- 调用方链 `imageProvider.ts:21` `referenceImages?: string[]` 接口定义是数组, `imageAgentService.ts:581` / `comicService.ts:255` / `scriptService.ts:1175` 都传 `string[]` 数组, **只有 `agnesImageProvider.ts:107` 这一层取了第 1 张后传单 string**
+- 跟 BUG-118 (v3.0.0 fix 字段路径: response_format/image 必须在 extra_body 内) 教训同源: 文档改了必同步改代码, 必对齐
+
+### 修法 (1 行 + 8 处版本号 + 3 端 0 错 + 12 维验证全过)
+1. **server `apps/server/src/services/agnesImageProvider.ts:107`**:
+   - 修前: `body.extra_body.image = refImg;` (传 string)
+   - 修后: `body.extra_body.image = [refImg];` (传 array, 严格按文档)
+   - 加 4 行注释解释 BUG-121 教训
+   - 调用方链保持不变: `imageProvider.ts:21` 接口 `string[]`, 3 个调用方传 `string[]`, agnesImageProvider 单层取第 1 张后包成 `[refImg]` array
+   - shipin-APP 业务保持"1 张图"逻辑不变 (line 102 注释: "agnes-image-2.1-flash 单次只接受 1 张图, 取主角参考图"), API 仍要求 array 形式
+2. **8 处版本号同步 v3.0.49 → v3.0.50** (跨端铁律 3):
+   - `apps/mobile/src/config/version.ts`: '3.0.49' → '3.0.50'
+   - `apps/mobile/android/app/build.gradle`: versionCode 53→54, versionName '3.0.49'→'3.0.50'
+   - `apps/server/package.json`: '3.0.49' → '3.0.50'
+   - `apps/server/src/index.ts` line 75 fallback: '3.0.49' → '3.0.50'
+   - `apps/server/ecosystem.config.js` env + env_production 2 处: '3.0.49' → '3.0.50'
+   - `apps/web/src/config/version.ts`: APP_VERSION '3.0.49'→'3.0.50', APP_VERSION_CODE 53→54
+   - `apps/server/changelog.json` 加 v3.0.50 entry (6 highlights), latest_version: 3.0.50
+   - 远端 deploy.sh 自动同步 `.env APP_VERSION` + `systemd unit Environment=APP_VERSION` (从源 /tmp/package.json 读 3.0.50)
+3. **mobile APK v3.0.50 重打 + 部署**: 哪怕 mobile 代码无变化,versionCode 53→54 必走 (跨端铁律 4++ mobile APK 必重打, 否则公网 404), gradlew assembleRelease 45s OK, aapt2 versionCode=54 versionName=3.0.50 ✅, sha256 `7fbbc631edc3d9770219058882f2b042414fb7a03488225915c2b8e2c6fde8a0` 本机+公网一致 ✅
+
+### 验证 (12 维 + 跨端 5 维 + sha256)
+- **server 12 维 (deploy.sh --skip-maintenance)**: 1 systemctl active ✅ 2 ss 6000 ✅ 3 /health 200 ✅ 4 /api/version 3.0.50 ✅ 5 characterVariant 0.1 ✅ 6 /api/novels 401 ✅ 7-8 宝塔 nginx 80 + panel 888 ✅ 9 ab.maque.uno HTTPS 3.0.50 ✅ 10 APK HTTP/2 200 (v3.0.50) ✅ 11-12 宝塔 shipin_APP run=True PID=60008 ✅
+- **tsc 0 错**: server `npm run build` (tsc) 0 错
+- **APK 验证**: aapt2 dump badging → `package: name='com.aiscriptmobile' versionCode='54' versionName='3.0.50'` ✅; sha256: `7fbbc631edc3d9770219058882f2b042414fb7a03488225915c2b8e2c6fde8a0` 本机 + 公网一致 ✅
+- **公网验证**: `curl https://ab.maque.uno/api/version` → version=3.0.50 latestVersion=3.0.50 downloadUrl=DeepScript_v3.0.50.apk ✅ highlights[0] = BUG-121 ✅; `curl https://ab.maque.uno/app/DeepScript_v3.0.50.apk` → 200 OK Content-Type=application/vnd.android.package-archive Content-Length=30230477 ✅
+
+### 跨项目通用铁律 (跟 BUG-079/082/096/097/103/115/116/117/118/119/120 100% 同源)
+1. **API 容错不能当文档不一致挡箭牌, 必对齐**: agens 接受单 string 形式跑了 1 年没 400, 但严格按文档是 array 形式, 修后避免 agens 升级严格校验时突然 400 报错
+2. **文档改了必同步改代码 (跟 BUG-118 v3.0.0 fix 字段路径同源)**: 5 年前修过 1 次"response_format/image 必须在 extra_body 内" 的字段路径 bug, 这次是同源"image 必须是 array" 的字段格式 bug
+3. **调用方接口 string[] 跟 API 字段 image string[] 双向对齐**: `imageProvider.ts:21` 接口定义 `referenceImages?: string[]` 已经是数组, 但 `agnesImageProvider.ts:107` 这一层取了第 1 张后传单 string, 修后包成 array 保持双向一致
+4. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 (跨端铁律 3)**: 哪怕只是 1 行 bug 修复, 也必走 v3.0.50 流程
+5. **mobile 代码无变化也必重打 APK (跨端铁律 4++)**: versionCode 53→54 必走, 否则公网 404, shipin-APP 强制流程
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-121 API 容错接受 string 形式但严格按文档应 array 100% 同源 (前端/API/文档一致性)
+- **BUG-097** mobile 漏修 web — BUG-121 web + mobile 同步 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-121 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-121 跨项目通用铁律同源
+- **BUG-118** v3.0.0 fix 字段路径 (response_format/image 必须在 extra_body 内) — BUG-121 教训同源 "文档改了必同步改代码"
+- **BUG-119** retry 清理 + GeneratingLoader 全屏集成 — 跟 BUG-121 跨项目通用铁律同源
+- **BUG-120** 等待动画卡片按比例显示 — 跟 BUG-121 跨项目通用铁律同源
+
+### 关键 git
+- commit: BUG-121 v3.0.50 修 (1 行 server 修复 + 8 处版本号 + 1 changelog entry)
+- 1 代码文件: apps/server/src/services/agnesImageProvider.ts (line 107: `body.extra_body.image = refImg` → `body.extra_body.image = [refImg]`)
+- 配套: 8 处版本号 (mobile version.ts / build.gradle / server package.json / index.ts / ecosystem / web version.ts) + apps/server/changelog.json (新 entry)
+- push main
+- deploy: server systemd shipin-app PID 60008 + APK DeepScript_v3.0.50.apk (30230477 bytes) shipin-APP/public/
+
+### 已知遗留
+- 无
