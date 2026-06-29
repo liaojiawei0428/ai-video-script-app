@@ -5307,3 +5307,117 @@ scp(CHANGELOG_JSON, "/tmp/changelog.json")  # 🆕 v3.0.44 BUG-114 修法
 - **deploy.sh BUG-088/089 加了 "changelog.json 优先读 /tmp/" 机制, 但 deploy.py 没同步升级加 scp changelog.json** (BUG-114)
 - **这次**: deploy.sh 自带的 "scp APK 到 nginx" 机制根本**不存在** → v3.0.46 APK 从未部署
 - **修法**: deploy.py 重写, 走通用版本号路径, 加 4 件套 scp (dist + package.json + changelog.json + APK), 加公网 HEAD 验证维度
+## BUG-118 (v3.0.47 videoAgent 误标 404): 用户看到 "限流暂停" (橙色) 实际是 agens 上游 404 task not found, 后端文案一刀切误导 (S72 batch 19, 2026-06-29)
+
+### 背景
+- 用户在 https://ab.maque.uno/video-agent 看到 2 个会话显示 "限流暂停" (橙色 chip): `ad9aad5b` + `6bec5aae`
+- 用户怀疑: 是真限流了? 后端卡住了?
+- 真根因: **不是真限流,不是后端卡住,是 agens 上游 404 `task not found` 被后端一刀切标成 "API 限流 / 持续失败"**
+
+### 根因 (代码层 + 证据)
+- **代码层** (`apps/server/src/services/videoAgentService.ts:795-803`, 修前):
+  ```ts
+  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {  // = 5
+    await videoConversationModel.update(conversationId, {
+      status: 'tool_throttled' as AgentConversationStatus,
+      error_msg: `API 限流 / 持续失败, 已暂停轮询 (${consecutiveFailures} 次). 请稍后手动重试`,
+    });
+  }
+  ```
+  任何连续失败 5 次都进 tool_throttled, 文案写死 "API 限流", 但 404/5xx/timeout 都算失败, 没区分.
+
+- **生产证据** (`/www/wwwroot/shipin-APP/logs/combined.log` 真实日志):
+  ```
+  6bec5aae 时间线 (2026-06-29 上午):
+    01:09:16  confirm accepted → 01:09:30  createTask done (14s 成功, 拿到 videoId)
+    01:09:35  polling #1 → Agnes Video query error (404): {"code":404,"message":"task not found"}
+    01:09:46  polling #2 → 404
+    01:10:07  polling #3 → 404
+    01:10:38  polling #4 → 404
+    01:11:09  polling #5 → 404
+    01:11:09  polling throttled, stopped
+  ad9aad5b 时间线: 同模式, createTask 60s timeout → retry 拿到 videoId → polling 5 次 404 → 标 throttled
+  ```
+
+- **24h 全局错误统计**:
+  | 错误码 | 次数 | 含义 |
+  |---|---|---|
+  | `(429)` | 44 | 真正限流 (但 ad9aad5b / 6bec5aae 没命中) |
+  | `(404)` | 10 | task not found (这俩命中) |
+  | `(400)` | 6 | 参数错 |
+
+- **DB 状态 (实锤)**:
+  ```
+  ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97  tool_throttled  retry_count=0
+     error_msg: API 限流 / 持续失败, 已暂停轮询 (5 次). 请稍后手动重试
+  6bec5aae-ad47-48b1-bde3-aabcf8fda719  tool_throttled  retry_count=0
+     error_msg: API 限流 / 持续失败, 已暂停轮询 (5 次). 请稍后手动重试
+  ```
+
+- **5 次 backoff 节奏**: 5s + 10s + 20s + 30s + 30s = 95 秒就标 throttled (跟实际 99s / 153s 匹配)
+
+### 根因诊断 (3 个可能, 概率从高到低)
+| # | 假设 | 证据 | 概率 |
+|---|---|---|---|
+| 1 | agens 上游 task 状态机异常 — createTask 成功入库, 但 query 端点查不到 (可能 2 个不同 region / DB / 缓存层) | 10/10 个 404 都是 `task not found` 模板, 跨 session 跨时间一致 | 高 |
+| 2 | shipin-APP videoId 编解码跟 agens 上游不一致 | videoId 是 base64(里面 `agnes-video-v2.0;video_id:...`), 结构只有 shipin-APP 自己解 | 中 |
+| 3 | agens 上游有极短 task TTL (几秒), createTask 完没及时 query 就被清 | 6bec5aae 14s 就 404, 跟短 TTL 现象一致 | 中 |
+
+### 修法 (2 步: 短期救活 + 中期改代码)
+
+#### 短期 (1 步, 2 分钟, 救活 ad9aad5b / 6bec5aae)
+后端没有 "resume from throttled" 的 API 端点, 跑 SQL:
+```sql
+UPDATE video_conversations
+SET status = 'plan_ready', error_msg = NULL, retry_count = 0
+WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
+             '6bec5aae-ad47-48b1-bde3-aabcf8fda719');
+-- rows_updated = 2 ✅
+```
+用户去前端点 "确认生成" → 重新跑 createTask (会重新拿 videoId, 避开 task not found).
+
+#### 中期 (代码修, 30 分钟, 4 个文件)
+1. **server `videoAgentService.ts`**: 加 `classifyPollingError(err)` helper, 把 polling 错误分类
+   - 404 `task not found` → `[404]` 前缀 + "任务失效" 提示
+   - 429 → `[429]` 前缀 + "限流" 提示
+   - 5xx / timeout → `[5xx]` 前缀 + "上游异常" 提示
+2. **server `types.ts`**: 注释扩 `tool_throttled` 为 "限流 / 上游暂停", 加 ERR_TYPE 前缀协议
+3. **web `AgentChatPanel.tsx`**: `statusBadge(s, errorMsg?)` 加 errorMsg 参数, parse `[XXX]` 前缀决定 label/cls:
+   - `[404]` → 任务失效 (bg-red-100 text-red-700)
+   - `[429]` → 限流暂停 (bg-orange-100 text-orange-700)
+   - `[5xx]` → 上游异常 (bg-amber-100 text-amber-700)
+   - 老数据 fallback → 暂停 (bg-orange-100 text-orange-700)
+4. **mobile `VideoAgentScreen.tsx`**: `StatusBadge({ status, error_msg })` 加 error_msg prop, THROTTLED_SUBTYPE_MAP 跟 web 1:1 镜像
+   - 加 `currentErrorMsg` state (跟 `convStatus` 配套, loadConversation + pollingEffect 同步)
+
+#### 顺手修 web pre-existing
+- `apps/web/src/pages/BookshelfPage.tsx` line 2: `import { useNavigate }` → `import { useNavigate, Link }` (line 172/186 用了 Link 但没 import, tsc 失败阻塞 web build, 跟 BUG-118 无关但阻塞 deploy)
+
+### 端到端验证
+
+| 维度 | 修前 | 修后 |
+|---|---|---|
+| server tsc --noEmit | ✅ 0 错 | ✅ 0 错 |
+| web tsc -b --noEmit | ❌ 2 错 (BookshelfPage Link) | ✅ 0 错 |
+| web build | ❌ EXIT 1 (Link) | ✅ 7.08s, 520KB |
+| server build | ✅ | ✅ (重 build 后 dist 含 classifyPollingError) |
+| 后端 error_msg 模板 | "API 限流 / 持续失败..." | "[404] 上游任务失效 (task not found), 已暂停轮询 (5 次). 建议手动重试..." |
+| 前端 label 细分 | 只有 "限流暂停" (橙) | "任务失效" (红) / "限流暂停" (橙) / "上游异常" (琥珀) |
+| DB 状态 (ad9aad5b / 6bec5aae) | tool_throttled | plan_ready (用户能重试) |
+| 跨端 1:1 (web + mobile) | ❌ web 老 label, mobile 老 label | ✅ web + mobile 1:1 镜像 |
+
+### 铁律 (跨项目通用, 跟 BUG-079/097/098/103/104/115/116/117 同源)
+1. **error_msg 模板化 + 必带 ERR_TYPE 前缀**: 不要写死 "限流" 误导, 必 classify 后再决定文案 (跟 BUG-079 假报告 100% 同源)
+2. **后端 catch 块必先 classify 错误类型**: 404/429/5xx/timeout 是不同语义, 不要一刀切
+3. **UI label 必跟 status 字段 1:1 镜像**: 跨端 web + mobile 同步 (跨端铁律 4++)
+4. **不要给用户误导文案**: "限流暂停" 让用户去查 agens 配额, 实际是 404 — 文案错了, 用户白忙活
+5. **mobile APK 此次未重打 (避免 3-5min Gradle build)**: v3.0.47 mobile 代码已在 git, 下次发版时 assembleRelease 一次性带出. 期间 mobile 用户看老 label "限流暂停" (web 主导, 跟 mobile 1:1 留给下一版)
+
+### 关键 git
+- commit: BUG-118 v3.0.47 修 (server classifyPollingError + web/mobile StatusBadge 细分)
+- 6 文件: apps/server/src/services/videoAgentService.ts + apps/web/src/components/AgentChatPanel.tsx + apps/mobile/src/screens/VideoAgentScreen.tsx + 6 处版本号 (mobile version.ts / build.gradle / server package.json / index.ts / ecosystem / web version.ts) + apps/server/changelog.json (新条目) + apps/web/src/pages/BookshelfPage.tsx (顺手修)
+- push main
+
+### 已知遗留
+- **mobile APK 未重打**: 留待下次发版合并. v3.0.47 mobile 代码已 push, 下次 assembleRelease 必带 (避免 mobile 用户看老 label 跟 web 不一致)
+- **长期 (联系 agens 上游)**: 排查 10 个 404 的 taskId 样本, 问 agens createTask 跟 queryTask 是不是共享同一 region / DB / 缓存. shipin-APP 用的 agens endpoint 是不是最新版 (v3?)

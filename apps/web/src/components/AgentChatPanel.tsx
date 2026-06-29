@@ -92,6 +92,8 @@ interface Conversation {
   title?: string;
   status: string;
   updatedAt?: number;
+  // BUG-118: 列表项也展示 status badge, 需 errorMsg 决定细分 label (404/429/5xx)
+  errorMsg?: string | null;
 }
 
 /**
@@ -140,6 +142,8 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  // BUG-118: 主头部 statusBadge 需要 errorMsg 决定细分 label, 同步 conv.errorMsg 到 state
+  const [currentErrorMsg, setCurrentErrorMsg] = useState<string | null>(null);
   // v3.0.0: 待发送的参考图列表 (上传到 /api/agent/upload 后, URL 临时存在这里, 跟 input 文本一起发)
   const [pendingRefs, setPendingRefs] = useState<{ url: string; localPreview: string; filename: string; uploading?: boolean }[]>([]);
   // v3.0.0.7: 比例快捷选择 (避免用户打字 "比例换成16:9")
@@ -233,6 +237,8 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
         if (conv.status && conv.status !== status) {
           setStatus(conv.status);
         }
+        // BUG-118: 同步 conv.errorMsg → currentErrorMsg, 主头部 statusBadge 用
+        setCurrentErrorMsg((conv as any).errorMsg || null);
         // 2.5) v3.0.31 (S69 BUG-072 E): 同步 conv.billing_status, 注入到 video part
         const bs = (conv as any).billing_status as 'settled' | 'unsettled' | undefined;
         if (bs === 'settled' || bs === 'unsettled') {
@@ -701,7 +707,8 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   };
 
   // 状态徽标
-  const statusBadge = (s: string) => {
+  // BUG-118 (v3.0.47): tool_throttled 文案细分 — 根据 error_msg 前缀 [404]/[429]/[5xx] 决定 label 颜色
+  const statusBadge = (s: string, errorMsg?: string | null) => {
     const map: Record<string, { label: string; cls: string }> = {
       idle: { label: '未开始', cls: 'bg-gray-100 text-gray-600' },
       ai_clarifying: { label: 'AI 问询中', cls: 'bg-blue-100 text-blue-700' },
@@ -714,11 +721,26 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       tool_queued: { label: '排队中', cls: 'bg-purple-100 text-purple-700' },
       tool_executing: { label: '生成中', cls: 'bg-indigo-100 text-indigo-700' },
       tool_completed: { label: '已完成 · 可继续修改', cls: 'bg-emerald-100 text-emerald-700' },
-      tool_throttled: { label: '限流暂停', cls: 'bg-orange-100 text-orange-700' },
+      // BUG-118: 细分子状态,前端 parse error_msg 前缀
+      // [404] 任务失效 (上游 query 找不到) — 红橙色,提示重新生成会创建新任务
+      // [429] 限流暂停 — 橙色,提示 1-2 分钟后重试
+      // [5xx] 上游异常 — 琥珀色,提示稍后重试
+      // 无前缀 (老数据 fallback) — 橙色 "暂停"
+      tool_throttled: { label: '暂停', cls: 'bg-orange-100 text-orange-700' },
       tool_failed: { label: '失败', cls: 'bg-red-100 text-red-700' },
     };
-    const m = map[s] || { label: s, cls: 'bg-gray-100 text-gray-600' };
-    return <span className={`text-xs px-2 py-0.5 rounded-full ${m.cls}`}>{m.label}</span>;
+    let m = map[s] || { label: s, cls: 'bg-gray-100 text-gray-600' };
+    // BUG-118: tool_throttled 时根据 error_msg 前缀细分子标签
+    if (s === 'tool_throttled' && errorMsg) {
+      if (/^\[404\]/.test(errorMsg)) {
+        m = { label: '任务失效', cls: 'bg-red-100 text-red-700' };
+      } else if (/^\[429\]/.test(errorMsg)) {
+        m = { label: '限流暂停', cls: 'bg-orange-100 text-orange-700' };
+      } else if (/^\[5xx\]/.test(errorMsg)) {
+        m = { label: '上游异常', cls: 'bg-amber-100 text-amber-700' };
+      }
+    }
+    return <span className={`text-xs px-2 py-0.5 rounded-full ${m.cls}`} title={errorMsg || undefined}>{m.label}</span>;
   };
 
   return (
@@ -776,7 +798,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
                 </button>
               </div>
               <div className="flex items-center justify-between">
-                {statusBadge(c.status)}
+                {statusBadge(c.status, c.errorMsg)}
                 {c.updatedAt && <span className="text-[10px] text-text-tertiary">{new Date(c.updatedAt).toLocaleDateString()}</span>}
               </div>
             </button>
@@ -791,7 +813,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
           <div className="flex items-center gap-2">
             <Icon className={accentColor} size={20} />
             <h2 className="font-semibold">{title}</h2>
-            {conversationId && statusBadge(status)}
+            {conversationId && statusBadge(status, currentErrorMsg)}
           </div>
           {/* v3.0.0.3: 一键确认 (image: 中文方案→自动翻译→自动出图; video: 旧流程) */}
           {status === 'plan_cn_ready' && api.translatePlan && (

@@ -1,4 +1,4 @@
-// APP 版本统一管理
+﻿// APP 版本统一管理
 // 发布新版本时只需修改此处 (跨端铁律 3: 8 处版本号同步, 见 VERSION_MANAGEMENT.md § 5)
 //
 // 修改流程:
@@ -12,7 +12,7 @@
 //   4. commit message 必带版本号 (铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验证 (BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.46';
+export const APP_VERSION = '3.0.47';
 
 // v3.0.41 (S72 batch 7 BUG-105 mobile sync): 移植 web characterUtils.ts 到 mobile utils, 3 个 screen 改用统一 utils, 兼容 server v3.0.40 Markdown 自由文本格式
 //   - 修法: 跟 web apps/web/src/lib/characterUtils.ts v2.5.34 1:1 对齐 (除 getRoleLabel/getRoleColor — mobile 端用 theme/character.ts)

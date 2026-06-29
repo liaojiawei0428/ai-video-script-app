@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { getNovelsApi, uploadNovelApi, deleteNovelApi } from '../lib/api';
 import { getLocalNovels, saveNovelIfChanged, diffNovelsByHash } from '../db/indexedDb';
 import { Search, Upload, BookOpen, Filter, X, Trash2 } from 'lucide-react';

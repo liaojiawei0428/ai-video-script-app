@@ -436,9 +436,89 @@ Stage 2 (BUG-109) + 缓存方案 A (BUG-115) 解决了"本地优先"和"减少 S
 - **BUG-115** 缓存方案 A (本地优先) — BUG-116 缓存方案 B (cache_meta + ETag/304) 是 A 的闭环
 - **BUG-117** deploy.py 漏 scp APK — deploy.py v3.0 重写, scp 4 件套 + 公网 HEAD 验证
 
+## § 6.9 v3.0.47 新增: videoAgent tool_throttled 细分 (S72 batch 19 BUG-118)
+
+> **新增 2026-06-29 (S72 batch 19 v3.0.47 BUG-118)**: 修 videoAgent "限流暂停" 误标 404 task not found — 后端 error_msg 模板化 + ERR_TYPE 前缀 + 前端 parse 决定 label 颜色.
+
+### § 6.9.1 背景
+
+用户在 https://ab.maque.uno/video-agent 看到 2 个会话 (`ad9aad5b` / `6bec5aae`) 显示 "限流暂停" 橙色 chip, 怀疑真限流还是后端卡住.
+- **真根因**: agens 上游 404 `task not found` (不是真 429 限流, 不是后端卡住)
+- **代码层 bug** `videoAgentService.ts:795-803` (修前): 任何连续失败 5 次都标 `tool_throttled`, 文案写死 "API 限流 / 持续失败", 但 404/5xx/timeout 都算失败, 没区分
+- **生产日志** (`/www/wwwroot/shipin-APP/logs/combined.log`) 实锤: 2 个 session 命中都是 `Agnes Video query error (404)`, 24h 全局错误 44/10/6 (429/404/400)
+- 跟 BUG-079 假报告 + BUG-097 mobile 漏修 web 100% 同源: 前端 label 跟实际错误类型不匹配 = 用户被误导
+
+### § 6.9.2 修法架构 (4 文件 + 8 处版本号 + 3 端 0 错)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  server videoAgentService.ts: classifyPollingError(err)  │
+│  - tag: '404' | '429' | '5xx'                             │
+│  - error_msg 模板: `[${tag}] ${msg}, 已暂停轮询 (${n} 次). ${建议}`  │
+│  - 404: 建议手动重试 (重新生成会创建新任务)                │
+│  - 429: 请 1-2 分钟后手动重试                              │
+│  - 5xx: 请稍后手动重试                                     │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 1:1 镜像
+┌──────────────────────────────────────────────────────────┐
+│  web AgentChatPanel.tsx: statusBadge(s, errorMsg?)        │
+│  - tool_throttled 子 label:                                │
+│    [404] → 任务失效 (bg-red-100 text-red-700)             │
+│    [429] → 限流暂停 (bg-orange-100 text-orange-700)       │
+│    [5xx] → 上游异常 (bg-amber-100 text-amber-700)         │
+│    无前缀 → 暂停 (老数据 fallback)                         │
+│  - title=errorMsg 鼠标 hover 看全文                        │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 1:1 镜像 (跨端铁律 4++)
+┌──────────────────────────────────────────────────────────┐
+│  mobile VideoAgentScreen.tsx: StatusBadge({ status, error_msg })  │
+│  - THROTTLED_SUBTYPE_MAP 跟 web 1:1 镜像                  │
+│  - 头部 convErrorMsg state (loadConversation + polling 同步) │
+│  - 列表项 item.error_msg                                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.9.3 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | mobile 端 | web 端 | 一致性 |
+|---|---|---|---|
+| 状态枚举 | tool_throttled (保持, DB 0 改) | 同左 | ✅ 1:1 |
+| 细分维度 | error_msg 前缀 [404]/[429]/[5xx] | 同左 | ✅ 1:1 |
+| 头部 status 同步 | convErrorMsg state (loadConversation + polling 同步) | currentErrorMsg state (syncConv 同步) | ✅ 1:1 |
+| 列表项 | item.error_msg | c.errorMsg | ✅ 1:1 |
+| label 文案 | 任务失效/限流暂停/上游异常 | 同左 | ✅ 1:1 |
+| 颜色 (red/orange/amber) | 同 web | 同左 | ✅ 1:1 |
+
+### § 6.9.4 使用规范
+
+1. **error_msg 必带 ERR_TYPE 前缀**: 不要写死 "限流" 误导用户, 必先 classify 错误类型再决定文案
+2. **后端 catch 块必先 classify**: 404/429/5xx/timeout 是不同语义, 不要一刀切
+3. **UI label 必跟 status 字段 1:1 镜像**: 跨端 web + mobile 同步, 加 status 加 label 加映射
+4. **不要给用户误导文案**: 跨项目通用, 文案错了用户白忙活
+5. **短路 SQL 救活**: 后端没 "resume from throttled" 端点时, 用 SQL UPDATE 拉回 plan_ready (用户能重试)
+6. **新 status 字段加 label 映射必 web + mobile 同步**: 加一处忘另一处 = 漏修 (跟 BUG-097 mobile 漏修 web 同源)
+
+### § 6.9.5 跨项目通用 (跟 BUG-079/097/103/104/115/116/117 100% 同源)
+
+- **error_msg 模板化 + ERR_TYPE 前缀**: 跨项目通用, 前端 parse 决定 UI 状态
+- **后端 catch 块必先 classify**: 不要一刀切, 404/429/5xx 是不同语义
+- **UI label 必跟 status 字段 1:1 镜像**: 跨端 web+mobile 同步
+- **不要给用户误导文案**: 文案错了用户白忙活 (跟 BUG-079 假报告同源)
+- **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3, v3.0.46→v3.0.47)
+- **顺手修阻塞 deploy 的 pre-existing 错**: BookshelfPage Link import 1 行修复, tsc 失败阻塞 web build
+- **mobile APK 必重打 跨端铁律 4++**: v3.0.47 mobile 代码已 push, 下次发版时 assembleRelease 一次性带出 (避免 mobile 用户看老 label 跟 web 不一致)
+
+### § 6.9.6 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — 跟 BUG-118 用户被误导文案 100% 同源
+- **BUG-097** mobile 漏修 web — BUG-118 加 status 字段时 web + mobile 同步 label
+- **BUG-103** 自动退款漏刷 APK — BUG-118 mobile APK 此次未重打 已知遗留, 下次发版合并
+- **BUG-115/116** 缓存方案 A+B — BUG-118 是新维度, 跟缓存方案同源跨项目通用铁律
+- **BUG-117** 公网 APK 404 — BUG-118 跨端铁律 4++ mobile APK 必重打 (跟 deploy.py 必加 scp 4 件套配套)
+
 ---
 
-**🆕 S68 收口 + S71 后置 + S72 batch 16/17 缓存方案 A+B**: 跨端通用规范 + 缓存方案完整闭环. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8 跨端规范, 跟 server 视角统一**.
+**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19 缓存方案 A+B + BUG-118 工具文案子状态细分**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9 跨端规范, 跟 server 视角统一**.
 
-> **最后更新**: 2026-06-27 (S72 batch 17 v3.0.46 BUG-116, 加 § 6.7 v3.0.45 缓存方案 A + § 6.8 v3.0.46 缓存方案 B 规范, 跟根 AGENTS.md v2.13 同步)
+> **最后更新**: 2026-06-29 (S72 batch 19 v3.0.47 BUG-118, 加 § 6.9 videoAgent tool_throttled 细分规范, 跟根 AGENTS.md v2.14 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时

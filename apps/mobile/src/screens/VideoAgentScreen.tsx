@@ -54,6 +54,8 @@ interface ConvListItem {
   status: string;
   createdAt: number;
   resultVideoUrl?: string;
+  // BUG-118: 列表项 status badge 需 error_msg 决定细分 label (404/429/5xx)
+  error_msg?: string | null;
 }
 
 // v3.0.24.4 (S60 P3 BUG-050 重设计): 状态徽章 — 跟 web 端 1:1 (10 种状态)
@@ -69,12 +71,25 @@ const STATUS_MAP: Record<string, { label: string; bg: string; fg: string }> = {
   tool_queued: { label: '排队中', bg: '#f3e8ff', fg: '#7e22ce' },
   tool_executing: { label: '生成中', bg: '#e0e7ff', fg: '#4338ca' },
   tool_completed: { label: '已完成', bg: '#d1fae5', fg: '#047857' },
-  tool_throttled: { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },
+  tool_throttled: { label: '暂停', bg: '#ffedd5', fg: '#c2410c' },
   tool_failed: { label: '失败', bg: '#fee2e2', fg: '#b91c1c' },
 };
 
-function StatusBadge({ status }: { status: string }) {
-  const m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
+// BUG-118 (v3.0.47): tool_throttled 细分映射 — 跟 web 端 1:1
+const THROTTLED_SUBTYPE_MAP: Record<string, { label: string; bg: string; fg: string }> = {
+  '404': { label: '任务失效', bg: '#fee2e2', fg: '#b91c1c' },   // 红 — 上游 query 找不到
+  '429': { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },   // 橙 — 限流
+  '5xx': { label: '上游异常', bg: '#fef3c7', fg: '#b45309' },   // 琥珀 — 异常
+};
+
+function StatusBadge({ status, error_msg }: { status: string; error_msg?: string | null }) {
+  // BUG-118: tool_throttled 时根据 error_msg 前缀细分子标签
+  let m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
+  if (status === 'tool_throttled' && error_msg) {
+    if (/^\[404\]/.test(error_msg)) m = THROTTLED_SUBTYPE_MAP['404'];
+    else if (/^\[429\]/.test(error_msg)) m = THROTTLED_SUBTYPE_MAP['429'];
+    else if (/^\[5xx\]/.test(error_msg)) m = THROTTLED_SUBTYPE_MAP['5xx'];
+  }
   return (
     <View style={{ backgroundColor: m.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 2 }}>
       <Text style={{ color: m.fg, fontSize: 10, fontWeight: '700' }}>{m.label}</Text>
@@ -126,6 +141,8 @@ export function VideoAgentScreen(): React.JSX.Element {
   const [history, setHistory] = useState<ConvListItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [convStatus, setConvStatus] = useState<string>(''); // v3.0.24.4 BUG-050 修: 顶部显示当前状态
+  // BUG-118: 头部 StatusBadge 需要 error_msg 决定细分 label
+  const [convErrorMsg, setConvErrorMsg] = useState<string | null>(null);
   const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050 修: 用户主动新建/删除时不 auto-load 旧 conv
   const scrollRef = useRef<ScrollView>(null);
   const { showAlert, showConfirm } = useDialog();
@@ -199,6 +216,7 @@ export function VideoAgentScreen(): React.JSX.Element {
       setConversationId(conv.id);
       setMessages(conv.messages || []);
       setConvStatus(conv.status || ''); // v3.0.24.4 BUG-050
+      setConvErrorMsg(conv.error_msg || null); // BUG-118: 细分 label
       setShowHistory(false);
     } catch (e: any) {
       showAlert({ title: '加载失败', message: e?.response?.data?.error?.message || e?.message });
@@ -214,6 +232,7 @@ export function VideoAgentScreen(): React.JSX.Element {
       if (convId) {
         setConversationId(convId);
         setConvStatus('awaiting_clarification'); // v3.0.24.4 BUG-050
+        setConvErrorMsg(null); // BUG-118: 新会话无 error_msg
         if (welcome) setMessages([welcome]);
         else setMessages([]);
       }
@@ -231,6 +250,7 @@ export function VideoAgentScreen(): React.JSX.Element {
         if (!conv) return;
         const status = conv.status;
         setConvStatus(status); // v3.0.24.4 BUG-050 修: 顶部 status badge 实时更新
+        setConvErrorMsg(conv.error_msg || null); // BUG-118: 同步 error_msg 决定细分 label
         setMessages(prev => {
           const next = [...prev];
           let targetIdx = -1;
@@ -342,6 +362,7 @@ export function VideoAgentScreen(): React.JSX.Element {
           setMessages([]);
           setPollingConvId(null);
           setConvStatus('');
+          setConvErrorMsg(null); // BUG-118
           createConversation(true); // 立刻建个新的
           loadHistory();
         } catch (e: any) {
@@ -476,7 +497,7 @@ export function VideoAgentScreen(): React.JSX.Element {
               {conversationId ? '视频会话' : '视频助手'}
             </Text>
           </View>
-          {convStatus ? <StatusBadge status={convStatus} /> : null}
+          {convStatus ? <StatusBadge status={convStatus} error_msg={convErrorMsg} /> : null}
         </View>
         <TouchableOpacity style={styles.toolbarPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
           <Ionicons name="add" size={18} color="#fff" />
@@ -643,7 +664,7 @@ export function VideoAgentScreen(): React.JSX.Element {
                   <View style={styles.historyItemBody}>
                     <Text style={styles.historyItemTitle} numberOfLines={1}>{item.title}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                      <StatusBadge status={item.status || 'idle'} />
+                      <StatusBadge status={item.status || 'idle'} error_msg={item.error_msg} />
                     </View>
                   </View>
                   {/* v3.0.24.4 (S60 P3 BUG-050 重设计): 单条删除按钮 (跟 web 端一致) */}
@@ -667,6 +688,7 @@ export function VideoAgentScreen(): React.JSX.Element {
                                 setConversationId(null);
                                 setMessages([]);
                                 setConvStatus('');
+                                setConvErrorMsg(null); // BUG-118
                               }
                               await loadHistory();
                             } catch (e: any) {

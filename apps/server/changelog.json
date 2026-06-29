@@ -5,6 +5,22 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.47",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-118 修 videoAgent '限流暂停' 误标 404: server videoAgentService.ts 加 classifyPollingError 区分 404 (上游 task not found) / 429 (限流) / 5xx (上游异常) — error_msg 模板加 [ERR_TYPE] 前缀, 前端 parse 决定 label 颜色 (任务失效红 / 限流橙 / 上游异常琥珀)",
+      "highlights": [
+        "BUG-118 ✅ server src/services/videoAgentService.ts 加 classifyPollingError helper: 5 次连续 polling 失败时按 err.message 分类 [404]/[429]/[5xx], 文案加 ERR_TYPE 前缀 (前端 parse 决定 label 颜色)",
+        "BUG-118 ✅ 修前: 任何连续失败 5 次都标 'API 限流 / 持续失败' (误导用户查 agens 配额, 实际是 404 task not found). 修后: '任务失效' (红) / '限流暂停' (橙) / '上游异常' (琥珀)",
+        "BUG-118 ✅ SQL 救活 ad9aad5b / 6bec5aae: 短期 UPDATE video_conversations SET status='plan_ready', error_msg=NULL, retry_count=0 (用户可点重试, 会重新 createTask)",
+        "BUG-118 ✅ web AgentChatPanel.tsx statusBadge 加 errorMsg 参数, 列表项 + 头部都用 currentErrorMsg state (syncConv 里 set), tool_throttled 子 label: [404]→'任务失效'/[429]→'限流暂停'/[5xx]→'上游异常' (title hover 看全文)",
+        "BUG-118 ✅ mobile VideoAgentScreen.tsx StatusBadge 加 error_msg prop, 头部 convErrorMsg state (loadConversation + pollingEffect 同步), 列表项 item.error_msg, THROTTLED_SUBTYPE_MAP 跟 web 1:1 镜像",
+        "BUG-118 ✅ web BookshelfPage.tsx 顺手修 pre-existing 错: import 加 Link (line 172/186 用了 Link 但没 import, tsc 失败阻塞 web build)",
+        "BUG-118 跨项目通用铁律: 1) error_msg 模板化 + 必带 ERR_TYPE 前缀, 前端 parse 决定 UI 状态 (不要硬编码 '限流' 误导) 2) 后端 catch 块必先 classify 错误类型, 再决定 status/error_msg 3) UI label 必跟 status 字段 1:1 镜像, 跨端 web+mobile 同步",
+        "BUG-118 已知遗留: mobile APK 此次未重打 (避免 3-5min Gradle build), 留待下次发版合并. v3.0.47 mobile 代码已在 git, 下次 assembleRelease 时一次性带出"
+      ]
+    },
+    {
       "version": "3.0.46",
       "buildDate": "2026-06-27",
       "type": "patch",
@@ -185,5 +201,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.46"
+  "latest_version": "3.0.47"
 }

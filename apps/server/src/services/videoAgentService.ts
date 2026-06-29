@@ -51,6 +51,25 @@ const MAX_POLLING_INTERVAL_MS = 30000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const MAX_POLLING_ATTEMPTS = 120;
 
+/**
+ * BUG-118 (v3.0.47): 把 polling 错误分类 — 区分 404 (上游 task not found) / 429 (限流) / 5xx (上游异常)
+ * 前端会 parse error_msg 前缀 `[404]` / `[429]` / `[5xx]` 决定 label 颜色和文案.
+ * 之前: 任何连续失败 5 次都标 "API 限流 / 持续失败", 误导用户去查 agens 配额 (实际是 404 任务失效).
+ */
+function classifyPollingError(err: any): { tag: '404' | '429' | '5xx'; msg: string } {
+  const raw = String(err?.message || '');
+  if (raw.includes('task not found') || raw.includes('(404)')) {
+    return { tag: '404', msg: '上游任务失效 (task not found) — 可能是 agens 上游 query 端点查不到刚 createTask 完的 taskId' };
+  }
+  if (raw.includes('429')) {
+    return { tag: '429', msg: '上游 API 限流 (429)' };
+  }
+  if (raw.includes('timeout') || raw.includes('fetch failed') || raw.includes('Service busy') || raw.includes('503')) {
+    return { tag: '5xx', msg: '上游服务暂时不可用 (timeout/5xx)' };
+  }
+  return { tag: '5xx', msg: '上游服务异常' };
+}
+
 // ── v3.0.0.14: aspect ratio → 尺寸映射 (与图片 agent 保持一致) ──
 const ASPECT_DIMENSIONS: Record<string, { w: number; h: number }> = {
   '1024x1024': { w: 1024, h: 1024 },
@@ -793,16 +812,26 @@ export class VideoAgentService {
         });
 
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          // 连续 5 次失败, 暂停轮询, 标 tool_throttled 让用户能感知
+          // BUG-118: 连续 5 次失败, 暂停轮询 — 用 classifyPollingError 区分 404/429/5xx
+          // 文案带 [ERR_TYPE] 前缀, 前端 parse 决定 label (避免 "限流" 误标 404)
+          const cls = classifyPollingError(err);
+          const friendlyMsg = `[${cls.tag}] ${cls.msg}, 已暂停轮询 (${consecutiveFailures} 次). ${
+            cls.tag === '404' ? '建议手动重试 (重新生成会创建新任务)' :
+            cls.tag === '429' ? '请 1-2 分钟后手动重试' :
+            '请稍后手动重试'
+          }`;
           await videoConversationModel.update(conversationId, {
             status: 'tool_throttled' as AgentConversationStatus,
-            error_msg: `API 限流 / 持续失败, 已暂停轮询 (${consecutiveFailures} 次). 请稍后手动重试`,
+            error_msg: friendlyMsg,
           } as any).catch(() => {});
-          logger.error('VideoAgent: polling throttled, stopped', { conversationId, videoId, consecutiveFailures });
+          logger.error('VideoAgent: polling throttled, stopped', {
+            conversationId, videoId, consecutiveFailures, errorTag: cls.tag, rawError: err?.message,
+          });
           return;  // stop
         }
+        // 429 显式: 不更新状态 (仍在 tool_executing), 只 backoff
         if (err?.message?.includes('429')) {
-          // 429 显式: 不更新状态 (仍在 tool_executing), 只 backoff
+          logger.debug('VideoAgent: 429 received, backing off only (no status change)', { conversationId, videoId, consecutiveFailures });
         }
       }
 
