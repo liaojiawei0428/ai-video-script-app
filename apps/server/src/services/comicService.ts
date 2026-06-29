@@ -9,7 +9,7 @@ import { characterModel } from '../models/character';
 import { shotModel } from '../models/shot';
 import { taskJobModel } from '../models/taskJob';
 import { billingService } from './billingService';
-import { imageProvider } from './imageProvider';
+import { imageProvider, rateLimitedGenerate } from './imageProvider';
 import { websocketService } from './websocket';
 import { taskQueue } from './taskQueue';
 import { generateUUID } from '../shared/utils';
@@ -245,14 +245,18 @@ export class ComicService {
             refUrl: referenceImage?.slice(0, 60),
           });
 
-          const result = await imageProvider.generate({
-            prompt: systemPrompt + '\n\n' + userPrompt,
-            styleId: (novel as any)?.styleId,
-            angle: 'comic' as any,
-            width: sizeInfo.width,
-            height: sizeInfo.height,
-            seed: Date.now() + page,
-            referenceImages: referenceImage ? [referenceImage] : undefined,
+          const result = await rateLimitedGenerate({
+            taskId,
+            label: `comic:page${page}`,
+            imageOptions: {
+              prompt: systemPrompt + '\n\n' + userPrompt,
+              styleId: (novel as any)?.styleId,
+              angle: 'comic' as any,
+              width: sizeInfo.width,
+              height: sizeInfo.height,
+              seed: Date.now() + page,
+              referenceImages: referenceImage ? [referenceImage] : undefined,
+            },
           });
           const durationMs = Date.now() - startMs;
 

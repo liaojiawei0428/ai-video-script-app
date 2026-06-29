@@ -9,7 +9,7 @@ import { novelModel } from '../models/novel';
 import { userModel } from '../models/user';
 import { websocketService } from './websocket';
 import { deepseekPool } from './deepseekPool';
-import { generateThreeVariants } from './imageProvider';
+import { generateThreeVariants, rateLimitedGenerate } from './imageProvider';
 import { logger } from '../utils/logger';
 import { billingService, CHARACTER_VARIANT_PRICE } from './billingService';
 import {
@@ -615,10 +615,15 @@ export async function generateImageVariants(
   let totalFailed = 1;
 
   try {
-    const result = await provider.generate({
-      prompt: finalPrompt,
-      styleId,
-      angle: 'sheet',
+    // v3.0.52 (BUG-123): 包装 rate limiter (40/min), taskId=characterId
+    const result = await rateLimitedGenerate({
+      taskId: characterId,
+      label: 'characterSheet',
+      imageOptions: {
+        prompt: finalPrompt,
+        styleId,
+        angle: 'sheet',
+      },
     });
     sheetUrl = result.url;
     totalSucceeded = 1;
@@ -797,10 +802,15 @@ export async function generateImageForShot(
 
   // 生成
   const provider = await import('./imageProvider');
-  const result = await provider.getDefaultImageProvider().generate({
-    prompt,
-    styleId,
-    angle: 'full_body',
+  // v3.0.52 (BUG-123): 包装 rate limiter (40/min), taskId=shotId
+  const result = await rateLimitedGenerate({
+    taskId: shotId,
+    label: 'shotImage',
+    imageOptions: {
+      prompt,
+      styleId,
+      angle: 'full_body',
+    },
   });
 
   // 扣费 (v3.0.31 S69 BUG-072 C: 走 billingService.chargeImage 标准接口)

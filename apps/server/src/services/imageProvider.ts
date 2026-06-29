@@ -206,6 +206,46 @@ export function registerImageProvider(provider: ImageProvider): void {
   console.log(`[ImageProvider] 已注册: ${provider.name}`);
 }
 
+// v3.0.52 (BUG-123): Agnes API 限流包装 (40/min image)
+// 包装任意 ImageProvider.generate() 调用, 自动 acquire/release rate limiter slot
+// 调用方只需传 taskId (用于队列追踪 + ETA 展示)
+// 排队时自动 await, 不会失败, 5 分钟超时 reject
+import { getAgnesImageLimiter } from '../utils/rateLimiter';
+import { logger } from '../utils/logger';
+
+export interface RateLimitedGenerateOptions {
+  taskId: string;           // 用于排队追踪 + log 关联 (必传)
+  imageOptions: ImageGenOptions;
+  label?: string;           // log 标签 (e.g. 'imageAgent', 'comic', 'characterSheet')
+}
+
+export async function rateLimitedGenerate(opts: RateLimitedGenerateOptions): Promise<ImageGenResult> {
+  const limiter = getAgnesImageLimiter();
+  const label = opts.label || 'image';
+  const startWaitLog = Date.now();
+
+  // 检查是否需要排队
+  const statusBefore = limiter.getStatus();
+  if (statusBefore.active >= statusBefore.limit) {
+    const queueInfo = limiter.getTaskQueueInfo(opts.taskId);
+    logger.info(`[RateLimit] ${label} taskId=${opts.taskId} 排队中: 第 ${queueInfo.position} 位, 预计 ${queueInfo.etaSeconds}s`);
+  }
+
+  const slot = await limiter.acquire(opts.taskId);
+  const waitedMs = Date.now() - startWaitLog;
+  if (waitedMs > 100) {
+    logger.info(`[RateLimit] ${label} taskId=${opts.taskId} 已获 slot, 排队等待 ${waitedMs}ms`);
+  }
+
+  try {
+    const provider = getDefaultImageProvider();
+    const result = await provider.generate(opts.imageOptions);
+    return result;
+  } finally {
+    slot.release();
+  }
+}
+
 /** 一次性生成 3 张变体图 (串行，避免 API 限流) */
 export async function generateThreeVariants(
   prompt: string,

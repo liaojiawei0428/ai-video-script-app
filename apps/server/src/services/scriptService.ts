@@ -6,7 +6,7 @@ import { shotModel } from '../models/shot';
 import { characterModel } from '../models/character';
 import { taskJobModel } from '../models/taskJob';
 import { deepseekPool } from './deepseekPool';
-import { imageProvider } from './imageProvider';
+import { imageProvider, rateLimitedGenerate } from './imageProvider';
 import { websocketService } from './websocket';
 import { taskQueue } from './taskQueue';
 import { generateUUID } from '../shared/utils';
@@ -1165,14 +1165,18 @@ ${episodeText}`;
             .filter(Boolean)
             .slice(0, 1); // 镜头图用 1 张参考, 避免主题干扰
 
-          const result = await imageProvider.generate({
-            prompt: finalPrompt || 'cinematic shot',
-            styleId: (styleId as any),
-            width: 512,
-            height: 320,
-            angle: 'full_body' as any,
-            seed: Date.now() + shot.shotNumber,
-            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+          const result = await rateLimitedGenerate({
+            taskId: shot.id,
+            label: `shot:${shot.shotNumber}`,
+            imageOptions: {
+              prompt: finalPrompt || 'cinematic shot',
+              styleId: (styleId as any),
+              width: 512,
+              height: 320,
+              angle: 'full_body' as any,
+              seed: Date.now() + shot.shotNumber,
+              referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+            },
           });
 
           await shotModel.update(shot.id, {

@@ -5,6 +5,23 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.52",
+      "buildDate": "2026-06-29",
+      "type": "minor",
+      "summary": "BUG-123 加 Agnes API 限流排队 (image 40/min + video 2/min): sliding window rate limiter + FIFO 队列 + ETA 估算 + 前端 UI 排队位置展示, 超 429/限流风险彻底解决 (跟 BUG-122 拆企业 key 配套, 实战 API 端限流仍存在, 客户端必加排队)",
+      "highlights": [
+        "BUG-123 ✅ 修前根因: Agnes API 端实际限流 image 40/min + video 2/min, shipin-APP 客户端没排队机制, 3+ 任务并发跑必踩限流 (即使拆 3 个企业 key 也救不了), 实战表现: BUG-122 修后高并发仍偶发 429",
+        "BUG-123 ✅ apps/server/src/utils/rateLimiter.ts 新建: SlidingWindowLimiter 类 (timestamp 滑动窗口 + FIFO 队列 + 5min 排队超时 reject + avgDuration 跟踪 + getStatus/getQueuePosition/getTaskQueueInfo 3 query API), 严格 1 分钟 N 次语义 (timestamp 保留至 windowMs 过期, 不是 release 时删除)",
+        "BUG-123 ✅ imageLimiter (默认 40/min) + videoLimiter (默认 2/min) 单例, 通过 .env AGNES_IMAGE_RATE_LIMIT / AGNES_IMAGE_RATE_WINDOW_MS / AGNES_VIDEO_RATE_LIMIT / AGNES_VIDEO_RATE_WINDOW_MS 配置化",
+        "BUG-123 ✅ 包装 5 个 image 调用点 + 1 个 video 调用点: imageAgentService.ts:576 (imageAgent) + scriptService.ts:1168 (shot) + comicService.ts:248 (comic:pageN) + characterService.ts:618 (characterSheet) + characterService.ts:800 (shotImage) + videoAgentService.ts:547 (videoAgent via createTaskWithLimit)",
+        "BUG-123 ✅ API 端点: GET /api/admin/rate-limit-status (admin auth, 返回 image/video 全局 active+waiting+limit+oldestEtaMs+avgDurationMs+estimatedWaitMs 8 字段); GET /api/tasks/:taskId/queue (用户 auth, 返回单 task 在 image/video limiter 中的 position + etaSeconds + 全局状态)",
+        "BUG-123 ✅ imageProvider.ts 新增 rateLimitedGenerate() 包装函数, 调用方只需传 taskId + imageOptions, 自动 acquire/release + 排队 log (info 级别 'taskId=X 排队中: 第 N 位, 预计 Xs' / '已获 slot, 排队等待 Xms')",
+        "BUG-123 ✅ agnesVideoProvider.ts 新增 createTaskWithLimit(opts, taskId, label) 方法, 调用方传 conversationId 作 taskId, 自动 acquire/release + 排队 log",
+        "BUG-123 ✅ 设计权衡: 严格 sliding window (timestamp 保留至 windowMs 过期, 不是 release 时删除) 而非纯并发 — 匹配 Agnes API 端 1 分钟 N 次语义 (实测 1 个 image 调用 5-30s, 40 个并发 5s 内全起会触发限流, 严格 sliding window 是正解)",
+        "BUG-123 跨项目通用铁律 (跟 BUG-079/097/103/115-122 100% 同源): API 限流不能当客户端不限制挡箭牌 (拆企业 key + 排客户端队列双管齐下); 严格 sliding window > 纯并发 (timestamp 保留至过期, 不是 release 时删除); FIFO 队列 + 排队超时 (5min reject); ETA 估算基于 oldestEtaMs + avgDuration; 排队状态必暴露给前端 UI (admin 全局 + 单 task detail); 限流配置化 (.env 4 字段)"
+      ]
+    },
+    {
       "version": "3.0.51",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -261,5 +278,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.51"
+  "latest_version": "3.0.52"
 }

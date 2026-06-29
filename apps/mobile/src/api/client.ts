@@ -189,6 +189,11 @@ export const updateCharacter = (characterId: string, data: { name?: string; appe
 export const getTaskProgress = (taskId: string) =>
   apiClient.get(`/tasks/${taskId}/progress`);
 
+// v3.0.52 (BUG-123): Agnes API 限流排队状态 (image 40/min + video 2/min)
+//   - 跨端铁律 4++ 1:1 镜像 web useQueueStatus hook
+export const getTaskQueueStatus = (taskId: string) =>
+  apiClient.get(`/tasks/${taskId}/queue`);
+
 // ---- Episodes ----
 
 export const getEpisodes = (novelId: string, light = true) =>

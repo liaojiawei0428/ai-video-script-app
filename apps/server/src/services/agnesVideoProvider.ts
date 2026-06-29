@@ -130,7 +130,38 @@ export class AgnesVideoProvider {
     return url;
   }
 
-  /** 创建视频任务 — 自动重试 timeout / 503 / 429 / 5xx 错误 (S72 batch 4 加重 retry, 5s backoff × 2) */
+  /** 创建视频任务 — 自动重试 timeout / 503 / 429 / 5xx 错误 (S72 batch 4 加重 retry, 5s backoff × 2)
+   *  v3.0.52 (BUG-123): 包装 rate limiter (Agnes video 2/min), 调用方传 taskId 用于排队追踪
+   *  用法: agnesVideoProvider.createTaskWithLimit(opts, 'task-id-123', 'videoAgent')
+   */
+  async createTaskWithLimit(
+    opts: AgnesVideoCreateOptions,
+    taskId: string,
+    label: string = 'video',
+  ): Promise<AgnesVideoCreateResult> {
+    const { getAgnesVideoLimiter } = await import('../utils/rateLimiter');
+    const limiter = getAgnesVideoLimiter();
+    const startWaitLog = Date.now();
+
+    const statusBefore = limiter.getStatus();
+    if (statusBefore.active >= statusBefore.limit) {
+      const queueInfo = limiter.getTaskQueueInfo(taskId);
+      logger.info(`[RateLimit] ${label} taskId=${taskId} 排队中: 第 ${queueInfo.position} 位, 预计 ${queueInfo.etaSeconds}s`);
+    }
+
+    const slot = await limiter.acquire(taskId);
+    const waitedMs = Date.now() - startWaitLog;
+    if (waitedMs > 100) {
+      logger.info(`[RateLimit] ${label} taskId=${taskId} 已获 slot, 排队等待 ${waitedMs}ms`);
+    }
+
+    try {
+      return await this.createTask(opts);
+    } finally {
+      slot.release();
+    }
+  }
+
   async createTask(opts: AgnesVideoCreateOptions): Promise<AgnesVideoCreateResult> {
     if (!this.apiKey) throw new Error('Agnes API Key 未配置');
 

@@ -8,5 +8,6 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/:taskId/progress', taskController.getProgress);
+router.get('/:taskId/queue', taskController.getQueueStatus);
 
 export default router;

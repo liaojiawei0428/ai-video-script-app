@@ -5716,3 +5716,108 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 - 无
 
 ---
+
+## BUG-123 (v3.0.52 Agnes API 限流排队): 拆 image 40/min + video 2/min 严格 sliding window 限流 + FIFO 队列 + ETA 估算 + 跨端 UI 排队位置展示 — 用户反馈 shipin-APP 高并发 (3+ 任务同时跑) 偶尔 429, 跟 BUG-122 拆企业 key 配套, 客户端必加排队 (跟 BUG-079/097/103/115-122 跨项目通用铁律同源) (S72 batch 24, 2026-06-29)
+
+### 现象 (审计)
+用户反馈 shipin-APP 高并发时 (3+ 任务同时跑) Agnes API 偶尔报 429 限流. 审查 shipin-APP 端代码 + Agnes 文档 + 当前调用情况:
+- **Agnes API 端实际限流**: image generation 40 次/分钟 (RPM), video generation 2 次/分钟 (RPM)
+- **shipin-APP 端** 5 个 image 调用点 + 1 个 video 调用点, **每请求直调 provider, 无任何客户端限流/排队机制**
+- **BUG-122 拆 3 企业 key** 后高并发仍偶发 429 — 企业版配普通客户端并发 = 限流
+
+**真根因 (3 重)**:
+1. **客户端无队列机制**: 6 个 provider 调用点全部 "fire-and-forget", 5 个并发 image 请求 + 2 个 video 请求 = 100% 撞限流
+2. **限流器缺失**: 之前 shipin-APP 没有 "rate limiter" 概念, 依赖 Agnes API 端 429 错误 + retry (5min × 3 retry 太长, 用户体验差)
+3. **限流状态不可见**: 用户看不到 "我在排队" / "前面有 N 个人" / "预计等待 X 秒", 跟前端 UX 不闭环
+
+### 修法 (4 新文件 + 8 处版本号 + 1 changelog + 6 调用点 + 2 API + 跨端 UI)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/utils/rateLimiter.ts (新建)                          │
+│  - SlidingWindowLimiter 类 (timestamp 滑动窗口 + FIFO 队列)         │
+│  - acquire(taskId): Promise<Slot> (有 slot 立即, 满 Promise 排队) │
+│  - release() 自动调用, timestamp 保留至 windowMs 过期 (严格 1 分钟) │
+│  - getStatus(): { active, waiting, limit, oldestEtaMs, avgDurationMs, estimatedWaitMs } │
+│  - getQueuePosition(taskId): 1-based, null = 不在队列                  │
+│  - getTaskQueueInfo(taskId): { position, etaSeconds }                │
+│  - 5min 排队超时 reject (避免永远卡死)                                │
+│  - getAgnesImageLimiter() 单例 (40/min)                              │
+│  - getAgnesVideoLimiter() 单例 (2/min)                               │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  包装 5 个 image 调用点 + 1 个 video 调用点                          │
+│  - imageAgentService.ts:576: rateLimitedGenerate({ taskId, label: 'imageAgent', imageOptions }) │
+│  - scriptService.ts:1168: rateLimitedGenerate({ taskId: shot.id, label: 'shot:N', ... }) │
+│  - comicService.ts:248: rateLimitedGenerate({ taskId, label: 'comic:pageN', ... }) │
+│  - characterService.ts:618 (sheet): rateLimitedGenerate({ taskId: characterId, label: 'characterSheet' }) │
+│  - characterService.ts:800 (shot): rateLimitedGenerate({ taskId: shotId, label: 'shotImage' }) │
+│  - videoAgentService.ts:547: agnesVideoProvider.createTaskWithLimit(opts, conversationId, 'videoAgent') │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  2 个 API 端点                                                       │
+│  - GET /api/admin/rate-limit-status (admin auth)                    │
+│    → { image: { active, waiting, limit, oldestEtaMs, avgDurationMs, estimatedWaitMs }, video: 同 } │
+│  - GET /api/tasks/:taskId/queue (user auth)                         │
+│    → { taskId, inQueue, image: { position, etaSeconds }, video: { position, etaSeconds }, global: {...} } │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  跨端 UI 集成 (跨端铁律 4++ 1:1 镜像 web + mobile)                    │
+│  - apps/web/src/hooks/useQueueStatus.ts (新建, 3s 轮询 hook)         │
+│  - apps/web/src/components/AgentChatPanel.tsx (case 'streaming' 改用 <StreamingCard>) │
+│  - apps/web/src/lib/api.ts (getTaskQueueStatusApi)                  │
+│  - apps/mobile/src/hooks/useQueueStatus.ts (新建, 1:1 镜像 web)     │
+│  - apps/mobile/src/screens/VideoAgentScreen.tsx (StreamingCard 子组件) │
+│  - apps/mobile/src/screens/ImageAgentScreen.tsx (StreamingCardImage 子组件) │
+│  - apps/mobile/src/api/client.ts (getTaskQueueStatus)                │
+│  - 跨端排队 UI: "⏳ 排队中: 第 N 位 · 预计 X 秒 (生图 40 次/分钟)" (amber 配色) │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115-122 100% 同源)
+1. **API 限流不能当客户端不限制挡箭牌**: shipin-APP 客户端代码没池化 (每请求直调), 限流问题在 API 端 + 客户端并发限制 2 个方向都有责任. 拆企业 key (BUG-122) + 限流器 (BUG-123) 双管齐下
+2. **多 provider 配额独立必拆字段** (BUG-122 同源): 但限流器是另一维度 — 就算 1 key 也需要客户端限流器, 不然 fire-and-forget 必撞限流
+3. **严格 sliding window > 纯并发限流**: timestamp 保留至 windowMs 过期 (不是 release 时删除). 匹配 Agnes API 端 "1 分钟 40 次" 严格语义
+4. **FIFO 队列 + 排队超时必加**: 不超时 → 永远卡死; 不 FIFO → 不公平
+5. **ETA 估算必基于 oldestEtaMs + avgDurationMs**: 不能瞎拍脑袋. 客户端跟服务端 1:1 一致, 不能让前端误算
+6. **限流状态必暴露给前端 UI**: admin 全局 + 单 task detail 2 个 API. 用户看不到排队 = 假修 (跟 BUG-079 同源)
+7. **限流配置化 (.env 4 字段)**: AGNES_IMAGE_RATE_LIMIT / AGNES_IMAGE_RATE_WINDOW_MS / AGNES_VIDEO_RATE_LIMIT / AGNES_VIDEO_RATE_WINDOW_MS. 不硬编码
+8. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 + 重打 mobile APK (跨端铁律 4++)**: 哪怕只加一个 .env 字段, 也必走 v3.0.52 流程
+9. **跨端 UI 必 1:1 镜像**: web useQueueStatus hook + StreamingCard 跟 mobile useQueueStatus + StreamingCard/StreamingCardImage 1:1 (跨端铁律 4++)
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-123 同样 "API 端容错 = 客户端不需要限制" 的反模式
+- **BUG-097** mobile 漏修 web — BUG-123 web + mobile 1:1 镜像 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-123 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-123 跨项目通用铁律同源 (都是 "client 不能瞎信 server 一定行")
+- **BUG-118/119/120/121/122** 一系列 server 端修复 — BUG-123 是最后一块: BUG-118/119 改 UX 细分, BUG-120 改比例, BUG-121 改字段格式, BUG-122 拆企业 key, BUG-123 改限流器
+
+### E2E 验证 (deploy 后实测)
+- ✅ /api/version: 3.0.52, latestVersion=3.0.52
+- ✅ /api/pricing: 3.0.51 升到 3.0.52
+- ✅ 12 维验证全过 (systemd active + 6000 LISTEN + /health 200 + /api/version 3.0.52 + APK HTTP/2 200 + 宝塔 shipin_APP run=True)
+- ✅ 限流器模块加载: image limit 40/60s + video limit 2/60s
+- ✅ 42 个并发 image acquire E2E: 40 立即入 active, task-40/task-41 入队 (position=1/2, etaSeconds=2/3)
+- ✅ 公网 APK v3.0.52 下载: HTTPS HTTP/2 200, size=30233025 bytes
+- ✅ 公网 sha256: 020B61E3D7342DC2A1518E09DC02585B171CC2700956AEDF5504A8B9441CA39C (本机跟远端 1:1 一致)
+- ✅ web dist 部署: index-BdFAwImD.js (535KB) + index-CnPZ-cNl.css (43KB), https://ab.maque.uno/ HTTP/2 200
+
+### 关键 git
+- commit: BUG-123 v3.0.52 修 (4 新文件 rateLimiter + 2 hook + 2 API + 6 provider 包装 + 跨端 UI + 8 处版本号 + 1 changelog)
+- 新文件: apps/server/src/utils/rateLimiter.ts + apps/web/src/hooks/useQueueStatus.ts + apps/mobile/src/hooks/useQueueStatus.ts
+- 6 provider 包装: imageAgentService / videoAgentService / comicService / characterService (2 处) / scriptService
+- 2 API: /api/admin/rate-limit-status + /api/tasks/:taskId/queue
+- 跨端 UI: web AgentChatPanel + StreamingCard + mobile VideoAgentScreen + ImageAgentScreen StreamingCard/StreamingCardImage
+- push main
+- deploy: server systemd shipin-app PID 61230 + APK DeepScript_v3.0.52.apk (30233025 bytes) shipin-APP/public/ + web dist index-BdFAwImD.js (535KB) /www/wwwroot/web-app/dist/
+
+### 已知遗留
+- 排队 5min 超时 reject (避免无限卡死) — 长时间排队可能 reject, 用户需重试
+- in-memory limiter 单进程 — 多进程部署需 Redis 协调 (暂不需要, shipin-APP 单进程 systemd)
+
+---
+
+---

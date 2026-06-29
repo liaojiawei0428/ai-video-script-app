@@ -542,16 +542,21 @@ export class VideoAgentService {
   ) {
     let createResult;
     try {
-      // 调 agnes video 创建任务
+      // 调 agnes video 创建任务 (包装 rate limiter, 2/min 排队)
       // v3.0.0.15: i2v 模式 — 用 last_result_url 作 image, 不混 user ref
-      createResult = await agnesVideoProvider.createTask({
-        prompt: plan.prompt,
-        image,
-        images,
-        width, height,
-        numFrames: numFramesForDuration(durationSec, fps),
-        frameRate: fps,
-      });
+      // v3.0.52 (BUG-123): 排队时自动 await, 排队位置 + ETA 自动 log
+      createResult = await agnesVideoProvider.createTaskWithLimit(
+        {
+          prompt: plan.prompt,
+          image,
+          images,
+          width, height,
+          numFrames: numFramesForDuration(durationSec, fps),
+          frameRate: fps,
+        },
+        conversationId,
+        'videoAgent',
+      );
     } catch (err) {
       // 调 agens 失败, 状态回滚到 plan_ready 让用户能重试
       const errMsg = (err as Error).message;

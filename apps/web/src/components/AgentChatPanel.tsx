@@ -17,6 +17,7 @@ import { useAuthStore } from '../store/auth';
 import { uploadAgentReferenceApi } from '../lib/api';
 import { GeneratingLoader } from './ui';  // BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 mobile 1:1 (跨端铁律 4++)
 import { getWebAspectStyle } from '../lib/aspectRatio';  // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示, 跟 mobile 1:1 镜像
+import { useQueueStatus } from '../hooks/useQueueStatus';  // BUG-123 (v3.0.52): Agnes API 限流排队状态 polling (跨端铁律 4++ 镜像 mobile)
 
 // v3.0.0.1: 视频 URL 生成器 (放在模块顶层避免 React 组件闭包作用域问题)
 //
@@ -890,7 +891,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
             </div>
           )}
           {messages.map(m => (
-            <MessageBubble key={m.id} message={m} onPick={pickOption} kind={kind} selectedRatio={selectedRatio} />
+            <MessageBubble key={m.id} message={m} onPick={pickOption} kind={kind} selectedRatio={selectedRatio} conversationId={conversationId} />
           ))}
           {loading && (
             <div className="flex justify-start">
@@ -1074,7 +1075,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
 }
 
 // ─── 单条消息气泡 ───
-function MessageBubble({ message, onPick, kind, selectedRatio }: { message: AgentMessage; onPick: (s: string) => void; kind: 'image' | 'video'; selectedRatio: string }) {
+function MessageBubble({ message, onPick, kind, selectedRatio, conversationId }: { message: AgentMessage; onPick: (s: string) => void; kind: 'image' | 'video'; selectedRatio: string; conversationId: string | null }) {
   const isUser = message.role === 'user';
   // v3.0.0.3 BUG 修复: useAuthStore 必须在 component 顶层调用 (Rules of Hooks)
   // 之前在 message.parts.map() 内调用, 当 parts 数量变化时 (出图前 1 个, 出图后 2-3 个)
@@ -1086,7 +1087,7 @@ function MessageBubble({ message, onPick, kind, selectedRatio }: { message: Agen
         isUser ? 'bg-primary text-white rounded-tr-sm' : 'bg-bg-tertiary rounded-tl-sm'
       }`}>
         {message.parts.map((p, i) => (
-          <PartSafeView key={i} part={p} onPick={onPick} kind={kind} isUser={isUser} token={token} selectedRatio={selectedRatio} />
+          <PartSafeView key={i} part={p} onPick={onPick} kind={kind} isUser={isUser} token={token} selectedRatio={selectedRatio} conversationId={conversationId} />
         ))}
       </div>
     </div>
@@ -1098,9 +1099,9 @@ function MessageBubble({ message, onPick, kind, selectedRatio }: { message: Agen
  *  - PartView 内部抛错 (e.g., part.url undefined 触发 startsWith 崩) → 这层 catch 兜住
  *  - 单 part 渲染失败 → 只显示一个 fallback 行, 不影响其他 part 渲染, 也不击垮整个 MessageBubble
  */
-function PartSafeView({ part, onPick, kind, isUser, token, selectedRatio }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string }) {
+function PartSafeView({ part, onPick, kind, isUser, token, selectedRatio, conversationId }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string; conversationId: string | null }) {
   try {
-    return <PartView part={part} onPick={onPick} kind={kind} isUser={isUser} token={token} selectedRatio={selectedRatio} />;
+    return <PartView part={part} onPick={onPick} kind={kind} isUser={isUser} token={token} selectedRatio={selectedRatio} conversationId={conversationId} />;
   } catch (e: any) {
     console.error('[PartSafeView] render failed:', e, { part, kind });
     return (
@@ -1121,7 +1122,60 @@ function safeStr(v: any, fallback: string = ''): string {
   return String(v);
 }
 
-function PartView({ part, onPick, kind, isUser, token, selectedRatio }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string }) {
+/**
+ * v3.0.52 (BUG-123): 流式卡片子组件, 集成 GeneratingLoader + 排队状态
+ *  - useQueueStatus 自动 polling /api/tasks/:taskId/queue (3s 间隔)
+ *  - 排队时在 GeneratingLoader 下方显示 "排队中 第 N 位 / 预计 X 秒"
+ *  - 跨端铁律 4++ 镜像 mobile VideoAgentScreen/ImageAgentScreen 1:1
+ */
+function StreamingCard({ aspectStyle, stage, kind, isUser, conversationId }: {
+  aspectStyle: React.CSSProperties;
+  stage: 'translating' | 'generating';
+  kind: 'image' | 'video';
+  isUser: boolean;
+  conversationId: string | null;
+}) {
+  const { status: queueStatus } = useQueueStatus(conversationId, { enabled: !!conversationId, intervalMs: 3000 });
+
+  // 选对应 kind 的队列信息
+  const queueInfo = kind === 'video' ? queueStatus?.video : queueStatus?.image;
+  const inQueue = queueInfo?.position !== null && queueInfo?.position !== undefined && (queueInfo?.position ?? 0) > 0;
+
+  return (
+    <div
+      className="mt-1 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 flex flex-col items-center justify-center gap-2"
+      style={{
+        ...aspectStyle,
+        width: '100%',
+        color: isUser ? 'white' : undefined,
+      }}
+    >
+      <GeneratingLoader
+        size="md"
+        label={
+          stage === 'translating'
+            ? '正在翻译成AI识别的最佳提示词...'
+            : kind === 'video'
+              ? 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'
+              : 'AI 正在绘制中...'
+        }
+      />
+      {inQueue && queueInfo && (
+        <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded px-2 py-1 mt-1">
+          <span className="font-medium">⏳ 排队中:</span>{' '}
+          第 <span className="font-bold">{queueInfo.position}</span> 位
+          {' · '}
+          预计 <span className="font-bold">{queueInfo.etaSeconds}</span> 秒
+          {kind === 'image'
+            ? ' (生图 40 次/分钟)'
+            : ' (生视频 2 次/分钟)'}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversationId }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string; conversationId: string | null }) {
   switch (part.type) {
     case 'text':
       return <p className="text-sm whitespace-pre-wrap leading-relaxed">{part.text}</p>;
@@ -1250,26 +1304,15 @@ function PartView({ part, onPick, kind, isUser, token, selectedRatio }: { part: 
     // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示 (1:1 方形 / 16:9 横屏 / 9:16 竖屏 等), 不再硬编码固定宽高
     case 'streaming': {
       const aspectStyle = getWebAspectStyle(selectedRatio, kind);
+      // v3.0.52 (BUG-123): 排队状态 hook — 只在 streaming 阶段轮询, inQueue=false 自动停
       return (
-        <div
-          className="mt-1 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 flex flex-col items-center justify-center gap-2"
-          style={{
-            ...aspectStyle,
-            width: '100%',
-            color: isUser ? 'white' : undefined,
-          }}
-        >
-          <GeneratingLoader
-            size="md"
-            label={
-              part.stage === 'translating'
-                ? '正在翻译成AI识别的最佳提示词...'
-                : kind === 'video'
-                  ? 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'
-                  : 'AI 正在绘制中...'
-            }
-          />
-        </div>
+        <StreamingCard
+          aspectStyle={aspectStyle}
+          stage={part.stage}
+          kind={kind}
+          isUser={isUser}
+          conversationId={conversationId}
+        />
       );
     }
       case 'video':

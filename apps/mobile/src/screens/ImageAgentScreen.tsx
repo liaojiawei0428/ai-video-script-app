@@ -17,6 +17,7 @@ import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import { ImageWithLoading, GeneratingLoader } from '../components/ui';
 import { getMobileAspectStyle } from '../utils/aspectRatio';
+import { useQueueStatus } from '../hooks/useQueueStatus';  // v3.0.52 (BUG-123): Agnes API 限流排队状态 polling (跨端铁律 4++ 镜像 web)
 import {
   imageAgentCreateConversationApi, imageAgentChatApi, imageAgentConfirmApi,
   imageAgentHistoryApi, imageAgentGetApi, imageAgentDeleteApi,
@@ -400,15 +401,9 @@ export function ImageAgentScreen(): React.JSX.Element {
     if (part.type === 'streaming') {
       // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 web AgentChatPanel + VideoAgentScreen 1:1, AGENTS.md § 6.6.4 强约束)
       // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示 (1:1 方形 / 16:9 横屏 / 9:16 竖屏 等), 跟 web AgentChatPanel 1:1
+      // v3.0.52 (BUG-123): 集成 useQueueStatus hook, 显示排队位置 + ETA (生图 40/min 限流)
       const aspectStyle = getMobileAspectStyle(selectedRatio, 'image');
-      return (
-        <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
-          <GeneratingLoader
-            size="md"
-            label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在绘制中...'}
-          />
-        </View>
-      );
+      return <StreamingCardImage part={part} aspectStyle={aspectStyle} conversationId={conversationId} />;
     }
     if (part.type === 'image') {
       const token = getAuthToken();
@@ -681,6 +676,21 @@ export function ImageAgentScreen(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
+  // v3.0.52 (BUG-123): 排队信息样式 (跨端铁律 4++ 镜像 web + VideoAgentScreen 1:1)
+  queueBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef3c7',
+    borderColor: '#fbbf24',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+    alignSelf: 'center',
+  },
+  queueText: { fontSize: 12, color: '#92400e' },
+  queueTextBold: { fontSize: 12, color: '#92400e', fontWeight: '700' },
   toolbar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
@@ -777,3 +787,30 @@ const styles = StyleSheet.create({
   emptySuggestionChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.bg.secondary, borderRadius: 16, borderWidth: 1, borderColor: colors.accent + '60', maxWidth: 200 },
   emptySuggestionText: { color: colors.accent, fontSize: 12 },
 });
+
+// v3.0.52 (BUG-123): 流式卡片子组件, 集成 GeneratingLoader + 排队状态 (跨端铁律 4++ 镜像 web StreamingCard + VideoAgentScreen StreamingCard 1:1)
+function StreamingCardImage({ part, aspectStyle, conversationId }: {
+  part: AgentPart;
+  aspectStyle: { aspectRatio: number; width: number; height: number };
+  conversationId: string | null;
+}) {
+  const { status: queueStatus } = useQueueStatus(conversationId, { enabled: !!conversationId, intervalMs: 3000 });
+  const queueInfo = queueStatus?.image;
+  const inQueue = queueInfo?.position != null && (queueInfo?.position ?? 0) > 0;
+
+  return (
+    <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
+      <GeneratingLoader
+        size="md"
+        label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在绘制中...'}
+      />
+      {inQueue && queueInfo && (
+        <View style={styles.queueBox}>
+          <Text style={styles.queueText}>
+            ⏳ 排队中: 第 <Text style={styles.queueTextBold}>{queueInfo.position}</Text> 位 · 预计 <Text style={styles.queueTextBold}>{queueInfo.etaSeconds}</Text> 秒 (生图 40 次/分钟)
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}

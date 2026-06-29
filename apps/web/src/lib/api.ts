@@ -195,6 +195,10 @@ export const buyVipApi = () => apiClient.post('/users/vip/buy');
 
 // === Tasks ===
 export const getTaskProgressApi = (taskId: string) => apiClient.get(`/tasks/${taskId}/progress`);
+// v3.0.52 (BUG-123): Agnes API 限流排队状态 (image 40/min + video 2/min)
+//   - 返: { taskId, inQueue, image: { position, etaSeconds }, video: { position, etaSeconds }, global: { image, video } }
+//   - 用于前端 streaming 卡片显示 "排队中 第 N 位 / 预计 X 秒"
+export const getTaskQueueStatusApi = (taskId: string) => apiClient.get(`/tasks/${taskId}/queue`);
 
 // === Delete ===
 export const deleteNovelApi = (id: string) => apiClient.delete(`/novels/${id}`);

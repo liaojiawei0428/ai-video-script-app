@@ -6,7 +6,7 @@
 
 // v3.0.0.13+: 极简 passthrough 模式, 不再调 LLM 提取/翻译
 // v3.0.24 (S61 v3): 加 agnesTextProvider LLM 优化 (通用 + 分镜检测), 复用 video 的 system prompt
-import { imageProvider } from './imageProvider';
+import { imageProvider, rateLimitedGenerate } from './imageProvider';
 import { agnesTextProvider } from './agnesTextProvider';
 import { imageConversationModel, imageGenerationModel } from '../models/imageConversation';
 import { billingService, isVipActive, IMAGE_DAILY_QUOTA_STANDARD, IMAGE_DAILY_QUOTA_VIP } from './billingService';
@@ -573,12 +573,17 @@ export class ImageAgentService {
       // 5) 调 agens image (5min 超时, 内部有 3 次重试)
       // v3.0.0 硬编码 'comic' — v3.1.0 等前端确认 plan.style 取值范围后从 (plan as any).style 取
       // 临时 fallback: plan.style → 'comic' (避免前端没传时拿 undefined 进 agens)
-      const result = await imageProvider.generate({
-        prompt: finalPrompt,
-        angle: (plan as any).style || 'comic',
-        width: w,
-        height: h,
-        referenceImages: refImages?.slice(0, 1),
+      // v3.0.52 (BUG-123): 包装 rate limiter (40/min), 排队时自动 await, log 排队位置 + ETA
+      const result = await rateLimitedGenerate({
+        taskId,
+        label: 'imageAgent',
+        imageOptions: {
+          prompt: finalPrompt,
+          angle: (plan as any).style || 'comic',
+          width: w,
+          height: h,
+          referenceImages: refImages?.slice(0, 1),
+        },
       });
 
       // 6) 写结果

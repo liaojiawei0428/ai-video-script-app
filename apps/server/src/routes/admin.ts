@@ -148,6 +148,29 @@ router.get('/active-tasks', adminAuth, async (req: Request, res: Response) => {
   res.json({ success: true, data: { count: row?.cnt || 0 } });
 });
 
+/**
+ * v3.0.52 (BUG-123): Agnes API 限流实时状态 (image + video)
+ *   - image: 40/min 限流, 用于生图/角色卡/漫画/镜头图
+ *   - video: 2/min 限流, 用于视频生成
+ *   - active = 当前在跑的请求数 (timestamp 在 60s 滑动窗口内)
+ *   - waiting = 排队中的请求数 (FIFO)
+ *   - oldestEtaMs = 最早 slot 距过期还剩多少 ms
+ *   - estimatedWaitMs = 新请求加入排队需等待的 ms 估算
+ *   - avgDurationMs = 过去 100 次平均完成耗时 (用于 ETA 计算)
+ */
+router.get('/rate-limit-status', adminAuth, async (req: Request, res: Response) => {
+  const { getAgnesImageLimiter, getAgnesVideoLimiter } = await import('../utils/rateLimiter');
+  const imageStatus = getAgnesImageLimiter().getStatus();
+  const videoStatus = getAgnesVideoLimiter().getStatus();
+  res.json({
+    success: true,
+    data: {
+      image: imageStatus,
+      video: videoStatus,
+    },
+  });
+});
+
 /** 维护模式开关 */
 router.put('/maintenance', adminAuth, (req: Request, res: Response) => {
   const enable = req.query.enable === 'true';

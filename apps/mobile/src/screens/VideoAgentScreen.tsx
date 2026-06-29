@@ -28,6 +28,7 @@ import { useNovelStore } from '../store/useNovelStore';
 // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示, 跟 web 1:1 镜像
 import { GeneratingLoader } from '../components/ui';
 import { getMobileAspectStyle } from '../utils/aspectRatio';
+import { useQueueStatus } from '../hooks/useQueueStatus';  // v3.0.52 (BUG-123): Agnes API 限流排队状态 polling (跨端铁律 4++ 镜像 web)
 
 const SUGGESTIONS = [
   '一只猫在海滩散步的慢镜头',
@@ -456,15 +457,9 @@ export function VideoAgentScreen(): React.JSX.Element {
     if (part.type === 'streaming') {
       // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 web AgentChatPanel 1:1, AGENTS.md § 6.6.4 强约束)
       // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示 (1:1 方形 / 16:9 横屏 / 9:16 竖屏 等), 跟 web AgentChatPanel 1:1
+      // v3.0.52 (BUG-123): 集成 useQueueStatus hook, 显示排队位置 + ETA (生视频 2/min 限流)
       const aspectStyle = getMobileAspectStyle(selectedRatio, 'video');
-      return (
-        <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
-          <GeneratingLoader
-            size="md"
-            label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'}
-          />
-        </View>
-      );
+      return <StreamingCard part={part} kind="video" aspectStyle={aspectStyle} conversationId={conversationId} />;
     }
     if (part.type === 'video') {
       const token = getAuthToken();
@@ -740,6 +735,28 @@ export function VideoAgentScreen(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
+  // v3.0.52 (BUG-123): 排队信息样式
+  queueBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef3c7',  // amber-100
+    borderColor: '#fbbf24',       // amber-400
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+    alignSelf: 'center',
+  },
+  queueText: {
+    fontSize: 12,
+    color: '#92400e',  // amber-800
+  },
+  queueTextBold: {
+    fontSize: 12,
+    color: '#92400e',
+    fontWeight: '700',
+  },
   toolbar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
@@ -840,3 +857,32 @@ const styles = StyleSheet.create({
   // v3.0.24.4 (S60 P3 BUG-050 重设计): 历史侧栏内的单条删除按钮
   historyItemDeleteBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#fee', alignItems: 'center', justifyContent: 'center' },
 });
+
+// v3.0.52 (BUG-123): 流式卡片子组件, 集成 GeneratingLoader + 排队状态 (跨端铁律 4++ 1:1 镜像 web StreamingCard)
+function StreamingCard({ part, kind, aspectStyle, conversationId }: {
+  part: AgentPart;
+  kind: 'image' | 'video';
+  aspectStyle: { aspectRatio: number; width: number; height: number };
+  conversationId: string | null;
+}) {
+  const { status: queueStatus } = useQueueStatus(conversationId, { enabled: !!conversationId, intervalMs: 3000 });
+  const queueInfo = kind === 'video' ? queueStatus?.video : queueStatus?.image;
+  const inQueue = queueInfo?.position != null && (queueInfo?.position ?? 0) > 0;
+
+  return (
+    <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
+      <GeneratingLoader
+        size="md"
+        label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : kind === 'video' ? 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...' : 'AI 正在绘制中...'}
+      />
+      {inQueue && queueInfo && (
+        <View style={styles.queueBox}>
+          <Text style={styles.queueText}>
+            ⏳ 排队中: 第 <Text style={styles.queueTextBold}>{queueInfo.position}</Text> 位 · 预计 <Text style={styles.queueTextBold}>{queueInfo.etaSeconds}</Text> 秒
+            {kind === 'image' ? ' (生图 40 次/分钟)' : ' (生视频 2 次/分钟)'}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
