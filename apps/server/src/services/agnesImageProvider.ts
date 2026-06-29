@@ -4,6 +4,8 @@
 // v2.5.28: 升级到 agnes-image-2.1-flash 多模态, 支持 referenceImages
 // v3.0.0: 修复字段路径 - 文档要求 image/response_format 必须在 extra_body 内 (顶层会 400)
 // v3.0.0: 统一环境变量名 AGNES_API_KEY (兼容旧名 AGNES_IMAGE_API_KEY, 一个 key 通用 3 个模型)
+// v3.0.51 (BUG-122): 拆 3 个企业 key, image 继续用 AGNES_IMAGE_API_KEY (字段名复用 = 专用名 + 老兼容名合并, 不破坏老配置)
+//   - 实际优先级: AGNES_IMAGE_API_KEY (企业 image 专用 + 老兼容合并字段, 读的就是它) > AGNES_API_KEY (统一)
 
 import { ImageProvider, ImageGenOptions, ImageGenResult } from './imageProvider';
 import { logger } from '../utils/logger';

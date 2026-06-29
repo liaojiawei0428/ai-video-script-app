@@ -1,6 +1,8 @@
 // apps/server/src/services/agnesVideoProvider.ts
 // v3.0.0: 视频生成 Provider (POST /v1/videos + GET /agnesapi?video_id=)
 // 详细设计: docs/V3_AGENT_MATRIX.md §1.3 + §6
+// v3.0.51 (BUG-122): 拆 3 个企业 key, video 优先读 AGNES_VIDEO_API_KEY (企业配额独立, 并发更高)
+//   - 优先级: AGNES_VIDEO_API_KEY (企业 video 专用) > AGNES_API_KEY (统一) > AGNES_IMAGE_API_KEY (老兼容)
 
 import { logger } from '../utils/logger';
 import { extractFirstFrameAsPngBase64 } from '../utils/ffmpegHelper';
@@ -51,8 +53,8 @@ export class AgnesVideoProvider {
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.AGNES_API_KEY || process.env.AGNES_IMAGE_API_KEY || '';
-    if (!this.apiKey) logger.warn('AGNES_API_KEY (或 AGNES_IMAGE_API_KEY) not set for video');
+    this.apiKey = apiKey || process.env.AGNES_VIDEO_API_KEY || process.env.AGNES_API_KEY || process.env.AGNES_IMAGE_API_KEY || '';
+    if (!this.apiKey) logger.warn('AGNES_VIDEO_API_KEY (或 AGNES_API_KEY / AGNES_IMAGE_API_KEY) not set for video');
   }
 
   /** v3.0.0.18: 把 shipin-APP 同源 URL 规范化成相对路径 + 读盘转纯 base64

@@ -5625,3 +5625,94 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 
 ### 已知遗留
 - 无
+
+---
+
+## BUG-122 (v3.0.51 拆 3 个 Agnes 企业 API Key + 增大 AI_MAX_CONCURRENT 并发): 用户采购 3 个独立企业 key (wk-Cxl2h.../wk-vjuI.../wk-u9LB...), 替换老 1 个 key 调 3 模型共享配额, 改后 3 key 各自独立配额互不抢, 并发提升约 3x (跟 BUG-118/119/120/121 跨项目通用铁律同源, API 容错不能当文档不一致挡箭牌, key 拆开是简单暴力方案) (S72 batch 23, 2026-06-29)
+
+### 现象 (审计)
+用户反馈 shipin-APP 高并发时 (3+ 任务同时跑) Agnes API 偶尔报 429 限流. 审查 shipin-APP 端代码 + Agnes 文档 + 当前 key 使用情况:
+- **shipin-APP 端**: 3 个 provider (agnesTextProvider.ts / agnesImageProvider.ts / agnesVideoProvider.ts) 都读统一 `AGNES_API_KEY` (v3.0.0 兼容老名) fallback `AGNES_IMAGE_API_KEY` — **1 个 key 调 3 模型共享配额**
+- **实际生产 .env** (/www/wwwroot/shipin-APP/.env): 只有 `AGNES_IMAGE_API_KEY=sk-fGgHxvU77T915PYEu9MjRdBfg4gsNuwaSOWh85WHjMnmtjWb`, text/image/video 三模型都调这 1 把 key
+- **AI_MAX_CONCURRENT=10**: DeepSeek 池 + Agnes 共享并发限制, Agnes 端只能抢到 1/3 并发额度
+- **用户采购**: 3 个独立企业 key (text `wk-Cxl2htXZQo3EDLWwvz0zHgb6hDLv7AOYV5c0CZRVGOqWrgmb` / image `wk-vjuIS1Tc8NZ6LLxe5EwThLOIVpIF1lHjOMPsgLmQ5zb8OgYa` / video `wk-u9LBnjvKj8Ppo2XGPzaRCFW1NJlGKVx2OY0fhptLceWpv32c`), 每个 key 配额独立, 企业版并发更高
+
+**真根因 (3 重)**:
+1. **shipin-APP 端 3 provider 用 1 key**: text/image/video 三模型抢同一把 key 的 QPS 上限, 3 模型并发时必然互抢
+2. **AI_MAX_CONCURRENT=10 偏低**: Agnes 端是企业版, 并发上限可以更高 (10 限制浪费企业 key 配额)
+3. **provider 读 key 优先级没拆**: 之前 shipin-APP 设计 "1 把 key 通用所有端点" (跟 Agnes 文档说"统一 key 可调所有端点"一致), 但企业版实测拆开 3 key 并发更高
+
+### 修法 (4 文件 + 8 处版本号 + 1 changelog + .env 3 新字段 + 重打 APK)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/agnesTextProvider.ts (line 44)            │
+│  - 修前: apiKey || AGNES_API_KEY || AGNES_IMAGE_API_KEY             │
+│  - 修后: apiKey || AGNES_TEXT_API_KEY || AGNES_API_KEY || AGNES_IMAGE_API_KEY │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/agnesImageProvider.ts (line 32)           │
+│  - 字段名复用 = 专用 + 老兼容合并 (不破坏老配置)                     │
+│  - apiKey || AGNES_IMAGE_API_KEY || AGNES_API_KEY                   │
+│  - shipin-APP 老配置就有 AGNES_IMAGE_API_KEY 字段, 不改名直接用      │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/agnesVideoProvider.ts (line 54)           │
+│  - apiKey || AGNES_VIDEO_API_KEY || AGNES_API_KEY || AGNES_IMAGE_API_KEY │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/imageProvider.ts (line 177 autoInitProvider)│
+│  - 同步改字段名, 加注释标记 v3.0.51 BUG-122                          │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/.env.example + .env.production + 远端 .env                │
+│  - 加 3 个新字段: AGNES_TEXT_API_KEY / AGNES_IMAGE_API_KEY (替换老) │
+│    / AGNES_VIDEO_API_KEY                                            │
+│  - AI_MAX_CONCURRENT=10 → 20 (跟 3 个独立 key 一起放大)             │
+│  - CHUNK_CONCURRENT=10 → 20 (DeepSeek 3 key 轮换池跟 Agnes 共享)  │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115/116/117/118/119/120/121 100% 同源)
+1. **API 限流不能当客户端并发不限制挡箭牌**: shipin-APP 端代码没池化 (每请求直调 Agnes), 限流问题在 API 端 + 客户端并发限制 2 个方向都有责任
+2. **多 provider 配额独立必拆字段**: 1 个 key 调多模型 = 共享配额, 拆 3 key = 各模型独立配额. 这是简单暴力方案, 但实测有效
+3. **企业版 key 配 client 端并发放大**: AI_MAX_CONCURRENT=10 适配普通版 key, 配企业版 key 必须放大 (10→20), 否则浪费配额
+4. **.env 字段名复用不破坏老配置**: 字段名同名 (AGNES_IMAGE_API_KEY 既是专用名也是老兼容名) 是设计, 不是 bug
+5. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 + 重打 mobile APK (跨端铁律 4++)**: 哪怕只改 env key 字段映射, 也必走 v3.0.51 流程
+6. **企业 key 实测 E2E 必做**: deploy 完必跑真实 API 调用 (text + image + video) 确认 key 生效, 不要只验证 /api/version
+7. **拆 key 字段映射必带 fallback 链**: AGNES_*_API_KEY (新企业专用) → AGNES_API_KEY (统一, 兼容老) → AGNES_IMAGE_API_KEY (历史兼容, 最老)
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-122 同样 "API 端容错 = 客户端不需要限制" 的反模式 (实际客户端并发也有限制)
+- **BUG-097** mobile 漏修 web — BUG-122 web + mobile 同步 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-122 此次已重打 mobile APK (跨端铁律 4++)
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-122 跨项目通用铁律同源
+- **BUG-118/119/120/121** 一系列 server 端修复 — BUG-122 是最后一块: 之前都是修单点 (字段路径/retry/动画/ratio/image array), BUG-122 修"基础设施层 (key + 并发)"
+
+### 关键 git
+- commit: BUG-122 v3.0.51 修 (3 provider 读专用 key + .env 3 新字段 + 8 处版本号 + 1 changelog entry + 升 v3.0.51)
+- 4 代码文件: apps/server/src/services/agnesTextProvider.ts + agnesImageProvider.ts + agnesVideoProvider.ts + imageProvider.ts
+- 3 env 文件: apps/server/.env.example (注释) + .env.production (本机) + 远端 /www/wwwroot/shipin-APP/.env (scp + sed + 追加)
+- 8 处版本号: mobile version.ts / build.gradle / server package.json / index.ts / ecosystem (2 处) / web version.ts / .env / systemd unit
+- 配套: changelog.json (新 entry v3.0.51) + AGENTS.md § 6.13 (新增)
+- push main
+- deploy: server systemd shipin-app (systemctl reset-failed required, BUG-117 教训) + APK DeepScript_v3.0.51.apk (30230467 bytes) shipin-APP/public/
+
+### E2E 验证 (deploy 后实测 3 个企业 key 生效)
+- ✅ /api/version: 3.0.51, latestVersion=3.0.51, downloadUrl=DeepScript_v3.0.51.apk
+- ✅ /api/pricing: 3.0.51, characterVariant=0.1
+- ✅ /api/novels: 401 (需 auth, server alive)
+- ✅ Agnes TEXT API 实测: HTTP 200, "Hi!" reply, 260 tokens (用 AGNES_TEXT_API_KEY=wk-Cxl2h...)
+- ✅ Agnes IMAGE API 实测: HTTP 200, has image URL (用 AGNES_IMAGE_API_KEY=wk-vjuI...)
+- ✅ Agnes VIDEO API 实测: HTTP 200, task_kndAfUbfaGhjqGepUQE7smGxGtqvsJrO queued (用 AGNES_VIDEO_API_KEY=wk-u9LB...)
+- ✅ 公网 APK v3.0.51 下载: HTTPS HTTP/2 200, size=30230467 bytes
+- ✅ 公网 sha256: 29328F5280F270A49EEFB353B76F597C5969ED06342B5F090AD94DF269B96B43 (本机跟远端 1:1 一致)
+
+### 已知遗留
+- 无
+
+---

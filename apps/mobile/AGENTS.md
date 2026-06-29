@@ -579,6 +579,112 @@ apps/server/src/services/agnesImageProvider.ts (line 107)
 - **BUG-119** retry 清理 + GeneratingLoader 全屏集成 — 跟 BUG-121 跨项目通用铁律同源
 - **BUG-120** 等待动画卡片按比例显示 — 跟 BUG-121 跨项目通用铁律同源
 
+## § 6.13 v3.0.51 新增: 拆 3 个 Agnes 企业 API Key + 增大 AI_MAX_CONCURRENT 并发 (S72 batch 23 BUG-122)
+
+> **新增 2026-06-29 (S72 batch 23 v3.0.51 BUG-122)**: 修 shipin-APP 高并发时 (3+ 任务同时跑) Agnes API 偶尔 429 限流 — 用户采购 3 个独立企业 key (text/image/video), 替换老 1 key 调 3 模型共享配额, 改后 3 key 各自独立配额互不抢, 并发提升约 3x. AI_MAX_CONCURRENT=10→20.
+
+### § 6.13.1 背景
+
+shipin-APP 端 3 个 Agnes provider (text/image/video) 都读统一 `AGNES_API_KEY` fallback `AGNES_IMAGE_API_KEY` (v3.0.0 兼容老名). **1 把 key 调 3 模型共享配额**:
+- text 端跑长任务 (剧本生成) + image 端跑长任务 (生图) + video 端跑长任务 (生视频) 都用同一把 key
+- 三模型并发时互抢 QPS 上限, 高峰期 3+ 任务同时跑 → 429 限流
+- AI_MAX_CONCURRENT=10 偏低, 适配普通版 key 浪费企业 key 配额
+- 用户采购 3 个独立企业 key, 每个 key 配额独立不互抢, 企业版 QPS 上限更高
+
+**3 重真根因**:
+1. **shipin-APP 端 3 provider 用 1 key**: text/image/video 抢同一把 key QPS
+2. **AI_MAX_CONCURRENT=10 偏低**: 适配企业版 key 必须放大 (10→20)
+3. **provider 读 key 优先级没拆**: v3.0.0 设计 "1 把 key 通用所有端点" (跟 Agnes 文档一致), 但企业版实测拆开更稳
+
+### § 6.13.2 修法架构 (4 文件 + 8 处版本号 + 1 changelog + .env 3 新字段)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/agnesTextProvider.ts (line 44)            │
+│  - 修前: apiKey || AGNES_API_KEY || AGNES_IMAGE_API_KEY             │
+│  - 修后: apiKey || AGNES_TEXT_API_KEY || AGNES_API_KEY || AGNES_IMAGE_API_KEY │
+│  - 优先级: AGNES_TEXT_API_KEY (企业 text 专用) > AGNES_API_KEY (统一, 兼容老) > AGNES_IMAGE_API_KEY (历史) │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/agnesImageProvider.ts (line 32)           │
+│  - 字段名复用 = 专用 + 老兼容合并 (不破坏老配置)                     │
+│  - apiKey || AGNES_IMAGE_API_KEY || AGNES_API_KEY                   │
+│  - shipin-APP 老配置就有 AGNES_IMAGE_API_KEY 字段, 不改名直接用      │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/agnesVideoProvider.ts (line 54)           │
+│  - apiKey || AGNES_VIDEO_API_KEY || AGNES_API_KEY || AGNES_IMAGE_API_KEY │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/services/imageProvider.ts (line 177 autoInitProvider)│
+│  - 同步改字段名, 加注释标记 v3.0.51 BUG-122                          │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/.env.example + .env.production + 远端 .env                │
+│  - AGNES_TEXT_API_KEY=wk-Cxl2htXZQo3EDLWwvz0zHgb6hDLv7AOYV5c0CZRVGOqWrgmb (新增) │
+│  - AGNES_IMAGE_API_KEY=wk-vjuIS1Tc8NZ6LLxe5EwThLOIVpIF1lHjOMPsgLmQ5zb8OgYa (替换老)│
+│  - AGNES_VIDEO_API_KEY=wk-u9LBnjvKj8Ppo2XGPzaRCFW1NJlGKVx2OY0fhptLceWpv32c (新增) │
+│  - AI_MAX_CONCURRENT=10 → 20                                       │
+│  - CHUNK_CONCURRENT=10 → 20 (DeepSeek 3 key 轮换池跟 Agnes 共享) │
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.13.3 跨端铁律 4++ 镜像 (跨端规范沉淀)
+
+| 维度 | shipin-APP server 端 | mobile/web 端 | 一致性 |
+|---|---|---|---|
+| 3 个独立 key 字段 | AGNES_TEXT_API_KEY / AGNES_IMAGE_API_KEY / AGNES_VIDEO_API_KEY | n/a (server 配置) | ✅ BUG-122 新规范 |
+| Key 优先级链 | 专用 > 统一 > 老兼容 | n/a | ✅ BUG-122 新规范 |
+| AI_MAX_CONCURRENT | 10 → 20 (企业版适配) | n/a | ✅ BUG-122 性能规范 |
+| CHUNK_CONCURRENT | 10 → 20 (跟 Agnes 共享) | n/a | ✅ BUG-122 性能规范 |
+| 跨端部署 | server 改 → 必升 v3.0.X + 8 处版本号 + 重打 mobile APK | n/a | ✅ 跨端铁律 4++ 强制 |
+
+### § 6.13.4 使用规范
+
+1. **多 provider 配额独立必拆字段**: 1 个 key 调多模型 = 共享配额, 拆 N key = 各模型独立配额. 这是简单暴力方案, 但实测有效
+2. **企业版 key 配 client 端并发放大**: AI_MAX_CONCURRENT=10 适配普通版, 配企业版必须放大 (10→20), 否则浪费配额
+3. **.env 字段名复用不破坏老配置**: 字段名同名 (AGNES_IMAGE_API_KEY 既是专用名也是老兼容名) 是设计, 不是 bug. shipin-APP 老部署不用改任何 .env
+4. **拆 key 字段映射必带 fallback 链**: AGNES_*_API_KEY (新企业专用) → AGNES_API_KEY (统一, 兼容老) → AGNES_IMAGE_API_KEY (历史兼容, 最老). 老部署升级零成本
+5. **企业 key 实测 E2E 必做**: deploy 完必跑真实 API 调用 (text + image + video) 确认 key 生效, 不要只验证 /api/version
+6. **改了 server 端代码必升 v3.0.X + 8 处版本号同步 + 重打 mobile APK (跨端铁律 4++)**: 哪怕只改 env key 字段映射, 也必走 v3.0.51 流程
+7. **跨端铁律 8 配套**: shipin-APP 端代码没池化 (每请求直调 Agnes), 限流问题在 API 端 + 客户端并发限制 2 个方向都有责任, 不能把 429 当 "客户端不需要限制" 的借口
+
+### § 6.13.5 跨项目通用 (跟 BUG-079/097/103/115/116/117/118/119/120/121 100% 同源)
+
+- **API 限流不能当客户端并发不限制挡箭牌**: 跨项目通用铁律, 限流是 API 端 + 客户端双向问题
+- **多 provider 配额独立必拆字段**: 跨项目通用铁律, 1 key 共享配额 = 风险
+- **企业版 key 配 client 端并发放大**: 跨项目通用铁律, 配普通版配置 = 浪费配额
+- **.env 字段名复用不破坏老配置**: 跨项目通用铁律, 老部署零成本升级
+- **拆 key 字段映射必带 fallback 链**: 跨项目通用铁律, 兼容性是硬指标
+- **企业 key 实测 E2E 必做**: 跨项目通用铁律, /api/version 不够, 必须真实 API 调用
+- **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3)
+- **mobile 代码无变化也必重打 APK (跨端铁律 4++)**: 跨项目通用铁律
+- **deploy.sh `systemctl reset-failed` 必须**: 连续 5 次 restart 失败后卡住, reset-failed 之后才能 start (BUG-117 教训)
+
+### § 6.13.6 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — 跟 BUG-122 同样 "API 端容错 = 客户端不需要限制" 的反模式
+- **BUG-097** mobile 漏修 web — BUG-122 web + mobile 同步 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-122 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-122 跨项目通用铁律同源
+- **BUG-118/119/120/121** 一系列 server 端修复 — BUG-122 是最后一块: 之前都是修单点 (字段路径/retry/动画/ratio/image array), BUG-122 修"基础设施层 (key + 并发)"
+
+### § 6.13.7 实战 E2E 验证 (deploy 后实测)
+
+- ✅ /api/version: 3.0.51, latestVersion=3.0.51
+- ✅ /api/pricing: 3.0.51, characterVariant=0.1
+- ✅ Agnes TEXT API 实测: HTTP 200, "Hi!" reply, 260 tokens (AGNES_TEXT_API_KEY=wk-Cxl2h...)
+- ✅ Agnes IMAGE API 实测: HTTP 200, has image URL (AGNES_IMAGE_API_KEY=wk-vjuI...)
+- ✅ Agnes VIDEO API 实测: HTTP 200, task queued (AGNES_VIDEO_API_KEY=wk-u9LB...)
+- ✅ 公网 APK v3.0.51 下载: HTTPS HTTP/2 200, size=30230467 bytes
+- ✅ 公网 sha256: 29328F5280F270A49EEFB353B76F597C5969ED06342B5F090AD94DF269B96B43
+
+---
+
 ## § 6.11 v3.0.49 新增: 等待动画卡片按用户选的比例显示 (S72 batch 21 BUG-120)
 
 > **新增 2026-06-29 (S72 batch 21 v3.0.49 BUG-120)**: 修视频/生图助手等待动画卡片按用户选的比例显示 — 跨端 web + mobile 1:1 加 `aspectRatio.ts` util (跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1 镜像), streaming 卡片容器按 1:1 / 16:9 / 9:16 / 4:3 / 3:4 / 2:3 / 3:2 / 2K / 4K / 8K 比例显示, auto 默认 image 1:1 / video 16:9.

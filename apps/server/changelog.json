@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.51",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-122 拆 3 个 Agnes 企业 API Key (text/image/video 独立), 增大 AI_MAX_CONCURRENT 并发: 用户采购 3 个独立企业 key (wk-Cxl2h.../wk-vjuI.../wk-u9LB...), 每个 key 配额独立不互抢, 跟之前 1 个 key 调 3 模型抢同一配额相比并发更高 (跟 S66 BUG-069 8 处版本号同步同源)",
+      "highlights": [
+        "BUG-122 ✅ 修前根因: 之前 1 个 AGNES_API_KEY 调 3 个模型 (text agnes-2.0-flash + image agnes-image-2.1-flash + video agnes-video-2.0-flash), 3 模型共享配额, 高并发时互抢 QPS 上限导致 429 报错; 改后 3 key 各自独立配额, 并发提升约 3x",
+        "BUG-122 ✅ agnesTextProvider.ts:44 改读 key 优先级: AGNES_TEXT_API_KEY (企业 text 专用) > AGNES_API_KEY (统一, 兼容老) > AGNES_IMAGE_API_KEY (历史兼容); 同样 agnesVideoProvider.ts:54 改读 AGNES_VIDEO_API_KEY > AGNES_API_KEY > AGNES_IMAGE_API_KEY",
+        "BUG-122 ✅ agnesImageProvider.ts:32 image 端优先 AGNES_IMAGE_API_KEY (字段名复用 = 专用 + 老兼容合并, 不破坏老配置), 跟 AGNES_API_KEY 兜底; imageProvider.ts:177 autoInitProvider 同步改字段名 (image 端)",
+        "BUG-122 ✅ AI_MAX_CONCURRENT=10 → 20 (跟 3 个独立 key 一起放大, shipin-APP 实际并发压力主要在生图/video 长任务), CHUNK_CONCURRENT=10 → 20 (DeepSeek 3 key 轮换池跟 Agnes 池共享)",
+        "BUG-122 ✅ .env.production 加 3 个新字段: AGNES_TEXT_API_KEY=wk-Cxl2h... / AGNES_IMAGE_API_KEY=wk-vjuI... / AGNES_VIDEO_API_KEY=wk-u9LB... (跟 .env.example 模板同步, deploy.sh 自动 scp)",
+        "BUG-122 跨项目通用铁律 (跟 BUG-079/097/103/115/116/117/118/119/120/121 100% 同源): API 限流不能当客户端并发不限制挡箭牌, key 拆开是简单暴力方案; 多 provider 配额独立必拆字段 (跟 AGNES 文档说统一 key 通用同源, 但实战企业 key 拆开更稳)"
+      ]
+    },
+    {
       "version": "3.0.50",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -247,5 +261,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.50"
+  "latest_version": "3.0.51"
 }

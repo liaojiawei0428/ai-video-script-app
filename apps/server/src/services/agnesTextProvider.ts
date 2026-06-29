@@ -6,6 +6,8 @@
 //   1. Thinking 模式下 message.content 可能为 null, 所有 token 都在 reasoning_content 字段
 //      -> 必须 fallback: content ?? reasoning_content, 并 logger.warn 提示
 //   2. 图片 key 通用文本接口 (curl 验证 AGNES_IMAGE_API_KEY 也能调 chat/completions)
+// v3.0.51 (BUG-122): 拆 3 个企业 key, text 优先读 AGNES_TEXT_API_KEY (企业配额独立, 并发更高)
+//   - 优先级: AGNES_TEXT_API_KEY (企业 text 专用) > AGNES_API_KEY (统一) > AGNES_IMAGE_API_KEY (老兼容)
 
 import { logger } from '../utils/logger';
 
@@ -41,9 +43,9 @@ export class AgnesTextProvider {
 
   constructor(apiKey?: string) {
     // v3.0.0: 优先用统一名 AGNES_API_KEY, 兼容旧名 AGNES_IMAGE_API_KEY (v2.5.x 历史)
-    this.apiKey = apiKey || process.env.AGNES_API_KEY || process.env.AGNES_IMAGE_API_KEY || '';
+    this.apiKey = apiKey || process.env.AGNES_TEXT_API_KEY || process.env.AGNES_API_KEY || process.env.AGNES_IMAGE_API_KEY || '';
     if (!this.apiKey) {
-      logger.warn('AGNES_API_KEY (或 AGNES_IMAGE_API_KEY) not set');
+      logger.warn('AGNES_TEXT_API_KEY (或 AGNES_API_KEY / AGNES_IMAGE_API_KEY) not set');
     }
   }
 
