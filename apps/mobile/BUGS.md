@@ -5421,3 +5421,69 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 ### 已知遗留
 - **mobile APK 未重打**: 留待下次发版合并. v3.0.47 mobile 代码已 push, 下次 assembleRelease 必带 (避免 mobile 用户看老 label 跟 web 不一致)
 - **长期 (联系 agens 上游)**: 排查 10 个 404 的 taskId 样本, 问 agens createTask 跟 queryTask 是不是共享同一 region / DB / 缓存. shipin-APP 用的 agens endpoint 是不是最新版 (v3?)
+
+---
+
+## BUG-119 (v3.0.48 videoAgent retry 视频堆叠 + 无标准生成动画): 用户点"确认方案" retry 后, last assistant message 同时含 2 个 video 卡片 (修前根因: 前端 confirm 找 plan 替成 streaming 但旧 video 不清空, 完成时堆叠). 同时 stage 3 BUG-110 设计的 GeneratingLoader 组件只集成在 ScriptDetailPage 一处, AgentChatPanel + VideoAgentScreen + ImageAgentScreen 流式卡片漏集成 (跟 BUG-118 教训 100% 同源, 加了 component 漏集成) (S72 batch 20, 2026-06-29)
+
+### 现象 (用户截图)
+用户在 https://ab.maque.uno/video-agent, BUG-118 修后 ad9aad5b / 6bec5aae SQL 救活成 plan_ready。用户点"确认方案" retry → 等待 → 完成后页面同时显示 2 个 0:00/0:15 视频卡片 (完全相同内容, 堆叠 2 个). 同时流式卡片是 "AI 渲染视频, 别关页面..." + Loader2 文字 (不是 BUG-110 设计的标准 spinner 动画)
+
+### 修前根因 (双 BUG 100% 跨项目通用铁律 教训)
+1. **retry 边界没清空旧 result part**: `confirmAndGenerate` / `confirm` (web) + `confirmGenerate` (mobile) 找 last assistant message 的 `plan` part 替换为 `streaming`, 但**该 message 之前的 video / error / image result part 不清空**. 第二次完成时 push 新 video, 跟旧 video 一起渲染 → 2 个堆叠. 跟 BUG-082/096 假渲染陷阱 100% 同源 (都是 retry 边界没清理 + 用户被误导以为生成多次)
+2. **stage 3 BUG-110 设计的 GeneratingLoader 组件漏集成**: v3.0.43 stage 3 BUG-110 加了 `components/ui/GeneratingLoader.tsx` (web) + `components/ui/GeneratingLoader.tsx` (mobile) + AGENTS.md § 5.4 / § 6.6.4 强约束 "AI 生成中/loading 场景必用 GeneratingLoader, 替代 ActivityIndicator / 加载中文本". **实际只集成在 `ScriptDetailPage.tsx` (web) + `ScriptDetailScreen.tsx` (mobile) 一处**, AgentChatPanel.tsx `case 'streaming'` 用 `Loader2 size={28}` (lucide-react) + VideoAgentScreen / ImageAgentScreen 用 `ActivityIndicator size="small"`. 跟 BUG-118 (细分了 status 字段, 但漏加 status label UI) 100% 同源: 写了规范 + 加了 component, 但漏集成到所有相关 screen
+
+### 修法 (5 文件 + 8 处版本号 + 3 端 0 错 + 12 维验证全过)
+1. **web `apps/web/src/components/AgentChatPanel.tsx`**:
+   - import `import { GeneratingLoader } from './ui';` (跨端 1:1 镜像 mobile)
+   - module scope 加 `clearResultParts(parts)` helper: filter 掉 `video` / `error` / `streaming` / `image`(role='result'), 保留 `text` / `plan` / `question` / `progress` / `image`(reference). 跟 mobile VideoAgentScreen + ImageAgentScreen 1:1 镜像
+   - `confirmAndGenerate` (line 470-491) + `confirm` (line 599-625) 入口的 setMessages lambda 内部, 先 `cleaned = clearResultParts(last.parts)` 再 push 新 streaming
+   - status effect 终态替换 (line 248-271) 兜底: `cleaned = clearResultParts(last.parts)` 再 push `[...cleaned, newPart]` (race / page refresh 后 polling 进来时残留)
+   - case 'streaming' 渲染 (line 1224-1251) 改用 `<GeneratingLoader size="md" label="..." />` 替代 `Loader2 + Sparkles` inline
+2. **mobile `apps/mobile/src/screens/VideoAgentScreen.tsx`**:
+   - import `import { GeneratingLoader } from '../components/ui';`
+   - module scope 加 `clearResultParts(parts)` 跟 web 1:1 镜像
+   - `confirmGenerate` (line 318-348) setMessages 内部先 `cleaned = clearResultParts(last.parts)` 再 map plan → streaming
+   - polling useEffect 终态替换 (line 244-296) 改写: `cleaned = clearResultParts(target.parts)` + `newParts: AgentPart[] = [...cleaned]`, 终态 push 新 result, in-flight (tool_queued/executing) 直接 return prev
+   - case 'streaming' 渲染 (line 432-441) 改用 `<GeneratingLoader size="md" label="..." />` 替代 ActivityIndicator
+3. **mobile `apps/mobile/src/screens/ImageAgentScreen.tsx`** (跨端铁律 4++ 配套 — web AgentChatPanel 是 image+video 共用, mobile 是分开, 必须都改):
+   - import 加 `GeneratingLoader` 到现有 `from '../components/ui'`
+   - module scope 加 `clearResultParts(parts)` 跟 web 1:1 镜像
+   - `confirmGenerate` (line 270-310) + polling useEffect 终态 (line 207-263) 同样 strip 旧 result + 旧 streaming
+   - case 'streaming' 渲染 (line 399-408) 改用 `<GeneratingLoader size="md" label="..." />`
+4. **8 处版本号同步 v3.0.47 → v3.0.48** (跨端铁律 3 v3.0.33 扩 6→8):
+   - `apps/mobile/src/config/version.ts`: '3.0.47' → '3.0.48'
+   - `apps/mobile/android/app/build.gradle`: versionCode 51→52, versionName '3.0.47'→'3.0.48'
+   - `apps/server/package.json`: '3.0.47' → '3.0.48'
+   - `apps/server/src/index.ts` line 75 fallback: '3.0.47' → '3.0.48'
+   - `apps/server/ecosystem.config.js` env + env_production 2 处: '3.0.47' → '3.0.48'
+   - `apps/web/src/config/version.ts`: APP_VERSION '3.0.47'→'3.0.48', APP_VERSION_CODE 51→52
+   - `apps/server/changelog.json` 加 v3.0.48 entry (8 highlights), latest_version: 3.0.48
+   - 远端 deploy.sh 自动同步 `.env APP_VERSION` + `systemd unit Environment=APP_VERSION` (从源 /tmp/package.json 读 3.0.48)
+5. **修 verify-version-8-points.js changelog 验证逻辑** (S72 升级 v3.0.48 配套): 原脚本看 `entries[length-1]` (BUG-118 后实际 prepend 顺序 entries[0] 是最新, 验证逻辑错), 改看 `latest_version` 字段 (server `/api/version` 实际读这个, 跟生产响应一致)
+6. **strip UTF-8 BOM from build.gradle + package.json + ecosystem.config.js + 6 文件**: PowerShell Edit 工具写入时加 BOM, 触发 (a) gradle 解析 build.gradle line 1 报 "Unexpected character '?'" (b) python3 deploy.sh 解析 package.json 返空跳 8 处版本号同步. 全部 strip BOM 后 build + deploy 正常
+
+### 验证 (12 维 + 跨端 5 维 + sha256)
+- **server 12 维 (deploy.sh --skip-maintenance)**: 1 systemctl active ✅ 2 ss 6000 ✅ 3 /health 200 ✅ 4 /api/version 3.0.48 ✅ 5 characterVariant 0.1 ✅ 6 /api/novels 401 ✅ 7 宝塔 nginx 80 ✅ 8 宝塔 panel 888 ✅ 9 ab.maque.uno HTTPS 3.0.48 ✅ 10 APK HTTP/2 200 ✅ 11 宝塔 shipin_APP run=True PID=507 mem=42MB ✅ 12 run_user=root is_power_on=1 ✅
+- **tsc 0 错**: web `npx tsc -b --noEmit` 0 错 + `npm run build` 3.42s 519.79KB; server `npm run build` (tsc) 0 错; mobile 50 个 pre-existing 错 (跟 BUG-119 无关, 历史债)
+- **APK 验证**: aapt2 dump badging → `package: name='com.aiscriptmobile' versionCode='52' versionName='3.0.48'` ✅; apksigner verify → `CN=DeepScript Release, O=shipin-APP` (BUG-023 永久 keystore 配) ✅; sha256: `0872bc82fd677fa4a4e8120e8aaa3d8dc21c642bbe8587122a843d0e8b3d791d` 本机 + 公网一致 ✅
+- **公网验证**: `curl https://ab.maque.uno/api/version` → version=3.0.48 latestVersion=3.0.48 downloadUrl=DeepScript_v3.0.48.apk ✅ highlights[0] = BUG-119 ✅; `curl https://ab.maque.uno/app/DeepScript_v3.0.48.apk` → 200 OK Content-Type=application/vnd.android.package-archive Content-Length=30229434 ✅
+
+### 关键 git
+- commit: BUG-119 v3.0.48 修 (5 文件前端 + 8 处版本号 + 1 verify 脚本 + 1 changelog entry + 1 strip-bom 工具)
+- 5 代码文件: apps/web/src/components/AgentChatPanel.tsx + apps/mobile/src/screens/VideoAgentScreen.tsx + apps/mobile/src/screens/ImageAgentScreen.tsx + 8 处版本号 (mobile version.ts / build.gradle / server package.json / index.ts / ecosystem / web version.ts) + apps/server/changelog.json (新 entry)
+- 配套: tools/verify-version-8-points.js (看 latest_version) + tools/strip-bom.py 工具
+- push main
+- deploy: web dist 532KB index-uN3m8vIj.js + server systemd shipin-app PID 507 + APK DeepScript_v3.0.48.apk (30229434 bytes) shipin-APP/public/
+
+### 跨项目通用铁律 (跟 BUG-079/082/096/097/103/104/115/116/117/118 100% 同源)
+1. **retry 边界必清空旧 result part (前端不能 append, 要 replace)**: 找 `plan` 替成 `streaming` 之前, 先 filter 掉旧 `video` / `image`(result) / `error` / 旧 `streaming`. 不 strip 就是堆叠 (跟 BUG-082/096 假渲染陷阱 100% 同源)
+2. **AI 生成中/loading 场景必用 GeneratingLoader 跨端 1:1, 不准裸用 Loader2/ActivityIndicator**: AGENTS.md § 5.4 (web) + § 6.6.4 (mobile) 强约束, BUG-110 Stage 3 设计了 component, 但漏集成 (跟 BUG-118 status label 漏加 100% 同源, 写了规范+component 但漏集成到所有相关 screen)
+3. **加了 component 必集成到所有相关 screen, 不留半成品**: 跨项目通用铁律, 跟 BUG-118 (细分了 status 字段, 但漏加 status label UI) 100% 同源. 写完 component 必 grep 找 "ActivityIndicator" / "Loader2" / "加载中" 字符串, 全部替换
+4. **跨端改一处必同步 web+mobile 1:1 镜像 (跨端铁律 4++)**: web AgentChatPanel 是 image+video 共用, 改一处两边都修; mobile image+video 是分开, 必须 ImageAgentScreen + VideoAgentScreen 都改
+5. **PowerShell Edit 工具会写 UTF-8 BOM, 必 strip**: gradle 解析 build.gradle line 1 报 "Unexpected character '?'"; python3 json 解析 package.json 报 "Unexpected UTF-8 BOM (decode using utf-8-sig)". 部署前必 strip 跟 gradle/python 相关的所有 .gradle / .json 文件
+6. **APK 必传对路径**: nginx `location ^~ /app/` → `alias /www/wwwroot/shipin-APP/public/`, 不是 `/www/wwwroot/ab.maque.uno/dist/`. deploy.sh 默认错路径, 必手动 scp 到 shipin-APP/public/ (跟 BUG-117 deploy 4 件套配套)
+7. **server deploy.sh `systemctl reset-failed` 必须**: 连续 5 次 restart 失败后 "Start request repeated too quickly" 卡住, reset-failed 之后才能 start. 配套 systemd unit RestartSec=10 太快
+
+### 已知遗留
+- 无 (mobile APK 此次已重打, 公网 200, sha256 验证, 跟前次 v3.0.47 已知遗留合并)

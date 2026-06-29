@@ -37,13 +37,18 @@ console.log('  跳过 (历史 commit 注释里的 3.0.X 是合理引用)');
 
 console.log('\n=== changelog.json 验证 ===');
 const cl = JSON.parse(fs.readFileSync('apps/server/changelog.json', 'utf8'));
-const last = cl.entries[cl.entries.length - 1];
-console.log('  最后一段: version=' + last.version + ' date=' + last.buildDate);
-if (last.version !== NEW_VERSION) {
-  console.log('  ✗ changelog 最后一段不是 ' + NEW_VERSION);
-  allOK = false;
+// BUG-119 v3.0.48: 看 latest_version 字段 (server /api/version 实际读这个) + 兜底 entries[0] (BUG-118 之后默认 prepend 顺序)
+const latest = cl.latest_version;
+const firstEntry = cl.entries[0];
+console.log('  latest_version: ' + latest);
+console.log('  entries[0]:    version=' + firstEntry.version + ' date=' + firstEntry.buildDate);
+if (latest === NEW_VERSION) {
+  console.log('  ✓ latest_version 匹配 (跟 /api/version 响应一致)');
+} else if (firstEntry.version === NEW_VERSION) {
+  console.log('  ⚠ latest_version 不匹配但 entries[0] 匹配 (prepend 顺序, server 仍能返)');
 } else {
-  console.log('  ✓ changelog 最后一段匹配');
+  console.log('  ✗ changelog 没找到 ' + NEW_VERSION);
+  allOK = false;
 }
 
 console.log('\n=== 7-8 处远程版本号同步自检 (🆕 v3.0.33 S71 BUG-082 P3) ===');

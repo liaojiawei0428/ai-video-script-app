@@ -1,4 +1,4 @@
-﻿// apps/mobile/src/screens/VideoAgentScreen.tsx
+// apps/mobile/src/screens/VideoAgentScreen.tsx
 // v3.0.24 (S60 P2 BUG-041/042): 移动端视频助手 - 跟 web AgentChatPanel PartView 1:1 对齐
 //   修: video part 只显示 URL 60 字符 → WebView <video> + ?token= 鉴权 + 下载按钮
 //   加: 历史列表 / 新建会话 / 删除 / 切换
@@ -24,6 +24,8 @@ import { useDialog, alert } from '../hooks/useDialog';
 import { buildVideoUrl, buildImageUrl, downloadVideo, downloadImage } from '../utils/agentDownload';
 import type { AgentMessage, AgentPart, PlanData } from '../types/agent';
 import { useNovelStore } from '../store/useNovelStore';
+// BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 web AgentChatPanel 1:1 (跨端铁律 4++ 跟 AGENTS.md § 6.6.4 强约束)
+import { GeneratingLoader } from '../components/ui';
 
 const SUGGESTIONS = [
   '一只猫在海滩散步的慢镜头',
@@ -100,6 +102,23 @@ function StatusBadge({ status, error_msg }: { status: string; error_msg?: string
 // v3.0.24.4e (S60 P3 BUG-053 修): 用 react-native-video 原生播放器替代 WebView
 //   蓝叠 Nougat64 Android 7 + RN WebView 13.x 不兼容 (androidx.window.extensions ClassNotFoundException)
 //   react-native-video 用 Android 原生 MediaPlayer/ExoPlayer, Android 5+ 全兼容
+
+/**
+ * BUG-119 (v3.0.48): 清空 last assistant message 里的 result parts (video / image-result / error) + 旧 streaming
+ *  用途: 用户点"确认生成" retry 时, 必须先把上一轮生成结果清空, 避免堆叠 2 个视频卡片
+ *  跟 web AgentChatPanel.clearResultParts 1:1 镜像 (跨端铁律 4++)
+ *  保留: text / plan / question / progress / image (reference)
+ */
+function clearResultParts(parts: AgentPart[]): AgentPart[] {
+  return parts.filter(p => {
+    if (p.type === 'video') return false;
+    if (p.type === 'error') return false;
+    if (p.type === 'streaming') return false;
+    if (p.type === 'image' && (p as any).role === 'result') return false;
+    return true;
+  });
+}
+
 function VideoPlayer({ url, fallbackUrl, poster, width = 320, height = 180 }: { url: string; fallbackUrl?: string; poster?: string; width?: number; height?: number }) {
   const [src, setSrc] = useState(url);
   const [errored, setErrored] = useState(false);
@@ -262,17 +281,18 @@ export function VideoAgentScreen(): React.JSX.Element {
           }
           if (targetIdx < 0) return prev;
           const target = next[targetIdx];
-          const newParts = target.parts.map(p => {
-            if (p.type !== 'streaming' && p.type !== 'progress') return p;
-            if (status === 'tool_completed' && conv.resultVideoUrl) {
-              return { type: 'video', url: conv.resultVideoUrl, duration: selectedDuration, coverUrl: conv.coverUrl };
-            }
-            if (status === 'tool_failed') {
-              return { type: 'error' as const, message: conv.error_msg || '生成失败' };
-            }
-            return p;
-          });
-          next[targetIdx] = { ...target, parts: newParts as AgentPart[] };
+          // BUG-119 (v3.0.48): 终态替换前先 clear 旧 result + 旧 streaming (兜底: race / page refresh 后 polling 进来时残留)
+          const cleaned = clearResultParts(target.parts);
+          const newParts: AgentPart[] = [...cleaned];
+          if (status === 'tool_completed' && conv.resultVideoUrl) {
+            newParts.push({ type: 'video', url: conv.resultVideoUrl, duration: selectedDuration, coverUrl: conv.coverUrl });
+          } else if (status === 'tool_failed') {
+            newParts.push({ type: 'error' as const, message: conv.error_msg || '生成失败' });
+          } else {
+            // 还在 in-flight (tool_queued / tool_executing 等), 把 cleaned 还原回去 (不清空原有 plan 等)
+            return prev;
+          }
+          next[targetIdx] = { ...target, parts: newParts };
           return next;
         });
         if (status === 'tool_completed' || status === 'tool_failed') {
@@ -326,12 +346,14 @@ export function VideoAgentScreen(): React.JSX.Element {
         return;
       }
       showAlert({ title: '已加入队列', message: `视频生成长, 等待 1-3 分钟\n\ntaskId: ${taskId}` });
+      // BUG-119 (v3.0.48): 先 clearResultParts 清掉旧 video/error/旧 streaming (避免堆叠), 再 map plan→streaming
       setMessages(prev => {
         const next = [...prev];
         const lastIdx = next.length - 1;
         const last = next[lastIdx];
         if (!last || last.role !== 'assistant') return prev;
-        const newParts = last.parts.map(p =>
+        const cleaned = clearResultParts(last.parts);
+        const newParts = cleaned.map(p =>
           p.type === 'plan'
             ? ({ type: 'streaming', stage: 'generating' } as any)
             : p
@@ -430,12 +452,13 @@ export function VideoAgentScreen(): React.JSX.Element {
       );
     }
     if (part.type === 'streaming') {
+      // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 web AgentChatPanel 1:1, AGENTS.md § 6.6.4 强约束)
       return (
         <View style={styles.streamingBox}>
-          <ActivityIndicator size="small" color={colors.accent} />
-          <Text style={styles.streamingText}>
-            {part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'}
-          </Text>
+          <GeneratingLoader
+            size="md"
+            label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'}
+          />
         </View>
       );
     }

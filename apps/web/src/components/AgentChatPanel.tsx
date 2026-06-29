@@ -15,6 +15,7 @@ import type { AgentMessage, AgentPart } from '../hooks/useAgentChat';
 import { partsToText } from '../hooks/useAgentChat';
 import { useAuthStore } from '../store/auth';
 import { uploadAgentReferenceApi } from '../lib/api';
+import { GeneratingLoader } from './ui';  // BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 mobile 1:1 (跨端铁律 4++)
 
 // v3.0.0.1: 视频 URL 生成器 (放在模块顶层避免 React 组件闭包作用域问题)
 //
@@ -43,6 +44,22 @@ function videoFilenameFromUrl(videoUrl: string): string {
   } catch {
     return 'video.mp4';
   }
+}
+
+/**
+ * BUG-119 (v3.0.48): 清空 last assistant message 里的 result parts (video / image-result / error) + 旧 streaming
+ *  用途: 用户点"确认方案" retry 时, 必须先把上一轮生成结果清空, 避免堆叠 2 个视频卡片
+ *  跟 mobile VideoAgentScreen + ImageAgentScreen 1:1 镜像 (跨端铁律 4++)
+ *  保留: text / plan / question / progress / image (reference, 角色=reference 不清)
+ */
+function clearResultParts(parts: AgentPart[]): AgentPart[] {
+  return parts.filter(p => {
+    if (p.type === 'video') return false;
+    if (p.type === 'error') return false;
+    if (p.type === 'streaming') return false;
+    if (p.type === 'image' && (p as any).role === 'result') return false;
+    return true;
+  });
 }
 
 /** v3.0.0.1: 优先 local (快), fallback 到 download proxy (慢但能播) */
@@ -245,6 +262,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
           setConvBillingStatus(bs);
         }
         // 3) 终态: 替换 streaming 为结果
+        // BUG-119 (v3.0.48): 替换前先 clearResultParts 清掉旧 video/error (兜底: 防止 race 或 page refresh 后 polling 进来时残留)
         if (conv.status === 'tool_completed' || conv.status === 'tool_failed') {
           const resultUrl = (conv as any).resultImageUrl || (conv as any).resultVideoUrl;
           const errMsg = (conv as any).errorMsg;
@@ -253,16 +271,18 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
             const last = next[next.length - 1];
             if (!last) return m;
             if (!last.parts.some((p: any) => p.type === 'streaming')) return m;
+            // BUG-119: 先 clear 旧 result + 旧 streaming, 再 push 新 result
+            const cleaned = clearResultParts(last.parts);
+            const newPart: AgentPart = conv.status === 'tool_failed'
+              ? { type: 'error', message: errMsg || '生成失败' }
+              : (!resultUrl
+                  ? { type: 'error', message: '生成完成但 URL 缺失' }
+                  : (kind === 'image'
+                      ? { type: 'image', url: resultUrl, role: 'result' as const }
+                      : { type: 'video', url: resultUrl, duration: 5, billingStatus: billingStatusRef.current }));
             next[next.length - 1] = {
               ...last,
-              parts: last.parts.map((p: any) => {
-                if (p.type !== 'streaming') return p;
-                if (conv.status === 'tool_failed') return { type: 'error', message: errMsg || '生成失败' };
-                if (!resultUrl) return { type: 'error', message: '生成完成但 URL 缺失' };
-                return kind === 'image'
-                  ? { type: 'image', url: resultUrl, role: 'result' as const }
-                  : { type: 'video', url: resultUrl, duration: 5, billingStatus: billingStatusRef.current };
-              }),
+              parts: [...cleaned, newPart],
             };
             return next;
           });
@@ -465,14 +485,16 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     setError(null);
 
     // 1. 立刻把 plan part 替换成流式卡片 (generating 阶段, 极简模式无 translating)
+    // BUG-119 (v3.0.48): 先 clearResultParts 清掉旧 video/error/旧 streaming (避免堆叠), 再 push 新 streaming
     setStatus('tool_queued');
     setMessages(m => {
       const next = [...m];
       const last = next[next.length - 1];
       if (last && last.role === 'assistant') {
+        const cleaned = clearResultParts(last.parts);
         const newParts: AgentPart[] = [];
         let streamingReplaced = false;
-        for (const p of last.parts) {
+        for (const p of cleaned) {
           if (p.type === 'plan' && !streamingReplaced) {
             newParts.push({ type: 'streaming', stage: 'generating' });
             streamingReplaced = true;
@@ -598,14 +620,16 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     setError(null);
     try {
       // 1. 立刻把 plan part 替换为流式卡片 (kind: 'generating')
+      // BUG-119 (v3.0.48): 先 clearResultParts 清掉旧 video/error/旧 streaming (避免堆叠), 再 push 新 streaming
       setStatus('tool_queued');
       setMessages(m => {
         const next = [...m];
         const last = next[next.length - 1];
         if (last && last.role === 'assistant') {
+          const cleaned = clearResultParts(last.parts);
           const newParts: AgentPart[] = [];
           let streamingReplaced = false;
-          for (const p of last.parts) {
+          for (const p of cleaned) {
             if (p.type === 'plan' && !streamingReplaced) {
               newParts.push({ type: 'streaming', stage: 'generating' });
               streamingReplaced = true;
@@ -1221,32 +1245,23 @@ function PartView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPi
         </div>
       );
     // v3.0.0.10: 流式生图卡片 — 用户点"确认方案, 出图"后 plan part 原地变成这个, 然后变成图片
+    // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 mobile VideoAgentScreen + ImageAgentScreen 1:1, AGENTS.md § 5.4 强约束)
     case 'streaming':
       return (
         <div
           className="mt-1 p-4 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 flex items-center gap-3"
           style={{ color: isUser ? 'white' : undefined }}
         >
-          <div className="relative w-10 h-10 flex items-center justify-center">
-            <Loader2 size={28} className="animate-spin text-violet-400" />
-            <Sparkles size={12} className="absolute text-violet-300" />
-          </div>
-          <div className="flex-1">
-            <div className="text-sm font-medium">
-              {part.stage === 'translating'
-                ? '正在翻译成AI识别的最佳提示词'
-                : kind === 'video'
-                  ? '正在生成视频'
-                  : '正在生成图片'}
-            </div>
-            <div className="text-[10px] opacity-60 mt-0.5">
-              {part.stage === 'translating'
-                ? '把中文方案转换为专业提示词...'
+          <GeneratingLoader
+            size="md"
+            label={
+              part.stage === 'translating'
+                ? '正在翻译成AI识别的最佳提示词...'
                 : kind === 'video'
                   ? 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'
-                  : 'AI 正在绘制中...'}
-            </div>
-          </div>
+                  : 'AI 正在绘制中...'
+            }
+          />
         </div>
       );
       case 'video':

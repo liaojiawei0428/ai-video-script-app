@@ -5,6 +5,22 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.48",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-119 修视频助手 retry 视频堆叠 + 补标准生成中动画: 跨端 web + mobile 1:1 加 clearResultParts helper (retry 前先清空 last assistant 的 video/image-result/error/旧 streaming, 避免堆叠 2 张卡片), streaming 渲染改用 GeneratingLoader (Stage 3 v3.0.43 组件, 之前只集成 ScriptDetailPage 一处, AgentChatPanel + VideoAgentScreen + ImageAgentScreen 漏集成)",
+      "highlights": [
+        "BUG-119 ✅ 修前根因: 用户点'确认方案' retry 时, 前端 confirm/confirmAndGenerate 找 plan 替成 streaming, 但旧 video/error part 不清空 → 第二次完成时 2 个 video 堆叠 (跟 BUG-082/096 假渲染陷阱 100% 同源, 都是 retry 边界没清理)",
+        "BUG-119 ✅ web AgentChatPanel.tsx 加 clearResultParts(parts) helper (module scope, 跟 mobile 1:1), confirmAndGenerate + confirm + status effect 终态替换 3 处都先 strip 旧 result + 旧 streaming (兜底: race / page refresh 后 polling 进来时残留)",
+        "BUG-119 ✅ mobile VideoAgentScreen.tsx 加 clearResultParts(parts) helper (module scope, 跟 web 1:1), confirmGenerate + polling useEffect 终态替换 2 处都先 strip, 跟 web 1:1 镜像 (跨端铁律 4++)",
+        "BUG-119 ✅ mobile ImageAgentScreen.tsx 同步修 (跨端铁律 4++): confirmGenerate + polling useEffect + streaming 渲染, 跟 VideoAgentScreen 1:1 镜像 (web AgentChatPanel 是 image+video 共用, 改一处两边都修; mobile image+video 分开, 必须都改)",
+        "BUG-119 ✅ web AgentChatPanel.tsx case 'streaming' 改用 GeneratingLoader 跨端 1:1 动画 (替代 Loader2 + Sparkles inline, 跟 mobile Animated 1:1 1s 周期, AGENTS.md § 5.4 强约束)",
+        "BUG-119 ✅ mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx 同样改用 GeneratingLoader 跨端 1:1 (替代 ActivityIndicator, 跟 web CSS spinner 1:1, AGENTS.md § 6.6.4 强约束)",
+        "BUG-119 跨项目通用铁律 (跟 BUG-079/082/096/097/103/104/115/116/117/118 100% 同源): 1) retry 边界必清空旧 result part (前端不能 append, 要 replace) 2) AI 生成中/loading 场景必用 GeneratingLoader 跨端 1:1, 不准裸用 Loader2/ActivityIndicator 3) 加了 component 必集成到所有相关 screen, 不留半成品 (跟 BUG-118 教训同源) 4) 跨端改一处必同步 web+mobile 1:1 镜像",
+        "BUG-119 已知遗留: mobile APK rebuild 需 3-5min Gradle build, deploy 时一次性带出 (跨端铁律 4++ mobile APK 必重打, 跟 BUG-118 修法一致)"
+      ]
+    },
+    {
       "version": "3.0.47",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -201,5 +217,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.47"
+  "latest_version": "3.0.48"
 }

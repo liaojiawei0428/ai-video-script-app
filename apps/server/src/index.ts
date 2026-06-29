@@ -1,4 +1,4 @@
-﻿// apps/server/src/index.ts
+// apps/server/src/index.ts
 // v3.0.32 (S71 BUG-078): web "账单明细" API mount (/api/billing)
 // v3.0.32 (S71 BUG-079): �?S71 PS 5.1 写入丢失换行符的损坏 (整文件挤 3 �? tsc 编译�?11 �?dist, node 启动立即 exit)
 // 修法: Write 工具强写干净�? 每个 import 一�?
@@ -72,7 +72,7 @@ app.get('/health', (req, res) => {
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
 import { readChangelog, loadChangelog } from './shared/changelog';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.47';
+  const currentVersion = process.env.APP_VERSION || '3.0.48';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
   const changelogEntry = readChangelog(currentVersion);

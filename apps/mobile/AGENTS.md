@@ -518,7 +518,85 @@ Stage 2 (BUG-109) + 缓存方案 A (BUG-115) 解决了"本地优先"和"减少 S
 
 ---
 
-**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19 缓存方案 A+B + BUG-118 工具文案子状态细分**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9 跨端规范, 跟 server 视角统一**.
+**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19/20 缓存方案 A+B + BUG-118 细分 + BUG-119 跨端 retry 清理 + 动画补齐**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分 + retry 边界清理 + 1:1 动画补齐. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9/6.10 跨端规范, 跟 server 视角统一**.
 
-> **最后更新**: 2026-06-29 (S72 batch 19 v3.0.47 BUG-118, 加 § 6.9 videoAgent tool_throttled 细分规范, 跟根 AGENTS.md v2.14 同步)
+## § 6.10 v3.0.48 新增: videoAgent/imageAgent retry 边界清空旧 result part + GeneratingLoader 跨端 1:1 集成补齐 (S72 batch 20 BUG-119)
+
+> **新增 2026-06-29 (S72 batch 20 v3.0.48 BUG-119)**: 修视频助手 retry 视频堆叠 + 补标准生成中动画 — 跨端 web + mobile 1:1 加 `clearResultParts(parts)` helper (retry 前先清空 last assistant 的 video/image-result/error/旧 streaming, 避免堆叠 2 张卡片), streaming 渲染改用 GeneratingLoader (Stage 3 v3.0.43 组件, 之前只集成 ScriptDetailPage 一处, AgentChatPanel + VideoAgentScreen + ImageAgentScreen 漏集成).
+
+### § 6.10.1 背景
+
+用户在 https://ab.maque.uno/video-agent BUG-118 修后 (ad9aad5b / 6bec5aae SQL 救活成 plan_ready) 点"确认方案" retry → 等待 → 完成后页面同时显示 2 个 0:00/0:15 视频卡片 (堆叠 2 张, 内容相同). 同时流式卡片是 "AI 渲染视频, 别关页面..." + Loader2 文字 (不是 BUG-110 Stage 3 设计的标准 spinner 动画).
+
+**双 BUG 100% 同源 (跟 BUG-079/082/096/097/103/104/115/116/117/118 同源)**:
+- **BUG-A (retry 边界没清空旧 result part)**: 修前 `confirmAndGenerate` / `confirm` / `confirmGenerate` 找 last assistant message 的 `plan` part 替换为 `streaming`, 但**该 message 之前的 video / error / image result part 不清空**. 第二次完成时 push 新 video, 跟旧 video 一起渲染 → 2 个堆叠
+- **BUG-B (stage 3 BUG-110 GeneratingLoader 组件漏集成)**: v3.0.43 stage 3 BUG-110 加了 `components/ui/GeneratingLoader.tsx` (web + mobile 1:1) + AGENTS.md § 5.4 / § 6.6.4 强约束 "AI 生成中/loading 场景必用 GeneratingLoader, 替代 ActivityIndicator / 加载中文本". **实际只集成在 `ScriptDetailPage.tsx` (web) + `ScriptDetailScreen.tsx` (mobile) 一处**, AgentChatPanel.tsx `case 'streaming'` 用 `Loader2 size={28}` (lucide-react) + VideoAgentScreen / ImageAgentScreen 用 `ActivityIndicator size="small"`
+
+### § 6.10.2 修法架构 (5 文件 + 8 处版本号 + 3 端 0 错 + 12 维验证全过)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  web AgentChatPanel.tsx (image+video 共用, 改一处两边都修)        │
+│  - import GeneratingLoader from './ui'                    │
+│  - module scope: clearResultParts(parts)                  │
+│    └─ filter 掉 video / error / streaming / image(role=result)│
+│  - confirmAndGenerate + confirm + status effect 3 处都先 strip │
+│  - case 'streaming' 改用 GeneratingLoader 替代 Loader2+Sparkles │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 1:1 镜像 (跨端铁律 4++)
+┌──────────────────────────────────────────────────────────┐
+│  mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx (分开)│
+│  - import GeneratingLoader from '../components/ui'       │
+│  - module scope: clearResultParts(parts) 跟 web 1:1      │
+│  - confirmGenerate + polling 终态 2 处都先 strip         │
+│  - case 'streaming' 改用 GeneratingLoader 替代 ActivityIndicator│
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.10.3 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| Helper API | `clearResultParts(parts): AgentPart[]` (module scope) | 同左 (module scope) | ✅ 1:1 |
+| Filter 逻辑 | `video` / `error` / `streaming` / `image(role=result)` 4 类 | 同左 | ✅ 1:1 |
+| 集成点 | confirmAndGenerate + confirm + status effect 3 处 | confirmGenerate + polling 终态 2 处 (imageAgentScreen 同 2 处) | ✅ 1:1 (web AgentChatPanel 是 image+video 共用, 改 1 处两边都修; mobile image+video 分开) |
+| GeneratingLoader 渲染 | `<GeneratingLoader size="md" label="..." />` 替代 Loader2 | `<GeneratingLoader size="md" label="..." />` 替代 ActivityIndicator | ✅ 1:1 |
+| 1s 周期 + 蓝色 | CSS spinner 1s | Animated 1000ms | ✅ 1:1 |
+| MAX_RETRIES / size 选项 | sm/md/lg | 同左 | ✅ 1:1 |
+
+### § 6.10.4 使用规范
+
+1. **retry 边界必清空旧 result part (前端不能 append, 要 replace)**: 找 `plan` 替成 `streaming` 之前, 先 `cleaned = clearResultParts(last.parts)` 再 push 新 streaming. 不 strip 就是堆叠
+2. **AI 生成中/loading 场景必用 GeneratingLoader 跨端 1:1, 不准裸用 Loader2/ActivityIndicator**: AGENTS.md § 5.4 (web) + § 6.6.4 (mobile) 强约束
+3. **加了 component 必集成到所有相关 screen, 不留半成品**: 写完 GeneratingLoader 必 grep 找 "ActivityIndicator" / "Loader2" / "加载中" 字符串, 全部替换
+4. **跨端改一处必同步 web+mobile 1:1 镜像 (跨端铁律 4++)**: web AgentChatPanel 是 image+video 共用, 改一处两边都修; mobile image+video 是分开, 必须 ImageAgentScreen + VideoAgentScreen 都改
+5. **status effect / polling 终态替换也要 strip 旧 result (兜底)**: race / page refresh 后 polling 进来时残留
+6. **in-flight (tool_queued / tool_executing) 不动 messages**: 终态 push 新 result, in-flight 直接 return prev
+7. **PowerShell Edit 工具会写 UTF-8 BOM, 必 strip**: gradle 解析 build.gradle line 1 报 "Unexpected character '?'"; python3 json 解析 package.json 报 "Unexpected UTF-8 BOM (decode using utf-8-sig)". 部署前必 strip 跟 gradle/python 相关的所有 .gradle / .json 文件
+8. **APK 必传对路径**: nginx `location ^~ /app/` → `alias /www/wwwroot/shipin-APP/public/`, 不是 `/www/wwwroot/ab.maque.uno/dist/`. deploy.sh 默认错路径, 必手动 scp 到 shipin-APP/public/
+9. **server deploy.sh `systemctl reset-failed` 必须**: 连续 5 次 restart 失败后 "Start request repeated too quickly" 卡住, reset-failed 之后才能 start
+10. **verify-version-8-points.js changelog 验证看 latest_version 不是 entries[length-1]**: 跨项目通用, BUG-118 之后默认 prepend 顺序, 验证逻辑必看 latest_version (server `/api/version` 实际读这个)
+
+### § 6.10.5 跨项目通用 (跟 BUG-079/082/096/097/103/104/115/116/117/118 100% 同源)
+
+- **retry 边界必清空旧 result part**: 跨项目通用铁律, 不 strip 就是堆叠
+- **AI 生成中/loading 场景必用 GeneratingLoader 跨端 1:1**: AGENTS.md § 5.4/§ 6.6.4 强约束, 不准裸用 Loader2/ActivityIndicator
+- **加了 component 必集成到所有相关 screen, 不留半成品**: 跨项目通用铁律, grep + 全部替换
+- **跨端改一处必同步 web+mobile 1:1 镜像**: 跨端铁律 4++, 缺一就是漏修
+- **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3)
+- **strip UTF-8 BOM from build.gradle + package.json**: 跨项目通用铁律, PowerShell Edit 工具会写 BOM
+- **APK 必传 shipin-APP/public/**: 跨项目通用铁律, nginx `location ^~ /app/` alias 路径
+
+### § 6.10.6 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — 跟 BUG-119 retry 边界没清理 100% 同源 (前端没真反映后端状态)
+- **BUG-082/096** 假渲染陷阱 — 跟 BUG-119 retry 堆叠 100% 同源
+- **BUG-097** mobile 漏修 web — BUG-119 跨端铁律 4++ 修法, web + mobile 同步
+- **BUG-103** 自动退款漏刷 APK — BUG-119 此次已重打 mobile APK, 修法完整闭环
+- **BUG-110** Stage 3 GeneratingLoader — BUG-119 把 component 补集成到所有 streaming 场景
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-119 跨项目通用铁律同源 (沉淀一致)
+- **BUG-117** 公网 APK 404 — BUG-119 跨项目通用铁律新一条 "APK 必传对路径"
+- **BUG-118** 细分了 status 字段但漏加 status label UI — BUG-119 教训同源 "加了 component 漏集成"
+
+> **最后更新**: 2026-06-29 (S72 batch 20 v3.0.48 BUG-119, 加 § 6.10 videoAgent retry 清理 + GeneratingLoader 1:1 集成补齐规范, 跟根 AGENTS.md v2.15 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时

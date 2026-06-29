@@ -1,4 +1,4 @@
-﻿module.exports = {
+module.exports = {
   apps: [
     {
       name: 'ai-script-server',
@@ -8,7 +8,7 @@
       env: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '3.0.47',
+        APP_VERSION: '3.0.48',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',
@@ -20,7 +20,7 @@
       env_production: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '3.0.47',
+        APP_VERSION: '3.0.48',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',
