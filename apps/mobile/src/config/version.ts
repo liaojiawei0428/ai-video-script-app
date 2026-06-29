@@ -12,7 +12,7 @@
 //   4. commit message 必带版本号 (铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验证 (BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.48';
+export const APP_VERSION = '3.0.49';
 
 // v3.0.41 (S72 batch 7 BUG-105 mobile sync): 移植 web characterUtils.ts 到 mobile utils, 3 个 screen 改用统一 utils, 兼容 server v3.0.40 Markdown 自由文本格式
 //   - 修法: 跟 web apps/web/src/lib/characterUtils.ts v2.5.34 1:1 对齐 (除 getRoleLabel/getRoleColor — mobile 端用 theme/character.ts)

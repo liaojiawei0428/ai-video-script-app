@@ -16,6 +16,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import { ImageWithLoading, GeneratingLoader } from '../components/ui';
+import { getMobileAspectStyle } from '../utils/aspectRatio';
 import {
   imageAgentCreateConversationApi, imageAgentChatApi, imageAgentConfirmApi,
   imageAgentHistoryApi, imageAgentGetApi, imageAgentDeleteApi,
@@ -398,8 +399,10 @@ export function ImageAgentScreen(): React.JSX.Element {
     }
     if (part.type === 'streaming') {
       // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 web AgentChatPanel + VideoAgentScreen 1:1, AGENTS.md § 6.6.4 强约束)
+      // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示 (1:1 方形 / 16:9 横屏 / 9:16 竖屏 等), 跟 web AgentChatPanel 1:1
+      const aspectStyle = getMobileAspectStyle(selectedRatio, 'image');
       return (
-        <View style={styles.streamingBox}>
+        <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
           <GeneratingLoader
             size="md"
             label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在绘制中...'}

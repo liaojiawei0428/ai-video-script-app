@@ -16,6 +16,7 @@ import { partsToText } from '../hooks/useAgentChat';
 import { useAuthStore } from '../store/auth';
 import { uploadAgentReferenceApi } from '../lib/api';
 import { GeneratingLoader } from './ui';  // BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 mobile 1:1 (跨端铁律 4++)
+import { getWebAspectStyle } from '../lib/aspectRatio';  // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示, 跟 mobile 1:1 镜像
 
 // v3.0.0.1: 视频 URL 生成器 (放在模块顶层避免 React 组件闭包作用域问题)
 //
@@ -889,7 +890,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
             </div>
           )}
           {messages.map(m => (
-            <MessageBubble key={m.id} message={m} onPick={pickOption} kind={kind} />
+            <MessageBubble key={m.id} message={m} onPick={pickOption} kind={kind} selectedRatio={selectedRatio} />
           ))}
           {loading && (
             <div className="flex justify-start">
@@ -1073,7 +1074,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
 }
 
 // ─── 单条消息气泡 ───
-function MessageBubble({ message, onPick, kind }: { message: AgentMessage; onPick: (s: string) => void; kind: 'image' | 'video' }) {
+function MessageBubble({ message, onPick, kind, selectedRatio }: { message: AgentMessage; onPick: (s: string) => void; kind: 'image' | 'video'; selectedRatio: string }) {
   const isUser = message.role === 'user';
   // v3.0.0.3 BUG 修复: useAuthStore 必须在 component 顶层调用 (Rules of Hooks)
   // 之前在 message.parts.map() 内调用, 当 parts 数量变化时 (出图前 1 个, 出图后 2-3 个)
@@ -1085,7 +1086,7 @@ function MessageBubble({ message, onPick, kind }: { message: AgentMessage; onPic
         isUser ? 'bg-primary text-white rounded-tr-sm' : 'bg-bg-tertiary rounded-tl-sm'
       }`}>
         {message.parts.map((p, i) => (
-          <PartSafeView key={i} part={p} onPick={onPick} kind={kind} isUser={isUser} token={token} />
+          <PartSafeView key={i} part={p} onPick={onPick} kind={kind} isUser={isUser} token={token} selectedRatio={selectedRatio} />
         ))}
       </div>
     </div>
@@ -1097,9 +1098,9 @@ function MessageBubble({ message, onPick, kind }: { message: AgentMessage; onPic
  *  - PartView 内部抛错 (e.g., part.url undefined 触发 startsWith 崩) → 这层 catch 兜住
  *  - 单 part 渲染失败 → 只显示一个 fallback 行, 不影响其他 part 渲染, 也不击垮整个 MessageBubble
  */
-function PartSafeView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string }) {
+function PartSafeView({ part, onPick, kind, isUser, token, selectedRatio }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string }) {
   try {
-    return <PartView part={part} onPick={onPick} kind={kind} isUser={isUser} token={token} />;
+    return <PartView part={part} onPick={onPick} kind={kind} isUser={isUser} token={token} selectedRatio={selectedRatio} />;
   } catch (e: any) {
     console.error('[PartSafeView] render failed:', e, { part, kind });
     return (
@@ -1120,7 +1121,7 @@ function safeStr(v: any, fallback: string = ''): string {
   return String(v);
 }
 
-function PartView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string }) {
+function PartView({ part, onPick, kind, isUser, token, selectedRatio }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string }) {
   switch (part.type) {
     case 'text':
       return <p className="text-sm whitespace-pre-wrap leading-relaxed">{part.text}</p>;
@@ -1246,11 +1247,17 @@ function PartView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPi
       );
     // v3.0.0.10: 流式生图卡片 — 用户点"确认方案, 出图"后 plan part 原地变成这个, 然后变成图片
     // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 mobile VideoAgentScreen + ImageAgentScreen 1:1, AGENTS.md § 5.4 强约束)
-    case 'streaming':
+    // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示 (1:1 方形 / 16:9 横屏 / 9:16 竖屏 等), 不再硬编码固定宽高
+    case 'streaming': {
+      const aspectStyle = getWebAspectStyle(selectedRatio, kind);
       return (
         <div
-          className="mt-1 p-4 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 flex items-center gap-3"
-          style={{ color: isUser ? 'white' : undefined }}
+          className="mt-1 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 flex flex-col items-center justify-center gap-2"
+          style={{
+            ...aspectStyle,
+            width: '100%',
+            color: isUser ? 'white' : undefined,
+          }}
         >
           <GeneratingLoader
             size="md"
@@ -1264,6 +1271,7 @@ function PartView({ part, onPick, kind, isUser, token }: { part: AgentPart; onPi
           />
         </div>
       );
+    }
       case 'video':
         // v3.0.0.1: local-first 策略
         // 1) 渲染时优先用 /api/agent/video-local/{userId}/{filename}?token=...

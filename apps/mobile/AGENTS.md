@@ -1,4 +1,4 @@
-﻿# apps/mobile/AGENTS.md — Mobile 端 AI Agent 必读 (S68 瘦身, S72 batch 7 加部署主入口)
+# apps/mobile/AGENTS.md — Mobile 端 AI Agent 必读 (S68 瘦身, S72 batch 7 加部署主入口)
 
 > **本文件**: mobile 端 (React Native) AI Agent 独有规范. 跟根 AGENTS.md + server AGENTS.md 对称.
 > **必读顺序** (S68 收口后, S72 batch 7 加 🆕 部署主入口 + 铁律 4++ Web→APP 同步):
@@ -518,7 +518,80 @@ Stage 2 (BUG-109) + 缓存方案 A (BUG-115) 解决了"本地优先"和"减少 S
 
 ---
 
-**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19/20 缓存方案 A+B + BUG-118 细分 + BUG-119 跨端 retry 清理 + 动画补齐**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分 + retry 边界清理 + 1:1 动画补齐. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9/6.10 跨端规范, 跟 server 视角统一**.
+**🆕 S68 收口 + S71 后置 + S72 batch 16/17/19/20/21 缓存方案 A+B + BUG-118 细分 + BUG-119 跨端 retry 清理 + 动画补齐 + BUG-120 等待卡片按比例显示**: 跨端通用规范 + 缓存方案完整闭环 + 错误分类细分 + retry 边界清理 + 1:1 动画补齐 + ratio 维度补齐. **未来 AI 改 mobile 必同步看根 AGENTS.md § 4 铁律 + 本文件 § 6.5/6.6/6.7/6.8/6.9/6.10/6.11 跨端规范, 跟 server 视角统一**.
+
+## § 6.11 v3.0.49 新增: 等待动画卡片按用户选的比例显示 (S72 batch 21 BUG-120)
+
+> **新增 2026-06-29 (S72 batch 21 v3.0.49 BUG-120)**: 修视频/生图助手等待动画卡片按用户选的比例显示 — 跨端 web + mobile 1:1 加 `aspectRatio.ts` util (跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1 镜像), streaming 卡片容器按 1:1 / 16:9 / 9:16 / 4:3 / 3:4 / 2:3 / 3:2 / 2K / 4K / 8K 比例显示, auto 默认 image 1:1 / video 16:9.
+
+### § 6.11.1 背景 (跟 web § 5.8.1 1:1)
+
+用户选了 16:9 横屏比例, 点"确认方案" → 等待动画卡片是 mobile 默认 360x202 横向 (不是 16:9 实际比例 1152×768) → 等 1-3 分钟完成 → 视频变成 16:9 实际比例 → 跳变感强, 用户感觉"等待跟完成不一致".
+
+**根因**: 修前 `case 'streaming'` 渲染用固定样式 (mobile `styles.streamingBox` 固定 flex row 容器, web `p-4 rounded-lg` 自适配) — 不读用户选的 selectedRatio. 跟 BUG-118/119 教训 100% 同源 (加了 state 但漏消费到所有相关 render).
+
+### § 6.11.2 修法架构 (5 文件 + 2 新建 + 8 处版本号)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  apps/mobile/src/utils/aspectRatio.ts (新建, 跟 web + server 1:1) │
+│  - ASPECT_RATIO_DIMS: 10 ratio → 实际 w/h              │
+│  - parseAspectDims(ratio, kind): 支持 '16:9' / '2K' / 'WxH' 3 格式 │
+│  - defaultRatioForKind(kind): auto fallback (image 1:1 / video 16:9) │
+│  - getMobileAspectStyle: 返 { aspectRatio: number, width, height } │
+│    (RN 0.73 aspectRatio number, 缩到 1/3 显示)          │
+└──────────────────────────────────────────────────────────┘
+                          ↓ 1:1 镜像 (跨端铁律 4++)
+┌──────────────────────────────────────────────────────────┐
+│  VideoAgentScreen.tsx + ImageAgentScreen.tsx streaming 渲染   │
+│  - import getMobileAspectStyle from '../utils/aspectRatio'│
+│  - <View style={{ aspectRatio, width, alignSelf: 'center' }}>│
+│  - selectedRatio 是 component state, renderPart 闭包访问  │
+└──────────────────────────────────────────────────────────┘
+```
+
+### § 6.11.3 跨端铁律 4++ 镜像 (跟 web § 5.8.3 + server `imageAspectRatio.ts` 1:1)
+
+| 维度 | web 端 | mobile 端 | server 端 (真源) | 一致性 |
+|---|---|---|---|---|
+| Util 文件 | `apps/web/src/lib/aspectRatio.ts` | `apps/mobile/src/utils/aspectRatio.ts` | `apps/server/src/prompts/imageAspectRatio.ts` (SUPPORTED_RATIOS) | ✅ 1:1 |
+| ASPECT_RATIO_DIMS 10 项 | 1:1=1024², 16:9=1152×768, 9:16=768×1152, 4:3=1024×768, 3:4=768×1024, 2:3=768×1152, 3:2=1152×768, 2K=1280², 4K=2048², 8K=2048² | 同左 | 同左 (SUPPORTED_RATIOS map) | ✅ 1:1 |
+| parseAspectDims 3 格式 | '16:9' / '2K' / 'WxH' | 同左 | 同左 (parseAspectToDims) | ✅ 1:1 |
+| defaultRatioForKind | image 1:1, video 16:9 | 同左 | 同左 (DEFAULT_ASPECT) | ✅ 1:1 |
+| getStyle 返值 | `{ aspectRatio: 'W / H', maxWidth, maxHeight }` CSS | `{ aspectRatio: number, width, height }` RN 0.72+ | n/a (server 不渲染) | ✅ 1:1 跨端 (web/mobile 风格略不同) |
+| 缩放 | max 480px (max edge) | 1/3 显示 | n/a | ✅ 1:1 |
+
+### § 6.11.4 使用规范 (跟 web § 5.8.4 1:1)
+
+1. **等待动画卡片尺寸必跟用户选的比例 1:1, 完成后的 result 不能跟等待时比例跳变**: 用户在 confirm 前选了什么比例, streaming 卡片就用什么比例
+2. **ratio 字典必 web + mobile + server 三端 1:1 同步**: 跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1 镜像, 改必双端+server 三端同步
+3. **跨端铁律 4++ 1:1 镜像**: helper API (parseAspectDims) / getStyle 入口 (getWebAspectStyle + getMobileAspectStyle) / 10 ratio 字典 跨端一致
+4. **auto fallback 默认值 web + mobile + server 1:1**: image 走 1:1, video 走 16:9
+5. **加了 state 必消费到所有相关 render**: 跟 BUG-118/119 教训同源, selectedRatio 之前是 state 但 streaming 卡片没消费
+6. **CSS aspectRatio (web) 用 'W / H' 字符串, RN aspectRatio (mobile) 用 number**: 跨端 1:1 但实现细节不同 (web Tailwind 3 支持 / RN 0.72+ 支持 number)
+7. **prop drilling vs 闭包访问**: web AgentChatPanel 走 prop drilling (顶层 → MessageBubble → PartSafeView → PartView), mobile 走闭包访问 (selectedRatio 是 state, renderPart 直接用). 效果一致
+8. **alignSelf: 'center' 必加 (mobile)**: 容器按比例缩后, 必须居中显示
+9. **<View style={[styles.streamingBox, { aspectRatio, width, alignSelf: 'center' }]}> (mobile)**: 合并 streamingBox 基础样式 + aspectRatio 覆盖, 1 行搞定
+
+### § 6.11.5 跨项目通用 (跟 BUG-079/082/096/097/103/115/116/117/118/119 100% 同源)
+
+- **等待动画卡片尺寸必跟用户选的比例 1:1**: 不 1:1 就有跳变感
+- **ratio 字典必 web + mobile + server 三端 1:1 同步**: 跨项目通用铁律, 改必双端+server 三端同步
+- **跨端铁律 4++ 1:1 镜像**: 跨端铁律 4++
+- **auto fallback 默认值跨端 1:1**: image 1:1 / video 16:9
+- **加了 state 必消费到所有相关 render**: 跨项目通用铁律, 跟 BUG-118/119 同源
+- **CSS aspectRatio 用字符串, RN aspectRatio 用 number**: 实现细节不同, 跨端 1:1 但用对工具
+- **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3)
+- **strip UTF-8 BOM from build.gradle + package.json**: 跨项目通用铁律
+
+### § 6.11.6 跟其他 BUG 关系 (跟 web § 5.8.6 1:1)
+
+- **BUG-079** 假报告 — 跟 BUG-120 selectedRatio 没消费到 streaming 100% 同源
+- **BUG-097** mobile 漏修 web — BUG-120 web + mobile 同步 (跨端铁律 4++)
+- **BUG-110** GeneratingLoader Stage 3 — BUG-120 在 Stage 3 基础上按比例显示
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-120 跨项目通用铁律同源
+- **BUG-118** 细分 status 字段但漏加 status label UI — BUG-120 教训同源 "加了 state 漏消费"
+- **BUG-119** retry 清理 + GeneratingLoader 全屏集成 — BUG-120 补上 ratio 维度
 
 ## § 6.10 v3.0.48 新增: videoAgent/imageAgent retry 边界清空旧 result part + GeneratingLoader 跨端 1:1 集成补齐 (S72 batch 20 BUG-119)
 

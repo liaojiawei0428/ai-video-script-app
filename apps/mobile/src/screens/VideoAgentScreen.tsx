@@ -25,7 +25,9 @@ import { buildVideoUrl, buildImageUrl, downloadVideo, downloadImage } from '../u
 import type { AgentMessage, AgentPart, PlanData } from '../types/agent';
 import { useNovelStore } from '../store/useNovelStore';
 // BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 web AgentChatPanel 1:1 (跨端铁律 4++ 跟 AGENTS.md § 6.6.4 强约束)
+// BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示, 跟 web 1:1 镜像
 import { GeneratingLoader } from '../components/ui';
+import { getMobileAspectStyle } from '../utils/aspectRatio';
 
 const SUGGESTIONS = [
   '一只猫在海滩散步的慢镜头',
@@ -453,8 +455,10 @@ export function VideoAgentScreen(): React.JSX.Element {
     }
     if (part.type === 'streaming') {
       // BUG-119 (v3.0.48): 改用 GeneratingLoader 跨端 1:1 动画 (跟 web AgentChatPanel 1:1, AGENTS.md § 6.6.4 强约束)
+      // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示 (1:1 方形 / 16:9 横屏 / 9:16 竖屏 等), 跟 web AgentChatPanel 1:1
+      const aspectStyle = getMobileAspectStyle(selectedRatio, 'video');
       return (
-        <View style={styles.streamingBox}>
+        <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
           <GeneratingLoader
             size="md"
             label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'}

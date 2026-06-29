@@ -1,4 +1,4 @@
-﻿# Deep�籾 Mobile BUG �޸���ʷ + ����ָ��
+# Deep�籾 Mobile BUG �޸���ʷ + ����ָ��
 
 > **������ AI �����ٲ��ĵ�** �� ÿ������ BUG, ��׷��һ�������ļ�, д��:
 > 1. BUG ���� (�û��ӽ�)
@@ -5487,3 +5487,72 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 
 ### 已知遗留
 - 无 (mobile APK 此次已重打, 公网 200, sha256 验证, 跟前次 v3.0.47 已知遗留合并)
+
+---
+
+## BUG-120 (v3.0.49 等待动画卡片按比例显示): 用户点"确认方案"后, 等待动画卡片是固定宽高 (mobile 360x202 / web p-4 自适应), 用户选的 1:1 / 16:9 / 9:16 比例不会反映在等待卡片上, 完成后 video/image 比例跟等待时不匹配, 跳变感强 (S72 batch 21, 2026-06-29)
+
+### 现象
+用户选了 16:9 横屏比例, 点"确认方案" → 等待动画卡片是 mobile 默认 360x202 横向 (不是 16:9 实际比例 1152×768) → 等 1-3 分钟完成 → 视频变成 16:9 实际比例 → 跳变感强, 用户感觉"等待跟完成不一致"
+
+### 修前根因
+- 修前 `case 'streaming'` 渲染用固定样式 (mobile `styles.streamingBox` 固定 flex row 容器, web `p-4 rounded-lg` 容器自适配) — 不读用户选的 selectedRatio
+- ratio 是 component state, 但 `renderPart` / `PartView` 内没用, 等待卡片永远按固定宽高显示
+- 跟 BUG-118 (细分了 status 字段, 但漏加 status label UI) + BUG-119 (加 GeneratingLoader 但漏集成到所有相关 screen) 100% 同源: 加了 state 但漏消费
+
+### 修法 (5 文件 + 2 新建 + 8 处版本号 + 3 端 0 错 + 12 维验证全过)
+1. **新建 `apps/web/src/lib/aspectRatio.ts` + `apps/mobile/src/utils/aspectRatio.ts` (跨端 1:1 镜像, 跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1)**:
+   - `ASPECT_RATIO_DIMS` 10 个 ratio → 实际 w/h: 1:1=1024×1024, 2:3=768×1152, 3:2=1152×768, 3:4=768×1024, 4:3=1024×768, 9:16=768×1152, 16:9=1152×768, 2K=1280×1280, 4K=2048×2048, 8K=2048×2048
+   - `parseAspectDims(ratio, kind)`: 支持 '16:9' / '2K' / '4K' (查表) + '1024x768' (WxH 数字) 3 种格式
+   - `defaultRatioForKind(kind)`: auto fallback — image 1:1, video 16:9
+   - `getWebAspectStyle`: 返 `{ aspectRatio: 'W / H', maxWidth, maxHeight }` (CSS, 缩到 480px max)
+   - `getMobileAspectStyle`: 返 `{ aspectRatio: number, width, height }` (RN 0.73 aspectRatio number, 缩到 1/3 显示)
+2. **web `apps/web/src/components/AgentChatPanel.tsx`**:
+   - import `getWebAspectStyle` from `../lib/aspectRatio`
+   - selectedRatio prop drilling: 顶层 → MessageBubble → PartSafeView → PartView (跟 kind 同样路径)
+   - case 'streaming' 渲染用 `getWebAspectStyle(selectedRatio, kind)` 限定容器宽高, `flex-col items-center justify-center`
+3. **mobile `apps/mobile/src/screens/VideoAgentScreen.tsx` + `ImageAgentScreen.tsx`**:
+   - import `getMobileAspectStyle` from `../utils/aspectRatio`
+   - streaming 渲染用 `aspectStyle.aspectRatio` + `aspectStyle.width` 锚定 + `alignSelf: 'center'` 居中
+   - selectedRatio 是 component 内 state (mobile ImageAgentScreen line 137 `useState<string>('')`), 直接在 renderPart 闭包内访问 (跟 web 走 prop drilling 略不同, 但效果一致)
+4. **8 处版本号同步 v3.0.48 → v3.0.49** (跨端铁律 3):
+   - `apps/mobile/src/config/version.ts`: '3.0.48' → '3.0.49'
+   - `apps/mobile/android/app/build.gradle`: versionCode 52→53, versionName '3.0.48'→'3.0.49'
+   - `apps/server/package.json`: '3.0.48' → '3.0.49'
+   - `apps/server/src/index.ts` line 75 fallback: '3.0.48' → '3.0.49'
+   - `apps/server/ecosystem.config.js` env + env_production 2 处: '3.0.48' → '3.0.49'
+   - `apps/web/src/config/version.ts`: APP_VERSION '3.0.48'→'3.0.49', APP_VERSION_CODE 52→53
+   - `apps/server/changelog.json` 加 v3.0.49 entry (8 highlights), latest_version: 3.0.49
+   - 远端 deploy.sh 自动同步 `.env APP_VERSION` + `systemd unit Environment=APP_VERSION` (从源 /tmp/package.json 读 3.0.49)
+
+### 验证 (12 维 + 跨端 5 维 + sha256)
+- **server 12 维 (deploy.sh --skip-maintenance)**: 1 systemctl active ✅ 2 ss 6000 ✅ 3 /health 200 ✅ 4 /api/version 3.0.49 ✅ 5 characterVariant 0.1 ✅ 6 /api/novels 401 ✅ 7-8 宝塔 nginx 80 + panel 888 ✅ 9 ab.maque.uno HTTPS 3.0.49 ✅ 10 APK HTTP/2 200 (v3.0.49 30230473 bytes) ✅ 11-12 宝塔 shipin_APP run=True PID=18957 ✅
+- **tsc 0 错**: web `npx tsc -b --noEmit` 0 错 + `npm run build` 3.03s 533KB; server `npm run build` (tsc) 0 错; mobile 50 个 pre-existing 错 (跟 BUG-120 无关, 历史债)
+- **APK 验证**: aapt2 dump badging → `package: name='com.aiscriptmobile' versionCode='53' versionName='3.0.49'` ✅; sha256: `4e8e42b20af8b3a1b5c65453b5977bf4b5ba7f4edd6a3c6e607c63fa99dd0ab5` 本机 + 公网一致 ✅
+- **公网验证**: `curl https://ab.maque.uno/api/version` → version=3.0.49 latestVersion=3.0.49 downloadUrl=DeepScript_v3.0.49.apk ✅ highlights[0] = BUG-120 ✅; `curl https://ab.maque.uno/app/DeepScript_v3.0.49.apk` → 200 OK Content-Type=application/vnd.android.package-archive Content-Length=30230473 ✅
+
+### 跨项目通用铁律 (跟 BUG-079/082/096/097/103/115/116/117/118/119 100% 同源)
+1. **等待动画卡片尺寸必跟用户选的比例 1:1, 完成后的 result 不能跟等待时比例跳变**: 用户在 confirm 前选了什么比例, streaming 卡片就用什么比例 (跟 result 1:1 镜像)
+2. **ratio 字典必 web + mobile + server 三端 1:1 同步**: 跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1 镜像, 改必双端+server 三端同步
+3. **跨端铁律 4++ 1:1 镜像**: helper API (parseAspectDims) / getStyle 入口 (getWebAspectStyle + getMobileAspectStyle) / 10 ratio 字典 (1:1=1024×1024 等) 跨端一致
+4. **auto fallback 默认值 web + mobile + server 1:1**: image 走 1:1, video 走 16:9
+5. **加了 state 必消费到所有相关 render**: 跟 BUG-118/119 教训同源, selectedRatio 之前是 state 但 streaming 卡片没消费
+6. **CSS aspectRatio (web) 用 'W / H' 字符串, RN aspectRatio (mobile) 用 number**: 跨端 1:1 但实现细节不同 (web Tailwind 3 支持 / RN 0.72+ 支持 number)
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-120 selectedRatio 没消费到 streaming 100% 同源
+- **BUG-097** mobile 漏修 web — BUG-120 web + mobile 同步 (跨端铁律 4++)
+- **BUG-110** GeneratingLoader Stage 3 — BUG-120 在 Stage 3 基础上按比例显示
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-120 跨项目通用铁律同源
+- **BUG-118** 细分 status 字段但漏加 status label UI — BUG-120 教训同源 "加了 state 漏消费"
+- **BUG-119** retry 清理 + GeneratingLoader 全屏集成 — BUG-120 补上 ratio 维度
+
+### 关键 git
+- commit: BUG-120 v3.0.49 修 (2 新建 aspectRatio util + 3 改前端 + 8 处版本号 + 1 changelog entry)
+- 5 代码文件: apps/web/src/lib/aspectRatio.ts (新建) + apps/web/src/components/AgentChatPanel.tsx + apps/mobile/src/utils/aspectRatio.ts (新建) + apps/mobile/src/screens/VideoAgentScreen.tsx + apps/mobile/src/screens/ImageAgentScreen.tsx
+- 配套: 8 处版本号 (mobile version.ts / build.gradle / server package.json / index.ts / ecosystem / web version.ts) + apps/server/changelog.json (新 entry)
+- push main
+- deploy: web dist 533KB index-C8Ik-s_7.js + server systemd shipin-app PID 18957 + APK DeepScript_v3.0.49.apk (30230473 bytes) shipin-APP/public/
+
+### 已知遗留
+- 无

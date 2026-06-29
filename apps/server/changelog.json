@@ -5,6 +5,22 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.49",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-120 修视频/生图助手等待动画卡片按用户选的比例显示: 跨端 web + mobile 1:1 加 aspectRatio util (跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1), 流式卡片容器按 1:1 / 16:9 / 9:16 / 4:3 / 3:4 / 2:3 / 3:2 / 2K / 4K / 8K 比例显示, auto 默认 image 1:1 / video 16:9 (跟 BUG-118/119 教训同源, 跨端铁律 4++ 1:1 镜像)",
+      "highlights": [
+        "BUG-120 ✅ 修前根因: 流式卡片 (waiting/streaming 动画) 用固定宽高 (mobile 360x202 / web 容器 p-4 自适应), 用户选 9:16 竖屏 1:1 方形 16:9 横屏, 等待动画卡片不会跟着变, 完成后的 video/image 比例跟等待时不匹配, 跳变感强",
+        "BUG-120 ✅ web `apps/web/src/lib/aspectRatio.ts` 新建 (跟 server `imageAspectRatio.ts` SUPPORTED_RATIOS 1:1 镜像, 跨端铁律 4++): `ASPECT_RATIO_DIMS` 10 个 ratio → 实际 w/h; `parseAspectDims` 支持 '16:9' / '2K' / '4K' / 'WxH' 3 种格式; `getWebAspectStyle` 返 `{ aspectRatio: 'W / H', maxWidth, maxHeight }` (缩到 480px max)",
+        "BUG-120 ✅ mobile `apps/mobile/src/utils/aspectRatio.ts` 1:1 镜像: `getMobileAspectStyle` 返 `{ aspectRatio: number, width, height }` (RN 0.72+ aspectRatio number, 缩到 1/3 显示)",
+        "BUG-120 ✅ web AgentChatPanel.tsx case 'streaming' 用 `getWebAspectStyle(selectedRatio, kind)` 限定容器宽高; selectedRatio prop drilling: 顶层 → MessageBubble → PartSafeView → PartView (跟 kind 同样路径, 跨端 1:1 镜像)",
+        "BUG-120 ✅ mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx streaming 渲染用 `getMobileAspectStyle(selectedRatio, 'video'|'image')`; selectedRatio 是 component 内 state (mobile 是用 useState<string>('') 表示 auto), 直接在 renderPart 闭包内访问 (跟 web 走 prop drilling 略不同, 但效果一致)",
+        "BUG-120 ✅ 10 个 ratio 跨端 1:1: 1:1=1024×1024, 2:3=768×1152, 3:2=1152×768, 3:4=768×1024, 4:3=1024×768, 9:16=768×1152, 16:9=1152×768, 2K=1280×1280, 4K=2048×2048, 8K=2048×2048 (跟 server `SUPPORTED_RATIOS` 1:1, 改必双端+server 三端同步)",
+        "BUG-120 默认 fallback: selectedRatio='auto' / '' / null → image 走 1:1 (1024×1024), video 走 16:9 (1152×768). 用户没选也能看到正确比例的等待动画",
+        "BUG-120 跨项目通用铁律 (跟 BUG-079/082/096/097/103/115/116/117/118/119 100% 同源): 1) 等待动画卡片尺寸必跟用户选的比例 1:1, 完成后的 result 不能跟等待时比例跳变 2) ratio 字典必 web + mobile + server 三端 1:1 同步 3) 跨端铁律 4++ 1:1 镜像 (helper API / getStyle 入口 / 10 ratio 字典) 4) auto fallback 默认值 web + mobile + server 1:1"
+      ]
+    },
+    {
       "version": "3.0.48",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -217,5 +233,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.48"
+  "latest_version": "3.0.49"
 }
