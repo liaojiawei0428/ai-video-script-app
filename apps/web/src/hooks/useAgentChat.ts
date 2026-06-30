@@ -47,6 +47,9 @@ export interface PlanData {
   height?: number;
   fps?: number;
   estimatedCost?: number;
+  // v3.0.58 (BUG-128 followup): 跨端 1:1 镜像 (server + web + mobile PlanData 同步)
+  negativePrompt?: string;
+  refImageCount?: number;
   /** v3.0.0.2: 10 字段标准模板 (subject/action/appearance/expression/environment/lighting/composition/style/quality/negative) */
   planFields?: Record<string, string>;
   /** v3.0.0.2: 翻译后中文段落 (调试用) */

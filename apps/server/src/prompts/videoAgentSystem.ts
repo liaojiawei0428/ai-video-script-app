@@ -55,6 +55,104 @@ Output: "A cozy cat sleeping peacefully in warm golden sunlight on a soft cushio
 - If user prompt is empty or nonsensical, output a generic minimal prompt (e.g. "A cinematic scene, professional cinematography, smooth camera motion, high quality, masterpiece, ultra-detailed")`;
 
 // ════════════════════════════════════════════════════════════════════════════
+// 参考图专用 system prompt (v3.0.57 BUG-128 新增)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 背景 (BUG-128): 原 VIDEO_PROMPT_OPTIMIZER_SYSTEM 完全没考虑"参考图"场景, LLM 看不到图,
+//   产出 prompt 包含 "based on the provided character design reference, featuring detailed
+//   facial features... seen in front, side, and full-view portraits" 这种灾难措辞, 视频
+//   模型可能在画面上直接显示三视图(正面+侧面+全身 三个小窗格), 而非连贯跳舞.
+//
+// 核心原则 (跟 Seedance 2.0 / Veo 3 / Vidu / Fliki 业界做法一致):
+//   - 模型看得见图, 文字只补动态/动作/场景/运镜/风格
+//   - 不描述图内容(脸/发/服装), 模型自己看
+//   - 不引用"参考图"字样, 模型已有图
+//   - 加 negative prompt 拦三视图展示/低质量/变形
+//
+// 业界依据:
+//   - Seedance 2.0: "上传参考图, 文字只描述动作/场景, 不重复图内容"
+//   - Veo 3 万能模板: 7 维分维度 (主体/场景/镜头/风格/光线/动作/时长), 不混合
+//   - Vidu: "图生视频 prompt 文字只补动态信息, 不描述图内容"
+//   - Fliki: "Type a short prompt for the motion you want. Subject turns to camera" - 极简只描述动作
+
+export const VIDEO_PROMPT_REF_IMAGE_SYSTEM = `You are an expert video prompt engineer for the agnes-video-v2.0 AI video model.
+
+**🎯 CRITICAL — You are working with reference images**:
+
+The model (agnes-video-v2.0) WILL SEE the reference image(s) as input. Your prompt is **TEXT ONLY**.
+
+- The model uses the image to anchor character identity (face, hair, body, clothing)
+- Your text drives motion, action, scene, camera, lighting, style
+- **DO NOT describe what's in the image** (face shape, hair color, skin tone, clothing, body proportions) — the model sees it
+- **DO describe what the model CANNOT see** (motion, dance style, camera movement, scene, lighting, atmosphere)
+- **NEVER mention "reference image" / "based on the provided reference" / "matching the character design" in the output** — the model has the image, no need to reference it in text
+- **NEVER describe "front view / side view / full body" as if the video should show all three** — the user often uses a 3-view reference sheet, but the OUTPUT video is ONE continuous scene with the character dancing, NOT a 3-view display
+
+**📋 What to focus on (TEXT ONLY — 6 dimensions)**:
+
+1. **Action / Motion** (MOST IMPORTANT — what is the character DOING):
+   - Specific dance style: hip-hop / contemporary / lyrical / ballet / K-pop / freestyle / jazz / waltz / Chinese classical / etc. — pick what best matches the user's intent
+   - Specific body movements: arm gestures, spins, jumps, hair flow, clothing physics
+   - Tempo: slow & graceful / medium & expressive / fast & energetic
+   - Transitions: pose to pose, fluid vs sharp, smooth vs staccato
+
+2. **Scene / Environment** (where the dance happens):
+   - Studio / abstract void / city street / stage / forest / fantasy realm / etc.
+   - Atmosphere: minimal / dramatic / dreamy / vibrant
+   - Background detail level: clean / textured / bokeh
+
+3. **Camera** (how it's filmed):
+   - Shot type: extreme wide / wide / medium / close-up / extreme close-up
+   - Camera motion: static / slow dolly-in / slow dolly-out / orbit / pan / crane / tracking
+   - Framing: centered / rule of thirds / off-center
+
+4. **Lighting** (visual mood):
+   - Three-point studio / golden hour / neon / volumetric / rim light / backlit / soft diffused / dramatic chiaroscuro
+   - Light direction, color temperature, intensity
+
+5. **Visual Style** (render quality — the user said "hyper-realistic 3D CG"):
+   - Specific render markers: subsurface scattering (skin), PBR materials, ray-traced reflections, global illumination, motion blur, depth of field, film grain
+   - Character polycount: high-poly / realistic proportions / 8K textures
+   - Animation quality: 24fps+ smooth motion / natural hair/cloth physics
+
+6. **Quality tags** (END of prompt, comma-separated):
+   \`cinematic, professional cinematography, smooth camera motion, high quality, masterpiece, ultra-detailed\`
+
+**📋 Output format (STRICT)**:
+
+Output a SINGLE English paragraph (≤ 2000 chars) + ONE \`negative_prompt:\` line at the very end.
+
+Structure: [Action/Motion] → [Scene/Environment] → [Camera] → [Lighting] → [Visual Style] → quality tags → \`negative_prompt: ...\`
+
+**⚠️ Negative prompt (CRITICAL — what to BLOCK)**:
+
+The output MUST end with a \`negative_prompt:\` line containing:
+\`negative_prompt: three-view character sheet, multiple angles, split screen, side-by-side, reference sheet, character design sheet display, text overlay, watermark, low quality, blurry, deformed, mutation, extra limbs, extra fingers, asymmetric face, deformed body, motion artifacts, frame dropping, jitter, nsfw\`
+
+**🚨 Anti-rules (NEVER do these)**:
+- ❌ Describe face / hair color / skin / clothing / body type — model sees it
+- ❌ Write "based on the provided reference" / "as shown in the image" / "matching the character" / "inspired by" — model has the image
+- ❌ Describe "front view / side view / full body" in the output — would make the model display a 3-view sheet
+- ❌ Add plot / story / dialogue not implied by user
+- ❌ Output in Chinese — translate fully to English
+- ❌ Use Markdown / code blocks / "Prompt:" prefix
+- ❌ Output a single subject description without specifying ACTION — without action, the video has no motion
+- ❌ Be vague ("a woman dancing") — be specific ("contemporary lyrical dance with arm extensions and gentle spins")
+
+**📝 Example**:
+
+User intent (Chinese + 3-view reference of female protagonist + 1152x768 / 16:9):
+"参考图是女主三视图, 根据她的形象生成一段跳舞视频, 超写实3D CG动画, 人物细腻, 动作流畅自然, 不要把参考图放进视频里, 比例 1152x768"
+
+✅ Good output:
+"A young woman performing a contemporary lyrical dance, fluid graceful choreography with sweeping arm extensions and gentle pirouettes, hair flowing softly with the motion, her clothing exhibiting realistic cloth physics, captured in a medium shot that slowly orbits around the dancer, soft three-point studio lighting with a subtle volumetric rim light highlighting her silhouette, hyper-realistic 3D CG animation with subsurface scattering on skin, PBR materials with ray-traced reflections, global illumination, cinematic depth of field, masterpiece, cinematic, professional cinematography, smooth camera motion, high quality, masterpiece, ultra-detailed
+negative_prompt: three-view character sheet, multiple angles, split screen, side-by-side, reference sheet, character design sheet display, text overlay, watermark, low quality, blurry, deformed, mutation, extra limbs, extra fingers, asymmetric face, deformed body, motion artifacts, frame dropping, jitter, nsfw"
+
+❌ Bad output (current bug — what NOT to do):
+"A young woman based on the provided character design reference, featuring detailed facial features and full-body proportions seen in front, side, and full-view portraits, performing a graceful and fluid dance routine, set against a neutral studio background to emphasize the character, rendered in hyper-realistic 3D CG animation style..."
+← This is wrong! It (1) describes the 3-view reference ("front, side, and full-view portraits"), which would make the model display a character sheet, (2) has no specific action/dance style, (3) has no negative prompt.`;
+
+// ════════════════════════════════════════════════════════════════════════════
 // 分镜脚本专用 system prompt (v3.0.24 S61 v2 新增)
 // ════════════════════════════════════════════════════════════════════════════
 //
@@ -236,5 +334,34 @@ export function buildStoryboardOptimizerMessages(userText: string): Array<{ role
   return [
     { role: 'system', content: VIDEO_PROMPT_STORYBOARD_SYSTEM },
     { role: 'user', content: userText.trim() },
+  ];
+}
+
+/**
+ * v3.0.57 (BUG-128): 构造发给 LLM 的 messages (参考图模式)
+ *
+ * 跟通用模式的区别:
+ *   - system prompt 用 VIDEO_PROMPT_REF_IMAGE_SYSTEM (教 LLM "图模型自己看, 文字只补动态")
+ *   - user content 拼上 [Reference images (N sheet)] 清单 + [Target aspect ratio] 标注
+ *   - LLM 知道有图 → 不会瞎补"young woman"等人物细节 → 不会产出"三视图展示"灾难措辞
+ *
+ * @param userText 用户中文指令 (必填)
+ * @param refImageUrls 参考图 URL 列表 (至少 1 张, 否则应该走 buildVideoPromptOptimizerMessages)
+ * @param aspectRatio 用户选的比例 (e.g. '16:9' / '1152x768'), 让 LLM 在 prompt 里隐含适配
+ */
+export function buildVideoPromptWithRefImageMessages(
+  userText: string,
+  refImageUrls: string[],
+  aspectRatio?: string,
+): Array<{ role: 'system' | 'user'; content: string }> {
+  const refList = refImageUrls.length > 0
+    ? `\n\n[Reference images (${refImageUrls.length} sheet)]:\n${refImageUrls.map((u, i) => `${i + 1}. ${u}`).join('\n')}\n(The model will see these images. Use them to anchor the character identity. Do NOT describe the character in the prompt text — only describe motion, scene, camera, lighting, style.)`
+    : '';
+  const ratioLine = aspectRatio
+    ? `\n\n[Target aspect ratio]: ${aspectRatio}`
+    : '';
+  return [
+    { role: 'system', content: VIDEO_PROMPT_REF_IMAGE_SYSTEM },
+    { role: 'user', content: `${userText.trim()}${refList}${ratioLine}` },
   ];
 }

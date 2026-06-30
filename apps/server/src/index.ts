@@ -7,6 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { config } from './config';
 import { logger } from './utils/logger';
@@ -16,12 +17,38 @@ import { etagMiddleware } from './middleware/etag';
 import { websocketService } from './services/websocket';
 
 const app = express();
+// BUG-127: 信任 nginx 反代 (nginx 在 127.0.0.1 上转发, 不 trust proxy 会让所有请求都是 127.0.0.1)
+// trust proxy 设 1 层 = 信任最近一层反代 (nginx)
+app.set('trust proxy', 1);
 const server = createServer(app);
+
+// BUG-127 (v3.0.57): per-user rate limiter — 登录后用 userId 计数, 没登录 fallback IP
+// (避免多 tab / 多设备共享同一 IP 时互相挤 200 reqs/60s 额度,
+//  避免用户多点几次按钮就触发 RATE_LIMIT_EXCEEDED)
+function extractUserIdFromJwt(req: express.Request): string | null {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  const token = auth.slice(7);
+  try {
+    // 不完整验签 (authMiddleware 后续会做), 这里只取 userId 用于计数 key
+    const decoded = jwt.decode(token) as { userId?: string } | null;
+    return decoded?.userId ?? null;
+  } catch {
+    return null;
+  }
+}
 
 // Rate limiting
 const limiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
   max: config.rateLimitMaxRequests,
+  // BUG-127: per-user 优先, 未登录 fallback IP (同一 NAT 下多 tab 不再互挤)
+  keyGenerator: (req) => {
+    const userId = extractUserIdFromJwt(req);
+    if (userId) return `u:${userId}`;
+    // 信任 express-rate-limit 已识别 proxy IP (trust proxy 设置后 req.ip 正确)
+    return `ip:${req.ip || 'unknown'}`;
+  },
   message: {
     success: false,
     error: {
@@ -72,7 +99,7 @@ app.get('/health', (req, res) => {
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
 import { readChangelog, loadChangelog } from './shared/changelog';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.54';
+  const currentVersion = process.env.APP_VERSION || '3.0.58';
   const clientVersion = req.query.version as string || '0.0.0';
   const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
   const changelogEntry = readChangelog(currentVersion);

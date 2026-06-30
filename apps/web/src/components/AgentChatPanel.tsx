@@ -10,7 +10,7 @@
  * 两个 Agent Page 通过传入 `api` 对象 (imageAgentApi / videoAgentApi) 复用本组件。
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Send, Loader2, Image as ImageIcon, Video as VideoIcon, CheckCircle2, AlertCircle, Sparkles, FileText, Download, Paperclip, X, Trash2 } from 'lucide-react';
+import { Send, Loader2, Image as ImageIcon, Video as VideoIcon, CheckCircle2, AlertCircle, Sparkles, FileText, Download, Paperclip, X, Trash2, Ban } from 'lucide-react';
 import type { AgentMessage, AgentPart } from '../hooks/useAgentChat';
 import { partsToText } from '../hooks/useAgentChat';
 import { useAuthStore } from '../store/auth';
@@ -128,7 +128,7 @@ const RATIO_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '3:4', label: '3:4 竖版 (768×1024)' },
   { value: '2:3', label: '2:3 人像 (768×1152)' },
   { value: '3:2', label: '3:2 风景 (1152×768)' },
-  { value: '2K', label: '2K 高清 (1280²)' },
+  { value: '2K', label: '2K 高清 (1024²)' },
   // v3.0.54 (BUG-124): 4K / 8K 移除 (agens 不支持 2048+ 分辨率生成)
 ];
 // v3.0.0.20: 视频专属比例 (视频不推荐 2K+ 大图, 文件 50MB+ 用户扛不住, 移除)
@@ -326,8 +326,9 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   };
 
   // 创建新会话
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false); // BUG-126: 跟 loading 拆开, 让新建按钮在流式响应时可点
   const startNew = async () => {
-    setLoading(true);
+    setIsCreatingConversation(true);
     setError(null);
     try {
       const r = await api.createConversation();
@@ -339,7 +340,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     } catch (e: any) {
       setError(e?.response?.data?.error?.message || e?.message || '创建失败');
     } finally {
-      setLoading(false);
+      setIsCreatingConversation(false);
     }
   };
 
@@ -774,7 +775,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       <aside className="w-60 flex-shrink-0 flex flex-col gap-2">
         <button
           onClick={startNew}
-          disabled={loading}
+          disabled={isCreatingConversation}
           className={`btn-primary w-full flex items-center justify-center gap-2 ${accentColor.replace('text-', 'bg-').replace('-500', '-500/90')}`}
         >
           <Sparkles size={16} />
@@ -1269,11 +1270,17 @@ function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversati
     }
     case 'plan': {
       // v3.0.0.13: 极简 passthrough — 只显示用户原文 + 比例
+      // v3.0.58 (BUG-128 followup): 加 refImageCount badge + negativePrompt 字段
+      //   - refImageCount: UI 显示参考图数量, 让用户知道"模型看图, 文字只补动态"
+      //   - negativePrompt: UI 显示排除内容 (三视图展示/走样/低质量 等), 默认模板来自 server DEFAULT_NEGATIVE_PROMPT_VIDEO
+      //   - 跟 mobile VideoAgentScreen/ImageAgentScreen 1:1 镜像 (跨端铁律 4++)
       if (!part.data) {
         return <div className="text-[10px] text-red-400/70 italic">[plan data 缺失]</div>;
       }
       const promptText = safeStr(part.data.prompt);
       const aspectText = safeStr(part.data.aspectRatio);
+      const refImageCount = typeof part.data.refImageCount === 'number' ? part.data.refImageCount : 0;
+      const negativeText = safeStr(part.data.negativePrompt);
       return (
         <div className="mt-1 p-3 rounded-lg bg-black/5 border border-black/10 text-xs space-y-1.5" style={{ color: isUser ? 'white' : undefined }}>
           <div className="font-semibold flex items-center gap-1.5">
@@ -1281,6 +1288,21 @@ function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversati
           </div>
           {promptText && (
             <div className="leading-relaxed">{promptText}</div>
+          )}
+          {refImageCount > 0 && (
+            <div className="opacity-80 text-[11px] flex items-center gap-1">
+              <ImageIcon size={11} className="opacity-60" />
+              <span>已用 {refImageCount} 张参考图 (模型已看图, 文字只补动作/场景/运镜/风格)</span>
+            </div>
+          )}
+          {negativeText && (
+            <details className="opacity-80 text-[11px]">
+              <summary className="cursor-pointer flex items-center gap-1 select-none">
+                <Ban size={11} className="opacity-60" />
+                <span>排除以下内容 (negative_prompt)</span>
+              </summary>
+              <div className="mt-1 pl-4 leading-relaxed opacity-70">{negativeText}</div>
+            </details>
           )}
           {aspectText && (
             <div className="opacity-70 text-[11px]">比例: {aspectText}</div>

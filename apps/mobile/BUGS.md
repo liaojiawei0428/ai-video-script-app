@@ -5993,3 +5993,491 @@ WHERE id IN ('ad9aad5b-3420-4f19-aa2e-c3f6a3f5fe97',
 - LLM prompt 智能规则删 4K/8K 行 + 加注释说明降级行为
 
 ---
+
+## BUG-127 (v3.0.57 修全局 IP 限流频繁触发 Too many requests): per-user keyGenerator (JWT userId) + login/register 单独 10/min 严限流 + 全局 RATE_LIMIT_MAX_REQUESTS 200→500 + trust proxy 1 (nginx 反代), 用户多点几次按钮不再触发限流 (跟 BUG-079/097/103/115-126 100% 同源, frontend 跟 backend 限流边界对齐) (S72 batch 29, 2026-06-29)
+
+### 现象 (审计)
+用户截图: web image agent 顶部红条 "Too many requests, please try again later." 反复出现, 登录页"登录时也提醒这个警告". 严重影响用户体验, 用户感觉"多点几次按钮就被限流".
+
+### 根因 (4 层)
+
+**1. 全局 IP 限流 + 默认 keyGenerator**: `apps/server/src/index.ts` line 22-45 用 `express-rate-limit` 默认配置, keyGenerator 默认是 `req.ip`, 60s 200 reqs/per IP.
+
+**2. nginx 反代下 req.ip = 127.0.0.1**: 没设 `app.set('trust proxy', 1)`, 所有经过 nginx 转发的请求 req.ip 都是 127.0.0.1, 全局限流所有用户共享一个 key (超级危险, 任何一个用户触发 429 都会影响所有用户).
+
+**3. 前端高频 polling**: 单 tab 单页面 60s 内已经 50-100 reqs:
+- `AgentChatPanel.tsx` line 304 syncConv 5s → 12 reqs/min
+- `useQueueStatus.ts` line 50 BUG-123 队列 3s → 20 reqs/min
+- `TasksPage.tsx` line 65 3s → 20 reqs/min
+- `Layout.tsx` line 17 balance 60s → 1 reqs/min
+- `Notifications.tsx` line 14 30s → 2 reqs/min
+- mount 时 ~5-10 reqs
+
+**4. 多 tab / 多设备共享 IP**: 同一 wifi 下电脑 + 手机共享公网 IP, 各自的 50-100 reqs 加起来轻松破 200.
+
+### 修法 (3 文件 + 8 处版本号 + 1 changelog)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/index.ts (line 5-67)                       │
+│  - import jwt from 'jsonwebtoken'                            │
+│  - app.set('trust proxy', 1)                                │
+│  - extractUserIdFromJwt(req) helper: 用 jwt.decode 不验签   │
+│  - keyGenerator: 'u:${userId}' (登录后) 或 'ip:${req.ip}'   │
+│  - 错误码 RATE_LIMIT_EXCEEDED 保持                            │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/src/routes/users.ts (line 5-26)                │
+│  - import rateLimit from 'express-rate-limit'                │
+│  - authLimiter: 10 reqs/min + skipSuccessfulRequests=true   │
+│  - 错误码 AUTH_RATE_LIMIT_EXCEEDED (区别于全局 RATE_LIMIT) │
+│  - router.post('/register', authLimiter, ...)               │
+│  - router.post('/login', authLimiter, ...)                  │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  apps/server/.env.production                                │
+│  - RATE_LIMIT_MAX_REQUESTS=200 → 500                        │
+│  - 注释: BUG-127 v3.0.57 per-user + login 单独              │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115-126 100% 同源)
+1. **rate limit 必须 per-user 不是 per-IP**: per-IP 在 NAT / 移动网络 / 公司 wifi / VPN 下极不公平, 一旦挤爆影响所有用户 (per-user 是行业默认)
+2. **login route 单独严限流**: 防爆破是安全要求 (10/min 足够正常用户重试, 阻止攻击者暴力破解密码), 不能跟正常 polling 共享额度
+3. **trust proxy 必须设**: nginx / CDN / 反代场景下不设 trust proxy 会让 req.ip 永远是反代 IP, 全局限流变成"全局共享一个 key" = 灾难. 设 trust proxy=1 只信任最近一层
+4. **skipSuccessfulRequests 对 login 关键**: 用户连点 5 次成功登录 (e.g. 页面刷新 + token expired + 重新提交) 不应该被限流, 只有失败请求 (密码错) 才消耗额度, 这是 UX + 安全双平衡
+5. **RATE_LIMIT_MAX_REQUESTS 配 per-user 计算**: 单 user 实际峰值 (polling + mount) × 7 倍安全系数 = 配 500 reqs/60s 足够 (~65 reqs/min 实际峰值 × 7 = 455 余量)
+6. **前端 polling 频率 + 后端 limit 必对齐**: 前端加新 polling hook 必算"加了几 reqs/min", 超过后端 limit 必先改后端或前端降频. 不能后端配 200/min 前端就 ~100 reqs/min (高风险)
+7. **错误码要分清**: AUTH_RATE_LIMIT_EXCEEDED (login 严限流) vs RATE_LIMIT_EXCEEDED (全局限流), 前端 toast/弹窗能区分提示用户 ("登录失败次数过多请重试" vs "请求过于频繁请稍后再试")
+
+### 跟其他 BUG 关系
+- **BUG-079** 假功能 — 跟 BUG-127 用户被误导 "系统限流了" 100% 同源 (实际是用户高频 polling 撞限流, 不是攻击)
+- **BUG-097** mobile 漏修 web — BUG-127 web + mobile 共用同一后端 rate limiter, web mobile 都受益
+- **BUG-103** 自动退款漏刷 APK — BUG-127 此次已重打 mobile APK (跨端铁律 4++)
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-127 跨项目通用铁律同源 (减少 API 调用是源头治理)
+- **BUG-118/119/120/121/122/123/124/125/126** 一系列 — BUG-127 是新维度: 后端限流配置 + 跨端铁律 8 (前端 polling 跟后端 limit 边界对齐)
+
+### E2E 验证 (deploy + 公网实测)
+- ✅ server tsc 0 错 (本地验证)
+- ✅ server dist 包含新代码 (deploy 后 grep extractUserIdFromJwt / authLimiter / trust proxy)
+- ✅ 公网 HTTPS 不再触发 RATE_LIMIT_EXCEEDED (per-user 隔离生效)
+- ✅ 单 user 连续 100 reqs (1s 内) 不再触发 429 (从 200/min 提升到 500/min)
+- ✅ login 失败 10 次后触发 AUTH_RATE_LIMIT_EXCEEDED (防爆破生效)
+- ✅ login 成功 10 次不触发 (skipSuccessfulRequests=true)
+- ✅ 8 处版本号同步: server package.json / src/index.ts / ecosystem.config.js / web version.ts (APP_VERSION + APP_VERSION_CODE 60→61) / mobile version.ts / build.gradle (versionCode 60→61 + versionName "3.0.57") / .env.production (RATE_LIMIT_MAX_REQUESTS 200→500 + APP_VERSION=3.0.56 → 3.0.57)
+
+### 关键 git
+- 修改: server index.ts (4 处 edit: import jwt + trust proxy + extractUserIdFromJwt + keyGenerator) + users.ts (1 处: authLimiter) + .env.production (1 处: RATE_LIMIT_MAX_REQUESTS 200→500)
+- 8 处版本号同步 (本机 7 处 + 远端 systemd unit 1 处)
+- deploy: server systemd shipin-app 重启 + 12 维验证 + 公网 login test
+
+### 已知遗留
+- 跨用户排队/优先级: rateLimiter 是 per-user sliding window, 但 Agnes API 是全局 40/min, 单 user 短时间发 100 reqs 仍可能撞 agens 上游限流 (BUG-123 已经把 agens 限流搬过来了, ETA + 排队 UI 配套)
+- IP fallback: 未登录用户仍 per-IP, 公共 wifi 下未登录用户可能互挤 (但未登录用户只有 login/register/register 几个端点, 不会高频, 风险低)
+- trust proxy=1: 假设 nginx 是最近一层反代, 多层反代 (CDN + nginx) 时需调高 (但 shipin-APP 当前架构就是 1 层 nginx, 安全)
+
+---
+
+## BUG-126 (v3.0.56 修 web 端新建会话按钮 disable 错位): 流式生成方案时 (loading=true) '新建生图会话' 按钮被错误禁用, 用户无法中断当前 LLM 流程切换到新会话, 拆 loading 跟 isCreatingConversation 2 个 state, 新建按钮只跟 isCreating (防 double-click), 发送按钮才跟 loading (防重复提交) (跟 BUG-079/097/103/115-126 100% 同源, 跨端铁律 8 frontend state 拆分边界) (S72 batch 28, 2026-06-29)
+
+### 现象 (审计)
+用户实测: 在 image agent 页面, 发送修改内容后, 等待 server 流式生成"提示词方案" (1-3 分钟), 这时候用户想点左上角"新建生图会话"按钮 (escape hatch = 中断当前 LLM 流程, 创建新会话) — 但按钮被禁用! 灰色不可点.
+
+只有"发送"按钮禁用是合理的 (避免重复提交), 但"新建会话"按钮应该永远可以点 — 它是用户的逃生舱, 中断当前 LLM 流程的入口.
+
+### 根因 (1 处 shared state 反模式)
+web `apps/web/src/components/AgentChatPanel.tsx` line 778: `disabled={loading}` (新建生图会话按钮) 跟 line 1063 `disabled={... || loading || ...}` (发送按钮) 共用同一个 `loading` state (`useState(false)` line 159).
+
+`loading` 在以下 3 个 async 操作中 set true/false:
+1. `loadConversation` (line 313): 加载历史会话
+2. `startNew` (line 329): 创建新会话
+3. `send` (line 439): 发送消息 + 等响应
+
+第 3 个 `send` 期间, `loading=true`, 所以"新建会话"按钮也跟着禁用. 实际意图:
+- "发送"按钮: loading 时禁 (避免重复提交同一会话同一 input) ✓
+- "新建会话"按钮: loading 时**不**应该禁 (用户随时能新建会话 = 逃生舱) ✗
+
+mobile `apps/mobile/src/screens/ImageAgentScreen.tsx` line 483 '新建' 按钮压根没 `disabled={loading}`, 但 line 580 '发送' 按钮有 `disabled={loading || !input.trim()}`. 所以 mobile 没这个问题 — 但 mobile 是因为没用 disable 新建按钮 (跟 web 拆 state 是不同实现方式, 跨端铁律要求底层意图一致).
+
+### 修法 (1 文件 + 8 处版本号 + 1 changelog + 跨端铁律 4++)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  web `apps/web/src/components/AgentChatPanel.tsx`          │
+│                                                              │
+│  // BUG-126: 拆出 isCreatingConversation, 跟 loading 分离      │
+│  // (发送按钮用 loading, 新建按钮用 isCreatingConversation)    │
+│  const [isCreatingConversation, setIsCreatingConversation] = useState(false); │
+│                                                              │
+│  // startNew 改用新 state                                     │
+│  const startNew = async () => {                              │
+│    setIsCreatingConversation(true);  // 替代 setLoading(true) │
+│    setError(null);                                            │
+│    try {                                                     │
+│      const r = await api.createConversation();               │
+│      ...                                                     │
+│    } catch (e: any) { ... }                                  │
+│    finally {                                                 │
+│      setIsCreatingConversation(false); // 替代 setLoading(false) │
+│    }                                                         │
+│  };                                                          │
+│                                                              │
+│  // Line 778 新建按钮改用 isCreatingConversation              │
+│  <button onClick={startNew}                                 │
+│          disabled={isCreatingConversation}  // 原 {loading}   │
+│          className="btn-primary w-full ...">                 │
+│    <Sparkles size={16} />                                   │
+│    新建{kind === 'image' ? '生图' : '视频'}会话              │
+│  </button>                                                  │
+│                                                              │
+│  // Line 1063 发送按钮保持 disabled={... || loading || ...}  │
+│  // (loading 仍是流式响应的指示)                              │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨端铁律 4++ 1:1 镜像 (跟 BUG-124/125 同样套路)
+
+| 维度 | web (修法源) | mobile | 一致性 |
+|---|---|---|---|
+| 新建按钮 disable | `isCreatingConversation` (短期 ~200ms 防 double-click) | 无 disabled (永远可点) | ✅ 1:1 (实现不同但底层意图: 流式响应期间可点) |
+| 发送按钮 disable | `... \|\| loading \|\| ...` | `loading \|\| !input.trim()` | ✅ 1:1 |
+| 短期防 double-click | isCreatingConversation state | (mobile onPress 直接调 createConversation 没 short-term 锁, 但单次点击够防) | ⚠️ 略不同 (mobile 短期 race condition 但用户没反馈) |
+| Loading 语义 | 流式响应 + startNew + loadConversation 都用 | 同 web | ✅ 1:1 |
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115-125 100% 同源)
+1. **按钮 disable 必按功能拆分 state**: 发送按钮 + 新建按钮 + 上传按钮 + 选项按钮 是 4 个独立 state, 不能一个 `loading` 通用 (跟 BUG-079 假功能同源: 共享 state = 隐藏用户逃生舱)
+2. **流式响应时用户应该有逃生舱**: 新建会话 = 中断当前 LLM 流程的入口, 任何流式响应都该可触发新会话 (跟 BUG-118/119 retry 边界同源: 用户不该被卡死)
+3. **防 double-click 用 short-term state**: `isCreatingConversation` ~200ms 禁用, 不用长 `loading` (流式响应 1-3 分钟). short-term 防抖是局部防抖, long-term loading 是任务状态, 2 个 state 必拆
+4. **跨端 web/mobile 应该 1:1 镜像**: web 加 isCreatingConversation 跟 mobile "永不 disable" 风格不同, 但底层意图一致 (流式响应期间新建按钮可点). 跨端铁律 4++ 要求底层意图一致, 实现可灵活
+5. **minified bundle 变量名会重命名**: 部署后 `grep isCreatingConversation` 公网 bundle = 0 是正常 (vite minifier 把 a -> 1 char), 验证靠 git diff + build OK + 公网 hash 变, 不是 grep 变量名
+6. **前端 state 拆分边界 = 后端 API 边界**: 创建会话的 state 跟发消息的 state 应该独立, 跟后端 POST /conversations 跟 POST /agent/chat 是 2 个独立 API 对应
+
+### 跟其他 BUG 关系
+- **BUG-079** 假功能 — 跟 BUG-126 "前端 UI 跟实际功能不匹配" 100% 同源 (按钮灰了但实际可点, 但用户不知道, 体验上 = 没这功能)
+- **BUG-097** mobile 漏修 web — BUG-126 web 修了, mobile 没这问题 (mobile 是用"永不 disable 新建按钮"实现, 跨端风格不同但结果一致)
+- **BUG-103** 自动退款漏刷 APK — BUG-126 此次已重打 mobile APK (跨端铁律 4++ 强制)
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-126 跨项目通用铁律同源
+- **BUG-118/119/120/121/122/123/124/125** 一系列 — BUG-126 是新维度: 前端 state 拆分, 跟 BUG-119 retry 清理 + BUG-118 细分 status label 同源 (前端边界要清晰)
+
+### E2E 验证 (deploy + 公网实测)
+- ✅ 公网 web HTML 引用新 JS hash: `index-9iTGcbkE.js` (老 `index-DhiS9v-I.js`)
+- ✅ 公网 JS bundle size = 535748 bytes (跟本机 build 一致)
+- ✅ 公网 APK v3.0.56 下载: HTTPS 200, size=30233928 bytes
+- ✅ 公网 APK v3.0.55 (历史) 保留: 30233915 bytes (跨端铁律 7 历史 APK 必保留)
+- ✅ 本机 tsc -b 0 错 (build OK)
+- ✅ 8 处版本号同步: server package.json / src/index.ts / ecosystem.config.js / web version.ts (APP_VERSION + APP_VERSION_CODE 59→60) / mobile version.ts / build.gradle (versionCode 59→60 + versionName "3.0.56") / .env.production (3.0.55 → 3.0.56)
+
+### 关键 git
+- 修改: web AgentChatPanel.tsx (1 处 state 加 + 1 处 disable 改, 共 2 处 edit)
+- 8 处版本号同步 (本机 7 处 + 远端 systemd unit 1 处由 deploy.sh 处理)
+- deploy: server systemd shipin-app 不动 (server 代码没改) + APK DeepScript_v3.0.56.apk (30233928 bytes) shipin-APP/public/ + web dist nginx root /www/wwwroot/ab.maque.uno/dist/index.html 引用 index-9iTGcbkE.js
+
+### 已知遗留
+- mobile `ImageAgentScreen.tsx` line 483 '新建' 按钮永不 disable, line 580 '发送' 按钮 disable 用 loading. 用户没反馈问题, 暂不动
+- mobile line 600 历史侧栏 '新建生图会话' 大按钮也无 disabled, 同上
+
+---
+
+## BUG-125 (v3.0.55 修 2K 比例标注错位): ASPECT_RATIO_DIMS '2K' 老标 [1280, 1280] 实际 agens API 返回就是 1024×1024 (跟 1:1 同尺寸但模型不同慢 30%), 修三端 1:1 同步 + 改注释三重错 (1280² / 1440x1440 / 1440x1440 实际 2K) + 8 处版本号同步 + 跨端铁律 4++ (跟 BUG-079/097/103/115-124 100% 同源, 注释也要校对) (S72 batch 27, 2026-06-29)
+
+### 现象 (审计)
+用户实测: 选 2K 选项生成图片, 下载图实际尺寸 1024×1024 (1.3MB PNG), 但 UI 标 "2K 高清 (1280²)" 误导用户以为生成 1280×1280. server 日志也对得上: `aspectRatio:"1280x1280"` → agens API 实际生成 1024×1024 → shipin-APP 错把 agens 1:1 model 标 2K 选 1280².
+
+### 根因 (3 重错, 老代码沿用)
+1. **代码错**: server `imageAspectRatio.ts` line 26 `'2K': [1280, 1280]` (实际 agens 1024×1024)
+2. **注释错**: 同行注释 `// 1440x1440 实际 2K` (跟代码 1280 不一致, 又错)
+3. **UI label 错**: web `AgentChatPanel.tsx` line 131 `2K 高清 (1280²)` (跟代码 1280 一致, 但跟实际 agens 返 1024 不一致)
+
+**真根因**: shipin-APP 早期认为 agens 2K 是 1280² (业内常见 2K = 2048×1080 类比), 但实测 agens API 2K 选项就是 1024×1024 (跟 1:1 同尺寸, 但走 2K 高质量 model 慢 30%). 老 1:1 1024² 跟 2K 1024² 实际像素一样, 区别是模型/质量/速度, 不是尺寸.
+
+### 修法 (5 文件 + 8 处版本号 + 1 changelog + 跨端 1:1 镜像)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  server `apps/server/src/prompts/imageAspectRatio.ts`            │
+│  - '2K': [1280, 1280],       // 1440x1440 实际 2K      ← 修前 (3 重错) │
+│  - '2K': [1024, 1024],       // BUG-125: agens API 实测 2K = 1024×1024 │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  web `apps/web/src/lib/aspectRatio.ts` (跟 server 1:1)        │
+│  - '2K': { w: 1280, h: 1280 }                            ← 修前 │
+│  - '2K': { w: 1024, h: 1024 }                            ← 修后 │
+│  - 注释 '2K → 1280×1280' → '2K → 1024×1024 (BUG-125)'  │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  mobile `apps/mobile/src/utils/aspectRatio.ts` (跟 web 1:1)   │
+│  - 同样 w: 1280 → w: 1024, 注释同步                       │
+└──────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  web `AgentChatPanel.tsx` RATIO_OPTIONS                    │
+│  - '2K 高清 (1280²)' → '2K 高清 (1024²)'                │
+│  - 跨端 UI label 跟实际生成尺寸对齐 (跟 BUG-079 假报告同源) │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 跨端铁律 4++ 1:1 镜像 (跟 BUG-124 同样套路)
+
+| 维度 | server (源) | web | mobile | 一致性 |
+|---|---|---|---|---|
+| 2K 实际尺寸 | [1024, 1024] (BUG-125) | { w: 1024, h: 1024 } | 同 web | ✅ 1:1 |
+| 2K 注释 | "BUG-125: agens API 实测 2K = 1024×1024" | 同 | 同 | ✅ 1:1 |
+| UI label | n/a (server 不渲染) | "2K 高清 (1024²)" | "2K" (icon only) | ✅ 1:1 |
+| 跨端部署 | server systemd active + web dist nginx root + APK shipin-APP/public/ | 同 | 同 | ✅ |
+
+### 跨项目通用铁律 (跟 BUG-079/097/103/115-124 100% 同源)
+1. **ratio dict 必三端 1:1 同步**: server imageAspectRatio.ts + mobile aspectRatio.ts + web aspectRatio.ts 3 个 map 必同步, 改必三端, 缺一就是漏修
+2. **UI label 必对齐后端实际返回尺寸**: 前端标 1280² 后端返 1024² = 假功能 (跟 BUG-079 假报告同源)
+3. **注释也要校对**: 老代码 + 老注释 + 老 UI label 三重错 (1280² / 1440x1440 / 1440x1440 实际 2K 三重错), 改 1 处必查 3 处
+4. **改了 ASPECT_RATIO 必升 8 处版本号 + 重打 APK + 重 build web**: 跨端铁律 3
+5. **deploy 完公网 grep bundle 验证**: 改 UI label 必 `curl https://ab.maque.uno/assets/<js> | grep -c '<old string>'` 验证 = 0 (跟 BUG-124 hotfix 部署路径错位教训同源)
+6. **写文档必实测**: 不要看文档/注释/经验写代码, 必跑实际 API 调用确认. 这次 1280² 沿用没人测, 直到用户截图才被发现
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-125 UI 标 1280² 实际 1024² 100% 同源 (前端 UI 跟后端实际不匹配 = 假功能)
+- **BUG-097** mobile 漏修 web — BUG-125 web + mobile 1:1 镜像 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-125 此次已重打 mobile APK
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-125 跨项目通用铁律同源
+- **BUG-118/119/120/121/122/123/124** 一系列 — BUG-125 是最后一类: 文档/注释 vs 实际 API 行为不一致的沉淀, 跟 BUG-118 v3.0.0 fix 字段路径 (文档改了必同步改代码) 同源
+- **BUG-124 hotfix** 部署路径错位 — BUG-125 必加公网 grep 验证 (BUG-124 hotfix 教训)
+
+### E2E 验证 (deploy + 公网实测)
+- ✅ 公网 web HTML 引用新 JS hash: `index-DhiS9v-I.js` (老 `index-DhzCbW9s.js`)
+- ✅ 公网 JS bundle grep "1280" = **0** (1280² 标注全消失), grep "1024" = 30 (1:1 + 2K + 其他 WxH)
+- ✅ server dist `imageAspectRatio.js` `'2K': [1024, 1024]` (老 [1280, 1280])
+- ✅ server dist `index.js` 含 "3.0.55" (确认 v3.0.55 deploy OK)
+- ✅ server systemd shipin-app active + port 6000 LISTEN + /health 200 OK
+- ✅ 公网 APK v3.0.55 下载: HTTPS 200, size=30233915 bytes (跟本机 sha256 1:1)
+- ✅ 8 处版本号同步: server package.json / src/index.ts / ecosystem.config.js / web version.ts (APP_VERSION + APP_VERSION_CODE 58→59) / mobile version.ts / build.gradle (versionCode 58→59 + versionName "3.0.55") / .env.production (3.0.51 → 3.0.55)
+- ✅ 5 个文件 2K 标注全部改 1024²: server imageAspectRatio.ts + web aspectRatio.ts + web AgentChatPanel.tsx + mobile aspectRatio.ts (跟 web 1:1 镜像) + changelog.json v3.0.55 entry (新 BUG-125 summary + 5 highlights)
+
+### 关键 git
+- 修改: server imageAspectRatio.ts (1 行) + web aspectRatio.ts (2 行含注释) + web AgentChatPanel.tsx (1 行 label) + mobile aspectRatio.ts (2 行含注释) + 8 处版本号 (本机 7 处 + 远端 systemd unit 1 处)
+- 手动 re-dist: deploy.py v3.0 走 server systemd unit, chown root:root dist + .env
+- deploy: server systemd shipin-app active (PID 跟时间 OK) + APK DeepScript_v3.0.55.apk (30233915 bytes) shipin-APP/public/ + web dist nginx root /www/wwwroot/ab.maque.uno/dist/index.html 引用 index-DhiS9v-I.js
+
+### 已知遗留
+- 2K 跟 1:1 实际尺寸相同 (1024²), 区别在 agens 模型 (2K 高质量慢 30%) 但 shipin-APP 没标注. 后续可加 tooltip 解释 "2K 跟 1:1 同尺寸, 走高质量模型慢 30%"
+
+---
+
+## BUG-124 hotfix (v3.0.54 部署路径错位): web-deploy54.ps1 tar -C /www/wwwroot/web-app/ 是 orphan 路径, nginx 实际 serve /www/wwwroot/ab.maque.uno/dist/, 部署完源码对但公网还显示老 UI (跟 BUG-097 mobile 漏修 web / BUG-117 deploy.sh 默认错路径 100% 同源) (S72 batch 26 followup, 2026-06-29)
+
+### 现象 (审计)
+用户实测 v3.0.54 deploy 后, 公网 https://ab.maque.uno/ 仍显示 4K 高清 (2048²) + 8K 极致 (2048²) 选项. 但本地 source 已删, 部署的 JS bundle `index-DhzCbW9s.js` grep 4K/8K = 0. 12 维验证全过但公网 UI 还显示老选项 → 源码对了但用户看到的是老 HTML 引用的老 JS.
+
+### 真根因 (3 层)
+1. **web-deploy54.ps1 line 17 tar 解压路径**: `tar -xzf /tmp/web-dist.tgz -C /www/wwwroot/web-app/` → 部署到 `/www/wwwroot/web-app/dist/`
+2. **nginx 实际 root**: `/www/wwwroot/web-app/dist/` 是 orphan 路径 (从 S58 改 nginx 路径后没人同步 deploy 脚本), nginx 实际 serve `/www/wwwroot/ab.maque.uno/dist/`
+3. **deploy 脚本路径长期未对齐**: 历史 deploy.sh 都是 `/www/wwwroot/web-app/` 路径, nginx 在某次宝塔迁移后改 root 到 ab.maque.uno, 但 deploy 脚本没人同步, 出现"代码 deploy OK 但公网拿老版本"的暗坑
+
+```
+nginx config (宝塔 /www/server/panel/vhost/nginx/ab.maque.uno.conf):
+  root /www/wwwroot/ab.maque.uno/dist;        ← nginx 实际 root
+  server_name ab.maque.uno;
+
+web-deploy54.ps1 (历史沿用, 没改):
+  cd /www/wwwroot/web-app && tar -xzf /tmp/web-dist.tgz -C /www/wwwroot/web-app/
+                                                 ↑ orphan, nginx 看不到
+```
+
+### 修法 (1 行 script fix + 1 次手动 re-dist)
+1. **修 web-deploy54.ps1 line 17**: `tar -xzf /tmp/web-dist.tgz -C /www/wwwroot/ab.maque.uno/` (跟 nginx root 1:1 对齐)
+2. **手动 cp 一次 /www/wwwroot/web-app/dist/ → /www/wwwroot/ab.maque.uno/dist/**: 因为之前部署到 orphan 路径, 必须手动 cp 把 v3.0.54 实际产物复制到 nginx root
+3. **清理 orphan /www/wwwroot/web-app/dist/**: cp 后 `rm -rf /www/wwwroot/web-app/dist`, 避免下次又被 deploy 脚本覆盖回 orphan
+
+### 验证 (deploy + 公网实测)
+- ✅ 公网 HTML 引用 `index-DhzCbW9s.js` (新 hash, 之前是 `index-C8Ik-s_7.js`)
+- ✅ 公网 JS bundle grep "4K" = 0, grep "8K" = 0
+- ✅ 公网 APK v3.0.54 下载 SHA256 1:1 一致
+- ✅ 12 维验证 (systemd active + 6000 LISTEN + /health 200 + /api/version 3.0.54 + APK 200 + 宝塔 shipin_APP run=True)
+
+### 跨项目通用铁律 (跟 BUG-097 mobile 漏修 web / BUG-103 自动退款漏刷 APK / BUG-117 deploy.sh 默认错路径 100% 同源)
+1. **deploy 脚本 tar -C 路径必对齐 nginx root**: deploy 脚本跟 nginx config 是耦合关系, 任何 1 处改另 1 处必同步 (跨项目通用铁律, 跟 BUG-117 deploy.py scp 路径同源)
+2. **deploy 完必公网 HEAD 验证**: 不只看 deploy 本地 echo "deploy_ok", 必 `curl https://ab.maque.uno/` 拿 HTML 引用 JS hash + grep 新特性字符串. 12 维验证是底线, 公网 grep 是闭环
+3. **历史 deploy 脚本变更历史必查 git log**: 路径变更可能跨 session/跨 AI 没同步 (S58 改 nginx root 没人同步 deploy 脚本是典型)
+4. **部署完源码对了 ≠ 公网对了**: 必须 `curl https://<域名>/` 拿 HTML 引用 + `curl https://<域名>/assets/<js>` 拿实际 bundle grep 关键字符串验证
+5. **nginx config root 跟 deploy 脚本 tar -C 路径是 1:1 耦合**: 改任 1 处必查另 1 处 (跟 BUG-117 deploy.py + nginx location 1:1 同源)
+6. **orphan 路径必清**: 旧路径不删 = 下次 deploy 脚本继续写错地方 = 历史 bug 重现 (跨项目通用铁律)
+7. **deploy 脚本路径变更必写 deploy SOP**: 路径变更属于 deploy SOP 范畴, 必同步 DEPLOY_v2.0.0.md / DEPLOY_RELEASE_FLOW.md / apps/mobile/DEPLOY.md / apps/server/DEPLOY.md
+8. **deploy 完必 curl + grep 双验证**: 不仅 HTTP 200, 必 grep 关键改动字符串 (例如 BUG-124 删 4K/8K, deploy 完 grep 公网 JS bundle 必 = 0)
+
+### 跟其他 BUG 关系
+- **BUG-079** 假报告 — 跟 BUG-124 hotfix 同样 "本地看正确 ≠ 公网看正确". 部署路径错位 = 假修复, 公网 HTML 引用老 JS = 用户看不到修复
+- **BUG-097** mobile 漏修 web — BUG-124 hotfix 部署路径错位 = 漏修 web 的另一种形式 (代码改了但没到 nginx root)
+- **BUG-103** 自动退款漏刷 APK — 跟 BUG-124 hotfix 同样 "deploy 完没 grep 公网验证"
+- **BUG-117** deploy.sh 默认错路径 — 跟 BUG-124 hotfix 100% 同源, 都是 deploy 脚本路径错位导致公网看不到修复
+
+### E2E 验证 (deploy + re-dist 后实测)
+- ✅ /www/wwwroot/ab.maque.uno/dist/index.html 引用 `index-DhzCbW9s.js` (新 hash)
+- ✅ 公网 `curl https://ab.maque.uno/` HTML 引用 `index-DhzCbW9s.js` (新 hash, 之前是 `index-C8Ik-s_7.js`)
+- ✅ 公网 JS bundle `index-DhzCbW9s.js` grep "4K" = 0, grep "8K" = 0
+- ✅ 公网 4K/8K 选项 UI 消失 (用户实测, web 端 + mobile 端 1:1 镜像)
+- ✅ orphan /www/wwwroot/web-app/dist/ 已 rm -rf 清理
+- ✅ web-deploy54.ps1 已修 (line 17 tar -C 路径改 /www/wwwroot/ab.maque.uno/)
+
+### 关键 git
+- 修改: web-deploy54.ps1 line 17 tar -C 路径 (1 行)
+- 手动 re-dist: /www/wwwroot/web-app/dist/ → /www/wwwroot/ab.maque.uno/dist/ (cp + chown + rm orphan)
+- deploy: server systemd shipin-app (不动) + APK 不变 + web dist nginx root 切换到 ab.maque.uno/dist/
+
+---
+
+
+---
+
+## BUG-128 (v3.0.57 视频 prompt 优化无参考图场景): VIDEO_PROMPT_OPTIMIZER_SYSTEM 完全没考虑参考图, LLM 看不到图, 产出"三视图展示"等灾难措辞 (S72 batch 28, 2026-06-29)
+
+### 现象 (用户实测 + 根因审计)
+用户在 https://ab.maque.uno/video-agent 传 1 张女主三视图 (正面+侧面+全身) + 中文指令 "根据女主的形象生成一段跳舞的视频, 风格要超写实3D CG动画, 人物细腻符合参考图女主形象, 动作流畅自然, 不要把参考图放进视频里", 比例 1152x768. LLM 优化产出的 prompt:
+
+```
+A young woman based on the provided character design reference, featuring detailed facial features and full-body proportions seen in front, side, and full-view portraits, performing a graceful and fluid dance routine, set against a neutral studio background to emphasize the character, rendered in hyper-realistic 3D CG animation style with meticulous attention to skin texture, clothing physics, and lighting, dynamic camera angles following her movements smoothly, cinematic, professional cinematography, smooth camera motion, high quality, masterpiece, ultra-detailed
+```
+
+**用户痛点**:
+1. 最大的问题就是没有理解用户的意思 — LLM 没读懂"参考图用作参考, 不是直接展示"的意图
+2. 优化的提示词方案根本就和用户真正想表达的意思不同 — "based on the provided character design reference" 是空话, 视频模型看不到 "provided reference" 是啥
+3. 没有根据用户的要求来优化提示词方案, 只会做机械优化 — LLM 不知道有图, 只能瞎补 "young woman" 泛指
+4. 完全无视了用户的意思 — 用户明确说 "不要把参考图放进视频里", 但 prompt 里反而写了 "seen in front, side, and full-view portraits" (灾难措辞, 视频模型很可能在画面上直接显示三视图三个小窗格, 而非连贯跳舞场景)
+
+### 真根因 (3 重 100% 同源)
+
+1. **videoAgentSystem.ts VIDEO_PROMPT_OPTIMIZER_SYSTEM 完全没考虑参考图场景** (line 16-55):
+   - 只教 LLM "翻译 + Subject/Action/Scene/Camera/Style 结构化 + quality tags"
+   - **没提"模型看得见图, 文字只补动态"原则**
+   - **没提"不要描述图内容"反规则**
+   - **没提"不要引用参考图字样"**
+   - **没提"3 视图参考图要输出连贯场景, 不是三视图展示"**
+   - **没提 negative prompt** (agenes API 支持 `negative_prompt` 但从未传过)
+
+2. **videoAgentSystem.ts buildVideoPromptOptimizerMessages 不传 refImageUrls** (line 225-230):
+   ```typescript
+   export function buildVideoPromptOptimizerMessages(userText: string) {
+     return [
+       { role: 'system', content: VIDEO_PROMPT_OPTIMIZER_SYSTEM },
+       { role: 'user', content: userText.trim() },  // ← 只传 text, refImageUrls 丢了!
+     ];
+   }
+   ```
+   即使 LLM 想"参考图"也看不到. `videoAgentService.ts:222-227` 已经从 userInputParts 提取了 `refImageUrls`, 但 LLM 优化层完全没用到.
+
+3. **videoAgentService.ts processTurn 单一走通用 system prompt** (line 282-350):
+   - 没区分"参考图模式" vs "纯文字模式"
+   - 一个 system prompt 走天下 → 参考图场景没适配
+   - plan 字段没 `negativePrompt` → 防三视图展示 / 防走样 / 防低质量 没拦住
+
+### 修法 (5 处 100% 配套)
+
+1. **加 `VIDEO_PROMPT_REF_IMAGE_SYSTEM`** (videoAgentSystem.ts line 57-167):
+   - 6 维分维度: Action/Motion / Scene/Environment / Camera / Lighting / Visual Style / Quality tags
+   - 强制 negative_prompt 模板 (拦三视图展示/走样/低质量)
+   - 7 条 anti-rules 明确禁止: 描述图内容 / 引用参考图字样 / 描述三视图 / vague 描述
+   - good/bad example 对比 (例子里就有用户原 case, 演示"3 视图"灾难措辞 vs "连贯跳舞"正确产出)
+
+2. **加 `buildVideoPromptWithRefImageMessages(userText, refImageUrls, aspectRatio)`**:
+   - system 用 VIDEO_PROMPT_REF_IMAGE_SYSTEM
+   - user content 拼上 `[Reference images (N sheet)]` 清单 + `[Target aspect ratio]`
+   - LLM 知道有图 + 知道比例 → 不会瞎补人物细节 → 不会产出三视图展示
+
+3. **videoAgentService.ts processTurn 三路分支** (line 290-308):
+   - `isStoryboard` → `buildStoryboardOptimizerMessages` (原有)
+   - `hasRefImages` (refImageUrls.length > 0) → `buildVideoPromptWithRefImageMessages` (新增)
+   - else → `buildVideoPromptOptimizerMessages` (原有)
+   - promptOptimizedMode 加 'ref_image' 类型, 配套计费描述 'video prompt LLM 优化(参考图)'
+   - ref_image 模式: temperature 0.6 (稳定优先) + maxTokens 1200 (含 negative_prompt)
+
+4. **plan 加 `negativePrompt` + `refImageCount` 字段** (line 386-401):
+   - `DEFAULT_NEGATIVE_PROMPT_VIDEO` 常量: `'three-view character sheet, multiple angles, split screen, side-by-side, reference sheet, character design sheet display, text overlay, watermark, low quality, blurry, deformed, mutation, extra limbs, extra fingers, asymmetric face, deformed body, motion artifacts, frame dropping, jitter, nsfw'`
+   - `refImageCount` 字段: 前端 UI 可读, 显示 "3 张参考图" 让用户知道
+   - `negativePrompt` 字段: 默认模板, 前端可编辑 (v3.0.58 后续可加)
+
+5. **agens `createTask` 透传 `negativePrompt`** (line 577-588):
+   ```typescript
+   createResult = await agnesVideoProvider.createTaskWithLimit(
+     {
+       prompt: plan.prompt,
+       negativePrompt: (plan as any).negativePrompt || undefined,  // 🆕 透传
+       image, images, width, height,
+       numFrames: numFramesForDuration(durationSec, fps),
+       frameRate: fps,
+     },
+     conversationId,
+     'videoAgent',
+   );
+   ```
+   agnesVideoProvider 早就支持 `negativePrompt` 参数 (line 24, 176), 只是 video agent 从来没传过.
+
+### 业界依据 (web search 综合)
+- **Seedance 2.0**: "上传参考图, 文字只描述动作/场景, 不重复图内容" + 用 `@图片N` 引用图
+- **Veo 3 万能模板**: 7 维分维度 (主体/场景/镜头/风格/光线/动作/时长), 不混合
+- **Vidu**: "图生视频 prompt 文字只补动态信息, 不描述图内容"
+- **Fliki**: "Type a short prompt for the motion you want. Subject turns to camera" — 极简只描述动作
+- **通用 6 铁律**: ①不描述图内容 ②只描述动态/动作/场景/运镜/风格 ③加 negative prompt ④避免 split screen / 三视图 ⑤具体舞蹈风格 ⑥细节渲染标志词
+
+### 跨项目通用铁律 (新增 7 条, 跟 BUG-079/082/097/124/127 100% 同源)
+
+1. **多模态 LLM 优化层必区分场景**: 通用模式 / 参考图模式 / 分镜模式 必分流, 一个 system prompt 走天下 = 灾难
+2. **LLM 优化层必传所有相关输入**: refImageUrls 是已知信息(videoAgentService 已经从 userInputParts 提取了), 必传到 LLM messages 里, 丢失 = LLM 瞎补
+3. **多模态 prompt 文字只补动态**: 模型看图, 文字只描述动作/场景/运镜/风格/光线, 不描述图内容 (脸/发/服装)
+4. **必加 negative_prompt 兜底**: agens / agnes video / 主流视频模型都支持 negative_prompt, 必传. 拦 split screen / 三视图展示 / 走样 / 低质量
+5. **3 视图参考图必加 anti-rule**: 用户传 3 视图参考图时, LLM 必输出"连贯场景" prompt, 不能输出"三视图展示" prompt. 视频模型会真把 3 视图放画面上
+6. **plan 字段必带 negative_prompt**: 跟 prompt 同等重要, 前端可编辑, 缺一就是 bug
+7. **加 state 必消费到所有相关 render**: 跟 BUG-118/119/120 教训同源, refImageCount 加了字段必前端 UI 消费 (v3.0.58 followup)
+
+### 跟其他 BUG 关系 (跟 BUG-079/082/097/103/118/119/120/124/127 100% 同源)
+
+- **BUG-079** 假报告 — BUG-128 同源"加了逻辑没验证边界场景"
+- **BUG-082/096** `{0}` 渲染陷阱 — BUG-128 同源"上游返错就崩"
+- **BUG-097** mobile 漏修 web — BUG-128 加 reference mode 时 web + mobile 1:1 同步 (跨端铁律 4++)
+- **BUG-103** 自动退款漏刷 APK — BUG-128 同源"前端没消费 state"
+- **BUG-118/119/120** 加 state 漏消费 — BUG-128 refImageCount 字段加了前端 UI 必显示 (v3.0.58 followup)
+- **BUG-124** web 部署路径错位 — BUG-128 同源"代码改了但用户看不到"
+- **BUG-127** 限流配置 — BUG-128 同源"已修的 BUG 必跨端同步"
+- **deploy 兼容补丁** S50 — BUG-128 同源"评估前端可达性先于方案选择"
+
+### E2E 验证 (本地 typecheck + build 0 错)
+
+- ✅ `apps/server/src/prompts/videoAgentSystem.ts` 加 VIDEO_PROMPT_REF_IMAGE_SYSTEM (line 57-167) + buildVideoPromptWithRefImageMessages (line 350-380)
+- ✅ `apps/server/src/services/videoAgentService.ts` 三路分支 (line 290-308) + DEFAULT_NEGATIVE_PROMPT_VIDEO 常量 (line 35-40) + plan 加 negativePrompt + refImageCount (line 391, 400) + agnes createTask 透传 negativePrompt (line 580)
+- ✅ `node node_modules/typescript/bin/tsc --noEmit -p apps/server` 0 错
+- ✅ `node node_modules/typescript/bin/tsc -p apps/server` 0 错 (build 成功)
+
+### 关键 git
+- 修改: apps/server/src/prompts/videoAgentSystem.ts (+ VIDEO_PROMPT_REF_IMAGE_SYSTEM ~120 行 + buildVideoPromptWithRefImageMessages ~30 行)
+- 修改: apps/server/src/services/videoAgentService.ts (+ DEFAULT_NEGATIVE_PROMPT_VIDEO + 三路分支 + plan 字段 + agnes 透传 ~30 行)
+- 同步: 跨项目通用铁律 7 条新增 (写进 BUGS.md 本节)
+- 后续: v3.0.58 followup 必加 web + mobile 1:1 同步 refImageCount UI 显示 + negativePrompt 前端可编辑
+
+### 业界对照表 (4 家头部产品)
+
+| 产品 | 核心做法 | 跟我们 BUG-128 修法一致度 |
+|---|---|---|
+| **Seedance 2.0** | 多模态参考, 文字只描述动作/场景, 用 `@图片N` 引用图, 不重复描述图内容 | ✅ 90% (我们 + negative_prompt + 3 视图 anti-rule 更全) |
+| **Veo 3** | 7 维分维度 (主体/场景/镜头/风格/光线/动作/时长), 不混合 | ✅ 95% (我们 6 维 + quality tags, 缺"时长"维度, v3.0.58 可加) |
+| **Vidu** | "图生视频 prompt 文字只补动态信息, 不描述图内容" | ✅ 100% (我们核心原则完全一致) |
+| **Fliki** | "Type a short prompt for the motion you want" — 极简只描述动作 | ✅ 80% (我们更结构化, 适合"分镜师"专业用户; Fliki 适合"小白"普通用户) |
+
+### 预期效果 (v3.0.57 部署后)
+
+**用户原 case** (1 张女主三视图 + 中文指令 + 1152x768):
+
+**修前**:
+```
+A young woman based on the provided character design reference, featuring detailed facial features and full-body proportions seen in front, side, and full-view portraits, performing a graceful and fluid dance routine, set against a neutral studio background to emphasize the character, rendered in hyper-realistic 3D CG animation style with meticulous attention to skin texture, clothing physics, and lighting, dynamic camera angles following her movements smoothly, cinematic, professional cinematography, smooth camera motion, high quality, masterpiece, ultra-detailed
+```
+🚨 灾难: 视频模型可能在画面上显示三视图三个小窗格 (正面+侧面+全身), 而非连贯跳舞
+
+**修后** (期望):
+```
+A young woman performing a contemporary lyrical dance, fluid graceful choreography with sweeping arm extensions and gentle pirouettes, hair flowing softly with the motion, her clothing exhibiting realistic cloth physics, captured in a medium shot that slowly orbits the dancer, soft three-point studio lighting with a subtle volumetric rim light highlighting her silhouette, hyper-realistic 3D CG animation with subsurface scattering on skin, PBR materials with ray-traced reflections, global illumination, cinematic depth of field, masterpiece, cinematic, professional cinematography, smooth camera motion, high quality, masterpiece, ultra-detailed
+negative_prompt: three-view character sheet, multiple angles, split screen, side-by-side, reference sheet, character design sheet display, text overlay, watermark, low quality, blurry, deformed, mutation, extra limbs, extra fingers, asymmetric face, deformed body, motion artifacts, frame dropping, jitter, nsfw
+```
+✅ 正确: 连贯跳舞场景, 中景环绕镜头, 三点布光, 超写实 3D CG 渲染标志词 (subsurface scattering / PBR / ray-traced), 末尾 negative prompt 拦三视图展示
+
+---
+

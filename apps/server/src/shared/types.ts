@@ -457,6 +457,9 @@ export interface PlanData {
   height?: number;                 // 视频用 (如 768)
   fps?: number;                    // 视频用 (默认 24)
   estimatedCost?: number;          // 估算费用 (元)
+  // v3.0.58 (BUG-128 followup): 跨端 1:1 镜像 (server + web + mobile PlanData 同步)
+  negativePrompt?: string;         // 排除内容 (三视图展示/走样/低质量 等), 默认模板来自 server DEFAULT_NEGATIVE_PROMPT_VIDEO
+  refImageCount?: number;          // 参考图数量 (UI 显示用, 让用户知道"模型看图, 文字只补动态")
 }
 
 /** 询问数据 (LLM 引导用户时用) */

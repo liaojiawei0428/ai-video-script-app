@@ -5,6 +5,67 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.58",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-128 视频 prompt 优化层参考图场景分流: VIDEO_PROMPT_REF_IMAGE_SYSTEM (新) + buildVideoPromptWithRefImageMessages (新) + processTurn 三路分支 (storyboard/ref_image/generic) + plan 加 negativePrompt + refImageCount 字段 + agens createTask 透传 negativePrompt + web/mobile plan 渲染加 refImageCount badge + negativePrompt 折叠面板 (跨端铁律 4++ 1:1 镜像), 修用户原 case: '参考图三视图 → 跳舞视频' 不再被 LLM 瞎补成 '三视图展示' 灾难措辞 (跟 BUG-079/082/097/103/115-127 100% 同源, 多模态 LLM 优化层场景分流铁律)",
+      "highlights": [
+        "BUG-128 ✅ 修前根因 (3 重 100% 同源): ① videoAgentSystem.ts VIDEO_PROMPT_OPTIMIZER_SYSTEM 完全没考虑参考图场景, LLM 不知道有图 ② buildVideoPromptOptimizerMessages 不传 refImageUrls, LLM 看不到图 ③ processTurn 单一走通用 system prompt. 产出 prompt 含 'based on the provided character design reference, seen in front, side, and full-view portraits' 灾难措辞, 视频模型可能真在画面上显示三视图三个小窗格",
+        "BUG-128 ✅ 修法 1: 新加 VIDEO_PROMPT_REF_IMAGE_SYSTEM (~120 行, videoAgentSystem.ts line 57-167): 6 维分维度 (Action/Motion / Scene/Environment / Camera / Lighting / Visual Style / Quality tags) + 7 条 anti-rules (不描述图内容/不引用参考图字样/不描述三视图/vague 描述/中文输出/Markdown 包裹) + 强制 negative_prompt 模板 (拦三视图展示/走样/低质量) + good/bad example 对比",
+        "BUG-128 ✅ 修法 2: 新加 buildVideoPromptWithRefImageMessages(userText, refImageUrls, aspectRatio) (videoAgentSystem.ts line 350-380): system 用 VIDEO_PROMPT_REF_IMAGE_SYSTEM, user content 拼 [Reference images (N sheet)] 清单 + [Target aspect ratio] 标注. LLM 知道有图 + 知道比例 → 不会瞎补人物细节 → 不会产出三视图展示",
+        "BUG-128 ✅ 修法 3: videoAgentService.ts processTurn 三路分支 (line 290-308): isStoryboard → storyboard path / hasRefImages (refImageUrls.length > 0) → ref_image path / else → generic path. ref_image 模式 temperature 0.6 (稳定优先) + maxTokens 1200 (含 negative_prompt)",
+        "BUG-128 ✅ 修法 4: plan 加 negativePrompt 字段 (默认模板 DEFAULT_NEGATIVE_PROMPT_VIDEO) + refImageCount 字段 (前端 UI 可读). 跨端 1:1 镜像: server types.ts line 461-462 + web useAgentChat.ts line 50-51 + mobile types/agent.ts line 30-31 同步加 negativePrompt? + refImageCount? 字段",
+        "BUG-128 ✅ 修法 5: agens createTask 透传 negativePrompt (videoAgentService.ts line 580): agnesVideoProvider 早就支持 negativePrompt 参数 (line 24, 176), 但 video agent 从来没传过. 修后负向 prompt 真正生效",
+        "BUG-128 ✅ 修法 6 (跨端铁律 4++ followup): web AgentChatPanel.tsx case 'plan' 加 refImageCount badge (ImageIcon + '已用 N 张参考图 (模型已看图, 文字只补动作/场景/运镜/风格)') + negativePrompt 折叠面板 (Ban icon + <details> 默认展开, 排除三视图展示/走样/低质量 等)",
+        "BUG-128 ✅ 修法 6 (跨端铁律 4++ followup 续): mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx 1:1 镜像 web: 加 planRefBadge (Ionicons image) + planNegativeBox (Ionicons ban) + 配套 styles planRefText/planNegativeBox/planNegativeHeader/planNegativeLabel/planNegativeText 5 字段",
+        "BUG-128 ✅ 跨项目通用铁律 (新增 7 条, 跟 BUG-079/082/097/124/127 100% 同源, 沉淀 mavis memory): ① 多模态 LLM 优化层必区分场景 ② LLM 优化层必传所有相关输入 ③ 多模态 prompt 文字只补动态 ④ 必加 negative_prompt 兜底 ⑤ 3 视图参考图必加 anti-rule ⑥ plan 字段必带 negative_prompt ⑦ 加 state 必消费到所有相关 render",
+        "BUG-128 ✅ 预期效果 (用户原 case '参考图三视图 → 跳舞视频 1152x768'): 修前产出 'A young woman based on the provided character design reference, featuring detailed facial features... seen in front, side, and full-view portraits...' (灾难: 视频模型显示三视图三个小窗格) → 修后产出 'A young woman performing a contemporary lyrical dance, fluid graceful choreography with sweeping arm extensions... + negative_prompt: three-view character sheet, multiple angles, split screen...' (正确: 连贯跳舞场景 + 显式拦三视图展示)",
+        "BUG-128 ✅ 升 v3.0.57 → v3.0.58: 8 处版本号同步 (server package.json / src/index.ts fallback / ecosystem.config.js env + env_production / web version.ts + APP_VERSION_CODE 61→62 / mobile version.ts + build.gradle versionCode 61→62 + versionName / server .env.production)",
+        "BUG-128 ✅ 业界对照: 跟 Seedance 2.0 (90%) / Veo 3 (95%) / Vidu (100%) / Fliki (80%) 一致 (我们 + negative_prompt + 3 视图 anti-rule 更全). 跨项目通用: 任何多模态 LLM 优化层 (图/视频/音频参考) 项目都适用"
+      ]
+    },
+    {
+      "version": "3.0.57",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-127 修全局 IP 限流频繁触发 (Too many requests): per-user keyGenerator (JWT userId) + login/register 单独 10/min 严限流 + 全局 RATE_LIMIT_MAX_REQUESTS 200→500 + trust proxy 1 (nginx 反代), 用户多点几次按钮不再触发限流 (跟 BUG-079/097/103/115-126 100% 同源, frontend 跟 backend 限流边界对齐)",
+      "highlights": [
+        "BUG-127 ✅ 修前根因: shipin-APP 全局 express-rate-limit 用默认 req.ip 作为 key (per-IP), 多 tab / 多设备共享同一公网 IP (e.g. 同一 wifi 下电脑 + 手机) 互相挤 200 reqs/60s 额度, 前端高频 polling (Layout 60s + Notifications 30s + AgentChatPanel 5s + useQueueStatus 3s + TasksPage 3s) 加上 mount 时 ~5-10 reqs, 单 tab 就 50-100 reqs/min, 多 tab + mobile 容易爆 200",
+        "BUG-127 ✅ 加 per-user keyGenerator: index.ts line 22-67 extractUserIdFromJwt(req) helper (用 jwt.decode 不验签, 只取 userId), keyGenerator 返回 'u:${userId}' (登录后) 或 'ip:${req.ip}' (未登录). 同一 user 跨多 tab/多设备共享 500 reqs/60s, 不同 user 不再互相挤",
+        "BUG-127 ✅ 加 trust proxy 1: index.ts line 21, nginx 反代时不信任 X-Forwarded-For 会让 req.ip 永远是 127.0.0.1, 全局限流对所有用户共享一个 key. trust proxy=1 只信任最近一层反代 (nginx), req.ip 拿到真实用户 IP",
+        "BUG-127 ✅ login/register 单独严格限流 (防爆破): users.ts line 9-26 authLimiter 10 reqs/min + skipSuccessfulRequests=true (成功登录不计, 用户连点 5 次成功不影响后续). 失败请求 (密码错) 才消耗额度, 阻止攻击者暴力破解密码",
+        "BUG-127 ✅ RATE_LIMIT_MAX_REQUESTS 200 → 500: .env.production line 34, 配合 per-user keyGenerator, 单 user 500 reqs/60s 足够 (mount ~10 + Layout 1 + Notifications 2 + AgentChatPanel 12 + useQueueStatus 20 + TasksPage 20 = ~65 reqs/min, 还有 ~7x 余量)",
+        "BUG-127 ✅ 升 v3.0.56 → v3.0.57: 8 处版本号同步 (server package.json / src/index.ts fallback / ecosystem.config.js env + env_production / web version.ts + APP_VERSION_CODE 60→61 / mobile version.ts + build.gradle versionCode 60→61 + versionName / server .env.production)",
+        "BUG-127 ✅ 跨项目通用铁律 (跟 BUG-079/097/103/115-126 100% 同源): rate limit 必须 per-user 不是 per-IP (per-IP 在 NAT / 移动网络下不公平); login route 单独严限流 (防爆破是安全要求, 跟正常 polling 限额不同); trust proxy 必须设 (nginx 反代场景下 req.ip 默认是反代 IP); skipSuccessfulRequests 对 login 路由关键 (成功不计, 防误伤); RATE_LIMIT_MAX_REQUESTS 配 per-user 计算 (单 user 实际峰值 × 7 倍安全系数)"
+      ]
+    },
+    {
+      "version": "3.0.56",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-126 修 web 端新建会话按钮禁用错位: 流式生成方案时 (loading=true) '新建生图会话' 按钮被错误禁用, 用户无法中断当前 LLM 流程切换到新会话. 拆 loading 跟 isCreatingConversation 2 个 state, 新建按钮只跟 isCreating (防 double-click), 发送按钮才跟 loading (防重复提交) (跟 BUG-079/097/103/115-125 100% 同源, 跨端铁律 8 frontend state 拆分边界)",
+      "highlights": [
+        "BUG-126 ✅ 修前根因: web AgentChatPanel.tsx line 778 '新建生图会话' 按钮 disabled={loading} 跟 '发送' 按钮 disabled={loading} 共用同一个 state, 用户在流式生成方案时 (loading=true) 两个按钮都被禁, 用户想中断当前 LLM 流程新建会话做不到. mobile 端没这问题 (mobile ImageAgentScreen line 483 '新建' 按钮永远不禁用, line 580 '发送' 按钮 disabled={loading || !input.trim()})",
+        "BUG-126 ✅ 加 isCreatingConversation state: web AgentChatPanel line 329 新增 useState, 跟 loading 拆开. 新建按钮 disabled={isCreatingConversation} (只在 startNew 异步调用期间 ~200ms 禁用防 double-click), 发送按钮保持 disabled={... || loading || ...} (流式响应期间禁用防重复提交)",
+        "BUG-126 ✅ 跨端 1:1 镜像 mobile 设计: web AgentChatPanel 跟 mobile ImageAgentScreen 都应该有 isCreatingConversation 这种 '新建会话' 自己的 loading state. 之前 web 把 loading 共享了, mobile 是直接不 disable 新建按钮 — 两种方式都有边界问题, 加 isCreatingConversation 是最稳的方案",
+        "BUG-126 ✅ 升 v3.0.55 → v3.0.56: 8 处版本号同步 (server package.json / src/index.ts fallback / ecosystem.config.js env + env_production / web version.ts + APP_VERSION_CODE 59→60 / mobile version.ts + build.gradle versionCode 59→60 + versionName / server .env.production APP_VERSION=3.0.55 → 3.0.56)",
+        "BUG-126 ✅ 跨项目通用铁律 (跟 BUG-079/097/103/115-125 100% 同源): 按钮 disable 必按功能拆分 state (发送按钮 + 新建按钮 + 上传按钮 + 选项按钮 是 4 个独立 state, 不能一个 loading 通用); 流式响应时用户应该有逃生舱 (新建会话 = 中断当前 LLM); 防 double-click 用 short-term state (isCreatingConversation ~200ms) 不用长 loading (流式响应 1-3 分钟); 跨端 web/mobile 应该 1:1 镜像 (web 加 isCreatingConversation 跟 mobile '永不 disable' 风格不同但底层意图一致)"
+      ]
+    },
+    {
+      "version": "3.0.55",
+      "buildDate": "2026-06-29",
+      "type": "patch",
+      "summary": "BUG-125 修 2K 比例标注错位: 1280² → 1024×1024 (agens API 实测 2K = 1024², 老 1280² 写错, 注释还写 1440x1440 三重错), UI dropdown / 等待动画 / server prompt 三端 1:1 同步",
+      "highlights": [
+        "BUG-125 ✅ 修前根因: ASPECT_RATIO_DIMS '2K' 老标 [1280, 1280] + 注释 '1440x1440 实际 2K' (代码 + 注释 三重错), web UI dropdown 标 '2K 高清 (1280²)' 误导用户, 实际 agens API 返回就是 1024×1024 (跟 1:1 同尺寸, 但模型不同 慢 30%)",
+        "BUG-125 ✅ 改 5 个文件 2K 标注: server `imageAspectRatio.ts` SUPPORTED_RATIOS '2K': [1280, 1280] → [1024, 1024] (含三重错的注释修对); web `aspectRatio.ts` ASPECT_RATIO_DIMS '2K': w:1280 → w:1024 + 注释 '2K → 1280×1280' → '2K → 1024×1024 (BUG-125)'; mobile `aspectRatio.ts` 同 web 1:1 镜像; web `AgentChatPanel.tsx` RATIO_OPTIONS label '2K 高清 (1280²)' → '2K 高清 (1024²)'",
+        "BUG-125 ✅ 三端 1:1 同步: server SUPPORTED_RATIOS '2K' = web ASPECT_RATIO_DIMS '2K' = mobile ASPECT_RATIO_DIMS '2K' = UI dropdown '2K 高清 (1024²)' (跨端铁律 4++)",
+        "BUG-125 ✅ 升 v3.0.54 → v3.0.55: 8 处版本号同步 (server package.json / src/index.ts fallback / ecosystem.config.js env + env_production / web version.ts + APP_VERSION_CODE 58→59 / mobile version.ts + build.gradle versionCode 58→59 + versionName / server .env.production APP_VERSION=3.0.51 → 3.0.55)",
+        "BUG-125 ✅ 跨项目通用铁律 (跟 BUG-079/097/103/115-124 100% 同源): ratio dict 必三端 1:1 同步 (server imageAspectRatio.ts + mobile aspectRatio.ts + web aspectRatio.ts); UI label 必对齐后端实际返回尺寸 (前端标 1280² 后端返 1024² = 假功能, 跟 BUG-079 假报告同源); 注释也要校对 (代码 + 注释 + 文档 3 重一致); 改了 ASPECT_RATIO 必升 8 处版本号 + 重打 APK + 重 build web (跨端铁律 3)"
+      ]
+    },
+    {
       "version": "3.0.54",
       "buildDate": "2026-06-29",
       "type": "patch",
@@ -311,5 +372,5 @@
       ]
     }
   ],
-  "latest_version": "3.0.54"
+  "latest_version": "3.0.58"
 }

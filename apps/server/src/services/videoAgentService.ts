@@ -21,15 +21,20 @@ import { extractErrorMessage } from '../utils/errorUtils';
 import { generateUUID } from '../shared/utils';
 import { AgentMessage, AgentPart, AgentConversationStatus, PlanData } from '../shared/types';
 import { parseAspectToDims } from '../prompts/imageAspectRatio';
-import { buildVideoPromptOptimizerMessages, buildStoryboardOptimizerMessages, isStoryboardScript } from '../prompts/videoAgentSystem';
+import { buildVideoPromptOptimizerMessages, buildStoryboardOptimizerMessages, buildVideoPromptWithRefImageMessages, isStoryboardScript } from '../prompts/videoAgentSystem';
 
-// ── v3.0.24 (S61): LLM prompt 优化层配置 ──
-// 计费: ¥0.01/次 (跟 billing_logs DECIMAL(10,2) 最小单位一致; 实测 0.005 会被 MySQL round 到 0.01)
-// 超时: 30s, 超时 fallback 原文 passthrough
-// 失败兜底: LLM 报错 / 返空 / 返 < 5 chars → 用 userText 原 trim 走
-const VIDEO_PROMPT_LLM_TIMEOUT_MS = 30_000;
-const VIDEO_PROMPT_LLM_COST = 0.01;
-const VIDEO_PROMPT_LLM_MIN_OUTPUT = 5;  // LLM 返 < 5 chars 视为无效
+    // ── v3.0.24 (S61): LLM prompt 优化层配置 ──
+    // 计费: ¥0.01/次 (跟 billing_logs DECIMAL(10,2) 最小单位一致; 实测 0.005 会被 MySQL round 到 0.01)
+    // 超时: 30s, 超时 fallback 原文 passthrough
+    // 失败兜底: LLM 报错 / 返空 / 返 < 5 chars → 用 userText 原 trim 走
+    const VIDEO_PROMPT_LLM_TIMEOUT_MS = 30_000;
+    const VIDEO_PROMPT_LLM_COST = 0.01;
+    const VIDEO_PROMPT_LLM_MIN_OUTPUT = 5;  // LLM 返 < 5 chars 视为无效
+
+    // ── v3.0.57 (BUG-128): 视频 negative prompt 默认模板 ──
+    // 防三视图展示/防走样/防低质量. 必传, 哪怕用户没填.
+    // 业界共识 (Seedance 2.0 / Veo 3 / Vidu 文档): negative_prompt 拦负面效果比正面描述更稳.
+    const DEFAULT_NEGATIVE_PROMPT_VIDEO = 'three-view character sheet, multiple angles, split screen, side-by-side, reference sheet, character design sheet display, text overlay, watermark, low quality, blurry, deformed, mutation, extra limbs, extra fingers, asymmetric face, deformed body, motion artifacts, frame dropping, jitter, nsfw';
 
 // ── 异步任务锁 (P0 fix: 重复 confirm 触发多条 background 链) ──
 // Map<conversationId, Promise<void>> — 跟踪进行中的 background 任务
@@ -281,23 +286,36 @@ export class VideoAgentService {
     //   - enableThinking=false: 翻译+结构化是简单任务, 关 thinking 省 token + 延迟
     let finalPrompt = (userText || '').trim();
     let promptOptimized = false;
-    let promptOptimizedMode: 'generic' | 'storyboard' | null = null;
+    let promptOptimizedMode: 'generic' | 'storyboard' | 'ref_image' | null = null;
     let promptOptimizeUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | null = null;
     if (finalPrompt && finalPrompt.length >= 3 && !isModification) {
       // i2v 模式 (modification) 跳过 LLM: 修改指令短 + 用户期望"按指令改", 不要 LLM 加工
       // v3.0.24 S61 v2: 检测是否为分镜脚本 → 选对应 system prompt
+      // v3.0.57 (BUG-128): 加 ref_image 模式 — 有参考图时走 VIDEO_PROMPT_REF_IMAGE_SYSTEM,
+      //   教 LLM "图模型自己看, 文字只补动态", 避免产出"三视图展示"等灾难措辞
       const isStoryboard = isStoryboardScript(finalPrompt);
-      const messages = isStoryboard
-        ? buildStoryboardOptimizerMessages(finalPrompt)
-        : buildVideoPromptOptimizerMessages(finalPrompt);
-      promptOptimizedMode = isStoryboard ? 'storyboard' : 'generic';
+      const hasRefImages = refImageUrls.length > 0;
+      let messages: Array<{ role: 'system' | 'user'; content: string }>;
+      if (isStoryboard) {
+        messages = buildStoryboardOptimizerMessages(finalPrompt);
+        promptOptimizedMode = 'storyboard';
+      } else if (hasRefImages) {
+        messages = buildVideoPromptWithRefImageMessages(finalPrompt, refImageUrls, finalAspect);
+        promptOptimizedMode = 'ref_image';
+      } else {
+        messages = buildVideoPromptOptimizerMessages(finalPrompt);
+        promptOptimizedMode = 'generic';
+      }
 
       const t0 = Date.now();
       try {
+        // v3.0.57 (BUG-128): ref_image 模式需要更长输出 (含 negative_prompt) + 略低 temperature (稳定优先)
+        const temperature = isStoryboard ? 0.5 : (promptOptimizedMode === 'ref_image' ? 0.6 : 0.7);
+        const maxTokens = isStoryboard ? 1500 : (promptOptimizedMode === 'ref_image' ? 1200 : 800);
         const llmPromise = agnesTextProvider.chatCompletion({
           messages,
-          temperature: isStoryboard ? 0.5 : 0.7,  // 分镜需要更稳定, 降低 temperature
-          maxTokens: isStoryboard ? 1500 : 800,    // 分镜允许更长输出
+          temperature,
+          maxTokens,
           enableThinking: false,
         });
         const timeoutPromise = new Promise<never>((_, reject) =>
@@ -311,10 +329,15 @@ export class VideoAgentService {
           promptOptimizeUsage = llmResult.usage;
           // 计费 (复用 chargeImage, 失败不阻塞视频生成)
           try {
+            const chargeDesc = promptOptimizedMode === 'storyboard'
+              ? 'video prompt LLM 优化(分镜)'
+              : promptOptimizedMode === 'ref_image'
+                ? 'video prompt LLM 优化(参考图)'
+                : 'video prompt LLM 优化';
             await billingService.chargeImage(
               conv.user_id,
               VIDEO_PROMPT_LLM_COST,
-              isStoryboard ? 'video prompt LLM 优化(分镜)' : 'video prompt LLM 优化',
+              chargeDesc,
               conversationId,
             );
           } catch (chargeErr) {
@@ -326,6 +349,7 @@ export class VideoAgentService {
           logger.info('VideoAgent: prompt optimized by LLM', {
             conversationId,
             mode: promptOptimizedMode,
+            refImageCount: refImageUrls.length,
             originalLen: userText.length,
             optimizedLen: llmOutput.length,
             elapsedMs: Date.now() - t0,
@@ -354,16 +378,20 @@ export class VideoAgentService {
     }
 
     // 6. 构造 plan (v3.0.0.18 加 durationSec: 3/5/10s 用户可选)
+    // v3.0.57 (BUG-128): 加 negativePrompt 字段 (默认模板拦三视图展示/走样/低质量)
+    //                   + refImageCount 字段 (前端 UI 可读, 知道有图)
     const finalDurationSec = (ALLOWED_DURATIONS as readonly number[]).includes(durationSecFromClient as number)
       ? (durationSecFromClient as number)
       : DEFAULT_DURATION_SEC;
     const plan = {
       prompt: finalPrompt.slice(0, 4000),
+      negativePrompt: DEFAULT_NEGATIVE_PROMPT_VIDEO,  // v3.0.57 (BUG-128): 兜底 negative prompt
       durationSec: finalDurationSec,
       width: dim.w,
       height: dim.h,
       fps: 24,
       refImageUrls: isModification ? [] : refImageUrls,  // i2v 模式不混 user ref, 直接用 last_result_url
+      refImageCount: isModification ? 0 : refImageUrls.length,  // v3.0.57 (BUG-128): UI 显示用
       i2vSourceUrl: useRefForI2V || null,  // v3.0.0.15: modification 模式写入 i2v source, confirm 时调 agens image= 用
       // v3.0.0.22: aspectRatio 同步成 finalAspect, 让 UI 看到降级后的实际值 (如 '16:9' 而非 '8K')
       aspectRatio: finalAspect,
@@ -546,9 +574,11 @@ export class VideoAgentService {
       // 调 agnes video 创建任务 (包装 rate limiter, 2/min 排队)
       // v3.0.0.15: i2v 模式 — 用 last_result_url 作 image, 不混 user ref
       // v3.0.52 (BUG-123): 排队时自动 await, 排队位置 + ETA 自动 log
+      // v3.0.57 (BUG-128): 透传 negativePrompt 拦三视图展示/走样/低质量
       createResult = await agnesVideoProvider.createTaskWithLimit(
         {
           prompt: plan.prompt,
+          negativePrompt: (plan as any).negativePrompt || undefined,
           image,
           images,
           width, height,

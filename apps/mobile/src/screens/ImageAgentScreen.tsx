@@ -366,6 +366,12 @@ export function ImageAgentScreen(): React.JSX.Element {
       );
     }
     if (part.type === 'plan') {
+      // v3.0.58 (BUG-128 followup): 加 refImageCount badge + negativePrompt 字段
+      //   - 跟 web AgentChatPanel + VideoAgentScreen 1:1 镜像 (跨端铁律 4++)
+      //   - refImageCount: UI 显示参考图数量
+      //   - negativePrompt: UI 显示排除内容 (走样/低质量 等)
+      const refImageCount = typeof part.data.refImageCount === 'number' ? part.data.refImageCount : 0;
+      const negativeText = part.data.negativePrompt || '';
       return (
         <View key={idx} style={styles.planBox}>
           <View style={styles.planHeader}>
@@ -373,6 +379,23 @@ export function ImageAgentScreen(): React.JSX.Element {
             <Text style={styles.planLabel}>提示词方案</Text>
           </View>
           <Text style={styles.planPrompt}>{part.data.prompt}</Text>
+          {refImageCount > 0 && (
+            <View style={styles.planRefBadge}>
+              <Ionicons name="image" size={12} color={colors.text.secondary} />
+              <Text style={styles.planRefText}>
+                已用 {refImageCount} 张参考图 (模型已看图, 文字只补动作/场景/运镜/风格)
+              </Text>
+            </View>
+          )}
+          {negativeText && (
+            <View style={styles.planNegativeBox}>
+              <View style={styles.planNegativeHeader}>
+                <Ionicons name="ban" size={12} color={colors.text.secondary} />
+                <Text style={styles.planNegativeLabel}>排除以下内容 (negative_prompt)</Text>
+              </View>
+              <Text style={styles.planNegativeText}>{negativeText}</Text>
+            </View>
+          )}
           <Text style={styles.planMeta}>
             {part.data.aspectRatio ? `比例: ${part.data.aspectRatio}  ` : ''}
             {part.data.style ? `风格: ${part.data.style}` : ''}
@@ -734,6 +757,13 @@ const styles = StyleSheet.create({
   planHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   planLabel: { ...typography.caption, fontWeight: '700', color: colors.accent, fontSize: 13 },
   planPrompt: { ...typography.body, color: colors.text.primary, lineHeight: 20, marginBottom: 6 },
+  // v3.0.58 (BUG-128 followup): plan refImageCount badge + negative_prompt 字段 (跨端铁律 4++ 跟 web + VideoAgentScreen 1:1 镜像)
+  planRefBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, marginBottom: 4 },
+  planRefText: { ...typography.caption, color: colors.text.secondary, fontSize: 11, flex: 1 },
+  planNegativeBox: { backgroundColor: colors.bg.secondary, borderRadius: radii.sm, padding: 8, marginTop: 4, marginBottom: 4 },
+  planNegativeHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  planNegativeLabel: { ...typography.caption, color: colors.text.secondary, fontSize: 11, fontWeight: '700' },
+  planNegativeText: { ...typography.caption, color: colors.text.tertiary, fontSize: 10, lineHeight: 14 },
   planMeta: { ...typography.caption, color: colors.text.tertiary, fontSize: 11, marginBottom: 4 },
   planHint: { ...typography.caption, color: colors.text.tertiary, fontSize: 10, marginBottom: 8, fontStyle: 'italic' },
   confirmBtn: {

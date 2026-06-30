@@ -66,8 +66,8 @@ android {
         applicationId "com.aiscriptmobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 58
-        versionName "3.0.54"
+        versionCode 62
+        versionName "3.0.58"
     }
     signingConfigs {
         debug {
@@ -77,7 +77,7 @@ android {
             keyPassword 'android'
         }
         // v3.0.13 (S58 P10 BUG-023): 永久 release.keystore, 25 年有效期
-        // 密码备份在 ~/.mavis/keystore/release.keystore
+        // 密码备份�?~/.mavis/keystore/release.keystore
         release {
             storeFile file('release.keystore')
             storePassword 'deepscript2026'
@@ -90,7 +90,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // v3.0.13: 用永久 release keystore, 不用 debug (BUG-023)
+            // v3.0.13: 用永�?release keystore, 不用 debug (BUG-023)
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"

@@ -26,6 +26,9 @@ export interface PlanData {
   height?: number;
   fps?: number;
   estimatedCost?: number;
+  // v3.0.58 (BUG-128 followup): 跨端 1:1 镜像 (server + web + mobile PlanData 同步)
+  negativePrompt?: string;
+  refImageCount?: number;
 }
 
 export interface QuestionData {
