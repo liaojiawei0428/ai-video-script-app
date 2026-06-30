@@ -6801,3 +6801,89 @@ Content-Type: text/html      # 511 bytes HTML 错误页
 - **BUG-114** deploy SOP 漏 changelog → 跟 BUG-131 互补: deploy.sh + deploy.py 必同步升级
 - **BUG-128** videoAgent refImageCount 假修 → BUG-131 server-only hotfix 修法暴露的根因: BUG-128 修法 4 文档说"加 refImageCount 字段"但 imageAgentService.ts line 298/316 漏写 (跟 BUG-079 100% 同源), BUG-130 hotfix 2 (v3.0.61 server-only hotfix) 直接触发 BUG-131 假下载
 
+
+## BUG-132 (v3.0.63 video + image retry 策略细化): 用户描述触发 agens content_policy, 3 次 retry 撞 agens 2/min 限流, 文案却误导 "API 限流中" 但根因是策略拦截 (S72 batch 32, 2026-06-30)
+
+### 现象
+- web 端视频助手点 "确认方案, 出视频" → 返错 `agns 视频 API 限流中, 请稍后重试`
+- web 端生图助手同样问题 (跟 video 同源, 配套修法)
+- 用户疑惑: 我只生 1 次视频为何限流? 实际是策略拦截被误导文案欺骗
+
+### 根因 (从 shipin-app 日志查)
+- **生产日志时序** (`/www/wwwroot/shipin-APP/logs/combined.log`):
+  ```
+  13:35:36 [video] confirm accept, createTask running in background (taskId=44804715-...)
+  13:35:41 attempt=0 error:(400) content_policy_violation "Unable to generate this"
+  13:35:50 attempt=1 error:(400) content_policy_violation "Unable to generate this" (5s 后)
+  13:36:00 attempt=2 error:(429) rate_limit_exceeded "allows 2 requests per 1 minute(s)" (10s 后)
+  13:36:00 friendly="agns 视频 API 限流中, 请稍后重试" 但根因是策略拦截 (retry 永远解不了)
+  ```
+- **代码层** (`apps/server/src/services/agnesVideoProvider.ts:277` 修前):
+  ```ts
+  } catch (err) {
+    // 网络错误 / 超时: 也重试  ← 修前此块对 line 245 throw 的 4xx 错误也盲目 retry
+    if (err.name === 'AbortError') { lastError = new Error('timeout') }
+    else { lastError = err }      // 包括 400 content_policy_violation
+    if (attempt < MAX_RETRIES - 1) {
+      await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));  // 5s+5s backoff
+      continue;  // 盲目 continue
+    }
+    throw lastError;
+  }
+  ```
+- **文案层** (`apps/server/src/services/videoAgentService.ts:599` 修前):
+  ```ts
+  } else if (errMsg.includes('429')) {
+    friendlyMsg = 'agns 视频 API 限流中, 请稍后重试';  // 修前一刀切, 不知道是 429 还是 content_policy
+  }
+  ```
+- **真根因 3 重 (跟 BUG-118/122/123 100% 同源)**:
+  1. agens 返 400 content_policy_violation 是**策略拦截** (用户 prompt 触发敏感词/超出内容策略), retry 永远解不了, 但 shipin-APP catch 块盲目 retry 3 次
+  2. 3 次 retry 在 1 min 内打 3 次 → 撞 agens 服务端 "allows 2 requests per 1 minute" 硬指标 → 429 rate_limit_exceeded
+  3. 文案一刀切判 `errMsg.includes('429')` → 误导用户 "API 限流中", 但根因是策略拦截. 跟 BUG-118 (error_msg 必带 ERR_TYPE 前缀) + BUG-122 (企业 key) + BUG-123 (sliding window 2/min) 100% 同源: 错误分类一刀切, 误导用户
+
+### 修法 (4 处细化 retry, 文案区分, 跨端铁律 4++ video + image 1:1 镜像)
+
+1. **server 端 agnesVideoProvider 细化 retry**: 新加 `AgnesVideoError` + `AgnesVideoErrorType` enum (CONTENT_POLICY / RATE_LIMIT / UPSTREAM_BUSY / TIMEOUT / INVALID_INPUT / NETWORK / UNKNOWN) + `classifyAgnesError()` helper. 修前 line 229 + :277 双块盲目 retry, 修后:
+   - CONTENT_POLICY / INVALID_INPUT → **直接 throw 不再 retry** (策略拦截 retry 永远解不了)
+   - RATE_LIMIT / UPSTREAM_BUSY / TIMEOUT → 走 retry (有恢复机会)
+   - backoff 加长 5s→8s/12s 减少 1 min 内撞 agens 限流概率 (修前 5s+5s=10s + 1min 内 3 次, 修后 8+12=20s 跨窗口)
+
+2. **server 端 agnesImageProvider 配套修法 (跟 video 1:1 镜像)**: 新加 `AgnesImageError` + `AgnesImageErrorType` enum (同样 7 种 type) + `classifyAgnesImageError()` helper. MAX_RETRIES 从 3 降到 2 (image 限流 40/min 比 video 2/min 高, 但 retry 反而少, 因为 user 操作密集综合撞限流概率更大). 同样的 CONTENT_POLICY 不 retry 直接 throw
+
+3. **上层 videoAgentService 文案细化**: 按 err.type 返 5 种友好文案 (跟 BUG-118 ERR_TYPE 1:1 对齐):
+   ```
+   CONTENT_POLICY → '视频描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述后重试' (不误导 'API 限流中')
+   RATE_LIMIT → 'agns 视频 API 限流中, 请 1-2 分钟后重试'
+   UPSTREAM_BUSY → 'agns 视频服务暂时不可用 (上游 OpenAI 繁忙或服务维护), 请 5-10 分钟后重试'
+   TIMEOUT → 'agns 视频生成超时, 请稍后重试或减少时长'
+   INVALID_INPUT → '视频请求参数无效, 请重试或联系客服'
+   ```
+
+4. **上层 imageAgentService 配套文案细化**: 跟 video 1:1 镜像 (跟 BUG-118 + BUG-132 跨端铁律 4++ 配套). 同时 error_msg 必带 ERR_TYPE 前缀 (跟 BUG-118 1:1) — 例如 `[content_policy] 图片描述触发了策略限制`
+
+### 端到端验证 (3 维)
+| # | 维度 | 实测 |
+|---|---|---|
+| 1 | 直接调 agns video API 用裸敏感词 | HTTP 400 + `content_policy_violation` + "Unable to generate this content. Please modify your prompt and try again" ✅ (修法 base case 验证) |
+| 2 | service 部署 | deploy.sh 12 维全过 + shipin-app active PID 17790 + /api/version=3.0.63 + mobileLatestApkVersion=3.0.63 (扫公网真实 APK) ✅ |
+| 3 | Web E2E 完整流程 | register → login → conv → chat (LLM 改写敏感 prompt) → confirm (status=queued) ✅ 正常路径不破 |
+
+### 沉淀 (跨项目通用铁律 3 条新增, 跟 BUG-079/118/122/123/128 100% 同源)
+1. **API error 必分类 retryable vs non-retryable, 不能盲目 retry** — 任何重试逻辑必区分错误类型, CONTENT_POLICY/INVALID_INPUT 等"永远 retry 解不了"必须直接抛, RATE_LIMIT/UPSTREAM_BUSY/TIMEOUT 才 retry
+2. **文案必跟错误类型对齐, 必带 ERR_TYPE 前缀** — 跟 BUG-118 ERR_TYPE 1:1, 跟 BUG-079 假报告 100% 同源. 一刀切"API 限流中"误导用户
+3. **upstream 限流必读硬指标 + 自检 backoff 不会撞** — agens 限流 2/min/video + 40/min/image, backoff 加长减少撞限流概率. 跟 BUG-122 拆企业 key 配套
+
+### 关键 git (commit message 必带 BUG 编号, AGENTS.md § 4 铁律 6)
+- commit `25776b5`: v3.0.63 video retry 策略细化 (9 files +201 -99), shipin-APP 服务端代码改动 + 6 处版本号同步 + APK 重打 (server-only hotfix 必 rebuild APK, 跟 BUG-131 跨端铁律 4++++ 配套)
+- commit (本次): agnesImageProvider + imageAgentService 配套 (2 files), 跟视频 1:1 镜像
+- 8 处版本号同步 v3.0.62→v3.0.63 (mobile version.ts + build.gradle 64→65 / web version.ts + APP_VERSION_CODE 64→65 / server package.json + index.ts fallback + ecosystem.config.js env+env_production / changelog.json 28 entries v3.0.63 prepend + 远端 .env + systemd unit)
+- mavis memory BUG-132 + 3 铁律沉淀 (跨项目通用, 跟 BUG-118/122/123/128 100% 同源)
+
+### 跟其他 BUG 关系 (跟 BUG-118/122/123 100% 同源)
+- **BUG-118 (v3.0.47)** error_msg 必带 ERR_TYPE 前缀 → BUG-132 image 配套修法跟它 1:1 对齐 (上层 error_msg 加 `[type]` 前缀)
+- **BUG-122 (v3.0.51)** 拆 3 企业 key → BUG-132 backoff 加长 + retry 细化 = 配套 (避免企业 key 配额被 retry 耗尽)
+- **BUG-123 (v3.0.52)** sliding window 限流器 2/min/video + 40/min/image → BUG-132 server 端 retry 跟 BUG-123 client 限流器配合 (server 上游 429 跟 client 端 429 区分)
+- **BUG-128 (v3.0.55)** VIDEO_PROMPT_REF_IMAGE_SYSTEM → BUG-132 是 BUG-128 LLM 优化层没过滤干净的兜底
+- **BUG-131 (v3.0.62)** server-only hotfix 必 rebuild APK → BUG-132 也走同样规则 (server 改动 + push 真实 APK)
+- **BUG-079 (v3.0.13)** 假报告 → BUG-132 修法修的就是 BUG-079 类型的"文档说做了但实际没做/误导文案"

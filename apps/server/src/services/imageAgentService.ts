@@ -7,6 +7,7 @@
 // v3.0.0.13+: 极简 passthrough 模式, 不再调 LLM 提取/翻译
 // v3.0.24 (S61 v3): 加 agnesTextProvider LLM 优化 (通用 + 分镜检测), 复用 video 的 system prompt
 import { imageProvider, rateLimitedGenerate } from './imageProvider';
+import { AgnesImageError, AgnesImageErrorType } from './agnesImageProvider';
 import { agnesTextProvider } from './agnesTextProvider';
 import { imageConversationModel, imageGenerationModel } from '../models/imageConversation';
 import { billingService, isVipActive, IMAGE_DAILY_QUOTA_STANDARD, IMAGE_DAILY_QUOTA_VIP } from './billingService';
@@ -645,11 +646,35 @@ export class ImageAgentService {
         conversationId, taskId, error: errMsg,
       });
       // 友好化错误
+      // v3.0.63 BUG-132 配套: 按 AgnesImageError type 返友好文案, 修前一刀切 "API 限流中" 误导
       let friendlyMsg = errMsg;
-      if (errMsg.includes('timeout') || errMsg.includes('fetch failed')) {
-        friendlyMsg = 'agnes 图像服务暂时不可用 (上游 OpenAI 繁忙), 请稍后重试';
-      } else if (errMsg.includes('429')) {
-        friendlyMsg = 'agnes 图像 API 限流中, 请稍后重试';
+      if (err instanceof AgnesImageError) {
+        switch (err.type) {
+          case AgnesImageErrorType.CONTENT_POLICY:
+            friendlyMsg = '图片描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述或图片后重试';
+            break;
+          case AgnesImageErrorType.RATE_LIMIT:
+            friendlyMsg = 'agns 图像 API 限流中, 请 1-2 分钟后重试';
+            break;
+          case AgnesImageErrorType.UPSTREAM_BUSY:
+            friendlyMsg = 'agns 图像服务暂时不可用 (上游繁忙), 请 5-10 分钟后重试';
+            break;
+          case AgnesImageErrorType.TIMEOUT:
+            friendlyMsg = 'agns 图像生成超时, 请稍后重试或减少尺寸';
+            break;
+          case AgnesImageErrorType.INVALID_INPUT:
+            friendlyMsg = '图片请求参数无效, 请重试或联系客服';
+            break;
+          default:
+            friendlyMsg = 'agns 图像服务异常, 请稍后重试';
+        }
+      } else {
+        // 兼容老错误
+        if (errMsg.includes('timeout') || errMsg.includes('fetch failed')) {
+          friendlyMsg = 'agnes 图像服务暂时不可用 (上游 OpenAI 繁忙), 请稍后重试';
+        } else if (errMsg.includes('429')) {
+          friendlyMsg = 'agns 图像 API 限流中, 请 1-2 分钟后重试';
+        }
       }
       // v3.0.32 BUG-082: 强制归一为 string, 防历史: agnes API error 形如 {code, message} 被原样存进 messages JSON, web 渲染对象触发 React #31
       const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '图片生成失败');
@@ -662,14 +687,16 @@ export class ImageAgentService {
         const failMessages = replaceStreamingPart(prevMessages, {
           type: 'error', message: safeFriendlyMsg,
         } as unknown as AgentPart);
+        // v3.0.63 BUG-132 配套: 跟 BUG-118 1:1 镜像, error_msg 必带 ERR_TYPE 前缀, 前端 parse 决定 UI label
+        const errorMsgWithType = err instanceof AgnesImageError ? `[${err.type}] ${safeFriendlyMsg}` : safeFriendlyMsg;
         await imageConversationModel.update(conversationId, {
           status: 'tool_failed' as AgentConversationStatus,
-          error_msg: safeFriendlyMsg,
+          error_msg: errorMsgWithType,
           messages: failMessages as any,
         } as any);
         await imageGenerationModel.update(taskId, {
           status: 'failed',
-          error_msg: safeFriendlyMsg,
+          error_msg: errorMsgWithType,
         } as any);
       } catch {}
     }

@@ -6,9 +6,49 @@
 // v3.0.0: 统一环境变量名 AGNES_API_KEY (兼容旧名 AGNES_IMAGE_API_KEY, 一个 key 通用 3 个模型)
 // v3.0.51 (BUG-122): 拆 3 个企业 key, image 继续用 AGNES_IMAGE_API_KEY (字段名复用 = 专用名 + 老兼容名合并, 不破坏老配置)
 //   - 实际优先级: AGNES_IMAGE_API_KEY (企业 image 专用 + 老兼容合并字段, 读的就是它) > AGNES_API_KEY (统一)
+// v3.0.63 (BUG-132 配套): retry 策略细化, content_policy 不 retry, 跟 video 同源 (修前 image 也有同样误导文案 + 盲目 retry 问题)
 
 import { ImageProvider, ImageGenOptions, ImageGenResult } from './imageProvider';
 import { logger } from '../utils/logger';
+
+/**
+ * v3.0.63 (BUG-132 配套): image error 类型 (跟 video 1:1 镜像, 跨端铁律 4++)
+ */
+export enum AgnesImageErrorType {
+  CONTENT_POLICY = 'content_policy',
+  RATE_LIMIT = 'rate_limit',
+  UPSTREAM_BUSY = 'upstream_busy',
+  TIMEOUT = 'timeout',
+  INVALID_INPUT = 'invalid_input',
+  NETWORK = 'network',
+  UNKNOWN = 'unknown',
+}
+
+export class AgnesImageError extends Error {
+  constructor(
+    public readonly type: AgnesImageErrorType,
+    public readonly agensStatus: number,
+    message: string,
+    public readonly agensRaw?: string,
+  ) {
+    super(message);
+    this.name = 'AgnesImageError';
+  }
+}
+
+/**
+ * v3.0.63 (BUG-132 配套): 根据 agens 错误判断类型
+ */
+function classifyAgnesImageError(status: number, rawText: string): AgnesImageErrorType {
+  if (status === 400 || status === 401 || status === 403) {
+    if (rawText.includes('content_policy') || rawText.includes('content_safety')) return AgnesImageErrorType.CONTENT_POLICY;
+    if (rawText.includes('rate_limit')) return AgnesImageErrorType.RATE_LIMIT;
+    return AgnesImageErrorType.INVALID_INPUT;
+  }
+  if (status === 429) return AgnesImageErrorType.RATE_LIMIT;
+  if (status === 503 || (status >= 500 && status < 600)) return AgnesImageErrorType.UPSTREAM_BUSY;
+  return AgnesImageErrorType.UNKNOWN;
+}
 
 const AGNES_API_URL = 'https://apihub.agnes-ai.com/v1/images/generations';
 // v2.5.28: 升级到 Image 2.1 Flash (支持 multimodal: text + image_url)
@@ -127,9 +167,14 @@ export class AgnesImageProvider implements ImageProvider {
       referenceCount: options.referenceImages?.length || 0,
     });
 
-    let lastError: Error | null = null;
+    let lastError: AgnesImageError | null = null;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // v3.0.63 BUG-132 配套: image 限流比 video 高 (40/min vs 2/min), retry 次数从 3→2, 减少撞限流概率
+    // 修前 5+10+15=30s backoff + 3 retries 在 user 操作密集时撞限流, 修后 8+12=20s + 2 retries 平衡
+    const MAX_RETRIES = 2;
+    const RETRY_BACKOFF_MS = [8000, 12000];
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         // v2.5.19: 5 分钟超时 (漫画 2048x2048 生成较慢)
         const controller = new AbortController();
@@ -147,18 +192,31 @@ export class AgnesImageProvider implements ImageProvider {
         });
         clearTimeout(timeoutId);
 
-        if (response.status === 429) {
-          lastError = new Error('Agnes API 速率限制(429)');
-          const waitMs = 5000 + attempt * 10000;
-          logger.warn('AgnesImageProvider: rate limited', { attempt: attempt + 1, waitMs });
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
+        const errText = await response.text().catch(() => '');
+        const errorType = classifyAgnesImageError(response.status, errText);
+
+        // v3.0.63 BUG-132: content_policy_violation / invalid_input 不 retry, 立刻抛出
+        if (errorType === AgnesImageErrorType.CONTENT_POLICY || errorType === AgnesImageErrorType.INVALID_INPUT) {
+          logger.error('AgnesImageProvider: non-retryable error', {
+            attempt, status: response.status, type: errorType, errorText: errText.slice(0, 100),
+          });
+          throw new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
+        }
+
+        if (response.status === 429 || errorType === AgnesImageErrorType.UPSTREAM_BUSY || errorType === AgnesImageErrorType.RATE_LIMIT) {
+          // 限流/上游忙: 重试
+          lastError = new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
+          logger.warn('AgnesImageProvider: rate limited / upstream busy', { attempt: attempt + 1, type: errorType, status: response.status });
+          if (attempt < MAX_RETRIES - 1) {
+            await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
+            continue;
+          }
+          throw lastError;
         }
 
         if (!response.ok) {
-          const errorText = await response.text();
-          logger.error('Agnes API error', { status: response.status, errorText });
-          throw new Error(`Agnes API 错误 (${response.status}): ${errorText.slice(0, 200)}`);
+          logger.error('Agnes API error', { status: response.status, errorText: errText });
+          throw new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
         }
 
         const data = await response.json() as {
@@ -189,21 +247,26 @@ export class AgnesImageProvider implements ImageProvider {
           durationMs,
         };
       } catch (err: any) {
-        lastError = err;
-        if (err.message?.includes('429') || err.message?.includes('速率限制')) {
-          const waitMs = 5000 + attempt * 10000;
-          logger.warn('AgnesImageProvider: retrying', { attempt: attempt + 1, waitMs });
-          await new Promise(r => setTimeout(r, waitMs));
+        // v3.0.63 BUG-132 配套: 区分非重试错误 vs 重试错误, 不再盲目 retry
+        if (err instanceof AgnesImageError) {
+          // 类型化错误, 直接抛出不再 retry (CONTENT_POLICY/INVALID_INPUT)
+          // RATE_LIMIT/UPSTREAM_BUSY 已经在 line throw (上面), 这里只会是 CONTENT/INVALID
+          throw err;
+        }
+        // AbortError (timeout) 或网络错
+        if (err?.name === 'AbortError') {
+          lastError = new AgnesImageError(AgnesImageErrorType.TIMEOUT, 0, `Agnes Image API 生成超时 (${5 * 60}ms)`);
+        } else {
+          lastError = new AgnesImageError(AgnesImageErrorType.NETWORK, 0, err?.message || String(err));
+        }
+        if (attempt < MAX_RETRIES - 1) {
+          logger.warn('AgnesImageProvider: timeout/network, will retry', { attempt: attempt + 1, type: lastError.type });
+          await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
           continue;
         }
-        throw err;
+        throw lastError;
       }
     }
-
-    logger.error('AgnesImageProvider: all retries exhausted', {
-      angle: options.angle,
-      lastError: lastError?.message,
-    });
-    throw lastError || new Error('Agnes 图像生成失败（已重试3次）');
+    throw lastError || new AgnesImageError(AgnesImageErrorType.UNKNOWN, 0, 'Agnes Image API failed after retries');
   }
 }
