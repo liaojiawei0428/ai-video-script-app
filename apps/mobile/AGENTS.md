@@ -1051,9 +1051,12 @@ server 端: imageAgentService + videoAgentService 0 改动 (refImageUrlsFromPart
 
 - **web + mobile 镜像功能必双端同步实现**: 跨项目通用铁律, 漏修方向 = S72 batch 7 后 web 做了 mobile 漏修 (跟 BUG-097 mobile 漏修 web 同源)
 - **XHR 优于 axios 上传文件 (RN 0.73)**: 跨项目通用铁律, RN 项目上传文件必走 XHR
-- **document-picker types.images 优于 image-picker (RN 0.73)**: 跨项目通用铁律, RN 项目选图必走 document-picker
+- ~~**document-picker types.images 优于 image-picker (RN 0.73)**~~: 跨项目通用铁律 ❌ **v3.0.60 BUG-130 hotfix 推翻**: document-picker v9.x Android 端 Intent.ACTION_GET_CONTENT, Android 9 模拟器/真机不可用. **API 兼容性 > "不加重" 原则**, 跨项目通用铁律优先级: 用户体验 > 依赖数量
+- **API 兼容性 > "不加重" 原则 (v3.0.60 BUG-130 hotfix 新增)**: 跨项目通用铁律, 跟 BUG-097 "不加重" 冲突但优先级更高. RN 项目选图必装 react-native-image-picker (走系统 photo picker / 兼容性硬指标), 跟 BUG-079 用户体验优先教训一致
 - **server 端 0 改动原则**: 跨项目通用铁律, 修前端 API 必先 grep server 是否已支持
 - **Response shape 模拟 axios 1:1**: 跨项目通用铁律, mobile XHR 上传必返 axios response shape 让调用方跟 web 1:1
+- **文档说做了, 代码必须真做 (v3.0.61 BUG-130 hotfix 2 新增)**: 跨项目通用铁律, 跟 BUG-079 假报告同源. 文档跟代码不一致 = 假修, E2E 实测必查字段一致性. BUG-128 修法 4 文档说"加 refImageCount 字段"但 imageAgentService.ts 漏写, E2E 才发现 refImageCount=0 跟 refImageUrls.length=1 不一致
+- **跨项目通用铁律优先级 (新增)**: 用户体验 (API 兼容性) > 依赖数量 ("不加重") > 文档跟代码一致 (E2E 实测). 跨项目铁律冲突时按这个优先级
 - **inputBar 上方加 📎 + thumbnail bar**: 跨项目通用铁律, 跟 web AgentChatPanel 1:1 镜像
 - **8 处版本号同步必走**: 跨端铁律 3
 - **BOM 检查必跑**: 跨项目通用铁律, AGENTS.md § 6.10.4 第 7 条
