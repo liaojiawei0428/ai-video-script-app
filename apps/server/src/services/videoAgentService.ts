@@ -626,18 +626,21 @@ export class VideoAgentService {
       }
       // v3.0.32 BUG-082: 强制归一为 string, 防上游返 {code, message} 对象 (历史: agnes API error 形如 {code, message}, 被原样存进 messages JSON, web 渲染对象触发 React #31)
       const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '视频生成失败');
+      // v3.0.64 BUG-132 (video 配套): 跟 image 1:1 镜像, error_msg 必带 [ERR_TYPE] 前缀 (跟 BUG-118 1:1), 前端 parse 决定 UI label 颜色
+      // 修前 error_msg 写 "agns 视频生成超时..." 没前缀, 客户端 status badge 无法区分 timeout/content_policy/etc.
+      const errorMsgWithType = err instanceof AgnesVideoError ? `[${err.type}] ${safeFriendlyMsg}` : safeFriendlyMsg;
       logger.error('VideoAgent: agnes createTask failed (background), rolling back to plan_ready', {
-        conversationId, error: errMsg, friendly: friendlyMsg,
+        conversationId, error: errMsg, friendly: friendlyMsg, type: err instanceof AgnesVideoError ? err.type : 'unknown',
       });
       // v3.0.0.27 (S47): mutate messages - 替换 streaming part 为 error, 跟 plan+streaming 一起持久化
       const curConv = await videoConversationModel.findById(conversationId);
       const failMessages = curConv
-        ? replaceStreamingPart(parseMessages(curConv.messages), { type: 'error', message: safeFriendlyMsg } as unknown as AgentPart)
+        ? replaceStreamingPart(parseMessages(curConv.messages), { type: 'error', message: errorMsgWithType } as unknown as AgentPart)
         : [];
       await videoConversationModel.update(conversationId, {
         status: 'plan_ready' as AgentConversationStatus,
         plan: originalPlan as any,
-        error_msg: safeFriendlyMsg,
+        error_msg: errorMsgWithType,
         messages: failMessages as any,
       } as any);
       // v3.0.37 BUG-100: 必更新 video_generations 表标 failed (防 69 任务卡 queued, 累积 17 天)
@@ -654,10 +657,10 @@ export class VideoAgentService {
         if (genRow?.id) {
           await videoGenerationModel.update(genRow.id, {
             status: 'failed',
-            error_msg: safeFriendlyMsg.slice(0, 200),
+            error_msg: errorMsgWithType.slice(0, 200),
           } as any);
           logger.info('VideoAgent: video_generations marked failed (createTask catch)', {
-            conversationId, genId: genRow.id, errorMsg: safeFriendlyMsg.slice(0, 80),
+            conversationId, genId: genRow.id, errorMsg: errorMsgWithType.slice(0, 80),
           });
         }
       } catch (genErr) {

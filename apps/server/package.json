@@ -1,6 +1,6 @@
 {
   "name": "@ai-script/server",
-  "version": "3.0.64",
+  "version": "3.0.65",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

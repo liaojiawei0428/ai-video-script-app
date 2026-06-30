@@ -243,18 +243,16 @@ export class AgnesVideoProvider {
       promptLen: body.prompt.length,
     });
 
-    // v3.0.0.25 (S44): retry 策略 + S72 batch 4 后置 BUG-085 修 + S72 batch 32 BUG-132 升级
-    //  - 单次 timeout 60s: i2v 模式 (大图 base64 + 15s 视频) agens 端写 file 慢, 30s 不够
-    //  - 2 次 retry: 6-25 视频实测 agnes 上游 OpenAI 视频生成服务繁忙, 60s timeout 经常撞, 1 retry 不够 (S44 时代偶尔 1 retry 够)
-    //  - 5s→8s/12s backoff (BUG-132 升级): 修前 5s+5s 在 1 min 内 retry 3 次撞 agens 2/min 限流, 加长 backoff 减少概率
-    //  - 修前 total timeout: 60 + 5 + 60 + 5 + 60 = 190s (BUG-132 修后: 60 + 8 + 60 + 12 + 60 = 200s)
-    //  - 修法: 加重 retry 给上游多次恢复机会, BUG-085 (4+ 次连续失败) 修
-    //  - BUG-132 关键修法: 区分 retryable (429/503/5xx/AbortError) vs non-retryable (content_policy_violation/其他 4xx)
-    //    修前 catch 块 (line 277) 盲目 retry 所有 throw, 400 content_policy 撞 3 次 → agnes 2/min 限流
-    //    用户看到 "agns 视频 API 限流中" 但根因是 content_policy 拒绝 (retry 永远解不了策略拦截)
-    const MAX_RETRIES = 3;  // 2 retries (attempt 0 + attempt 1 + attempt 2)
-    const PER_TIMEOUT_MS = 60 * 1000;
-    const RETRY_BACKOFF_MS = [8000, 12000];  // BUG-132: 8s, 12s — 加长 backoff 减少 agens 限流撞概率
+    // v3.0.0.25 (S44) + S72 batch 4 (BUG-085) + S72 batch 32 (BUG-132) + 🆕 v3.0.65 (S72 batch 33 BUG-133 timeout 调整)
+    //  - v3.0.65 BUG-133 修法: agens 端 5s 视频实测 3-4 min 后端排队 (OpenAI 视频模型慢) + shipin-app image 端 60s 不影响
+    //    修前 PER_TIMEOUT_MS=60s + MAX_RETRIES=3 + backoff 8s/12s = 200s 总时长, agens 队列慢必撞 throw timeout
+    //    修后 PER_TIMEOUT_MS=180s (3 min 单 attempt) + MAX_RETRIES=2 + backoff 30s/15s = 8.25 min 总时长, 给 agens 充分排队恢复机会
+    //  - 跨端铁律 4 验证 (刚才 web E2E): shipin-app 端实测 5s 普通 prompt 视频生成本来能成功, 修前 throw 后用户看不到 success 看到 "超时"; 修后给 8 min 让 agens 排队 + 用户看到 status='tool_executing' 进度
+    //  - 跟 BUG-123 (客户端 sliding window 限流器 2/min) 1:1 配套: 客户端 6.5 min polling 跟服务端 8 min retry 匹配, 用户看到 status='tool_queued' "⏳ 排队中..." 真反馈
+    //  - BUG-132 关键修法保留: 区分 retryable (429/503/5xx/timeout) vs non-retryable (content_policy 永远 retry 解不了)
+    const MAX_RETRIES = 2;  // 🆕 v3.0.65: 3 → 2 (跟 timeout 加长平衡)
+    const PER_TIMEOUT_MS = 180 * 1000;  // 🆕 v3.0.65: 60s → 180s (3 min) 等 agens 队列恢复
+    const RETRY_BACKOFF_MS = [30000, 15000];  // 🆕 v3.0.65: 8s/12s → 30s/15s (放宽 backoff 让上游充分恢复)
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

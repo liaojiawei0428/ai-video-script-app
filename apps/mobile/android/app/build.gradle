@@ -67,7 +67,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 67
-        versionName "3.0.64"
+        versionName "3.0.65"
     }
     signingConfigs {
         debug {
@@ -76,8 +76,8 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        // v3.0.13 (S58 P10 BUG-023): 濮橀晲绠?release.keystore, 25 楠炲瓨婀侀弫鍫熸埂
-        // 鐎靛棛鐖滄径鍥﹀敜閿?~/.mavis/keystore/release.keystore
+        // v3.0.13 (S58 P10 BUG-023): 婵﹢鏅茬粻?release.keystore, 25 妤犵偛鐡ㄥ﹢渚€寮崼鐔稿焸
+        // 閻庨潧妫涢悥婊勫緞閸ワ箑鏁滈柨?~/.mavis/keystore/release.keystore
         release {
             storeFile file('release.keystore')
             storePassword 'deepscript2026'
@@ -90,7 +90,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // v3.0.13: 閻劍妗堥敓?release keystore, 娑撳秶鏁?debug (BUG-023)
+            // v3.0.13: 闁活潿鍔嶅鍫ユ晸?release keystore, 濞戞挸绉堕弫?debug (BUG-023)
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
@@ -119,7 +119,8 @@ configurations.all {
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
 
-// React Native Vector Icons 鐎涙ぞ缍嬮柊宥囩枂
+// React Native Vector Icons 閻庢稒銇炵紞瀣煀瀹ュ洨鏋?
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+
 
 
