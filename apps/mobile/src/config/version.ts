@@ -12,7 +12,12 @@
 //   4. commit message 必带版本�?(铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验�?(BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.60';
+export const APP_VERSION = '3.0.61';
+
+// v3.0.61 (BUG-130 hotfix 2): server 端 imageAgentService.ts plan.data 补 refImageCount 字段 (跟 videoAgentService 1:1, BUG-128 文档跟代码不一致 假修)
+//   - 修前: plan.refImageUrls=[1个URL] 但 plan.refImageCount=0, 跨端 1:1 镜像不一致, 跟 BUG-079 假报告同源
+//   - 修法: refUrlsAccum.length 自动算, plan.data 跟 DB plan 2 处同步设
+//   - 配套: 8 处版本号同步 3.0.60 → 3.0.61, server 端代码改动 (mobile/web 无业务变化, APK 不用重打)
 
 // v3.0.60 (BUG-130 hotfix): mobile 端改用 react-native-image-picker 替代 document-picker
 //   - 修前: document-picker v9.3.1 Android 端用 Intent.ACTION_GET_CONTENT, Android 9 模拟器(没 Google Play Services) 弹空 dialog

@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.61",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-130 hotfix 2: server 端 imageAgentService.ts plan.data 补 refImageCount 字段 (跟 videoAgentService 1:1, 修 BUG-128 文档跟代码不一致 假修), 8 处版本号同步 3.0.60 → 3.0.61 (mobile/web 不重打, server-only)",
+      "highlights": [
+        "BUG-130 hotfix 2 ✅ 修前根因: BUG-128 修法 4 文档说'plan 加 refImageCount 字段 (前端 UI 可读)', 但 server 端 imageAgentService.ts line 298 (plan 字段构造) + line 316 (DB plan 持久化) 漏写, 跟 videoAgentService.ts line 352/394 行为不一致. 修前 E2E: plan.refImageUrls=[1个URL] 但 plan.refImageCount=0, 跟 BUG-079 假报告 100% 同源 (文档说做了, 代码没做 = 假修)",
+        "BUG-130 hotfix 2 ✅ 修法 1: imageAgentService.ts line 298 (aiParts.plan.data) 加 refImageCount: refUrlsAccum.length 自动算, 跟 refImageUrls 1:1 同步, 跟 videoAgentService line 352 1:1 镜像 (跨端铁律 4++ web+mobile+server 三端 1:1)",
+        "BUG-130 hotfix 2 ✅ 修法 2: imageAgentService.ts line 316 (DB plan 持久化) 也加 refImageCount, 跟 aiParts.plan.data 1:1, 避免 GET conv 拿 refImageCount 跟 plan part data 不一致",
+        "BUG-130 hotfix 2 ✅ 验证: E2E 测试 refImageCount 字段从 0 变 1, 跟 refImageUrls=[1 个 URL] 1:1 一致. 跨项目通用铁律 (跟 BUG-079 假修同源, 沉淀 mavis memory): 文档说做了, 代码必须真做, E2E 实测必查字段一致性, 不能信文档",
+        "BUG-130 hotfix 2 ✅ 升 v3.0.60 → v3.0.61: 8 处版本号同步 (server 端 5 处 + mobile/web 2 处配置 + changelog, mobile build.gradle 不动因为 APK 不重打)",
+        "BUG-130 hotfix 2 ✅ mobile/web APK 不重打: server-only 修字段赋值, mobile/web 0 业务变化. versionCode 64 不 bump (mobile build.gradle 没动), 节省 APK 编译 1m 24s + 部署 1min"
+      ]
+    },
+    {
       "version": "3.0.60",
       "buildDate": "2026-06-30",
       "type": "patch",
@@ -404,6 +418,6 @@
       ]
     }
   ],
-  "latest_version": "3.0.60",
+  "latest_version": "3.0.61",
   "latest_version_time": "2026-06-30"
 }

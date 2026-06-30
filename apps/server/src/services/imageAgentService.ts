@@ -295,7 +295,11 @@ export class ImageAgentService {
       : '方案已就绪 ✨ 点下方"确认方案, 出图"开始生成。';
 
     const aiParts: AgentPart[] = [
-      { type: 'plan', data: { prompt: enPromptBase, aspectRatio: finalAspectRatio, style: '', refImageUrls: refUrlsAccum, planFields: { subject: enPromptBase, negative: existingFields.negative || '' } } as any } as unknown as AgentPart,
+      // v3.0.60 (BUG-130 hotfix): 修 BUG-128 文档跟代码不一致, plan.data 加 refImageCount 字段 (跟 videoAgentService line 352/394 1:1 镜像, 跨端铁律 4++)
+      //   - 修前: 文档说"加 refImageCount 字段", 代码漏写, E2E 测试 plan.refImageCount=0 跟 plan.refImageUrls.length=1 不一致
+      //   - 修法: 用 refUrlsAccum.length 自动算, 跟 refImageUrls 1:1 同步
+      //   - 配套: 跟 BUG-079 假报告同源 (文档说做了, 代码没做 = 假修)
+      { type: 'plan', data: { prompt: enPromptBase, aspectRatio: finalAspectRatio, style: '', refImageUrls: refUrlsAccum, refImageCount: refUrlsAccum.length, planFields: { subject: enPromptBase, negative: existingFields.negative || '' } } as any } as unknown as AgentPart,
       { type: 'text', text: baseText } as unknown as AgentPart,
     ];
     const aiMessage: AgentMessage = {
@@ -309,7 +313,8 @@ export class ImageAgentService {
     // 5. 更新会话
     await imageConversationModel.update(conversationId, {
       messages,
-      plan: { prompt: enPromptBase, aspectRatio: finalAspectRatio, refImageUrls: refUrlsAccum, style: '' } as any,
+      // v3.0.60 (BUG-130 hotfix): DB plan 也加 refImageCount 字段 (跟 aiParts.plan.data 1:1 同步, 持久化一致)
+      plan: { prompt: enPromptBase, aspectRatio: finalAspectRatio, refImageUrls: refUrlsAccum, refImageCount: refUrlsAccum.length, style: '' } as any,
       planFields: newPlanFields,
       status: 'plan_ready' as AgentConversationStatus,  // v3.0.0.16: PR-M 极简模式直接 plan_ready (不再需要 translatePlan 翻译步骤)
     } as any);
