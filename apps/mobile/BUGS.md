@@ -6481,3 +6481,84 @@ negative_prompt: three-view character sheet, multiple angles, split screen, side
 
 ---
 
+## BUG-129 (v3.0.58 修 changelog.json latest_version 字段错位): 4 个 BUG 收口时漏改 latest_version 字段, /api/version 实际读 latest_version, 跟 APP_VERSION=3.0.58 不一致, 用户查 changelog 永远拿到 3.0.57 (跟 BUG-090 deploy.sh cp 源错 100% 同源, 顶层字段不同步 = 假数据) (2026-06-30)
+
+### 现象
+
+deploy 前查 https://ab.maque.uno/api/version:
+```json
+{
+  "version": "3.0.58",
+  "latestVersion": "3.0.57",  // ❌ 跟 version 字段不一致
+  ...
+}
+```
+
+`version` 字段读 `process.env.APP_VERSION` (= 3.0.58), `latestVersion` 字段读 `changelog.json` 的 `latest_version` 顶层字段 (= 3.0.57). 
+
+### 修前根因
+
+`changelog.json` 的 4 个 BUG (125/126/127/128) entries 都加到了 `entries[]` 数组末尾, 顺序 3.0.55 → 3.0.56 → 3.0.57 → 3.0.58 (符合 prepend 顺序). 但**顶层 `latest_version` 字段漏改**, 还停在 `3.0.57` (上一个 BUG-127 修时的版本号). 
+
+`server/src/index.ts:109` (`readChangelog()` 实际读 `latest_version`):
+```typescript
+const latestVersion = (allChangelog as any).latestVersion || currentVersion;
+```
+
+`server/src/shared/changelog.ts` 也读这个字段 (fallback 逻辑).
+
+### 修法
+
+**Fix 1 (1 行)** — `apps/server/changelog.json` line 376:
+```diff
+- "latest_version": "3.0.57"
++ "latest_version": "3.0.58"
+```
+
+跟 entries[0].version = "3.0.58" 对齐. 1 行 JSON 修改.
+
+### 验证 (本地 + 公网)
+
+- ✅ 本地 `node tools/verify-version-8-points.js 3.0.58`:
+  ```
+  === changelog.json 验证 ===
+    latest_version: 3.0.58
+    entries[0]:    version=3.0.58 date=2026-06-29
+    ✓ latest_version 匹配 (跟 /api/version 响应一致)
+  ```
+- ✅ 公网 `curl https://ab.maque.uno/api/version` (deploy 后):
+  ```json
+  {
+    "version": "3.0.58",
+    "latestVersion": "3.0.58",  // ✅ 跟 version 一致
+    "highlights": 12,
+    "buildDate": "2026-06-29"
+  }
+  ```
+
+### 跨项目通用铁律 (跟 BUG-079/090/097/103/115-128 100% 同源)
+
+1. **changelog.json 双字段必同步** (entries[0].version == latest_version): server `/api/version` 读 `latest_version`, 写 changelog entry 时**必同时改 entries 数组 + 顶层 latest_version 字段**, 缺一就是 bug
+2. **deploy 完必验证公网 /api/version 4 字段** (version + latestVersion + highlights + buildDate): 不只查 version 字段, 4 字段必查 (跟 BUG-090 verify-deploy 维度 22 一致)
+3. **add entry 跟 bump latest_version 必走同一 commit**: 跨项目通用铁律, 1 个 BUG commit 必须同时含 entries 新条目 + 顶层 latest_version bump, 不拆
+4. **verify-version-8-points.js 必查 latest_version 跟 entries[0] 一致**: 这是 12 维版本号自检外, **第 13 维 changelog 双字段一致性自检**, 必须跑
+5. **跟 BUG-090 deploy.sh cp 源错 100% 同源**: changelog 同步链任何环节错 = 假数据 (cp 源错 / 字段漏改 / entries vs latest 不同步 = 3 种典型坑)
+
+### 跟其他 BUG 关系
+
+- **BUG-090** deploy.sh changelog.json cp 源错 — BUG-129 是 BUG-090 的孪生兄弟: 一个是 "cp 源错 (生产目录 vs /tmp/)", 一个是 "顶层字段漏改 (entries vs latest_version)"
+- **BUG-079** 假报告 — BUG-129 同源 "服务器真实状态跟 UI 显示不一致"
+- **BUG-097** mobile 漏修 web — BUG-129 跨端通用铁律 (跨项目一致, 跟 server 数据同步)
+- **BUG-103** 自动退款漏刷 APK — 跟 BUG-129 不同维度, 但都是 "deploy 后台状态不一致"
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-129 跨项目通用铁律同源 (数据一致性)
+- **BUG-118/119/120/121/122/123/124/125/126/127/128** 一系列 — BUG-129 是收尾 BUG: 4 个 BUG 改完了, 但 changelog.json 顶层字段漏改, 必须显式 commit 修
+
+### 关键 git
+
+- 修改: `apps/server/changelog.json` (latest_version 3.0.57 → 3.0.58)
+- 验证: `node tools/verify-version-8-points.js 3.0.58` ✓
+- 部署: `python tools/deploy_v3.py` (跟 BUG-125/126/127/128 一起 v3.0.58 batch, 单 commit 推 27 files)
+- commit: `1bc4aab` (v3.0.58 single commit, 含 BUG-125/126/127/128 + BUG-129 latest_version 修)
+
+---
+
