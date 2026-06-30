@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.60",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-130 hotfix: mobile 端 image-picker 替代 document-picker (Android 9 模拟器/真机兼容性), 8 处版本号同步 3.0.59 → 3.0.60",
+      "highlights": [
+        "BUG-130 hotfix ✅ 修前根因: react-native-document-picker v9.3.1 Android 端 RNDocumentPickerModule.java 用 Intent.ACTION_GET_CONTENT, Android 9 模拟器(没 Google Play Services) 弹 '选择照片' 空 dialog, 真机偶发. ADB 装 v3.0.59 APK + tap 📎 验证: DocumentsUI 弹最近文件列表, 但 tap 任意 .png 弹空 dialog, '取消' 只能回到 picker 不能选图 (BUG-130 v3.0.59 实战验证截图 bug130-07/08/09)",
+        "BUG-130 hotfix ✅ 修法 1: 装 react-native-image-picker v7.2.3 (npm install --save --legacy-peer-deps 跟 shipin-APP 现有 rneui 5.0.0 兼容, 跨项目通用铁律 'peer dep 冲突用 --legacy-peer-deps 兜底'). 跟 BUG-097 '用现有依赖不加重' 原则冲突, 但 API 兼容性 > '不加重' (跟 BUG-079 教训一致, 用户体验优先)",
+        "BUG-130 hotfix ✅ 修法 2: 改 ImageAgentScreen + VideoAgentScreen pickAndUploadImages 用 launchImageLibrary({ mediaType: 'photo', selectionLimit: 4, includeBase64: false }) 替代 DocumentPicker.pick. image-picker 走 Android 9+ 系统 photo picker (ACTION_PICK_IMAGES), 兼容性硬指标. UI 行为完全一致 (📎 按钮 → 选图 → 缩略图 → send), 用户无感升级",
+        "BUG-130 hotfix ✅ 修法 3: package.json + package-lock.json 自动 npm 装包更新, 8 处版本号同步 3.0.59 → 3.0.60 (mobile src/config/version.ts / web src/config/version.ts + APP_VERSION_CODE 63→64 / server package.json / server src/index.ts fallback / server ecosystem.config.js env + env_production / mobile android/app/build.gradle versionCode 63→64 + versionName)",
+        "BUG-130 hotfix ✅ changelog 双字段必同步 (BUG-129 教训): changelog.json 顶层 latest_version + latest_version_time 同步到 v3.0.60 / 2026-06-30, 跟 entries[0] 1:1 镜像, /api/version latestVersion 字段 = 3.0.60",
+        "BUG-130 hotfix ✅ 跨项目通用铁律 (新增 1 条, 跟 BUG-097 原则冲突 100% 同源, 沉淀 mavis memory): API 兼容性 > '不加重' 原则, RN 项目选图必装 react-native-image-picker, document-picker v9.x Android 端 ACTION_GET_CONTENT 在 Android 9 模拟器/真机不可用. 跨项目通用铁律优先级: 用户体验 > 依赖数量"
+      ]
+    },
+    {
       "version": "3.0.59",
       "buildDate": "2026-06-30",
       "type": "patch",
@@ -390,6 +404,6 @@
       ]
     }
   ],
-  "latest_version": "3.0.59",
+  "latest_version": "3.0.60",
   "latest_version_time": "2026-06-30"
 }

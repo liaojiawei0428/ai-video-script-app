@@ -12,7 +12,13 @@
 //   4. commit message 必带版本�?(铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验�?(BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.59';
+export const APP_VERSION = '3.0.60';
+
+// v3.0.60 (BUG-130 hotfix): mobile 端改用 react-native-image-picker 替代 document-picker
+//   - 修前: document-picker v9.3.1 Android 端用 Intent.ACTION_GET_CONTENT, Android 9 模拟器(没 Google Play Services) 弹空 dialog
+//   - 修法: 装 react-native-image-picker v7.2.3 + 改 pickAndUploadImages 调用 launchImageLibrary (走系统 photo picker)
+//   - 影响: mobile 端代码 0 业务逻辑变化, 仅 picker 库替换, 行为完全一致
+//   - 配套: 8 处版本号同步 3.0.59 → 3.0.60 (跨端铁律 3)
 
 // v3.0.59 (BUG-130): mobile 端生图/视频助手补"上传参考图"功能
 //   - 跟 web 端 AgentChatPanel 1:1 镜像, 补 S72 batch 7 web→mobile 同步漏修

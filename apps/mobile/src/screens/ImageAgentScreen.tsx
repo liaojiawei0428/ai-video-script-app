@@ -13,7 +13,11 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, Image, Modal, FlatList, RefreshControl,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import DocumentPicker from 'react-native-document-picker';
+// v3.0.59 (BUG-130 hotfix): 改用 react-native-image-picker 替代 document-picker
+//   原因: document-picker v9.3.1 Android 端用 Intent.ACTION_GET_CONTENT, Android 9 模拟器(没 Google Play Services) 弹空 dialog, 真机也偶发
+//   image-picker v7.x 走系统 photo picker (Android 9+ ACTION_PICK_IMAGES), 兼容性硬指标
+//   跨项目通用铁律: API 兼容性 > "不加重" 原则 (跟 BUG-079/097 教训一致, 用户体验优先)
+import { launchImageLibrary, type ImagePickerResponse } from 'react-native-image-picker';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import { ImageWithLoading, GeneratingLoader } from '../components/ui';
@@ -267,54 +271,63 @@ export function ImageAgentScreen(): React.JSX.Element {
     return () => clearInterval(timer);
   }, [pollingConvId]);
 
-  // v3.0.5X (BUG-130): 选图片 + 上传 (跟 web AgentChatPanel.onPickFiles 1:1 镜像, 跨端铁律 4++)
-  // 走 react-native-document-picker.types.images 选图 (避免新装 image-picker, 不用新权限)
+  // v3.0.59 (BUG-130): 选图片 + 上传 (跟 web AgentChatPanel.onPickFiles 1:1 镜像, 跨端铁律 4++)
+  // v3.0.59 hotfix: 改用 react-native-image-picker 替代 document-picker (Android 9 模拟器兼容性, 详见 import 注释)
   const pickAndUploadImages = async () => {
     if (pendingRefs.length >= 4) {
       showAlert({ title: '已达上限', message: '最多 4 张参考图' });
       return;
     }
+    const remainingSlots = 4 - pendingRefs.length;
     try {
-      const results = await DocumentPicker.pick({
-        type: [DocumentPicker.types.images],
-        allowMultiSelection: true,
-        copyTo: 'cachesDirectory',
+      // image-picker API: launchImageLibrary({ mediaType, selectionLimit, includeBase64 })
+      //   selectionLimit: 0 = 多选, 1 = 单选. 4 = 最多 4 张
+      const result: ImagePickerResponse = await launchImageLibrary({
+        mediaType: 'photo',
+        selectionLimit: remainingSlots,
+        includeBase64: false,
       });
-      const remainingSlots = 4 - pendingRefs.length;
-      const limited = results.slice(0, remainingSlots);
+      if (result.didCancel) return;
+      if (result.errorCode) {
+        showAlert({ title: '选择失败', message: result.errorMessage || result.errorCode });
+        return;
+      }
+      const assets = result.assets || [];
+      if (assets.length === 0) return;
+
       // 1. 立刻显示本地预览 (跟 web URL.createObjectURL 等价)
-      const placeholders: PendingRef[] = limited.map((f: any) => ({
+      const placeholders: PendingRef[] = assets.map((a) => ({
         url: '',
-        localPreview: f.fileCopyUri || f.uri,
-        filename: f.name || `img_${Date.now()}.jpg`,
+        localPreview: a.uri || '',
+        filename: a.fileName || `img_${Date.now()}.jpg`,
         uploading: true,
       }));
       setPendingRefs(p => [...p, ...placeholders]);
 
       // 2. 异步上传, 完成后替换为 server URL
-      for (let i = 0; i < limited.length; i++) {
-        const file = limited[i];
+      for (let i = 0; i < assets.length; i++) {
+        const a = assets[i];
+        const safeName = a.fileName || `img_${Date.now()}_${i}.jpg`;
         try {
           const r = await uploadAgentReferenceApi({
-            uri: file.fileCopyUri || file.uri,
-            name: file.name || `img_${Date.now()}.jpg`,
-            type: file.type || 'image/jpeg',
+            uri: a.uri || '',
+            name: safeName,
+            type: a.type || 'image/jpeg',
           });
           const serverUrl = r.data?.data?.url || '';
           if (!serverUrl) throw new Error('server returned no url');
           setPendingRefs(p => p.map(x =>
-            x.filename === (file.name || `img_${Date.now()}.jpg`) && x.uploading
+            x.filename === safeName && x.uploading
               ? { ...x, url: serverUrl, uploading: false }
               : x
           ));
         } catch (e: any) {
           const msg = e?.response?.data?.error?.message || e?.message || '上传失败';
           showAlert({ title: '参考图上传失败', message: msg });
-          setPendingRefs(p => p.filter(x => !(x.filename === (file.name || `img_${Date.now()}.jpg`) && x.uploading)));
+          setPendingRefs(p => p.filter(x => !(x.filename === safeName && x.uploading)));
         }
       }
     } catch (e: any) {
-      if (DocumentPicker.isCancel(e)) return;
       showAlert({ title: '选择失败', message: e?.message || '请重试' });
     }
   };

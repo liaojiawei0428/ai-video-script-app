@@ -14,7 +14,8 @@ import {
 //   react-native-video 6.x 用 Android 原生 MediaPlayer/ExoPlayer, Android 5+ 全兼容
 import Video from 'react-native-video';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import DocumentPicker from 'react-native-document-picker';
+// v3.0.59 (BUG-130 hotfix): 改用 react-native-image-picker 替代 document-picker (跟 ImageAgentScreen 1:1)
+import { launchImageLibrary, type ImagePickerResponse } from 'react-native-image-picker';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import {
@@ -321,51 +322,58 @@ export function VideoAgentScreen(): React.JSX.Element {
     return () => clearInterval(timer);
   }, [pollingConvId, selectedDuration]);
 
-  // v3.0.5X (BUG-130): 选图片 + 上传 (跟 web AgentChatPanel.onPickFiles + ImageAgentScreen 1:1 镜像, 跨端铁律 4++)
+  // v3.0.59 (BUG-130 hotfix): 选图片 + 上传 (跟 web + ImageAgentScreen 1:1 镜像, 跨端铁律 4++)
   const pickAndUploadImages = async () => {
     if (pendingRefs.length >= 4) {
       showAlert({ title: '已达上限', message: '最多 4 张参考图' });
       return;
     }
+    const remainingSlots = 4 - pendingRefs.length;
     try {
-      const results = await DocumentPicker.pick({
-        type: [DocumentPicker.types.images],
-        allowMultiSelection: true,
-        copyTo: 'cachesDirectory',
+      const result: ImagePickerResponse = await launchImageLibrary({
+        mediaType: 'photo',
+        selectionLimit: remainingSlots,
+        includeBase64: false,
       });
-      const remainingSlots = 4 - pendingRefs.length;
-      const limited = results.slice(0, remainingSlots);
-      const placeholders: PendingRef[] = limited.map((f: any) => ({
+      if (result.didCancel) return;
+      if (result.errorCode) {
+        showAlert({ title: '选择失败', message: result.errorMessage || result.errorCode });
+        return;
+      }
+      const assets = result.assets || [];
+      if (assets.length === 0) return;
+
+      const placeholders: PendingRef[] = assets.map((a) => ({
         url: '',
-        localPreview: f.fileCopyUri || f.uri,
-        filename: f.name || `img_${Date.now()}.jpg`,
+        localPreview: a.uri || '',
+        filename: a.fileName || `img_${Date.now()}.jpg`,
         uploading: true,
       }));
       setPendingRefs(p => [...p, ...placeholders]);
 
-      for (let i = 0; i < limited.length; i++) {
-        const file = limited[i];
+      for (let i = 0; i < assets.length; i++) {
+        const a = assets[i];
+        const safeName = a.fileName || `img_${Date.now()}_${i}.jpg`;
         try {
           const r = await uploadAgentReferenceApi({
-            uri: file.fileCopyUri || file.uri,
-            name: file.name || `img_${Date.now()}.jpg`,
-            type: file.type || 'image/jpeg',
+            uri: a.uri || '',
+            name: safeName,
+            type: a.type || 'image/jpeg',
           });
           const serverUrl = r.data?.data?.url || '';
           if (!serverUrl) throw new Error('server returned no url');
           setPendingRefs(p => p.map(x =>
-            x.filename === (file.name || `img_${Date.now()}.jpg`) && x.uploading
+            x.filename === safeName && x.uploading
               ? { ...x, url: serverUrl, uploading: false }
               : x
           ));
         } catch (e: any) {
           const msg = e?.response?.data?.error?.message || e?.message || '上传失败';
           showAlert({ title: '参考图上传失败', message: msg });
-          setPendingRefs(p => p.filter(x => !(x.filename === (file.name || `img_${Date.now()}.jpg`) && x.uploading)));
+          setPendingRefs(p => p.filter(x => !(x.filename === safeName && x.uploading)));
         }
       }
     } catch (e: any) {
-      if (DocumentPicker.isCancel(e)) return;
       showAlert({ title: '选择失败', message: e?.message || '请重试' });
     }
   };
