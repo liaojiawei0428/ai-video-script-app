@@ -6672,3 +6672,132 @@ server 端: imageAgentService + videoAgentService 0 改动 (refImageUrlsFromPart
 ---
 
 
+
+## BUG-131 (v3.0.62 公网 APK 路径 server-side 真实存在检查): 用户点 APP 内下载 → DownloadManager Status Code 16 ERROR_HTTP_DATA_ERROR, 跟 BUG-117 100% 同源, server-side trust APP_VERSION 而非扫公网 (S72 batch 31, 2026-06-30)
+
+### 现象
+- 用户装 v3.0.60 APK, 启动 app → 自动弹升级弹窗 "紧急升级 v3.0.61" (forceUpdate=true)
+- 用户点 "APP 内下载" 按钮 → 弹错误:
+  ```
+  下载失败
+  Download manager failed to download from https://ab.maque.uno/app/DeepScript_v3.0.61.apk. Status Code = 16
+  ```
+- Status Code 16 = `ERROR_HTTP_DATA_ERROR` (HTTP 数据处理错误)
+- 期望: 下载成功, 30MB APK 完整下载到 /sdcard/Download/DeepScript_v3.0.61.apk
+
+### 根因 (跟 BUG-117 deploy.py 漏推 APK 100% 同源, 但触发路径不同!)
+
+#### 触发路径 (跟 BUG-117 不同)
+- **BUG-117** 是 **deploy SOP 漏推 APK** (deploy.py 没 scp, 公网就根本没新 APK)
+- **BUG-131** 是 **server APP_VERSION 拼 downloadUrl 没跟公网 APK 对齐** (server 升 v3.0.61 是 server-only hotfix, 没重打 mobile APK, 但 server /api/version downloadUrl 拼的是 `DeepScript_v` + `process.env.APP_VERSION` = v3.0.61, 公网只有 v3.0.60 APK)
+
+#### 代码层 (`apps/server/src/index.ts:115`, 修前)
+```ts
+downloadUrl: 'https://ab.maque.uno/app/DeepScript_v' + currentVersion + '.apk',
+// currentVersion = process.env.APP_VERSION || '3.0.61'
+// → downloadUrl = https://ab.maque.uno/app/DeepScript_v3.0.61.apk
+```
+
+#### 公网实锤 (修前)
+```bash
+$ curl -sI -m 5 https://ab.maque.uno/app/DeepScript_v3.0.61.apk
+HTTP/1.1 200 Connection established
+HTTP/1.1 404 Not Found
+Content-Type: text/html      # 511 bytes HTML 错误页
+```
+**公网只有 v3.0.60 APK** (没有 v3.0.61 APK, 因为 v3.0.61 是 server-only hotfix refImageCount 字段修复, BUG-130 hotfix 2, 没重打 mobile APK → shipin-APP 端"bug 修复后回滚 APK 重打" 是反模式, 跟 BUG-103 / BUG-104 同源)
+
+#### DownloadManager log (修前)
+```
+06-30 12:55:06.835 [Updater] start called with https://ab.maque.uno/app/DeepScript_v3.0.61.apk
+06-30 12:55:06.878 DownloadManager: [18] Starting
+06-30 12:55:07.506 DownloadManager: [18] Stop requested with status 404: Unhandled HTTP response: 404 Not Found
+06-30 12:55:07.506 DownloadManager: [18] Finished with status 404
+06-30 12:55:07.513 ReactNativeJS: '[Updater] download failed: Status Code = 16'
+```
+
+#### 跟 BUG-117 关系
+- BUG-117 (v3.0.46): deploy.py 漏 scp APK → 公网没 v3.0.46 APK → 假下载
+- BUG-131 (v3.0.62): server-only hotfix 不重打 APK → 公网没 v3.0.61 APK → 假下载
+- **共同根因**: downloadUrl 指向不存在的 APK. 区别是 BUG-117 是 deploy 失误, BUG-131 是 workflow 失误 (server-only hotfix 也必须 rebuild APK, 跟 BUG-103/104 教训一致)
+
+### 修法 (3 层防御: server 主修 + server 字段 + mobile 防御)
+
+1. **server 主修**: 新加 `apps/server/src/services/apkVersion.ts`
+   - 启动时扫 `/www/wwwroot/shipin-APP/public/DeepScript_v*.apk` glob, 解析 version, 取 max
+   - 5 min LRU cache (避免 /api/version 每次 IO)
+   - 扫不到时 fallback `process.env.APP_VERSION` (跟修前一致)
+   - 暴露 `getMobileLatestApk()`: `{ version, url, source: 'public-dir' | 'fallback' }`
+   - 配套: `clearApkVersionCache()` for deploy 后立即生效
+
+2. **server 端 /api/version 配套** (`apps/server/src/index.ts:101-130`):
+   ```ts
+   const mobileApk = getMobileLatestApk();
+   const latestApkVersion = mobileApk.version;
+   const needUpdate = compareVersions(latestApkVersion, clientVersion) > 0;  // 跟 mobileLatestApkVersion 比, 不跟 server APP_VERSION 比
+   res.json({
+     data: {
+       version: currentVersion,                    // server APP_VERSION (debug 用)
+       latestVersion,                              // changelog latest (debug 用)
+       mobileLatestApkVersion: latestApkVersion,   // 🆕 公网真实 APK version
+       mobileLatestApkSource: mobileApk.source,    // 🆕 public-dir | fallback
+       downloadUrl: mobileApk.url,                 // 🆕 走扫到的真实 APK URL, 不再 trust APP_VERSION
+       ...
+     },
+   });
+   ```
+
+3. **mobile 防御层**: `apps/mobile/src/utils/updater.tsx` catch 块识别 Status Code 16 / 404 → `useDialog().showConfirm({ title: 'APP 内下载不可用', confirmText: '用浏览器下', onConfirm: Linking.openURL })` 自动 fallback 浏览器下载
+   - 修前: 弹 "下载失败" error 不给 fallback, 用户必须自己点 "浏览器下载" 按钮
+   - 修后: detect 到 Status Code 16 / 404 → 自动弹 "用浏览器下载?" 确认, 跟公网 APK 404 兼容
+
+### 端到端验证 (模拟器实测 v3.0.60 APK, 触发升级到 v3.0.62)
+
+| # | 维度 | 期望 | 实测 | 状态 |
+|---|---|---|---|---|
+| 1 | server /api/version `mobileLatestApkVersion` | 公网真实最大 APK version (3.0.62) | `3.0.62` | ✅ |
+| 2 | server /api/version `downloadUrl` | https://ab.maque.uno/app/DeepScript_v3.0.62.apk (真实存在) | 同左 | ✅ |
+| 3 | 公网 HEAD v3.0.62 APK | HTTP/2 200 OK + Content-Type=application/vnd.android.package-archive + Content-Length=30252739 | 同左 | ✅ |
+| 4 | 模拟器装 v3.0.60 启 app | 弹 "紧急升级 v3.0.62" (mobileLatestApkVersion=3.0.62 > 3.0.60, forceUpdate=true) | 同左 | ✅ |
+| 5 | tap APP 内下载 logcat | `DownloadManager: [19] Starting` 无 `Status Code 16` 无 `404` | `[19] Starting`, 没 404, 没 Status 16 | ✅ |
+| 6 | APK 落地 | /sdcard/Download/DeepScript_v3.0.62.apk 30252739 bytes + SHA256=19db32b4... | 30252739 bytes ✅, SHA256=19db32b4456ae259baeb8236844ab6989a248aacd4ddee8b5eb2c59210615cc7 ✅ | ✅ |
+
+**关键证据**: 模拟器下载的 APK SHA256 = 公网 APK SHA256 = 本机 APK SHA256 = `19db32b4456ae259baeb8236844ab6989a248aacd4ddee8b5eb2c59210615cc7`
+
+### 沉淀 (跨项目通用铁律, 跟 BUG-117/088/089/103/104/114 100% 同源)
+
+1. **/api/version downloadUrl 必指向公网真实 APK, 不准拼 server APP_VERSION (核心)**: server /api/version 是 mobile 端唯一升级信息源, downloadUrl 字段必须 1:1 指向公网真实存在的 APK 文件, 不能直接拼 process.env.APP_VERSION. 修法是启动时动态扫 public dir 取 max version. 这是 shipin-APP 沉淀的设计 contract, 任何改 /api/version 的人都必保
+2. **server-only hotfix 必重打 APK (反模式警告)**: shipin-APP 端任何 server 端代码改动, 即便看起来只改 server 没动 mobile 行为, 也必重新编译 APK 推到公网. 因为 downloadUrl 拼的是公网 APK version, APK 不重打 → downloadUrl 跟公网不一致 → 假下载. 跟 BUG-103/104 (server bump 漏 rebuild APK) 100% 同源
+3. **updater mobile 端防御层必加 (catch 块 fallback)**: 任何 download UI 必在 catch 块解析 Status Code, 识别 404 / 5xx / Status Code 16 / 18 → 自动 fallback 浏览器下载. 因为 server 端的"downloadUrl 必真实存在"是正确性原则, mobile 端是 UX 兜底, 两者都做 100% 安全
+4. **Status Code 16 = ERROR_HTTP_DATA_ERROR 100% 是公网 APK 不存在或文件类型错**: DownloadManager 解析二进制失败, 99% 是服务器返 HTML/JSON 错误页. 立即修法是公网 HEAD 5 维验证 (200 OK + Content-Type=application/vnd.android.package-archive + Content-Length 约 30 MB + SHA256 跟本机一致 + ETag/Last-Modified 合理), 任何维度异常都拒绝升级
+
+### 关键 git (commit message 必带 BUG 编号, AGENTS.md § 4 铁律 6)
+
+- 修改 (server 1 新文件 + 2 改 + mobile 1 改 + 8 处版本号 + 1 changelog + 1 BUGS.md 沉淀):
+  - `apps/server/src/services/apkVersion.ts` (新加 105 行)
+  - `apps/server/src/index.ts` line 101-130 (/api/version 用 getMobileLatestApk() 拼 downloadUrl)
+  - `apps/mobile/src/utils/updater.tsx` catch 块加 防御层 fallback
+  - `apps/mobile/src/config/version.ts` (3.0.61 → 3.0.62 + 注释)
+  - `apps/mobile/android/app/build.gradle` (versionCode 64 → 65, versionName 3.0.60 → 3.0.62, SKIP 3.0.61 因为 server-only hotfix 没 APK)
+  - `apps/web/src/config/version.ts` (3.0.61 → 3.0.62 + APP_VERSION_CODE 64 → 65)
+  - `apps/server/package.json` (3.0.61 → 3.0.62)
+  - `apps/server/src/index.ts` line 105 (fallback 3.0.61 → 3.0.62)
+  - `apps/server/ecosystem.config.js` (env + env_production, 3.0.61 → 3.0.62, 2 处)
+  - `apps/server/.env` (deploy.sh 自动同步 APP_VERSION=3.0.62)
+  - `/etc/systemd/system/shipin-app.service` (deploy.sh 自动同步 Environment=APP_VERSION=3.0.62)
+  - `apps/server/changelog.json` (加 v3.0.62 BUG-131 entry 8 条 highlights, 顶层 latest_version 同步)
+  - `apps/mobile/BUGS.md` (本条 BUG-131 沉淀, ~140 行)
+
+- 验证: server tsc 0 错 + 6 维公网 HEAD + 模拟器 6 维实测 + SHA256 1:1 一致
+- 部署: Python zipfile-free tarfile 打包 (跟 BUG-090 同源, 不用 PowerShell Compress-Archive) + scp 3 件套 (dist.tar.gz + changelog.json + package.json) + deploy.sh 维护模式 + 宝塔 shipin_APP 同步
+- commit: `v3.0.62: /api/version 公网 APK 路径 server-side 真实存在检查 (BUG-131 + 跟 BUG-117/103/104 100% 同源, 修 server-only hotfix 引假下载 Status Code 16)`
+
+### 跟其他 BUG 关系 (跨项目通用铁律 100% 同源)
+
+- **BUG-117** deploy.py 漏推 APK → BUG-131 互补 (deploy.py 必加 scp APK, /api/version 必扫公网)
+- **BUG-088/089** deploy.sh 漏 cp changelog.json (跟 BUG-131 deploy.py 漏 APK 同源)
+- **BUG-103** 自动退款漏刷 APK → BUG-131 跟这条 100% 同源: "server bump 必 rebuild APK (反模式警告)"
+- **BUG-104** mobile bump 漏刷 APK → 跟 BUG-131 互补: mobile 真改代码必 rebuild + 重打 APK
+- **BUG-114** deploy SOP 漏 changelog → 跟 BUG-131 互补: deploy.sh + deploy.py 必同步升级
+- **BUG-128** videoAgent refImageCount 假修 → BUG-131 server-only hotfix 修法暴露的根因: BUG-128 修法 4 文档说"加 refImageCount 字段"但 imageAgentService.ts line 298/316 漏写 (跟 BUG-079 100% 同源), BUG-130 hotfix 2 (v3.0.61 server-only hotfix) 直接触发 BUG-131 假下载
+

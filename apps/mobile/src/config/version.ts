@@ -12,7 +12,13 @@
 //   4. commit message 必带版本�?(铁律 6): `vX.Y.Z: <改动> (BUG-NNN)`
 //   5. 部署 + 12 维验�?(BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.61';
+export const APP_VERSION = '3.0.62';
+
+// v3.0.62 (BUG-131 S72 batch 31): 公网 APK 路径 server-side 真实存在检查
+//   - 修前: /api/version downloadUrl 拼 `DeepScript_v${process.env.APP_VERSION}.apk`, server-only hotfix (3.0.61) 跟公网 APK (3.0.60) 不一致 → 假下载 404 HTML 错误页 → Status Code 16
+//   - 修法: 服务端启动时扫 /www/wwwroot/shipin-APP/public/DeepScript_v*.apk 取 max version 当 mobileLatestApkVersion, /api/version 用这个 version 拼 downloadUrl (跨项目通用铁律: server bump 必 rebuild APK)
+//   - 移动端防御层: updater.tsx catch 块识别 Status Code 16/404 → showConfirm 自动 fallback 浏览器下载 (跟 BUG-117 同源, 二次防御)
+//   - 配套: server 新加 services/apkVersion.ts + mobile updater catch 块防御层 + 8 处版本号同步 3.0.61 → 3.0.62 + 公网 HEAD 验证 (跟 BUG-117 沉淀)
 
 // v3.0.61 (BUG-130 hotfix 2): server 端 imageAgentService.ts plan.data 补 refImageCount 字段 (跟 videoAgentService 1:1, BUG-128 文档跟代码不一致 假修)
 //   - 修前: plan.refImageUrls=[1个URL] 但 plan.refImageCount=0, 跨端 1:1 镜像不一致, 跟 BUG-079 假报告同源

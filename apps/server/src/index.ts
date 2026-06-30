@@ -98,10 +98,16 @@ app.get('/health', (req, res) => {
 // APP 版本检�?(公开接口)
 // v3.0.29 (S64): 版本�?fallback 同步�?3.0.29, changelog �?changelog.json 读取真实条目
 import { readChangelog, loadChangelog } from './shared/changelog';
+// S72 batch 31 v3.0.62 BUG-131 修法: downloadUrl 走 getMobileLatestApk() 扫公网目录, 不再 trust server APP_VERSION
+// 避免 server-only hotfix (v3.0.61) 跟公网 APK (v3.0.60) 不一致导致 Status Code 16 假下载
+import { getMobileLatestApk } from './services/apkVersion';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.61';
+  const currentVersion = process.env.APP_VERSION || '3.0.62';
   const clientVersion = req.query.version as string || '0.0.0';
-  const needUpdate = compareVersions(currentVersion, clientVersion) > 0;
+  // v3.0.62 BUG-131: needUpdate 跟 mobileLatestApkVersion 比, 不是 server APP_VERSION (避免 server-only hotfix 假升级)
+  const mobileApk = getMobileLatestApk();
+  const latestApkVersion = mobileApk.version;
+  const needUpdate = compareVersions(latestApkVersion, clientVersion) > 0;
   const changelogEntry = readChangelog(currentVersion);
   // S72 batch 16 v3.0.45 BUG-115 缓存方案 A.7.1 修法: /api/version 加 latest_version 字段响应 (changelog.json 有但没读)
   // 跨端铁律 4++ 跨项目通用: client 端 verify-deploy / 监控 / 升级弹窗都用这个字段 (跟 version 字段区分: version 是 server 当前, latest_version 是 changelog.json 的 latest)
@@ -112,7 +118,9 @@ app.get('/api/version', etagMiddleware, (req, res) => {
     data: {
       version: currentVersion,
       latestVersion,
-      downloadUrl: 'https://ab.maque.uno/app/DeepScript_v' + currentVersion + '.apk',
+      mobileLatestApkVersion: latestApkVersion,    // v3.0.62 BUG-131: 公网真实 APK version
+      mobileLatestApkSource: mobileApk.source,      // 'public-dir' | 'fallback'
+      downloadUrl: mobileApk.url,                   // v3.0.62 BUG-131: 走扫到的真实 APK URL
       changelog: changelogEntry.summary,
       highlights: changelogEntry.highlights,
       buildDate: changelogEntry.buildDate,

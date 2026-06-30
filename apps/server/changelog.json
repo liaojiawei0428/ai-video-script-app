@@ -5,6 +5,22 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.62",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-131 修法: 公网 APK 路径 server-side 真实存在检查, 修跟 BUG-117 同源 server-only hotfix 引假下载 Status Code 16 ERROR_HTTP_DATA_ERROR",
+      "highlights": [
+        "BUG-131 ✅ 修前根因: server /api/version downloadUrl 拼 DeepScript_v${process.env.APP_VERSION}.apk, 但 shipin-APP 走 BUG-117 沉淀 deploy.py 必加 scp 4 件套, server bump 必 rebuild APK (跨端铁律 4++ server bump 必 rebuild APK), 否则 server APP_VERSION 跟公网 APK version 不一致 (server-only hotfix v3.0.61 没重打 APK), 公网返 404 HTML 错误页, DownloadManager 解析失败 Status Code 16. 修前实测: 公网 HEAD DeepScript_v3.0.61.apk HTTP/1.1 404 Not Found, latestVersion=3.0.61, 模拟器 tap APP 内下载 Status Code = 16",
+        "BUG-131 ✅ 修法 1 (server 主修): 新加 src/services/apkVersion.ts, 启动时扫 /www/wwwroot/shipin-APP/public/DeepScript_v*.apk 取 max version 当 mobileLatestApkVersion, /api/version 用这个 version 拼 downloadUrl. 5 min LRU cache. 跟 BUG-117 deploy.py 必加 scp 4 件套闭环配套",
+        "BUG-131 ✅ 修法 2 (server 端配套): /api/version 返 mobileLatestApkVersion (公网真实 APK version) + mobileLatestApkSource (public-dir | fallback), needUpdate 跟 mobileLatestApkVersion 比 而不是 server APP_VERSION. 避免 server-only hotfix 跟 mobile APK bump 异步导致误升级",
+        "BUG-131 ✅ 修法 3 (mobile 端防御层): updater.tsx catch 块识别 Status Code 16/404 → useDialog.showConfirm 自动 fallback 浏览器下载, 防御 BUG-117 类似的公网 APK 404 假下载",
+        "BUG-131 ✅ 修法 4 (跟 BUG-117 沉淀一致): deploy.py 必加 scp 4 件套 + 公网 HEAD 200 OK + Content-Type + Content-Length + SHA256 一致性 验证 (跟 BUG-117 同源)",
+        "BUG-131 ✅ 验证: 模拟器实测 tap APP 内下载 → 公网 HEAD v3.0.62 APK HTTP/1.1 200 OK Content-Type: application/vnd.android.package-archive Content-Length 约 30 MB → DownloadManager 正常下载 → adb shell sha256sum 跟本机一致",
+        "BUG-131 ✅ 升 v3.0.61 → v3.0.62: 8 处版本号同步 (server 5 处 + mobile/web 2 处配置 + changelog), mobile build.gradle versionCode 64 → 65, APK 重打 (跟 BUG-117 沉淀: 必 rebuild 不准 server-only hotfix)",
+        "BUG-131 ✅ 跨项目通用铁律沉淀 (跟 BUG-117/088/089/114 同源): server bump 必 rebuild APK (server-only hotfix 是反模式), /api/version downloadUrl 必须指向公网真实存在的 APK (不能直接拼 APP_VERSION), deploy.py 必加 scp 4 件套 + 公网 HEAD 5 维验证 (200 OK + Content-Type + Content-Length + SHA256 + ETag)"
+      ]
+    },
+    {
       "version": "3.0.61",
       "buildDate": "2026-06-30",
       "type": "patch",
@@ -418,6 +434,6 @@
       ]
     }
   ],
-  "latest_version": "3.0.61",
+  "latest_version": "3.0.62",
   "latest_version_time": "2026-06-30"
 }

@@ -277,8 +277,27 @@ export const Updater = {
       }
     }).catch((err: any) => {
       console.error('[Updater] download failed', err);
-      _state = { ..._state, downloading: false, error: err?.message || String(err) };
+      const errMsg: string = err?.message || String(err);
+      // v3.0.62 BUG-131 修法防御层: 解析 Status Code, 16 (ERROR_HTTP_DATA_ERROR) / 404 自动 fallback 浏览器下载
+      // 跟 BUG-117 公网 APK 404 完全同源, 修法 catch 块识别 "Status Code = N" 自动弹 fallback confirm
+      const statusCodeMatch = errMsg.match(/Status Code\s*=\s*(\d+)/);
+      const statusCode = statusCodeMatch ? parseInt(statusCodeMatch[1], 10) : null;
+      const isApkMissing = statusCode === 16 || statusCode === 404 || /404|Not Found/.test(errMsg);
+      _state = { ..._state, downloading: false, error: errMsg };
       emit();
+      if (isApkMissing) {
+        useDialog().showConfirm({
+          title: 'APP 内下载不可用',
+          message: `服务器当前版本 APK 未发布 (${statusCode === 16 ? '公网 404' : '下载失败'}), 是否改用浏览器下载?\n\n链接: ${_state.url}`,
+          confirmText: '用浏览器下',
+          cancelText: '取消',
+          onConfirm: () => {
+            Linking.openURL(_state.url).catch(() =>
+              useDialog().showAlert({ title: '跳转失败', message: '请手动复制链接到浏览器: ' + _state.url, variant: 'error' })
+            );
+          },
+        });
+      }
     });
   },
   cancel() {

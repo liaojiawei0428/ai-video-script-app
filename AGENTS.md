@@ -176,7 +176,24 @@
   - mavis memory: `Web 主导 APP 跟随 (跨项目通用, 改 web 必同步 app, 列入项目规范)` (S72 batch 7 沉淀)
 - **跨项目通用**: 任何 web + mobile + 小程序 + 多端项目, 主端改功能必同步所有端, 必跑 5 步 + 维度 24 自检. 常见踩坑: 改了 web 忘了 mobile / 改了 web mobile 漏状态机 1 态 / 改了 web mobile 漏 API 端点 / 改了 web mobile 漏防御渲染 / 改了 web mobile 漏状态文案. **任意一端漏 = 用户撞 BUG**
 
-### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082 + S72 batch 6 BUG-090** 升级)
+### 铁律 4++++: 🔌 server-only hotfix 必 rebuild APK + /api/version 必扫公网真实 APK (S72 batch 31 BUG-131 强约束, 跨项目通用)
+- **🛑 严禁**: 改 server 端代码 (即便是 server-only hotfix, 只动 `apps/server/src/`, `apps/web/` + `apps/mobile/src/` 0 业务变化) 时, 不重打 mobile APK + 不重新推到公网 + 不更新 server `/api/version` downloadUrl. 这会导致 `/api/version downloadUrl = DeepScript_v<APP_VERSION>.apk` 但公网没有这 APK → 用户点 APP 内下载 → DownloadManager Status Code 16 ERROR_HTTP_DATA_ERROR (公网 404 HTML 错误页被当 APK 解析失败). 跟 BUG-117 (deploy.py 漏推 APK) 100% 同源, 跟 BUG-103/104 (server bump 漏 rebuild APK) 100% 同源
+- **✅ 必做**: server 端任何代码改动, 必跑 4 步配套:
+  1. **`getMobileLatestApk()` 配套** (server 启动时扫 `/www/wwwroot/shipin-APP/public/DeepScript_v*.apk`, 取 max version, 5 min LRU cache, fallback `process.env.APP_VERSION`): `apps/server/src/services/apkVersion.ts` (v3.0.62 BUG-131 新增 105 行)
+  2. **/api/version 改造**: `downloadUrl` 走 `getMobileLatestApk().url`, 不再信 `process.env.APP_VERSION`. 多返 `mobileLatestApkVersion` (公网真实 APK version) + `mobileLatestApkSource` (public-dir | fallback) 2 字段
+  3. **mobile updater 防御层**: catch 块识别 Status Code 16 / 404 → `useDialog.showConfirm` 自动 fallback 浏览器下载 (跟 BUG-117 互补, 任何公网 APK 意外缺失都能 UX 兜底)
+  4. **deploy.py 必加 scp 4 件套**: dist.tar.gz + package.json + changelog.json + **🆕 APK** (跟 BUG-117 沉淀一致, deploy.py 必加 4 件套同步升级)
+- **真实案例 (S72 batch 31 BUG-131)**: v3.0.61 BUG-130 hotfix 2 是 server-only hotfix (server `imageAgentService.ts` 加 `refImageCount` 字段), 没重打 mobile APK → 公网只有 v3.0.60 APK → 用户点 APP 内下载 → Status Code 16. 修法是把 APK 路径跟公网真实 APK 解耦, server 启动时扫公网目录取最新. **修法虽然带 fallback, 但首选必走 rebuild APK 流程, fallback 是兜底**
+- **配套**:
+  - `apps/server/AGENTS.md` § 3 加 server 端铁律 9 (跟 BUG-131 配套): server-only hotfix 必 rebuild APK
+  - `apps/server/src/services/apkVersion.ts` 新文件 + `clearApkVersionCache()` 给 deploy 调
+  - `apps/mobile/src/utils/updater.tsx` catch 块防御层 (跟前文 BUG-117 catch 块对齐)
+  - `tools/verify-deploy.sh` 加维度 28 (S72 batch 31 BUG-131 防呆): 公网 HEAD APK 5 维验证 (`downloadUrl 路径 200 OK + Content-Type=application/vnd.android.package-archive + Content-Length > 1MB + SHA256 跟本机一致 + mobileLatestApkVersion 跟 APK 文件名一致`)
+  - `BUGS_INDEX.md` § 4 Top 20+: **/api/version downloadUrl 必指向公网真实 APK, 不准拼 server APP_VERSION (跟 BUG-117/103/104 100% 同源)**
+  - mavis memory: `server-only hotfix 必 rebuild APK (跨项目通用, /api/version 跟公网 APK 1:1)` (S72 batch 31 BUG-131 沉淀)
+- **跨项目通用**: 任何 client 跟 server 版本分离的 mobile/web 项目 (RN APK + server, iOS IPA + server, 小程序 + server), server 端代码改动必 rebuild client 并部署. 常见踩坑: 改 server 没 rebuild client / rebuild client 没 push 公网 / 修了 client 没改 server downloadUrl / 修了 server downloadUrl 没 rebuild client 兜底. **任意一环漏 = 假下载 / Status Code 16 / 用户撞 BUG**
+
+### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082 + S72 batch 6 BUG-090 + S72 batch 31 BUG-131** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
 - **🆕 server 12 维** (S70 BUG-077): 6 维自身 + 3 维宝塔/nginx/反代/APK + **3 维宝塔 Node 项目 shipin_APP run=True (核心, BUG-077 验收)**

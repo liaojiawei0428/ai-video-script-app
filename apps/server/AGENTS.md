@@ -132,9 +132,9 @@ grep NODE_PROJECT_NAME /etc/systemd/system/shipin-app.service  # 期望 = shipin
 curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 + 真实 changelog
 ```
 
-## § 3. server 端 8 条铁律 (S70 重构: PM2 → systemd unit)
+## § 3. server 端 8 条铁律 (S70 重构: PM2 → systemd unit + 🆕 v3.0.62 BUG-131 加 server-only hotfix 必 rebuild APK 铁律)
 
-> 跨端铁律 3 (6 处版本号) / 铁律 5 (12 维验证) 跨端通用, 8 条铁律是 server 端独有强化 (**S70 起 PM2 deprecated**):
+> 跨端铁律 3 (8 处版本号) / 铁律 5 (12 维验证) 跨端通用, 8 条铁律是 server 端独有强化 (**S70 起 PM2 deprecated, S72 batch 31 BUG-131 加 1 条 9 条**:
 
 1. **必读本文件 + `apps/server/deploy.sh` + `docs/BAOTA_NODE_PROJECT_DEPLOY.md`** — 任何 server 任务前必读
 2. **有活跃任务必跑 `deploy.sh` 维护模式流程** — S67 BUG-070 教训, 不能直接 restart
@@ -144,6 +144,7 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 6. **`>> .env` 追加, 不用 `> .env` 重写** — 覆盖会丢生产配置
 7. **不删字段, 用 `_deprecated_` 前缀** — S66 DB_MIGRATION § 2.5 规范
 8. **commit message 必带版本号 + BUG 编号** — `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` (跨端铁律 6)
+9. **🆕 v3.0.62 BUG-131 server-only hotfix 必 rebuild APK**: server 端代码改动即便是 server-only hotfix (只改 src/) 也必重新编译 mobile APK 推到公网, 因为 `/api/version downloadUrl` 是拼 server APP_VERSION, 跟公网 APK 必须 1:1. 修前 v3.0.61 server-only hotfix 没重打 APK → 公网没 v3.0.61 APK → 用户点 APP 内下载 → Status Code 16 ERROR_HTTP_DATA_ERROR, 跟 BUG-117 (deploy.py 漏推 APK) 100% 同源. 修法配套: server 启动时扫 `getMobileLatestApk()` (apps/server/src/services/apkVersion.ts) 自适应找不到 APK 时 fallback, 但**首选必走 rebuild APK 流程, fallback 是兜底**
 
 ## § 4. 改 server 代码前后 5 步必做 (server 端独有)
 
