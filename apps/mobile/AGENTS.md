@@ -1235,3 +1235,62 @@ BUG-135 (v3.0.67 mobile 端自研通用图片选择 native module, 完全不用 
 - KDoc 注释内不允许出现 */ 序列 (Kotlin 块注释规则)
 - API 兼容性 > 不加重原则 优先级升至选型阶段
 ```
+
+## § 6.17 v3.0.68 新增: 重设计"生成中"动画卡片 (跨端 1:1 镜像, 8 段视觉层级) (S72 batch 34 BUG-136, 2026-06-30)
+
+### § 6.17.1 背景 (跟 web § 5.13.1 1:1)
+
+BUG-119 v3.0.48 老卡片布局散乱: spinner 普通 + 文字位置突兀 + 排队信息浮窗贴旁边 + 没进度感 + 没 ETA + 没比例适配. 用户看后反馈 "重新做, 要看到生成卡片布局散乱, 给我重设计".
+
+### § 6.17.2 真根因 (跟 BUG-119/079/100 100% 同源, 但更深入)
+
+老 `StreamingCard` 函数只做 4 段视觉 (spinner + 标题 + 副标题 + 进度条), 缺:
+- 顶部状态栏 + 阶段徽章 (颜色不跟 BUG-118 StatusBadge 体系一致)
+- 流光边框背景 (没视觉冲击)
+- 双层旋转 ring (单一 spinner 没"AI 在工作"感知)
+- 中心阶段图标 (转圈圈没意义, 看不出当前阶段)
+- ETA + 排队信息整合到卡片底部 (浮窗贴旁边视觉散乱)
+- aspectRatio 1:1 适配 (跟 BUG-120 比例卡片 1:1)
+
+### § 6.17.3 修法 (8 段视觉层级, mobile+web 1:1 镜像)
+
+1. **顶部状态栏 + 阶段徽章**: 颜色跟 BUG-118 StatusBadge 1:1 镜像 (translating 紫 #a78bfa / queueing 琥珀黄 #fbbf24 / generating 蓝 #60a5fa), 跟 BUG-118 StatusBadge 配色体系 1:1
+2. **流光边框背景**: Animated CSS pulse-glow 1.5s in-out, opacity 0.35-0.85 + scale 1-1.15
+3. **中部双层旋转 ring**: 72x72 (1.5s linear spin), 内外双圈反向旋转
+4. **中心 48x48 圆 + 阶段图标**: Languages/Hourglass/Film/ImageDown 4 阶段对应图标
+5. **主标题 + 副标题**: 15px #e4e4f0 (主) + 12px #9090a8 (副)
+6. **进度条**: 4px track + stageColor fill, 1.2s out-cubic (跟 BUG-119 老款同款进度条但颜色跟阶段)
+7. **排队信息整合到卡片底部一段**: 不再浮窗贴旁边 (BUG-119 老款散乱根因), 整合到卡片底部一段, 含 position + etaSeconds + speedHint
+8. **aspectRatio 1:1 适配**: 跟 BUG-120 比例卡片 1:1, 按用户选的比例 (16:9/9:16/1:1) 渲染
+
+### § 6.17.4 跨端 1:1 镜像 (mobile + web)
+
+| 段 | mobile (React Native) | web (CSS) |
+|----|------------------------|-----------|
+| 流光边框 | `Animated.Value + Easing.inOut(Easing.ease)` 1.5s loop | `@keyframes pulse-glow` 1.5s ease-in-out |
+| 双层旋转 | `Animated.loop(Animated.timing(rotate, {toValue:1,duration:1500,easing:Easing.linear,useNativeDriver:true}))` | `@keyframes spin { to { transform: rotate(360deg) } }` 1.5s linear |
+| 进度条 | `Animated.timing(progress,{duration:1200,easing:Easing.out(Easing.cubic),useNativeDriver:false})` | `@keyframes pulse-dot` 1.5s ease-in-out + width transition 1.2s |
+| 配色 | 跟 BUG-118 StatusBadge 同色板 #a78bfa/#fbbf24/#60a5fa | 同 |
+| 阶段图标 | `lucide-react-native` Languages/Hourglass/Film/ImageDown | `lucide-react` 同名 |
+
+keyframe 名跨端同名: pulse-glow / pulse-dot / spin, 跨端铁律 4++ 加固.
+
+### § 6.17.5 跨项目通用铁律 (跟 BUG-079/100/119/118 100% 同源, 但更深入)
+
+- **加载状态 UI 必带 8 段视觉层级**: 阶段徽章 + 流光边框 + 双层旋转 ring + 中心图标 + 主副标题 + 进度条 + ETA + 比例适配. 不能只有 spinner + 文字 (跟 BUG-079/100 假状态同源, 跟 BUG-119 老设计反例)
+- **阶段配色必跟同项目 StatusBadge 1:1 镜像**: translating/queueing/generating 三阶段配色 必跟 BUG-118 StatusBadge 同色板, 不同 BUG 不同阶段同一套色板
+- **跨端 streaming 卡片必 1:1 镜像**: mobile React Native Animated.Value + Easing 跟 web CSS @keyframes 行为一致 (1.5s spin + 1.5s pulse + 1.2s progress, keyframes 名同名)
+- **排队信息不要做浮窗贴旁边**: 视觉散乱, 整合到卡片底部一段
+- **不用 Lottie 动画** (跟 BUG-130 教训): NDK build 不稳, 用 RN Animated/CSS keyframes 替代, 行为 1:1 镜像
+- **8 处版本号同步必走 mobile version.ts** (跨端铁律 3 + 跨端铁律 6): BUG-136 13 文件 914 增 86 删, 8 处同步含 mobile version.ts APP_VERSION + APP_VERSION_CODE
+
+### § 6.17.6 mavis memory 沉淀
+
+```
+BUG-136 (v3.0.68 跨端重设计生成中动画卡片, 8 段视觉层级, 跨端 1:1 镜像):
+- 跨项目通用铁律: 加载状态 UI 必带 8 段视觉层级 (阶段徽章 + 流光边框 + 双层旋转 ring + 中心图标 + 主副标题 + 进度条 + ETA + 比例适配)
+- 阶段配色 必跟 同项目 StatusBadge 1:1 镜像 (跨端铁律 4++ 加固)
+- 跨端 streaming 卡片必 1:1 镜像: mobile RN Animated + web CSS @keyframes 行为一致
+- 排队信息不要做浮窗贴旁边, 整合到卡片底部一段
+- 不用 Lottie 动画, 用 RN Animated/CSS keyframes 替代
+```
