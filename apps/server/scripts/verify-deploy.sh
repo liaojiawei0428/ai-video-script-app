@@ -548,8 +548,9 @@ if [ "$SERVER_ONLY" != "true" ]; then
       color red "   ✗ 24. mobile 端漏同步: notify-paid=0, 我已付款=0, user_notified=0 (铁律 4++ 违规, S72 batch 7 BUG-092/094/095/096 漏修)"
     fi
   else
-    # v3.0.37 (S72 batch 7 BUG-099): server 端没 monorepo 根, 改用 APK 公网路径 + APK 内 bundle grep (跟 web 维度 23 同款)
-    APK_PUBLIC="/www/wwwroot/shipin-APP/public/DeepScript_v3.0.37.apk"
+    # v3.0.59 (S72 batch 30 BUG-130): 改 stale v3.0.37 hard-code → 动态从 changelog.json latest_version 读 (跟 server 实际代码同步, 跟 BUG-129 跨项目通用铁律)
+    APK_LATEST_VER=$(python3 -c "import json; print(json.load(open('/www/wwwroot/shipin-APP/dist/changelog.json'))['latest_version'])" 2>/dev/null || echo "")
+    APK_PUBLIC="/www/wwwroot/shipin-APP/public/DeepScript_v${APK_LATEST_VER}.apk"
     if [ -f "$APK_PUBLIC" ]; then
       V24_NOTIFY=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -ao 'notifyRechargePaid' 2>/dev/null | wc -l)
       V24_NOTIFY=${V24_NOTIFY:-0}
