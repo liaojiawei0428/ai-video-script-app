@@ -3,10 +3,53 @@
 // 详细设计: docs/V3_AGENT_MATRIX.md §1.3 + §6
 // v3.0.51 (BUG-122): 拆 3 个企业 key, video 优先读 AGNES_VIDEO_API_KEY (企业配额独立, 并发更高)
 //   - 优先级: AGNES_VIDEO_API_KEY (企业 video 专用) > AGNES_API_KEY (统一) > AGNES_IMAGE_API_KEY (老兼容)
+// v3.0.63 (S72 batch 32 BUG-132): retry 策略细化, content_policy 跟其他 4xx 不 retry, 避免连续撞 agens 限流 429
+//   - 修前: catch 块 (line 277) 盲目 retry 所有 throw, 包括 400 content_policy_violation, 3 次 retry 在 1 分钟内打 3 次 → 第 3 次撞 agens 2/min 限流 → 用户看到 "agns 视频 API 限流中" 但根因是 content_policy 拒绝
+//   - 修后: 区分 retryable (429/503/5xx/AbortError) vs non-retryable (content_policy_violation/其他 4xx/网络解析错), throw 类型化 error, 上层 videoAgentService 解码友好文案
+//   - backoff 加长 5s→8s/12s 减少撞限流机率
 
 import { logger } from '../utils/logger';
 import { extractFirstFrameAsPngBase64 } from '../utils/ffmpegHelper';
 import { extractErrorMessage } from '../utils/errorUtils';
+
+/**
+ * v3.0.63 (BUG-132): 错误类型枚举, 用于上层 videoAgentService 决定 retry 策略 + 友好文案
+ */
+export enum AgnesVideoErrorType {
+  CONTENT_POLICY = 'content_policy',     // 400 content_policy_violation — 不能 retry
+  RATE_LIMIT = 'rate_limit',             // 429 — retryable 但需更长 backoff
+  UPSTREAM_BUSY = 'upstream_busy',       // 503/5xx — retryable
+  TIMEOUT = 'timeout',                   // AbortError — retryable
+  INVALID_INPUT = 'invalid_input',       // 其他 4xx — 不能 retry
+  NETWORK = 'network',                   // fetch failed/JSON 解析 — 谨慎 retry
+  UNKNOWN = 'unknown',
+}
+
+export class AgnesVideoError extends Error {
+  constructor(
+    public readonly type: AgnesVideoErrorType,
+    public readonly agensStatus: number,
+    message: string,
+    public readonly agensRaw?: string,
+  ) {
+    super(message);
+    this.name = 'AgnesVideoError';
+  }
+}
+
+/**
+ * v3.0.63 (BUG-132): 根据 agens 错误信息判断类型
+ */
+function classifyAgnesError(status: number, rawText: string): AgnesVideoErrorType {
+  if (status === 400 || status === 401 || status === 403) {
+    if (rawText.includes('content_policy_violation')) return AgnesVideoErrorType.CONTENT_POLICY;
+    if (rawText.includes('rate_limit')) return AgnesVideoErrorType.RATE_LIMIT;  // 一些版本 400 返限流
+    return AgnesVideoErrorType.INVALID_INPUT;
+  }
+  if (status === 429) return AgnesVideoErrorType.RATE_LIMIT;
+  if (status === 503 || (status >= 500 && status < 600)) return AgnesVideoErrorType.UPSTREAM_BUSY;
+  return AgnesVideoErrorType.UNKNOWN;
+}
 
 const AGNES_VIDEO_CREATE_URL = 'https://apihub.agnes-ai.com/v1/videos';
 const AGNES_VIDEO_QUERY_URL = 'https://apihub.agnes-ai.com/agnesapi';
@@ -200,15 +243,18 @@ export class AgnesVideoProvider {
       promptLen: body.prompt.length,
     });
 
-    // v3.0.0.25 (S44): retry 策略 + S72 batch 4 后置 BUG-085 修
+    // v3.0.0.25 (S44): retry 策略 + S72 batch 4 后置 BUG-085 修 + S72 batch 32 BUG-132 升级
     //  - 单次 timeout 60s: i2v 模式 (大图 base64 + 15s 视频) agens 端写 file 慢, 30s 不够
     //  - 2 次 retry: 6-25 视频实测 agnes 上游 OpenAI 视频生成服务繁忙, 60s timeout 经常撞, 1 retry 不够 (S44 时代偶尔 1 retry 够)
-    //  - 5s backoff: 短 backoff 让 retry 更快, 总耗时仍可控
-    //  - 总耗时: 60 + 5 + 60 + 5 + 60 = 190s = 3.17 min 后 throw (vs S44 老 60 + 30 + 60 = 150s = 2.5 min)
+    //  - 5s→8s/12s backoff (BUG-132 升级): 修前 5s+5s 在 1 min 内 retry 3 次撞 agens 2/min 限流, 加长 backoff 减少概率
+    //  - 修前 total timeout: 60 + 5 + 60 + 5 + 60 = 190s (BUG-132 修后: 60 + 8 + 60 + 12 + 60 = 200s)
     //  - 修法: 加重 retry 给上游多次恢复机会, BUG-085 (4+ 次连续失败) 修
+    //  - BUG-132 关键修法: 区分 retryable (429/503/5xx/AbortError) vs non-retryable (content_policy_violation/其他 4xx)
+    //    修前 catch 块 (line 277) 盲目 retry 所有 throw, 400 content_policy 撞 3 次 → agnes 2/min 限流
+    //    用户看到 "agns 视频 API 限流中" 但根因是 content_policy 拒绝 (retry 永远解不了策略拦截)
     const MAX_RETRIES = 3;  // 2 retries (attempt 0 + attempt 1 + attempt 2)
     const PER_TIMEOUT_MS = 60 * 1000;
-    const RETRY_BACKOFF_MS = [5000, 5000];  // 5s, 5s — 短 backoff 让 retry 更快
+    const RETRY_BACKOFF_MS = [8000, 12000];  // BUG-132: 8s, 12s — 加长 backoff 减少 agens 限流撞概率
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -226,23 +272,29 @@ export class AgnesVideoProvider {
         });
         clearTimeout(timeoutId);
 
-        if (response.status === 429 || response.status === 503 || (response.status >= 500 && response.status < 600)) {
-          // 限流/上游忙: 重试
+        if (response.ok) {
+          // 成功路径 — 落下面 if (!response.ok) 之外
+        } else {
           const errText = await response.text().catch(() => '');
-          lastError = new Error(`Agnes Video create error (${response.status}): ${errText.slice(0, 200)}`);
+          const errorType = classifyAgnesError(response.status, errText);
+          // v3.0.63 BUG-132 关键修法: content_policy_violation / invalid_input / 其他不可重试错误, 立刻抛出不复 retry
+          // 修前 line 229 仅 retry 429/503/5xx, 但 line 277 catch 块对 line 245 throw 的 4xx 错误**也盲目 retry**, 用户撞 content_policy → 3 次 retry → 撞 agens 2/min 限流 → 文案误导
+          if (errorType === AgnesVideoErrorType.CONTENT_POLICY || errorType === AgnesVideoErrorType.INVALID_INPUT) {
+            logger.warn('AgnesVideoProvider: createTask non-retryable error', {
+              attempt, status: response.status, type: errorType, error: errText.slice(0, 100),
+            });
+            throw new AgnesVideoError(errorType, response.status, `Agnes Video create error (${response.status}): ${errText.slice(0, 200)}`, errText);
+          }
+          // 429 / 503 / 5xx → retryable
+          lastError = new AgnesVideoError(errorType, response.status, `Agnes Video create error (${response.status}): ${errText.slice(0, 200)}`, errText);
           logger.warn('AgnesVideoProvider: createTask retryable error', {
-            attempt, status: response.status, error: lastError.message.slice(0, 100),
+            attempt, status: response.status, type: errorType, error: lastError.message.slice(0, 100),
           });
           if (attempt < MAX_RETRIES - 1) {
             await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
             continue;
           }
           throw lastError;
-        }
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Agnes Video create error (${response.status}): ${errorText.slice(0, 200)}`);
         }
 
         const data = await response.json() as {
@@ -274,17 +326,23 @@ export class AgnesVideoProvider {
         };
       } catch (err) {
         clearTimeout(timeoutId);
-        // 网络错误 / 超时: 也重试
+        // v3.0.63 BUG-132 关键修法: 区分 retryable vs non-retryable, 不再盲目 retry
+        // 修前 line 277 盲目 retry 所有 throw (包括 400 content_policy_violation), 3 次 retry 在 1 min 内撞 agens 2/min 限流
+        // 修后: AgnesVideoError (CONTENT_POLICY/INVALID_INPUT) 直接抛出不再 retry, RATE_LIMIT/UPSTREAM_BUSY 已经走 line 297 throw, AbortError (timeout) 也 retry
+        if (err instanceof AgnesVideoError) {
+          // 类型化错误, 直接抛出不再 retry (CONTENT_POLICY/INVALID_INPUT) — retry 永远解不了策略拦截
+          // RATE_LIMIT/UPSTREAM_BUSY 已经在 line 297 throw lastError, 那也走不到这里 (如果走也是 throw)
+          throw err;
+        }
+        // AbortError (timeout) 或其他网络错误: retry
         if (err instanceof Error && err.name === 'AbortError') {
-          lastError = new Error(`Agnes Video create timeout (${PER_TIMEOUT_MS}ms)`);
-        } else if (err instanceof Error && /retryable/.test(err.message)) {
-          // 上面已经处理, continue 走不到
+          lastError = new AgnesVideoError(AgnesVideoErrorType.TIMEOUT, 0, `Agnes Video create timeout (${PER_TIMEOUT_MS}ms)`);
         } else {
-          lastError = err as Error;
+          lastError = new AgnesVideoError(AgnesVideoErrorType.NETWORK, 0, (err as Error).message);
         }
         if (attempt < MAX_RETRIES - 1) {
-          logger.warn('AgnesVideoProvider: createTask network error, will retry', {
-            attempt, error: (lastError as Error).message.slice(0, 100),
+          logger.warn('AgnesVideoProvider: createTask network/timeout error, will retry', {
+            attempt, type: (lastError as AgnesVideoError | null)?.type, error: (lastError as Error).message.slice(0, 100),
           });
           await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
           continue;
@@ -292,7 +350,7 @@ export class AgnesVideoProvider {
         throw lastError;
       }
     }
-    throw lastError || new Error('Agnes Video create failed after retries');
+    throw lastError || new AgnesVideoError(AgnesVideoErrorType.UNKNOWN, 0, 'Agnes Video create failed after retries');
   }
 
   /** 查询任务状态 */

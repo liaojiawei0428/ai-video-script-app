@@ -8,7 +8,7 @@
 //   - 删 agnesTextProvider import
 //   - 保留: 异步任务 + 5s 轮询 + 失败重试 + i2v (modification 走 last_result_url)
 
-import { agnesVideoProvider } from './agnesVideoProvider';
+import { agnesVideoProvider, AgnesVideoError, AgnesVideoErrorType } from './agnesVideoProvider';
 import { agnesTextProvider } from './agnesTextProvider';
 import { videoConversationModel, videoGenerationModel } from '../models/videoConversation';
 import { billingService, isVipActive, chargingForVideo } from './billingService';
@@ -589,14 +589,40 @@ export class VideoAgentService {
         'videoAgent',
       );
     } catch (err) {
-      // 调 agens 失败, 状态回滚到 plan_ready 让用户能重试
+      // v3.0.63 BUG-132 修法: 按 AgnesVideoError type 友好提示, 不再统一误导文案 "API 限流中"
+      // 修前: 用户 prompt 触发 content_policy → 3 次 retry → 撞 agens 2/min 限流 → 误显示 "API 限流中"
+      // 修后: 区分 4 种 type, 各对应正确文案, retry 跟 strategy 精细化
       const errMsg = (err as Error).message;
-      // 友好化错误信息 (agns 上游 down / network / 5xx)
       let friendlyMsg = errMsg;
-      if (errMsg.includes('timeout') || errMsg.includes('fetch failed') || errMsg.includes('Service busy') || errMsg.includes('503')) {
-        friendlyMsg = 'agns 视频服务暂时不可用 (上游 OpenAI 繁忙或服务维护), 请 5-10 分钟后重试';
-      } else if (errMsg.includes('429')) {
-        friendlyMsg = 'agns 视频 API 限流中, 请稍后重试';
+      if (err instanceof AgnesVideoError) {
+        switch (err.type) {
+          case AgnesVideoErrorType.CONTENT_POLICY:
+            // 内容策略拦截: 必须改 prompt, retry 没用
+            friendlyMsg = '视频描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述后重试';
+            break;
+          case AgnesVideoErrorType.RATE_LIMIT:
+            // agens 真实限流: 需等
+            friendlyMsg = 'agns 视频 API 限流中, 请 1-2 分钟后重试';
+            break;
+          case AgnesVideoErrorType.UPSTREAM_BUSY:
+            friendlyMsg = 'agns 视频服务暂时不可用 (上游繁忙或维护), 请 5-10 分钟后重试';
+            break;
+          case AgnesVideoErrorType.TIMEOUT:
+            friendlyMsg = 'agns 视频生成超时, 请稍后重试或减少时长';
+            break;
+          case AgnesVideoErrorType.INVALID_INPUT:
+            friendlyMsg = '视频请求参数无效, 请重试或联系客服';
+            break;
+          default:
+            friendlyMsg = 'agns 视频服务异常, 请稍后重试';
+        }
+      } else {
+        // 兼容老错误: 根据 errMsg 关键词判断
+        if (errMsg.includes('timeout') || errMsg.includes('fetch failed') || errMsg.includes('Service busy') || errMsg.includes('503')) {
+          friendlyMsg = 'agns 视频服务暂时不可用 (上游 OpenAI 繁忙或服务维护), 请 5-10 分钟后重试';
+        } else if (errMsg.includes('429')) {
+          friendlyMsg = 'agns 视频 API 限流中, 请 1-2 分钟后重试';
+        }
       }
       // v3.0.32 BUG-082: 强制归一为 string, 防上游返 {code, message} 对象 (历史: agnes API error 形如 {code, message}, 被原样存进 messages JSON, web 渲染对象触发 React #31)
       const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '视频生成失败');

@@ -5,6 +5,21 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.63",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-132 修法: video retry 策略细化, 区分 retryable vs non-retryable (content_policy 不 retry, 避免连续撞 agens 2/min 限流)",
+      "highlights": [
+        "BUG-132 ✅ 修前根因: web 端 video agent user 点 '确认方案, 出视频' → agns video 返 400 content_policy_violation (用户 prompt 触发策略, 比如敏感词/超出内容策略) → 修前 retry 逻辑 (agnesVideoProvider.ts:229 + :277 双块) 盲目 retry 3 次 → 第 1/2 次 400 content_policy, 第 3 次撞 agns 服务端 'allows 2 requests per 1 minute(s)' 限流 (429) → 用户看到 'agns 视频 API 限流中, 请稍后重试' (shipin-APP videoAgentService.ts:599 文案) 但根因是 content_policy 拒绝 (retry 永远解不了策略拦截)",
+        "BUG-132 ✅ 修前日志时序: 13:35:36 confirm accept (createTask background) → 13:35:41 attempt=0 400 content_policy → 13:35:50 attempt=1 400 → 13:36:00 attempt=2 429 rate_limit_exceeded → 友好文案误导 'API 限流中'. 跟 BUG-122 (拆 3 企业 key) + BUG-123 (客户端 sliding window 2/min) + BUG-118 (error_msg 必带 ERR_TYPE 前缀) 3 个跟 video 限流相关的 BUG 都得一一排查, BUG-132 是关键修根因 (server catch 块 retry 策略)",
+        "BUG-132 ✅ 修法 1 (server 端细化 retry): 新加 AgnesVideoError + AgnesVideoErrorType enum (CONTENT_POLICY/RATE_LIMIT/UPSTREAM_BUSY/TIMEOUT/INVALID_INPUT/NETWORK/UNKNOWN). createTask 修前 line 229 + line 277 双块盲目 retry, 修后: CONTENT_POLICY/INVALID_INPUT 直接 throw 不再 retry (retry 永远解不了), RATE_LIMIT/UPSTREAM_BUSY/TIMEOUT 走 retry (有恢复机会)",
+        "BUG-132 ✅ 修法 2 (server backoff 5s→8s/12s): RETRY_BACKOFF_MS = [5000, 5000] → [8000, 12000] 加长 backoff, 减少 1 min 内 retry 撞 agens 2/min 限流概率 (修前 5s+5s+2 视频 = 1 min 内 3 次撞限流, 修后 8s+12s 通常等到下一分钟窗口后 retry)",
+        "BUG-132 ✅ 修法 3 (上层 videoAgentService 文案细化): 按 err.type 返 5 种友好文案, 跟 BUG-118 error_msg ERR_TYPE 1:1 对齐: CONTENT_POLICY → '视频描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述后重试' (不误导 'API 限流中'); RATE_LIMIT → 'agns 视频 API 限流中, 请 1-2 分钟后重试'; UPSTREAM_BUSY → '上游繁忙'; TIMEOUT → '超时, 请减少时长'; INVALID_INPUT → '请求无效'. 跟 BUG-079 假报告 + BUG-118 文案误导 100% 同源, 现在不再统一判为 'API 限流中'",
+        "BUG-132 ✅ 验证 4 维 (后续跑 E2E): 1) 修改 prompt 加 '美女'/'政治'/'武器' 等敏感词 → 立刻返 CONTENT_POLICY 文案不再 retry 3 次 2) 1 min 内 5 次 request → 第 3 次仍能 retry 不立即撞限流 (backoff 加长效果) 3) 修改 prompt 删敏感词 → 成功生成 4) shipin-app log 看到 attempt=0 hit content_policy throw 一次后立刻返,不出现 3 次 retry",
+        "BUG-132 ✅ 升 v3.0.62 → v3.0.63: 8 处版本号同步 (server 5 处 + mobile/web 2 处配置 + changelog), mobile build.gradle versionCode 65→66, server 端代码改动 (mobile/web 0 业务变化, APK 仍要重打 catch 块防呆). 跟 BUG-131 100% 同源: server-only hotfix 必 rebuild APK"
+      ]
+    },
+    {
       "version": "3.0.62",
       "buildDate": "2026-06-30",
       "type": "patch",
@@ -434,6 +449,6 @@
       ]
     }
   ],
-  "latest_version": "3.0.62",
+  "latest_version": "3.0.63",
   "latest_version_time": "2026-06-30"
 }
