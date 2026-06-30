@@ -5,6 +5,24 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.59",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-130 mobile 端生图/视频助手补\"上传参考图\"功能 (跟 web 端 AgentChatPanel 1:1 镜像, 修 S72 batch 7 web→mobile 同步漏修), 8 处版本号同步 3.0.58 → 3.0.59",
+      "highlights": [
+        "BUG-130 ✅ 修前根因: web 端 AgentChatPanel.tsx v3.0.0 就有完整参考图功能 (pendingRefs state + upload + 缩略图 + send parts 拼接), 但 mobile 端 ImageAgentScreen + VideoAgentScreen 从 v3.0.24 S60 一直 0 个上传入口, send() 只发 1 个 text part, server 端 refImageUrlsFromParts 永远抽不到 image role='reference'. S72 batch 7 规范反转'web 主导 mobile 跟随'后, 这条一直没补",
+        "BUG-130 ✅ 修法 1: mobile client.ts 加 uploadAgentReferenceApi (XHR + FormData 跟 web 1:1, 走 XMLHttpRequest 不用 axios 因为 RN 0.73 上 axios multipart 不稳, 跟 UploadScreen.tsx 已跑的 XHR 模式 1:1). 返 axios response shape (Promise<{ data: { data: { url, publicUrl } } }>) 跟 web 调用方 1:1",
+        "BUG-130 ✅ 修法 2: mobile ImageAgentScreen + VideoAgentScreen 加 pickAndUploadImages (react-native-document-picker.types.images 选图, 不用装 react-native-image-picker 不用加相机权限, 跟 BUG-097 '用现有依赖不加重' 教训一致)",
+        "BUG-130 ✅ 修法 3: pendingRefs state (4 张上限, 缩略图 + 上传中 spinner + 删除按钮, 跟 web 1:1). send() 把 image role='reference' parts 跟 text 一起发给 server chat API, server 端 refImageUrlsFromParts 自动抽到 refImageUrls (server 端零改动)",
+        "BUG-130 ✅ 修法 4: 📎 上传按钮 + thumbnail bar 加在 inputBar 上方 (跟 web AgentChatPanel 1:1 镜像, 跨端铁律 4++). sendBtn disabled 条件加: (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)",
+        "BUG-130 ✅ 跨端铁律 4++ 1:1 镜像: web uploadAgentReferenceApi + mobile uploadAgentReferenceApi 同 API 同 shape / web pendingRefs type + mobile PendingRef type 1:1 / web AgentChatPanel UI + mobile ImageAgentScreen + VideoAgentScreen UI 1:1 / web send() + mobile send() 同 parts 构造 (先 text, 再 image role='reference')",
+        "BUG-130 ✅ 不动 server 端: imageAgentService.ts refImageUrlsFromParts (line 137) + videoAgentService.ts refImageUrls 处理 (line 229) + agnesImageProvider/VideoProvider referenceImages 透传 都正确, BUG-128 已走过完整链路. 这次纯 mobile 端补 UI + API",
+        "BUG-130 ✅ 升 v3.0.58 → v3.0.59: 8 处版本号同步 (mobile src/config/version.ts / web src/config/version.ts + APP_VERSION_CODE 62→63 / server package.json / server src/index.ts fallback / server ecosystem.config.js env + env_production / mobile android/app/build.gradle versionCode 62→63 + versionName)",
+        "BUG-130 ✅ BOM 检查: PowerShell Edit 工具纯 ASCII 替换不写 BOM, 6 个改过的文件 (build.gradle + package.json + 3 个 version.ts + ecosystem.config.js + server src/index.ts) 全部 head 3 bytes ≠ EF BB BF, build.gradle tsc/gradle 解析安全",
+        "BUG-130 ✅ 跨项目通用铁律 (新增 3 条, 跟 BUG-079/082/097/124/128 100% 同源, 沉淀 mavis memory): ① web + mobile 镜像功能必双端同步实现, web 做了 mobile 没做 = 漏修 (S72 batch 7 规范反转) ② XHR 优于 axios 上传文件 (RN 0.73 上 multipart 兼容), 跟现有 UploadScreen.tsx XHR 模式 1:1 ③ document-picker types.images 优于 image-picker (不用新装包不用加权限, 跟 '用现有依赖不加重' 教训一致)"
+      ]
+    },
+    {
       "version": "3.0.58",
       "buildDate": "2026-06-29",
       "type": "patch",

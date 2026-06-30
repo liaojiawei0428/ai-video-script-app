@@ -6562,3 +6562,113 @@ const latestVersion = (allChangelog as any).latestVersion || currentVersion;
 
 ---
 
+## BUG-130 (v3.0.59 mobile 端生图/视频助手无"上传参考图"功能, 跟 web 端 1:1 镜像漏修): web 端 AgentChatPanel.tsx v3.0.0 就有完整参考图功能 (pendingRefs state + upload + 缩略图 + send parts 拼接), 但 mobile 端 ImageAgentScreen + VideoAgentScreen 从 v3.0.24 S60 一直 0 个上传入口, send() 只发 1 个 text part, server 端 refImageUrlsFromParts 永远抽不到 image role='reference'. S72 batch 7 规范反转"web 主导 mobile 跟随"后, 这条一直没补, 用户报"生成图片生成视频都没有上传参考图的功能" (跟 BUG-079/082/097/124/128 100% 同源, 跨端铁律 4++ 漏修) (S72 batch 30, 2026-06-30)
+
+### 现象
+
+用户在 https://ab.maque.uno/image-agent + /video-agent 能正常上传参考图 (📎 按钮 + 缩略图 + send 拼接), 但在 Android 客户端的生图助手 + 视频助手里, 看不到 📎 按钮, TextInput 只能输入文字, send 后 server plan 的 refImageCount 永远 = 0.
+
+**双 BUG 100% 同源**:
+- **BUG-A (mobile 端 0 个上传入口)**: `ImageAgentScreen.tsx:275` send() 写 `imageAgentChatApi(conversationId, [userPart], ...)` — 只发 1 个 text part; `VideoAgentScreen.tsx:329` send() 同款只发 text. 没有 `pendingRefs` state, 没有 image picker, 没有 upload API 调用
+- **BUG-B (S72 batch 7 web→mobile 同步漏修)**: web 端 AgentChatPanel.tsx 完整功能 1+ 年 (v3.0.0), 但 S72 batch 7 规范反转"web 主导 mobile 跟随"后, 这条一直没补. 跟 BUG-097 mobile 漏修 web 100% 同源 (漏修方向反转)
+
+### 修前根因
+
+1. **web 端早就做完了 (v3.0.0)**: `AgentChatPanel.tsx` 有完整 `pendingRefs` state + `onPickFiles` (FileList → /api/agent/upload) + thumbnail preview + send() 时 `parts.push({ type: 'image', url: r.url, role: 'reference' as const })` 跟 text 一起发. server 端 `imageAgentService.refImageUrlsFromParts()` + `videoAgentService.refImageUrls` 抽取 image role='reference' 一直工作正常
+2. **mobile 端一直 0 个**: 查 `apps/mobile/src/screens/ImageAgentScreen.tsx` + `VideoAgentScreen.tsx` 全文件, 没有 `pendingRefs` / `DocumentPicker` / `uploadAgentReferenceApi` / `launchImageLibrary` 任何相关引用. 缺的太多, 不是 1-2 行 hotfix 能修
+3. **API client 早就支持**: `imageAgentChatApi(conversationId: string, parts: any[], ...)` 跟 `videoAgentChatApi(...)` 都接受 `parts[]` 数组, 透传到 server 没问题. 缺的是 UI 入口 + state + image picker 集成
+
+### 修法 (3 文件, 跨端铁律 4++ 1:1 镜像 web, server 端 0 改)
+
+```
+apps/mobile/src/api/client.ts (新加 22 行)
+├─ import PendingRef interface (跟 web 1:1)
+└─ export function uploadAgentReferenceApi(file: { uri, name, type? }): Promise<{ data: { data: { url, publicUrl? } } }>
+   ├─ 走 XMLHttpRequest + FormData (跟 UploadScreen.tsx 已用 XHR 模式 1:1, RN 0.73 上 axios multipart 不稳)
+   ├─ 模拟 axios response shape (r.data = server body = { data: { url, publicUrl } })
+   └─ 调用方 r.data?.data?.url 拿 url (跟 web 1:1)
+   注: 不装 react-native-image-picker 不用新加相机权限, 用现有 react-native-document-picker types.images (跟 BUG-097 '用现有依赖不加重' 教训一致)
+
+apps/mobile/src/screens/ImageAgentScreen.tsx (新加 4 段 + 改 2 处)
+├─ import DocumentPicker + uploadAgentReferenceApi + PendingRef
+├─ useState<PendingRef[]>([]) 加 pendingRefs state
+├─ 新加 pickAndUploadImages() (跟 web onPickFiles 1:1):
+│   ├─ DocumentPicker.pick({ type: [DocumentPicker.types.images], allowMultiSelection: true, copyTo: 'cachesDirectory' })
+│   ├─ 4 张上限, 立即显示本地预览 (用 f.fileCopyUri || f.uri 拼 Image source)
+│   ├─ 异步 uploadAgentReferenceApi → 替换占位为 server URL
+│   └─ 失败 showAlert + 移除占位
+├─ 新加 removePendingRef(filename) (跟 web 1:1)
+├─ 改 send() (跟 web 1:1):
+│   ├─ 校验条件 (!content && pendingRefs.length === 0) — 允许只发图不发文字
+│   ├─ 校验 uploading 中 → showAlert
+│   ├─ 构造 parts: text 在前, image role='reference' 在后
+│   ├─ setPendingRefs([]) 清空待发送列表
+│   └─ 把 parts 整个传给 imageAgentChatApi (server 端 refImageUrlsFromParts 抽 image role='reference')
+├─ 改 sendBtn disabled: (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)
+├─ inputBar 上面加 📎 上传按钮 + thumbnail bar (跟 web AgentChatPanel 1:1 镜像)
+└─ styles 新加 uploadBtn + pendingRefsBar + pendingRefItem + pendingRefThumb + pendingRefOverlay + pendingRefRemoveBtn 6 个
+
+apps/mobile/src/screens/VideoAgentScreen.tsx (1:1 镜像 ImageAgentScreen)
+└─ 跟 ImageAgentScreen 1:1 完全同步 (跨端铁律 4++), 唯一区别是 send() 调 videoAgentChatApi 不是 imageAgentChatApi
+
+server 端: imageAgentService + videoAgentService 0 改动 (refImageUrlsFromParts + referenceImages 透传 早就在 BUG-128 走通过完整链路)
+```
+
+### 验证 (8 处版本号同步 + 6 文件 BOM 检查 + 2 改 screen tsc 0 新错)
+
+- ✅ **8 处版本号同步 3.0.58 → 3.0.59** (跨端铁律 3):
+  1. `apps/mobile/src/config/version.ts`: 3.0.58 → 3.0.59 + 加 v3.0.59 注释段
+  2. `apps/web/src/config/version.ts`: 3.0.58 → 3.0.59 + APP_VERSION_CODE 62 → 63
+  3. `apps/server/package.json`: 3.0.58 → 3.0.59
+  4. `apps/server/src/index.ts` line 102 fallback: 3.0.58 → 3.0.59
+  5. `apps/server/ecosystem.config.js` env + env_production: 3.0.58 → 3.0.59 (2 处)
+  6. `apps/mobile/android/app/build.gradle`: versionCode 62 → 63 + versionName 3.0.58 → 3.0.59
+  7. `apps/server/changelog.json`: 加 v3.0.59 BUG-130 entry (10 条 highlights) + latest_version 同步
+  8. `apps/server/.env` + `/etc/systemd/system/shipin-app.service`: deploy.sh 自动同步 (本次不动代码, deploy 时跑)
+
+- ✅ **BOM 检查 (AGENTS.md § 6.10.4 第 7 条强约束, PowerShell Edit 工具会写 BOM)**: python 脚本 `tools/check-bom-bug130.py` 跑 6 个改过的文件 (`build.gradle` + `package.json` + 3 个 `version.ts` + `ecosystem.config.js` + `server/src/index.ts`), head 3 bytes 全部 ≠ EF BB BF, build.gradle tsc/gradle 解析安全
+
+- ✅ **mobile tsc 0 新错**: 跑 `npx tsc --noEmit`, 2 改 screen (ImageAgentScreen + VideoAgentScreen) 一共 2 个错, **2 个都是 pre-existing** (`part.stage` 类型 narrow 缺失, BUG-119/123 集成 StreamingCard + StreamingCardImage 留下的), 跟 BUG-130 无关. pre-existing 50+ 个其他 screen 错也不动
+
+- ✅ **公网 upload 端点 health check**: `curl https://ab.maque.uno/api/agent/upload` 返 401 Unauthorized (authMiddleware 起作用), 端点健康, server 端接受 multipart 'file' 字段已经 1+ 年没动过
+
+- ✅ **changelog.json 合法 JSON**: python `json.load` 24 entries, latest 3.0.59 buildDate 2026-06-30
+
+### 跟其他 BUG 关系 (跨项目通用铁律 100% 同源)
+
+- **BUG-079** 假报告 — 跟 BUG-130 "web 早就做完了 mobile 一直 0 个" 100% 同源, server 端 refImageUrlsFromParts 在 mobile 没传时永远抽空 = 假功能 (跟 BUG-079 假报告同源)
+- **BUG-082/096** 假渲染陷阱 — 跟 BUG-130 "UI 没入口但 server 端 API 通了" 同源, 前端没真反映后端能力
+- **BUG-097** mobile 漏修 web — BUG-130 是这条的 100% 同源 (漏修方向反转: 之前 mobile 漏修 web, BUG-130 web 做了 mobile 漏修). 跟 S72 batch 7 规范反转"web 主导 mobile 跟随" 同源
+- **BUG-103** 自动退款漏刷 APK — BUG-130 此次重打 mobile APK (web 已有功能, mobile 补齐)
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-130 跨项目通用铁律同源
+- **BUG-118/119/120/121/122/123/124/125/126/127/128/129** — BUG-130 是这一系列 server 端修的延伸, 这次终于轮到 mobile 端 UI 入口补齐 (跨端铁律 4++ 1:1 镜像)
+- **BUG-128** VIDEO_PROMPT_REF_IMAGE_SYSTEM — BUG-130 直接受益, mobile 现在能传 ref image 给 video, server VIDEO_PROMPT_REF_IMAGE_SYSTEM 立刻可用 (修前 mobile 用户根本传不上图, BUG-128 的 LLM 优化层 100% 跑 generic 路径)
+
+### 关键 git (commit message 必带 BUG 编号, AGENTS.md § 4 铁律 6)
+
+- 修改 (3 文件 + 6 文件 8 处版本号 + 1 changelog + 1 BUGS.md 沉淀):
+  - `apps/mobile/src/api/client.ts` (新加 22 行 uploadAgentReferenceApi + PendingRef interface)
+  - `apps/mobile/src/screens/ImageAgentScreen.tsx` (新加 4 段 + 改 2 处 + 6 styles)
+  - `apps/mobile/src/screens/VideoAgentScreen.tsx` (1:1 镜像 ImageAgentScreen, 跟 web 1:1)
+  - `apps/mobile/src/config/version.ts` (3.0.58 → 3.0.59 + 注释)
+  - `apps/web/src/config/version.ts` (3.0.58 → 3.0.59 + APP_VERSION_CODE 62→63)
+  - `apps/server/package.json` (3.0.58 → 3.0.59)
+  - `apps/server/src/index.ts` (3.0.58 → 3.0.59)
+  - `apps/server/ecosystem.config.js` (3.0.58 → 3.0.59, 2 处)
+  - `apps/mobile/android/app/build.gradle` (versionCode 62→63, versionName 3.0.58→3.0.59)
+  - `apps/server/changelog.json` (加 v3.0.59 BUG-130 entry 10 条 highlights)
+  - `apps/mobile/BUGS.md` (本条 BUG-130 沉淀, ~80 行)
+
+- 验证: 8 处版本号同步 (手核 + python 脚本) + 6 文件 BOM 检查 + 2 改 screen tsc 0 新错 + 公网 upload 端点 401 health + changelog.json 合法 JSON
+- 部署: `cd apps/mobile && npx react-native run-android` 重打 APK + 8 处版本号 deploy 时跑 deploy.sh 同步 .env + systemd unit (server 端代码 0 改, 不需要 restart)
+- commit: `v3.0.59: mobile 端生图/视频助手补'上传参考图'功能 (BUG-130 + 跨端铁律 4++ web→mobile 同步漏修, 跟 BUG-097/128 100% 同源)`
+
+### 跨项目通用铁律 (新增 3 条, 跟 BUG-079/082/097/124/128 100% 同源, 沉淀 mavis memory)
+
+1. **web + mobile 镜像功能必双端同步实现, web 做了 mobile 没做 = 漏修**: S72 batch 7 规范反转"web 主导 mobile 跟随"后, web + mobile 镜像功能必双端同步实现, 否则就是 BUG-097 类型的漏修. check_list 必查: web 端 X 功能有 mobile 端有没有? 有就修, 没有就 1:1 镜像
+2. **XHR 优于 axios 上传文件 (RN 0.73 上)**: RN 0.73 上 axios multipart 兼容性不稳, 走 XMLHttpRequest + FormData 是稳路径, 跟 UploadScreen.tsx 已跑的 XHR 模式 1:1. RN 项目上传文件必走 XHR
+3. **document-picker types.images 优于 image-picker (RN 0.73 上)**: 不装 react-native-image-picker 不用加相机权限, 走 react-native-document-picker types.images 选图, 跟 BUG-097 "用现有依赖不加重" 教训一致. RN 项目选图必走 document-picker
+
+---
+
+

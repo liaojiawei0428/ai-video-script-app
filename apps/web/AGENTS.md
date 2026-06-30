@@ -274,3 +274,62 @@ apps/web/src/components/AgentChatPanel.tsx
 - **BUG-115/116** 缓存方案 A+B — 跟 BUG-120 跨项目通用铁律同源
 - **BUG-118** 细分 status 字段但漏加 status label UI — BUG-120 教训同源 "加了 state 漏消费"
 - **BUG-119** retry 清理 + GeneratingLoader 全屏集成 — BUG-120 补上 ratio 维度
+
+---
+
+## § 5.9 v3.0.59 新增: AgentChatPanel 上传参考图功能 mobile 端 1:1 镜像, 跨端铁律 4++ web→mobile 同步 (S72 batch 30 BUG-130)
+
+> **新增 2026-06-30 (S72 batch 30 v3.0.59 BUG-130)**: web 端 AgentChatPanel v3.0.0 早就有完整参考图功能, mobile 端一直 0 个上传入口. S72 batch 7 规范反转"web 主导 mobile 跟随" 漏修 1+ 年, 这次 BUG-130 修. 跨端铁律 4++ web→mobile 同步, 跟 mobile § 6.15 1:1.
+
+### § 5.9.1 背景 (跟 mobile § 6.15.1 1:1)
+
+web 端 AgentChatPanel.tsx 完整功能 v3.0.0 起就有, 但 BUG-130 之前 mobile 端 0 个上传入口. 1+ 年用户手机端不能传图, 跟 web 端 UI 不一致 (跨端铁律 4++ 漏修).
+
+**双 BUG 100% 同源**:
+- **BUG-A (mobile 端 0 个上传入口)**: mobile ImageAgentScreen + VideoAgentScreen send() 只发 1 个 text part
+- **BUG-B (S72 batch 7 web→mobile 同步漏修)**: 跟 BUG-097 mobile 漏修 web 100% 同源 (漏修方向反转)
+
+### § 5.9.2 修法架构 (web 端 0 改, mobile 端补齐 1:1)
+
+web 端 AgentChatPanel.tsx v3.0.0 就有完整功能:
+- `pendingRefs` state (4 张上限)
+- `onPickFiles` → `uploadAgentReferenceApi` → 替换占位为 server URL
+- thumbnail bar (inputBar 上方)
+- send() 构造 parts (text 在前, image role='reference' 在后)
+
+mobile 端 1:1 镜像见 mobile § 6.15.2.
+
+### § 5.9.3 跨端铁律 4++ 镜像 (跟 mobile § 6.15.3 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| Upload API | `uploadAgentReferenceApi(file: File)` (axios FormData) | `uploadAgentReferenceApi(file: { uri, name, type? })` (XHR FormData) | ✅ API 1:1 |
+| State type | `pendingRefs: { url, localPreview, filename, uploading? }[]` | `PendingRef` interface (mobile 单独 export) | ✅ 类型 1:1 |
+| State 上限 | 4 张 | 4 张 | ✅ 1:1 |
+| Image picker | `<input type="file" accept="image/*" multiple>` | `DocumentPicker.pick({ type: [DocumentPicker.types.images] })` | ✅ 行为 1:1 |
+| Send 拼接 parts | text + image role='reference' | 同左 | ✅ 1:1 |
+| sendBtn disabled | `!input.trim() && pendingRefs.length === 0` | 同左 | ✅ 1:1 |
+| UI 位置 | inputBar 上方 (📎 + thumbnail bar) | 同左 | ✅ 1:1 |
+| 服务端调用 | `chatApi(conversationId, parts, ...)` | `imageAgentChatApi` / `videoAgentChatApi` | ✅ 1:1 |
+
+### § 5.9.4 使用规范 (跟 mobile § 6.15.4 1:1)
+
+1. **web + mobile 镜像功能必双端同步实现 (S72 batch 7 规范反转铁律)**: web 做了 mobile 没做 = 漏修, check_list 必查
+2. **server 端 0 改动原则**: web 端 API 早就接住, mobile 端补 UI 入口后 server 端代码不动
+3. **Response shape 模拟 axios 1:1**: mobile XHR upload 必返 axios response shape 让调用方跟 web 1:1
+4. **inputBar 上方加 📎 + thumbnail bar**: 跟 web AgentChatPanel 1:1 镜像
+5. **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3, 3.0.58 → 3.0.59)
+
+### § 5.9.5 跨项目通用 (跟 BUG-079/082/097/124/128 100% 同源, 跟 mobile § 6.15.5 1:1)
+
+- **web + mobile 镜像功能必双端同步实现**: 跨项目通用铁律, 漏修方向 = S72 batch 7 后 web 做了 mobile 漏修
+- **server 端 0 改动原则**: 跨项目通用铁律
+- **8 处版本号同步必走**: 跨端铁律 3
+
+### § 5.9.6 跟其他 BUG 关系 (跟 mobile § 6.15.6 1:1)
+
+- **BUG-079** 假报告 — 跟 BUG-130 同源
+- **BUG-097** mobile 漏修 web — BUG-130 100% 同源 (漏修方向反转)
+- **BUG-103** 自动退款漏刷 APK — BUG-130 此次重打 mobile APK
+- **BUG-118/119/120/121/122/123/124/125/126/127/128/129** — BUG-130 是这一系列延伸
+- **BUG-128** VIDEO_PROMPT_REF_IMAGE_SYSTEM — BUG-130 直接受益, mobile 现在能传 ref image 给 video

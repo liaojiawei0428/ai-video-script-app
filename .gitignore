@@ -93,3 +93,7 @@ apps/server/deploy.sh.original
 # 部署前 npm run build 打的 dist tar, 部署完即弃 (跟 S72 batch 6 21 untracked 清理同源)
 apps/server/dist_*.tar.gz
 apps/web/web-dist-*.tgz
+
+# === S72 batch 30 BUG-130 (2026-06-30) ===
+# adb screenshots: temp PNGs from BUG verification, 100+ files, not in git
+.adb-shots/

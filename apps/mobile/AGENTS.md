@@ -978,5 +978,97 @@ shipin-APP 端 6 个 provider 调用点 (5 image + 1 video) 全部 "fire-and-for
 - **BUG-117** 公网 APK 404 — BUG-119 跨项目通用铁律新一条 "APK 必传对路径"
 - **BUG-118** 细分了 status 字段但漏加 status label UI — BUG-119 教训同源 "加了 component 漏集成"
 
-> **最后更新**: 2026-06-29 (S72 batch 20 v3.0.48 BUG-119, 加 § 6.10 videoAgent retry 清理 + GeneratingLoader 1:1 集成补齐规范, 跟根 AGENTS.md v2.15 同步)
+---
+
+## § 6.15 v3.0.59 新增: mobile 端生图/视频助手补"上传参考图"功能, 跟 web 1:1 镜像 (S72 batch 30 BUG-130)
+
+> **新增 2026-06-30 (S72 batch 30 v3.0.59 BUG-130)**: 修 mobile 端 ImageAgentScreen + VideoAgentScreen 0 个上传参考图入口 — 跟 web 端 AgentChatPanel 1:1 镜像, 补 S72 batch 7 web→mobile 同步漏修. web 端 v3.0.0 就有完整功能, mobile 端从 v3.0.24 S60 一直 0 个, 跨端铁律 4++ "web 主导 mobile 跟随" 漏修 1+ 年.
+
+### § 6.15.1 背景 (跟 web § 5.10.1 1:1)
+
+用户在 https://ab.maque.uno/image-agent + /video-agent 能正常上传参考图 (📎 按钮 + 缩略图 + send 拼接), 但在 Android 客户端的生图助手 + 视频助手里, 看不到 📎 按钮, TextInput 只能输入文字, send 后 server plan 的 refImageCount 永远 = 0.
+
+**双 BUG 100% 同源**:
+- **BUG-A (mobile 端 0 个上传入口)**: `ImageAgentScreen.tsx:275` send() 写 `imageAgentChatApi(conversationId, [userPart], ...)` — 只发 1 个 text part; `VideoAgentScreen.tsx:329` send() 同款只发 text. 没有 `pendingRefs` state, 没有 image picker, 没有 upload API 调用
+- **BUG-B (S72 batch 7 web→mobile 同步漏修)**: web 端 AgentChatPanel.tsx 完整功能 1+ 年 (v3.0.0), 但 S72 batch 7 规范反转"web 主导 mobile 跟随"后, 这条一直没补. 跟 BUG-097 mobile 漏修 web 100% 同源 (漏修方向反转)
+
+### § 6.15.2 修法架构 (3 文件, server 端 0 改)
+
+```
+apps/mobile/src/api/client.ts (新加 22 行)
+├─ import PendingRef interface (跟 web 1:1)
+└─ export function uploadAgentReferenceApi(file: { uri, name, type? }): Promise<{ data: { data: { url, publicUrl? } } }>
+   ├─ 走 XMLHttpRequest + FormData (跟 UploadScreen.tsx 已用 XHR 模式 1:1, RN 0.73 上 axios multipart 不稳)
+   ├─ 模拟 axios response shape (r.data = server body = { data: { url, publicUrl } })
+   └─ 调用方 r.data?.data?.url 拿 url (跟 web 1:1)
+   注: 不装 react-native-image-picker 不用新加相机权限, 用现有 react-native-document-picker types.images (跟 BUG-097 '用现有依赖不加重' 教训一致)
+
+apps/mobile/src/screens/ImageAgentScreen.tsx (新加 4 段 + 改 2 处 + 6 styles)
+├─ import DocumentPicker + uploadAgentReferenceApi + PendingRef
+├─ useState<PendingRef[]>([]) 加 pendingRefs state
+├─ 新加 pickAndUploadImages() (跟 web onPickFiles 1:1): DocumentPicker.types.images 选图, 4 张上限, 立即显示本地预览, 异步 upload → 替换为 server URL, 失败 showAlert + 移除占位
+├─ 新加 removePendingRef(filename) (跟 web 1:1)
+├─ 改 send() (跟 web 1:1): 允许只发图不发文字, 校验 uploading 中, 构造 parts (text 在前, image role='reference' 在后), setPendingRefs([]) 清空待发送, 把 parts 整个传给 imageAgentChatApi
+├─ 改 sendBtn disabled: (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)
+├─ inputBar 上面加 📎 上传按钮 + thumbnail bar (跟 web AgentChatPanel 1:1 镜像)
+└─ styles 新加 uploadBtn + pendingRefsBar + pendingRefItem + pendingRefThumb + pendingRefOverlay + pendingRefRemoveBtn 6 个
+
+apps/mobile/src/screens/VideoAgentScreen.tsx (1:1 镜像 ImageAgentScreen)
+└─ 跟 ImageAgentScreen 1:1 完全同步 (跨端铁律 4++), 唯一区别是 send() 调 videoAgentChatApi 不是 imageAgentChatApi
+
+server 端: imageAgentService + videoAgentService 0 改动 (refImageUrlsFromParts + referenceImages 透传 早就在 BUG-128 走通过完整链路)
+```
+
+### § 6.15.3 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| Upload API | `uploadAgentReferenceApi(file: File)` (axios FormData) | `uploadAgentReferenceApi(file: { uri, name, type? })` (XHR FormData, 模拟 axios response) | ✅ API 1:1 |
+| Response shape | `Promise<AxiosResponse<{ data: { url, publicUrl? } }>>` → `r.data?.data?.url` | `Promise<{ data: { data: { url, publicUrl? } } }>` → `r.data?.data?.url` | ✅ 调用方 1:1 |
+| State type | `pendingRefs: { url, localPreview, filename, uploading? }[]` (web) | `PendingRef: { url, localPreview, filename, uploading? }` (mobile, 单独 export) | ✅ 类型 1:1 |
+| State 上限 | 4 张 | 4 张 | ✅ 1:1 |
+| Image picker | `<input type="file" accept="image/*" multiple>` | `DocumentPicker.pick({ type: [DocumentPicker.types.images], allowMultiSelection: true })` | ✅ 行为 1:1 (不用 image-picker, 跟 BUG-097 教训一致) |
+| 本地预览 | `URL.createObjectURL(file)` (web) | `f.fileCopyUri || f.uri` (mobile, DocumentPicker 返的 file://) | ✅ 行为 1:1 |
+| Send 拼接 parts | text + image role='reference' | 同左 | ✅ 1:1 |
+| sendBtn disabled | `!input.trim() && pendingRefs.length === 0` | 同左 + `pendingRefs.some(x => x.uploading)` | ✅ 1:1 |
+| UI 位置 | inputBar 上方 (📎 + thumbnail bar) | 同左 | ✅ 1:1 |
+| 服务端调用 | `chatApi(conversationId, userMsg.parts, aspectRatio, durationSec?)` | 同左 (mobile `imageAgentChatApi` + `videoAgentChatApi` API 名字不同, 行为 1:1) | ✅ 1:1 |
+
+### § 6.15.4 使用规范 (跟 web § 5.10.4 1:1)
+
+1. **web + mobile 镜像功能必双端同步实现 (S72 batch 7 规范反转铁律)**: web 做了 mobile 没做 = 漏修, check_list 必查 "web 端 X 功能有 mobile 端有没有?" (跟 BUG-097 100% 同源)
+2. **XHR 优于 axios 上传文件 (RN 0.73)**: RN 0.73 上 axios multipart 兼容性不稳, 走 XMLHttpRequest + FormData 是稳路径, 跟 UploadScreen.tsx 已跑的 XHR 模式 1:1
+3. **document-picker types.images 优于 image-picker (RN 0.73)**: 不装 react-native-image-picker 不用加相机权限, 走 react-native-document-picker types.images 选图, 跟 BUG-097 "用现有依赖不加重" 教训一致
+4. **server 端 0 改动原则**: mobile 端补 UI 入口后, server 端代码早就接住 (`imageAgentService.refImageUrlsFromParts` line 137 + `videoAgentService` refImageUrls 抽取), 不要重复造轮子. 修前端 API 必先 grep server 是否已支持
+5. **Response shape 模拟 axios 1:1**: mobile XHR upload 必返 `Promise<{ data: { data: { url } } }>` 跟 axios 一致, 调用方才能 `r.data?.data?.url` 跟 web 1:1
+6. **inputBar 上方加 📎 + thumbnail bar**: 跟 web AgentChatPanel 1:1 镜像, 缩略图 size 56x56 (mobile) 跟 web 56px (h-14 w-14) 1:1
+7. **允许只发图不发文字**: `send()` 校验条件改 `(!content && pendingRefs.length === 0)`, 跟 web 1:1
+8. **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3, 3.0.58 → 3.0.59)
+9. **BOM 检查必跑**: PowerShell Edit 工具会写 BOM, 改 build.gradle / package.json / version.ts 后必跑 python 脚本查 head 3 bytes ≠ EF BB BF (AGENTS.md § 6.10.4 第 7 条)
+10. **mobile tsc 0 新错**: 改完 mobile screen 必跑 `npx tsc --noEmit`, 只允许 pre-existing 错增加, 不允许新错 (我 BUG-130 修后 2 改 screen 0 新错, 2 pre-existing 错不动)
+
+### § 6.15.5 跨项目通用 (跟 BUG-079/082/097/124/128 100% 同源, 沉淀 mavis memory)
+
+- **web + mobile 镜像功能必双端同步实现**: 跨项目通用铁律, 漏修方向 = S72 batch 7 后 web 做了 mobile 漏修 (跟 BUG-097 mobile 漏修 web 同源)
+- **XHR 优于 axios 上传文件 (RN 0.73)**: 跨项目通用铁律, RN 项目上传文件必走 XHR
+- **document-picker types.images 优于 image-picker (RN 0.73)**: 跨项目通用铁律, RN 项目选图必走 document-picker
+- **server 端 0 改动原则**: 跨项目通用铁律, 修前端 API 必先 grep server 是否已支持
+- **Response shape 模拟 axios 1:1**: 跨项目通用铁律, mobile XHR 上传必返 axios response shape 让调用方跟 web 1:1
+- **inputBar 上方加 📎 + thumbnail bar**: 跨项目通用铁律, 跟 web AgentChatPanel 1:1 镜像
+- **8 处版本号同步必走**: 跨端铁律 3
+- **BOM 检查必跑**: 跨项目通用铁律, AGENTS.md § 6.10.4 第 7 条
+- **mobile tsc 0 新错**: 跨项目通用铁律, 改完 mobile screen 必查没新错
+
+### § 6.15.6 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — 跟 BUG-130 "web 早就做完了 mobile 一直 0 个" 100% 同源, server 端 refImageUrlsFromParts 在 mobile 没传时永远抽空 = 假功能
+- **BUG-082/096** 假渲染陷阱 — 跟 BUG-130 "UI 没入口但 server 端 API 通了" 同源, 前端没真反映后端能力
+- **BUG-097** mobile 漏修 web — BUG-130 是这条的 100% 同源 (漏修方向反转: 之前 mobile 漏修 web, BUG-130 web 做了 mobile 漏修)
+- **BUG-103** 自动退款漏刷 APK — BUG-130 此次重打 mobile APK (web 已有功能, mobile 补齐)
+- **BUG-115/116** 缓存方案 A+B — 跟 BUG-130 跨项目通用铁律同源
+- **BUG-118/119/120/121/122/123/124/125/126/127/128/129** — BUG-130 是这一系列 server 端修的延伸, 这次终于轮到 mobile 端 UI 入口补齐
+- **BUG-128** VIDEO_PROMPT_REF_IMAGE_SYSTEM — BUG-130 直接受益, mobile 现在能传 ref image 给 video, server VIDEO_PROMPT_REF_IMAGE_SYSTEM 立刻可用 (修前 mobile 用户根本传不上图, BUG-128 的 LLM 优化层 100% 跑 generic 路径)
+
+> **最后更新**: 2026-06-30 (S72 batch 30 v3.0.59 BUG-130, 加 § 6.15 mobile 端生图/视频助手补"上传参考图"功能, 跟 web 1:1 镜像, 跟根 AGENTS.md v2.16 同步)
+> **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时

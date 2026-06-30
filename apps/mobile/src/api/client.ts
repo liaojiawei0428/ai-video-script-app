@@ -494,3 +494,51 @@ export const videoAgentGetApi = (id: string) =>
   apiClient.get(`/video-agent/conversations/${id}`);
 export const videoAgentDeleteApi = (id: string) =>
   apiClient.delete(`/video-agent/conversations/${id}`);
+
+// ---- v3.0.5X (BUG-130): Agent 参考图上传 (image-agent / video-agent 通用) ----
+// 跟 web uploadAgentReferenceApi (apps/web/src/lib/api.ts) 1:1 镜像
+// 走 XMLHttpRequest + FormData 而非 axios: RN 0.73 上 axios multipart 兼容性不稳, UploadScreen.tsx 已用 XHR 模式跑通 (深 1+ 年)
+// 返 axios response shape (Promise<{ data: { data: { url, publicUrl } } }>), 跟 web 1:1 调用方 `r.data?.data?.url`
+// server 端 agentUpload.ts POST /agent/upload 返 body = { data: { url, publicUrl } }, axios 把 body 放进 response.data
+// 我们的 XHR 模拟 axios 行为: resolve({ data: parsedBody })
+export interface PendingRef {
+  url: string;             // /api/agent/uploads/<userId>/<filename> 相对路径 (跟 web 1:1)
+  localPreview: string;    // file:// 本地预览 (DocumentPicker 返的 uri)
+  filename: string;
+  uploading?: boolean;
+}
+
+export function uploadAgentReferenceApi(
+  file: { uri: string; name: string; type?: string },
+): Promise<{ data: { data: { url: string; publicUrl?: string } } }> {
+  const token = getAuthToken();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}/agent/upload`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.timeout = 30000;
+    xhr.onload = () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // 模拟 axios: response.data = server body
+          resolve({ data: parsed });
+        } else {
+          reject(new Error(parsed?.error?.message || `上传失败 (${xhr.status})`));
+        }
+      } catch {
+        reject(new Error(`响应解析失败 (HTTP ${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('网络连接失败'));
+    xhr.ontimeout = () => reject(new Error('上传超时（30 秒）'));
+
+    const formData = new FormData();
+    formData.append('file', {
+      uri: file.uri,
+      name: file.name,
+      type: file.type || 'image/jpeg',
+    } as any);
+    xhr.send(formData);
+  });
+}

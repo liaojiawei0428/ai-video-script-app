@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, Image, Modal, FlatList, RefreshControl,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import DocumentPicker from 'react-native-document-picker';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import { ImageWithLoading, GeneratingLoader } from '../components/ui';
@@ -22,6 +23,7 @@ import {
   imageAgentCreateConversationApi, imageAgentChatApi, imageAgentConfirmApi,
   imageAgentHistoryApi, imageAgentGetApi, imageAgentDeleteApi,
   imageAgentTranslatePlanApi, imageAgentUpdatePlanFieldsApi,
+  uploadAgentReferenceApi, type PendingRef,  // v3.0.5X (BUG-130): Agent 参考图上传 (跟 web 1:1)
 } from '../api/client';
 import { useDialog, alert } from '../hooks/useDialog';
 import { buildImageUrl, buildDownloadUrl, downloadImage } from '../utils/agentDownload';
@@ -112,6 +114,7 @@ export function ImageAgentScreen(): React.JSX.Element {
   const [translating, setTranslating] = useState(false);
   const [convStatus, setConvStatus] = useState<string>(''); // v3.0.24.4 BUG-050: 顶部 status badge
   const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050: race condition
+  const [pendingRefs, setPendingRefs] = useState<PendingRef[]>([]); // v3.0.5X (BUG-130): 待发送参考图 (跟 web 1:1)
   const scrollRef = useRef<ScrollView>(null);
   const { showAlert, showConfirm } = useDialog();
 
@@ -264,15 +267,85 @@ export function ImageAgentScreen(): React.JSX.Element {
     return () => clearInterval(timer);
   }, [pollingConvId]);
 
+  // v3.0.5X (BUG-130): 选图片 + 上传 (跟 web AgentChatPanel.onPickFiles 1:1 镜像, 跨端铁律 4++)
+  // 走 react-native-document-picker.types.images 选图 (避免新装 image-picker, 不用新权限)
+  const pickAndUploadImages = async () => {
+    if (pendingRefs.length >= 4) {
+      showAlert({ title: '已达上限', message: '最多 4 张参考图' });
+      return;
+    }
+    try {
+      const results = await DocumentPicker.pick({
+        type: [DocumentPicker.types.images],
+        allowMultiSelection: true,
+        copyTo: 'cachesDirectory',
+      });
+      const remainingSlots = 4 - pendingRefs.length;
+      const limited = results.slice(0, remainingSlots);
+      // 1. 立刻显示本地预览 (跟 web URL.createObjectURL 等价)
+      const placeholders: PendingRef[] = limited.map((f: any) => ({
+        url: '',
+        localPreview: f.fileCopyUri || f.uri,
+        filename: f.name || `img_${Date.now()}.jpg`,
+        uploading: true,
+      }));
+      setPendingRefs(p => [...p, ...placeholders]);
+
+      // 2. 异步上传, 完成后替换为 server URL
+      for (let i = 0; i < limited.length; i++) {
+        const file = limited[i];
+        try {
+          const r = await uploadAgentReferenceApi({
+            uri: file.fileCopyUri || file.uri,
+            name: file.name || `img_${Date.now()}.jpg`,
+            type: file.type || 'image/jpeg',
+          });
+          const serverUrl = r.data?.data?.url || '';
+          if (!serverUrl) throw new Error('server returned no url');
+          setPendingRefs(p => p.map(x =>
+            x.filename === (file.name || `img_${Date.now()}.jpg`) && x.uploading
+              ? { ...x, url: serverUrl, uploading: false }
+              : x
+          ));
+        } catch (e: any) {
+          const msg = e?.response?.data?.error?.message || e?.message || '上传失败';
+          showAlert({ title: '参考图上传失败', message: msg });
+          setPendingRefs(p => p.filter(x => !(x.filename === (file.name || `img_${Date.now()}.jpg`) && x.uploading)));
+        }
+      }
+    } catch (e: any) {
+      if (DocumentPicker.isCancel(e)) return;
+      showAlert({ title: '选择失败', message: e?.message || '请重试' });
+    }
+  };
+
+  // v3.0.5X (BUG-130): 移除某张待发送图 (跟 web removePendingRef 1:1)
+  const removePendingRef = (filename: string) => {
+    setPendingRefs(p => p.filter(x => x.filename !== filename));
+  };
+
   const send = async (text: string) => {
     const content = (text || input).trim();
-    if (!content || !conversationId || loading) return;
+    // v3.0.5X (BUG-130): 允许只发参考图不发文本 (跟 web 1:1), 校验空内容改为"既无 text 又无 refs"
+    if ((!content && pendingRefs.length === 0) || !conversationId || loading) return;
+    if (pendingRefs.some(x => x.uploading)) {
+      showAlert({ title: '请稍候', message: '参考图还在上传...' });
+      return;
+    }
     setInput('');
-    const userPart: AgentPart = { type: 'text', text: content };
-    setMessages(m => [...m, { id: `tmp_${Date.now()}`, role: 'user', parts: [userPart], createdAt: Date.now() }]);
+    // 构造 parts: 先 text, 再 image reference (role='reference', 跟 web send() 1:1)
+    const parts: AgentPart[] = [];
+    if (content) parts.push({ type: 'text', text: content });
+    for (const r of pendingRefs) {
+      if (r.url) {
+        parts.push({ type: 'image', url: r.url, role: 'reference' as const } as any);
+      }
+    }
+    setMessages(m => [...m, { id: `tmp_${Date.now()}`, role: 'user', parts, createdAt: Date.now() }]);
+    setPendingRefs([]);  // 发送完清空待发送列表
     setLoading(true);
     try {
-      const res = await imageAgentChatApi(conversationId, [userPart], selectedRatio || undefined);
+      const res = await imageAgentChatApi(conversationId, parts, selectedRatio || undefined);
       const aiMessage = res.data?.data?.aiMessage;
       if (aiMessage) setMessages(m => [...m, aiMessage]);
     } catch (e: any) {
@@ -591,17 +664,52 @@ export function ImageAgentScreen(): React.JSX.Element {
       </View>
 
       <View style={styles.inputBar}>
+        {/* v3.0.5X (BUG-130): 待发送参考图缩略图条 (跟 web AgentChatPanel line 917-940 1:1 镜像) */}
+        {pendingRefs.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.pendingRefsBar}
+            contentContainerStyle={styles.pendingRefsContent}
+          >
+            {pendingRefs.map((r, idx) => (
+              <View key={`${r.filename}-${idx}`} style={styles.pendingRefItem}>
+                <Image source={{ uri: r.localPreview }} style={styles.pendingRefThumb} />
+                {r.uploading && (
+                  <View style={styles.pendingRefOverlay}>
+                    <ActivityIndicator size="small" color="#fff" />
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.pendingRefRemoveBtn}
+                  onPress={() => removePendingRef(r.filename)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close-circle" size={18} color="#f44" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        )}
+        {/* v3.0.5X (BUG-130): 📎 上传按钮 (跟 web 1:1) */}
+        <TouchableOpacity
+          style={styles.uploadBtn}
+          onPress={pickAndUploadImages}
+          disabled={loading || pendingRefs.length >= 4}
+        >
+          <Ionicons name="attach" size={22} color={(loading || pendingRefs.length >= 4) ? colors.text.tertiary : colors.accent} />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="描述你想生成的图..."
+          placeholder="描述你想生成的图 (可上传参考图)..."
           placeholderTextColor={colors.text.tertiary}
           multiline
           maxLength={500}
         />
-        <TouchableOpacity style={styles.sendBtn} onPress={() => send(input)} disabled={loading || !input.trim()}>
-          <Ionicons name="send" size={20} color={loading || !input.trim() ? colors.text.tertiary : '#fff'} />
+        <TouchableOpacity style={styles.sendBtn} onPress={() => send(input)} disabled={loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)}>
+          <Ionicons name="send" size={20} color={(loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)) ? colors.text.tertiary : '#fff'} />
         </TouchableOpacity>
       </View>
 
@@ -807,6 +915,14 @@ const styles = StyleSheet.create({
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg.primary },
   input: { flex: 1, ...typography.body, color: colors.text.primary, backgroundColor: colors.bg.secondary, borderRadius: radii.lg, paddingHorizontal: spacing.md, paddingVertical: 10, maxHeight: 100 },
   sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  // v3.0.5X (BUG-130): 参考图上传 UI (跟 web AgentChatPanel 1:1 镜像, 跨端铁律 4++)
+  uploadBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.bg.secondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  pendingRefsBar: { flexGrow: 0, maxHeight: 80, marginBottom: 6 },
+  pendingRefsContent: { flexDirection: 'row', gap: 8, paddingRight: 8 },
+  pendingRefItem: { position: 'relative' },
+  pendingRefThumb: { width: 56, height: 56, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg.secondary },
+  pendingRefOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
+  pendingRefRemoveBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: '#fff', borderRadius: 10 },
   historyBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', flexDirection: 'row', justifyContent: 'flex-end' },
   historyPanel: { width: '85%', backgroundColor: colors.bg.primary, height: '100%' },
   historyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
