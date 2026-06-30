@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.64",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-132 配套 客户端 ERR_TYPE 细分: web AgentChatPanel + mobile VideoAgentScreen + mobile ImageAgentScreen tool_throttled/tool_failed 都 parse [content_policy]/[invalid_input]/[rate_limit]/[upstream_busy]/[timeout] ERR_TYPE",
+      "highlights": [
+        "BUG-132 配套 ✅ 修前根因: web AgentChatPanel.tsx:750-768 修前只 parse tool_throttled 状态 + [404]/[429]/[5xx] 3 种 ERR_TYPE, 完全不 parse tool_failed (image 跟 video 都进 tool_failed 状态), 漏 [content_policy] 4 种 type ([content_policy]/[invalid_input]/[rate_limit]/[upstream_busy]/[timeout]). mobile VideoAgentScreen.tsx 跟 web video 镜像也只 3 种 type; ImageAgentScreen.tsx 完全没 parse ERR_TYPE (label 永远是 '失败' / '限流暂停'). 用户触发 content_policy 仍然看到 '限流暂停/失败' 通用 label, 不知道是策略拦截",
+        "BUG-132 配套 ✅ 修法 (4 文件 web + mobile 全覆盖): web AgentChatPanel tool_throttled + tool_failed 2 状态都 parse 6 种 ERR_TYPE (content_policy/invalid_input 红色 '策略拦截', rate_limit/429 橙 '限流', upstream_busy/5xx/timeout 琥珀 '上游异常', 404 红 '任务失效') + fallback 文案从误导 'API 限流, 已暂停' 改成 'AI 生成暂停, 请查看错误详情'; mobile VideoAgentScreen THROTTLED_SUBTYPE_MAP 扩 6 种 key, StatusBadge 接受 error_msg + parse 7 种 ERR_TYPE, 跟 web 1:1; mobile ImageAgentScreen 完全重做 (跟 video 1:1), 加 SUBTYPE_MAP 7 种 + 修 StatusBadge + 修调用点 (line 612 + line 796) 传 error_msg 进去",
+        "BUG-132 配套 ✅ 跨端铁律 4++ 1:1 镜像: web + mobile 解析 ERR_TYPE 逻辑完全同步 (THROTTLED/SUBTYPE_MAP key 跟颜色一致), 用户体验 web/mobile 两端不区分报错 (跟 BUG-097 mobile 漏修 web 反向教训). 含 [content_policy] 子映射红 + [rate_limit] 子映射橙 + [upstream_busy/timeout] 子映射琥珀 + [404] 子映射深红",
+        "BUG-132 配套 ✅ 验证: web AgentChatPanel + mobile VideoAgent + mobile ImageAgent 3 端 status badge 全部 parse [content_policy] ERR_TYPE, 用户触发 content_policy 时统一显示 红色 '策略拦截' chip, 跟 web BUG-118/132 跨项目通用铁律对齐. fallback 文案从误导 'API 限流' 改 '请查看错误详情', 防止 server 错误时误显示 API 限流",
+        "BUG-132 配套 ✅ 升 v3.0.63 → v3.0.64: 8 处版本号同步 (server 5 处 + mobile/web 2 处配置 + changelog), mobile build.gradle versionCode 66→67, APK 重打 (server-only hotfix 配套 BUG-131 跨端铁律 4++++), web tsc + web dist 重 build (vite inline version.ts). 跟 BUG-131 100% 同源: 客户端 bug 必 ship 真实客户端二进制 (不能只 commit)",
+        "BUG-132 配套 ✅ mavis memory 沉淀 web/mobile 客户端 ERR_TYPE 细分铁律 (跨项目通用, 跟 BUG-118 错误分类 1:1): 4 维 (web AgentChatPanel/tool_throttled/tool_failed + mobile VideoAgent/ImageAgent) 镜像同步, 任何 client 端 status badge 必 parse server 返的 ERR_TYPE 前缀"
+      ]
+    },
+    {
       "version": "3.0.63",
       "buildDate": "2026-06-30",
       "type": "patch",
@@ -449,6 +463,6 @@
       ]
     }
   ],
-  "latest_version": "3.0.63",
+  "latest_version": "3.0.64",
   "latest_version_time": "2026-06-30"
 }

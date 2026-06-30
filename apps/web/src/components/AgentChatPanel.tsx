@@ -678,7 +678,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
             break;
           }
           if (cur.status === 'tool_throttled') {
-            finalError = cur.error_msg || 'API 限流, 已暂停, 请稍后手动重试';
+            finalError = cur.error_msg || 'AI 生成暂停, 请查看错误详情后手动重试';
             break;
           }
         } catch {}
@@ -757,13 +757,23 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     };
     let m = map[s] || { label: s, cls: 'bg-gray-100 text-gray-600' };
     // BUG-118: tool_throttled 时根据 error_msg 前缀细分子标签
-    if (s === 'tool_throttled' && errorMsg) {
-      if (/^\[404\]/.test(errorMsg)) {
-        m = { label: '任务失效', cls: 'bg-red-100 text-red-700' };
-      } else if (/^\[429\]/.test(errorMsg)) {
-        m = { label: '限流暂停', cls: 'bg-orange-100 text-orange-700' };
-      } else if (/^\[5xx\]/.test(errorMsg)) {
+    // BUG-132 (v3.0.64): 同时对 tool_throttled / tool_failed 都 parse [content_policy]/[rate_limit]/[upstream_busy]/[timeout] 4 种 ERR_TYPE
+    // 修前只 parse 3 种 [404]/[429]/[5xx], 漏 [content_policy] 引导致用户看到 "暂停/失败" 通用 label, 不知道是策略拦截
+    const isRetryable = s === 'tool_throttled' || s === 'tool_failed';
+    if (isRetryable && errorMsg) {
+      if (/^\[(content_policy|invalid_input)\]/.test(errorMsg)) {
+        // 红 — 用户操作可解决 (改 prompt / 改图片), 不是 API 限流
+        m = { label: '策略拦截', cls: 'bg-rose-100 text-rose-700' };
+      } else if (/^\[(rate_limit|429)\]/.test(errorMsg)) {
+        m = s === 'tool_throttled'
+          ? { label: '限流暂停', cls: 'bg-orange-100 text-orange-700' }
+          : { label: '限流失败', cls: 'bg-orange-100 text-orange-700' };
+      } else if (/^\[(upstream_busy|5xx)\]/.test(errorMsg)) {
         m = { label: '上游异常', cls: 'bg-amber-100 text-amber-700' };
+      } else if (/^\[timeout\]/.test(errorMsg)) {
+        m = { label: '超时', cls: 'bg-amber-100 text-amber-700' };
+      } else if (/^\[404\]/.test(errorMsg)) {
+        m = { label: '任务失效', cls: 'bg-red-100 text-red-700' };
       }
     }
     return <span className={`text-xs px-2 py-0.5 rounded-full ${m.cls}`} title={errorMsg || undefined}>{m.label}</span>;

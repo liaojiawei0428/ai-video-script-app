@@ -91,12 +91,34 @@ const STATUS_MAP: Record<string, { label: string; bg: string; fg: string }> = {
   tool_queued: { label: '排队中', bg: '#f3e8ff', fg: '#7e22ce' },
   tool_executing: { label: '生成中', bg: '#e0e7ff', fg: '#4338ca' },
   tool_completed: { label: '已完成', bg: '#d1fae5', fg: '#047857' },
-  tool_throttled: { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },
+  tool_throttled: { label: '暂停', bg: '#ffedd5', fg: '#c2410c' },
   tool_failed: { label: '失败', bg: '#fee2e2', fg: '#b91c1c' },
 };
 
-function StatusBadge({ status }: { status: string }) {
-  const m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
+// v3.0.64 (BUG-132 配套): image 跟 video 1:1 镜像, tool_throttled + tool_failed 都 parse ERR_TYPE
+// 修前 ImageAgentScreen 完全没 parse, 只 label='限流暂停' / '失败' (更粗), 用户看不到 content_policy 等细分
+const SUBTYPE_MAP: Record<string, { label: string; bg: string; fg: string }> = {
+  content_policy: { label: '策略拦截', bg: '#fecdd3', fg: '#be123c' },  // BUG-132 新加: 红
+  invalid_input: { label: '请求无效', bg: '#fecdd3', fg: '#be123c' },
+  rate_limit: { label: '限流', bg: '#ffedd5', fg: '#c2410c' },          // 橙
+  '429': { label: '限流', bg: '#ffedd5', fg: '#c2410c' },               // 老兼容
+  upstream_busy: { label: '上游异常', bg: '#fef3c7', fg: '#b45309' },    // 琥珀
+  '5xx': { label: '上游异常', bg: '#fef3c7', fg: '#b45309' },            // 老兼容
+  timeout: { label: '超时', bg: '#fef3c7', fg: '#b45309' },
+  '404': { label: '任务失效', bg: '#fee2e2', fg: '#b91c1c' },            // 红
+};
+
+function StatusBadge({ status, error_msg }: { status: string; error_msg?: string | null }) {
+  // BUG-118 + BUG-132: tool_throttled / tool_failed 都按 error_msg 前缀细分子标签 (跟 video 1:1, 跨端铁律 4++)
+  let m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
+  const isRetryable = status === 'tool_throttled' || status === 'tool_failed';
+  if (isRetryable && error_msg) {
+    const m1 = error_msg.match(/^\[(\w+)\]/);
+    const errType = m1 ? m1[1] : null;
+    if (errType && SUBTYPE_MAP[errType]) {
+      m = SUBTYPE_MAP[errType];
+    }
+  }
   return (
     <View style={{ backgroundColor: m.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 2 }}>
       <Text style={{ color: m.fg, fontSize: 10, fontWeight: '700' }}>{m.label}</Text>
@@ -587,7 +609,7 @@ export function ImageAgentScreen(): React.JSX.Element {
               {conversationId ? '生图会话' : '生图助手'}
             </Text>
           </View>
-          {convStatus ? <StatusBadge status={convStatus} /> : null}
+          {convStatus ? <StatusBadge status={convStatus} error_msg={conv?.error_msg} /> : null}
         </View>
         <TouchableOpacity style={styles.toolbarPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
           <Ionicons name="add" size={18} color="#fff" />
@@ -771,7 +793,7 @@ export function ImageAgentScreen(): React.JSX.Element {
                   <View style={styles.historyItemBody}>
                     <Text style={styles.historyItemTitle} numberOfLines={1}>{item.title}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                      <StatusBadge status={item.status || 'idle'} />
+                      <StatusBadge status={item.status || 'idle'} error_msg={item.error_msg} />
                     </View>
                   </View>
                   {/* v3.0.24.4 (S60 P3 BUG-050 重设计): 单条删除按钮 (跟 web 端一致) */}

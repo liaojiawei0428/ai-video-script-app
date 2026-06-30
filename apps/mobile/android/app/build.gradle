@@ -66,8 +66,8 @@ android {
         applicationId "com.aiscriptmobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 66
-        versionName "3.0.63"
+        versionCode 67
+        versionName "3.0.64"
     }
     signingConfigs {
         debug {
@@ -76,8 +76,8 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        // v3.0.13 (S58 P10 BUG-023): 姘镐箙 release.keystore, 25 骞存湁鏁堟湡
-        // 瀵嗙爜澶囦唤锟?~/.mavis/keystore/release.keystore
+        // v3.0.13 (S58 P10 BUG-023): 濮橀晲绠?release.keystore, 25 楠炲瓨婀侀弫鍫熸埂
+        // 鐎靛棛鐖滄径鍥﹀敜閿?~/.mavis/keystore/release.keystore
         release {
             storeFile file('release.keystore')
             storePassword 'deepscript2026'
@@ -90,7 +90,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // v3.0.13: 鐢ㄦ案锟?release keystore, 涓嶇敤 debug (BUG-023)
+            // v3.0.13: 閻劍妗堥敓?release keystore, 娑撳秶鏁?debug (BUG-023)
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
@@ -119,6 +119,7 @@ configurations.all {
 
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)
 
-// React Native Vector Icons 瀛椾綋閰嶇疆
+// React Native Vector Icons 鐎涙ぞ缍嬮柊宥囩枂
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+
 

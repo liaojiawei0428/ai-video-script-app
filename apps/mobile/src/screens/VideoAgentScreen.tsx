@@ -84,19 +84,29 @@ const STATUS_MAP: Record<string, { label: string; bg: string; fg: string }> = {
 };
 
 // BUG-118 (v3.0.47): tool_throttled 细分映射 — 跟 web 端 1:1
+// v3.0.64 (BUG-132 配套): 加 content_policy + rate_limit + upstream_busy + timeout 4 种 ERR_TYPE 细分, 修前只 3 种漏 [content_policy] 误导
 const THROTTLED_SUBTYPE_MAP: Record<string, { label: string; bg: string; fg: string }> = {
   '404': { label: '任务失效', bg: '#fee2e2', fg: '#b91c1c' },   // 红 — 上游 query 找不到
-  '429': { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },   // 橙 — 限流
-  '5xx': { label: '上游异常', bg: '#fef3c7', fg: '#b45309' },   // 琥珀 — 异常
+  'content_policy': { label: '策略拦截', bg: '#fecdd3', fg: '#be123c' },  // BUG-132 新加: 红 — 用户操作可解决
+  'invalid_input': { label: '请求无效', bg: '#fecdd3', fg: '#be123c' },
+  'rate_limit': { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },  // BUG-132 新加: 橙 — 限流
+  'upstream_busy': { label: '上游异常', bg: '#fef3c7', fg: '#b45309' },  // BUG-132 新加: 琥珀
+  'timeout': { label: '超时', bg: '#fef3c7', fg: '#b45309' },  // BUG-132 新加: 琥珀
+  '429': { label: '限流暂停', bg: '#ffedd5', fg: '#c2410c' },   // 橙 — 限流 (老兼容)
+  '5xx': { label: '上游异常', bg: '#fef3c7', fg: '#b45309' },   // 琥珀 — 异常 (老兼容)
 };
 
+// v3.0.64 (BUG-132 配套): tool_failed 也走 ERR_TYPE 细分 (跟 web 1:1), 修前只 label='失败' 不 parse
 function StatusBadge({ status, error_msg }: { status: string; error_msg?: string | null }) {
-  // BUG-118: tool_throttled 时根据 error_msg 前缀细分子标签
+  // BUG-118 + BUG-132: tool_throttled / tool_failed 都按 error_msg 前缀细分子标签 (跨端铁律 4++)
   let m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
-  if (status === 'tool_throttled' && error_msg) {
-    if (/^\[404\]/.test(error_msg)) m = THROTTLED_SUBTYPE_MAP['404'];
-    else if (/^\[429\]/.test(error_msg)) m = THROTTLED_SUBTYPE_MAP['429'];
-    else if (/^\[5xx\]/.test(error_msg)) m = THROTTLED_SUBTYPE_MAP['5xx'];
+  const isRetryable = status === 'tool_throttled' || status === 'tool_failed';
+  if (isRetryable && error_msg) {
+    const m1 = error_msg.match(/^\[(\w+)\]/);
+    const errType = m1 ? m1[1] : null;
+    if (errType && THROTTLED_SUBTYPE_MAP[errType]) {
+      m = THROTTLED_SUBTYPE_MAP[errType];
+    }
   }
   return (
     <View style={{ backgroundColor: m.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 2 }}>
