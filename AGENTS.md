@@ -410,3 +410,62 @@
 > **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参与 shipin-APP 项目时必须遵守.
 > **最后更新**: 2026-06-26 (S72 batch 7 v2.11, 跨端铁律 4++ 新增 (Web 主导, APP 跟随, 必同步) + 删 3 处 "主盯 web, 安卓暂不动" 旧原则, 配套 verify-deploy.sh 升 23 维 + 新增维度 24 mobile 端同步自检, 联动更新 BUGS_INDEX v2.1)
 > **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时
+> **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参考 shipin-APP 项目时必须遵守.
+> **最后更新**: 2026-06-30 (v2.17, 加 § 4 铁律 10 选型阶段必调研依赖内部路径 + 反思 v3.0.60→v3.0.66→v3.0.67 反复掉坑, 跟 mobile § 6.16 + server § 3.10 同步)
+> **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时
+
+## § 4 铁律 10 (v3.0.67 BUG-135 新增): 选型阶段必调研依赖内部路径, 反复掉坑反思 (跨端通用, 跟 BUG-079/097/113/118/130/134 100% 同源)
+
+### § 4.10.1 背景 (v3.0.60 → v3.0.66 → v3.0.67 反复掉坑反思)
+
+shipin-APP 3 个近期 BUG 都跟"选错方案"或"漏改"有关, 反映出一个跨项目通用教训:
+
+| BUG | 版本 | 根因 | 类型 |
+|---|---|---|---|
+| BUG-130 | v3.0.59 | mobile 端 0 个上传入口 (跟 web 漏镜像) | 漏修 |
+| BUG-130 hotfix | v3.0.60 | 选了 image-picker v7.x (内部走 GMS photopicker UI) | 选错方案 |
+| BUG-134 | v3.0.66 | ImageAgentScreen 白屏 + mobile version.ts 漏同步 | 漏修 + 漏同步 |
+| BUG-135 | v3.0.67 | image-picker v7.x GMS 路径在国产 ROM 翻车 | 修法补救 |
+
+**v3.0.67 BUG-135 终于找到正确方向**: 不依赖第三方 picker 库, 自研 native module 走 Android 系统 Intent.ACTION_OPEN_DOCUMENT. 这是真正稳的方案, 因为 Android SDK API 19+ 100% 兼容, 国产 ROM 全支持.
+
+### § 4.10.2 跨项目通用铁律 5 条 (跟 BUG-079/097/113/118/130/134/135 100% 同源)
+
+1. **选型阶段必调研依赖内部路径** (新铁律, BUG-135 核心): 不要只信官方文档说支持哪些设备/平台. 必做:
+   - `npm view <pkg> repository.url` 看源码
+   - grep 依赖源码看 `Intent.ACTION_*` / `Photopicker` / `GMS` / `ActivityResultContracts.*` 等关键 API 调用
+   - 看依赖最近 6 个月 issue tracker 有没有 "X 设备无法使用" 类报告
+   - 国产 ROM 兼容性矩阵 (蓝叠/华为/小米/OPPO/vivo/三星) 至少 5 设备测试
+
+2. **API 兼容性 > 不加重原则 优先级升至选型阶段** (强化, BUG-135): 之前 BUG-130 hotfix 选 image-picker 是错的 (虽然 "不加重原则" 是对的). 真正稳的方案是自研 native module, 不是装新依赖. 跨项目通用铁律: 选型阶段必先 grep 看依赖内部走什么路径 (system Intent / GMS / 第三方 SDK), 不只看官方文档.
+
+3. **国产 ROM 兼容性测试必加** (强化, BUG-135): image-picker v7.x 在蓝叠模拟器 / 海外设备 OK 但国产 ROM 翻车 (GMS photopicker 缺失). 测试矩阵必加 [蓝叠/华为/小米/OPPO/vivo/三星] 至少 5 设备.
+
+4. **依赖选错时的回滚方案** (新铁律, 跟 BUG-130/135 同源): 选错依赖不要硬撑, 必立即回滚到上一个稳定版本. shipin-APP BUG-135 修法: 直接删 image-picker 用法, 写自研 native module.
+
+5. **跨端 8 处版本号同步必跑** (强化, BUG-131/134/135 配套): 改 1 处必同步 8 处, 不能漏. BUG-134 漏 mobile version.ts 导致 APP 端显示老版本, 跟 BUG-131 server-only hotfix 漏 rebuild APK 同源.
+
+### § 4.10.3 选型阶段检查清单 (跨项目通用, 必跑 6 项)
+
+- [ ] **官方文档说支持哪些平台? 跟 shipin-APP 实际部署平台匹配吗?**
+- [ ] **依赖源码 grep 关键 API 调用** (Android: Intent.ACTION_* / GMS / ActivityResultContracts; iOS: UIImagePicker / PHPicker)
+- [ ] **依赖最近 6 个月 issue tracker 有没有 "X 设备无法使用" 类报告?** (GitHub Issues filter `is:issue is:open label:bug`)
+- [ ] **国产 ROM 兼容性矩阵** (蓝叠/华为/小米/OPPO/vivo/三星 至少 5 设备测试)
+- [ ] **不加重原则 vs API 兼容性冲突时优先级**: API 兼容性 > 不加重 (BUG-135 教训), 但如果自研成本太高, 退而求其次选"用现有依赖 (已经装) 而不是装新依赖"
+- [ ] **回滚方案**: 选错了能立即回滚到上一个稳定版本吗? 不能就 PASS
+
+### § 4.10.4 跟其他铁律的关系
+
+- **铁律 4+** (跨端铁律 4 加号, 跨项目通用 UX 原则) + **铁律 4++** (Web 主导, APP 跟随) + **铁律 8** (持久化必 string 归一) — 都跟 BUG-130/135 同源教训: 加了 UI 但漏消费到所有 render path (状态机迁移, 持久化, 上传入口). 选型阶段调研不深入 = 后续所有修法都跟着错.
+- **铁律 4++++** (BUG-131 server-only hotfix 必 rebuild APK) + **铁律 6** (commit message 必带 BUG 编号) — 配套 BUG-134/135 8 处版本号同步.
+
+### § 4.10.5 mavis memory 沉淀 (跟 mobile § 6.16.2 + server § 3.10.5 同步)
+
+```
+跨项目通用教训 (v3.0.67 BUG-135 沉淀)
+1. 选型阶段必调研依赖内部路径 (grep 源码, 不信文档)
+2. API 兼容性 > 不加重原则 优先级升至选型阶段
+3. 国产 ROM 兼容性测试必加 (蓝叠/华为/小米/OPPO/vivo/三星)
+4. 依赖选错立即回滚, 不要硬撑
+5. 跨端 8 处版本号同步必跑 (跟 BUG-131/134 同源)
+```

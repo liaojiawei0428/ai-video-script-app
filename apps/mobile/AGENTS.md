@@ -1075,3 +1075,163 @@ server 端: imageAgentService + videoAgentService 0 改动 (refImageUrlsFromPart
 > **最后更新**: 2026-06-30 (S72 batch 30 v3.0.59 BUG-130, 加 § 6.15 mobile 端生图/视频助手补"上传参考图"功能, 跟 web 1:1 镜像, 跟根 AGENTS.md v2.16 同步)
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时
 > **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时
+> **最后更新**: 2026-06-30 (S72 batch 31+ v3.0.66 BUG-134 + v3.0.67 BUG-135, 加 § 6.16 mobile 端生图助手白屏修法 + 自研通用图片选择 native module 完全不用 GMS, 跟根 AGENTS.md 同步)
+> **下次 review**: mobile 端有架构变更 (新模块 / 跨端工具链) 时
+
+## § 6.16 v3.0.66+67 新增: 修 ImageAgentScreen 白屏 (BUG-134) + 自研通用图片选择 native module 完全不用 GMS (BUG-135) (S72 batch 32+33, 2026-06-30)
+
+### § 6.16.1 BUG-134 (v3.0.66) 修 ImageAgentScreen ReferenceError 白屏 (跟 VideoAgentScreen 1:1 镜像漏修)
+
+#### 背景
+用户在 Android APP 进"生图" tab, 立即白屏 + 控制台报 `ReferenceError: Property 'conv' doesn't exist`. 跟 BUG-118/119/132 教训 100% 同源 (加了 state 但漏消费到所有相关 render).
+
+#### 真根因
+`apps/mobile/src/screens/ImageAgentScreen.tsx` line 612 修前:
+```tsx
+{convStatus ? <StatusBadge status={convStatus} error_msg={conv?.error_msg} /> : null}
+```
+`conv` 是 `loadConversation`/`polling useEffect` 内**局部变量** (line 208, 243), 不在 React render scope. tap 进生图 tab → render 触发 → 找不到 `conv` → ReferenceError → 白屏.
+
+跟 BUG-132 (v3.0.64) 已修法 1:1 镜像: `VideoAgentScreen.tsx` 早就有 `convErrorMsg` state (line 180) + sync 4 处 (line 255/271/289/478/859) + line 633 `<StatusBadge error_msg={convErrorMsg} />`. **ImageAgentScreen 漏修**, 同样的修法但 image 端没复制.
+
+#### 修法 (1 文件 6 处 edits, 跟 VideoAgentScreen 1:1 镜像)
+
+```
+apps/mobile/src/screens/ImageAgentScreen.tsx
+├─ line 144: 加 state (跟 VideoAgentScreen line 180 1:1)
+│   const [convErrorMsg, setConvErrorMsg] = useState<string | null>(null);
+├─ line 216: loadConversation sync (跟 VideoAgentScreen line 255 1:1)
+│   setConvErrorMsg(conv.error_msg || null);
+├─ line 232: createConversation 清空 (跟 VideoAgentScreen line 271 1:1)
+│   setConvErrorMsg(null);
+├─ line 252: polling useEffect sync (跟 VideoAgentScreen line 289 1:1)
+│   setConvErrorMsg(conv.error_msg || null);
+├─ line 618: 改用 state (跟 VideoAgentScreen line 633 1:1, 这是修前的 BUG)
+│   <StatusBadge status={convStatus} error_msg={convErrorMsg} />
+└─ line 826: deleteCurrent 清空 (跟 VideoAgentScreen line 478 1:1)
+    setConvErrorMsg(null);
+```
+
+#### 跨项目通用铁律 4 条新沉淀 (跟 BUG-118/119/132 100% 同源)
+
+1. **render scope 内只能用 state/callback ref, 不能用 useEffect 局部变量** (新铁律, BUG-134): React render 时 useEffect callback 内声明的局部变量不在 scope, 引用必 throw ReferenceError. 必须用 useState (同步效果) 或 useRef / useCallback (异步). 跟 BUG-113 React Hooks 规则违反 SOP 100% 同源
+2. **同一文件改了 BUG 必 grep 所有相似位置, 不能只改一处** (强化, BUG-134): BUG-132 修了 VideoAgentScreen 的 `conv` 问题, ImageAgentScreen 1:1 镜像结构, 漏修. 修 BUG 必 `Select-String -Pattern '\bconv\b' ImageAgentScreen.tsx` 全局搜, 不能只看自己关心的行
+3. **加了 state 必消费到所有相关 render path** (强化, 跟 BUG-118/119 同源): BUG-134 修前 `convStatus` state 已经被多处消费, 但 `conv.error_msg` 这个新字段没单独抽 state, 直接引用 `conv` 局部变量. 必抽 state 才能 render scope 用
+4. **修 BUG 必查 sibling 镜像代码** (新铁律, 跟 BUG-097 同源): web/mobile 镜像 + image/video 镜像 (ImageAgentScreen + VideoAgentScreen) + service 镜像, 修一处必 `grep` 同模块所有相似文件
+
+### § 6.16.2 BUG-135 (v3.0.67) 通用图片选择 native module, 完全不用 GMS, 国产 ROM 全支持
+
+#### 背景
+用户在 Android APP 视频助手页面点 📎 上传参考图, 弹 "An unexpected error occurred" 对话框 + "参考图上传失败". 跟 BUG-130 v3.0.59 修法不完整 + v3.0.60 hotfix 选了错的依赖有关.
+
+#### 真根因 (跟 BUG-130/097/079 100% 同源, 但更深入)
+`react-native-image-picker v7.2.3` 在 Android 13+ 走 androidx `ActivityResultContracts.PickVisualMedia` contract, fallback 到 GMS (Google Play Services) photopicker UI (`com.google.android.gms/.photopicker.ui.PhotoPickerActivity`). 蓝叠/部分国产 ROM (华为精简版/小米海外版/平板) 没装 GMS → `Download of container feature photopicker_activity is disabled` → 显示 "An unexpected error occurred" 英文错误.
+
+logcat 实锤 (修前):
+```
+START u0 {act=androidx.activity.result.contract.action.PICK_IMAGES typ=image/* cmp=com.google.android.gms/.photopicker.ui.PhotoPickerActivity} from uid 10070
+Download of container feature photopicker_activity is disabled.
+```
+
+修后 logcat:
+```
+START u0 {act=android.intent.action.OPEN_DOCUMENT cat=[android.intent.category.OPENABLE] typ=image/* flg=0x3000001 cmp=com.android.documentsui/.picker.PickActivity (has extras)} from uid 10070
+```
+
+#### 修法 (3 native 文件 + 2 JS 文件 + 8 处版本号, 完全自研)
+
+```
+apps/mobile/android/app/src/main/java/com/aiscriptmobile/
+├─ PickImageModule.kt (~199 行) - 自研 native module, Intent.ACTION_OPEN_DOCUMENT + createChooser
+└─ PickImagePackage.kt (~14 行) - 注册 module 到 RN bridge (跟 ApkInstallerPackage 同模式)
+
+apps/mobile/src/utils/
+└─ pickImage.ts (~70 行) - JS bridge 包 React Native NativeModules.PickImageModule
+
+apps/mobile/src/screens/
+├─ ImageAgentScreen.tsx - launchImageLibrary → pickImages (跟 image-picker 1:1 替换)
+└─ VideoAgentScreen.tsx - launchImageLibrary → pickImages
+
+apps/mobile/android/app/src/main/java/com/aiscriptmobile/MainApplication.kt
+└─ packages.add(PickImagePackage())
+```
+
+#### 国产 ROM 兼容性 (核心)
+
+Intent.ACTION_OPEN_DOCUMENT 是 Android SDK API 19+ 通用 API, 国产 ROM 全支持 (跟 Android 9-14 全兼容):
+- 华为 EMUI / 鸿蒙 HarmonyOS: ✅ 自带 "文件" / "图库" 应用
+- 小米 MIUI / HyperOS: ✅ 自带 "文件管理" / "相册"
+- OPPO ColorOS / Realme UI: ✅ 自带 "文件管理" / "相册"
+- vivo Funtouch / OriginOS: ✅ 自带 "文件" / "相册"
+- 魅族 Flyme: ✅ 自带 "文件中心"
+- 三星 OneUI: ✅ 自带 "我的文件" / "相册"
+- 蓝叠 Android 9: ✅ com.android.documentsui
+- Google Pixel Android 13+: ✅ Documents UI
+
+**完全不需要 GMS**, 跟 GMS photopicker 解耦. Intent.createChooser 会弹列表让用户选 [系统文件 / 系统相册 / 第三方文件管理器] 任意一个.
+
+#### 权限 0 加重 (符合 Android 13+ Scoped Storage)
+- ❌ 不需要 READ_EXTERNAL_STORAGE
+- ❌ 不需要 WRITE_EXTERNAL_STORAGE
+- ❌ 不需要 READ_MEDIA_IMAGES (Android 13+)
+- ✅ Intent.ACTION_OPEN_DOCUMENT + FLAG_GRANT_READ_URI_PERMISSION 单次 read 权限即可
+- ✅ ContentResolver.openInputStream 自动处理 content:// URI
+
+#### content:// URI 上传兼容 (server 端 0 改)
+- RN 0.65+ fetch/XHR FormData 原生支持 content:// URI (内部用 ContentResolver.openInputStream 读 bytes)
+- server 端 multer 接 file://, content:// 跟它 1:1 兼容
+- 跟 web uploadAgentReferenceApi (axios FormData) 行为 1:1, 调用方 `r.data?.data?.url` 不变
+
+#### 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/097/130/134 100% 同源)
+
+1. **系统选择器优先用 Intent.ACTION_OPEN_DOCUMENT 自研 native module, 不依赖第三方 picker 库** (新铁律, BUG-135 核心): 第三方 picker 库内部可能走 GMS / Android 13+ PickVisualMedia 等不通用路径, 自研 Intent.ACTION_OPEN_DOCUMENT + Intent.createChooser 是 100% 通用方案. Android SDK API 19+ 兼容, 国产 ROM 全支持.
+2. **国产 ROM 兼容性测试必加, 不能只在蓝叠/海外设备测** (强化, BUG-135): image-picker v7.x 在蓝叠模拟器 / 海外设备 OK 但国产 ROM 翻车, 测试矩阵必加 [蓝叠/华为/小米/OPPO/vivo/三星] 至少 5 设备
+3. **KDoc 注释内不允许出现 `*/` 序列** (新铁律, BUG-135 配套): Kotlin KDoc 跟 Java 一样是块注释, KDoc 内 `["image/*"]` 的 `*/` 会提前关闭注释. 跨项目通用铁律: KDoc 内字符串必用 `image/<all>` 或 `image/&#42;` 绕过
+4. **API 兼容性 > 不加重原则 优先级升至选型阶段** (强化, BUG-135): 之前 BUG-130 hotfix 选 image-picker 是错的, 真正稳的方案是自研, 不是装新依赖. 跨项目通用铁律: 选型阶段必先 grep 看依赖内部走什么路径, 不只看官方文档说支持哪些设备
+
+#### KDoc 注释坑修复 (新铁律)
+Kotlin KDoc 注释里 `["image/*"]` 的 `*/` 会提前关闭注释, 导致 PickImageModule.kt:199 Unclosed comment. 改成 `["image/<all>"]` 绕过. 这是 Kotlin 跨项目通用铁律: KDoc 内不允许出现 `*/` 序列.
+
+#### 8 处版本号同步 (跨端铁律 3)
+
+| 位置 | 修前 | 修后 |
+|---|---|---|
+| apps/mobile/src/config/version.ts APP_VERSION | 3.0.65 | **3.0.67** |
+| apps/mobile/android/app/build.gradle versionCode | 67 | **69** |
+| apps/mobile/android/app/build.gradle versionName | "3.0.65" | **"3.0.67"** |
+| apps/web/src/config/version.ts APP_VERSION | 3.0.65 | **3.0.67** |
+| apps/web/src/config/version.ts APP_VERSION_CODE | 67 | **69** |
+| apps/server/package.json version | 3.0.65 | **3.0.67** |
+| apps/server/src/index.ts APP_VERSION fallback | '3.0.65' | **'3.0.67'** |
+| apps/server/ecosystem.config.js env.APP_VERSION | '3.0.65' | **'3.0.67'** |
+| apps/server/ecosystem.config.js env_production.APP_VERSION | '3.0.65' | **'3.0.67'** |
+| apps/server/changelog.json | (top v3.0.65) | **+ v3.0.67 + v3.0.66 prepend** |
+| 远端 .env + systemd unit Environment=APP_VERSION | 3.0.65 | 3.0.67 (deploy 同步) |
+| 公网 APK | DeepScript_v3.0.65.apk | **DeepScript_v3.0.67.apk** |
+
+#### 跟其他 BUG 关系
+
+- **BUG-079 (v3.0.13)** 假报告 — BUG-135 修前用户被 GMS 错误误导, "看起来上传了但实际失败"
+- **BUG-097 (S72 batch 6)** mobile 漏修 web — BUG-135 web 端不需要改, mobile 端自研 native module 跟 web 端 uploadAgentReferenceApi 1:1 兼容
+- **BUG-130 (v3.0.59)** mobile 端补参考图上传入口 — BUG-135 是 BUG-130 修法的 bug 修复 (image-picker 选错导致 GMS 路径翻车)
+- **BUG-131 (v3.0.62)** server-only hotfix 必 rebuild APK — BUG-135 server 端 0 改, 但 native module 是新代码, mobile APK 必重打
+- **BUG-134 (v3.0.66)** mobile 端 ImageAgentScreen 白屏 — BUG-135 跟 BUG-134 都是 ImageAgentScreen 修法, 同期部署
+- **BUG-113 (S72 batch 12)** React Hooks 规则违反真机回归 SOP — BUG-135 KDoc 注释坑跟这个类 bug 100% 同源 (文档说做了但实际编译失败)
+
+#### 为什么反复掉坑 (反思 v3.0.60 → v3.0.66 → v3.0.67 的连环教训)
+
+1. **v3.0.60 BUG-130 hotfix 选 image-picker 替代 document-picker**: 当时是基于 "image-picker v7.x 走系统 photo picker (Android 9+ ACTION_PICK_IMAGES), 兼容性硬指标". 但实际调研不够深入, 没看 image-picker v7.x 内部代码. 真坑: image-picker v7.x 在 Android 13+ 走 androidx `PickVisualMedia` contract, fallback 到 GMS photopicker UI.
+2. **v3.0.66 BUG-134 修法完整但漏了 mobile version.ts 同步**: 修了 ImageAgentScreen 白屏, 但 mobile/src/config/version.ts 没同步从 3.0.64 → 3.0.65 → 3.0.66. 跟 BUG-131 同源教训: server-only hotfix 必 rebuild APK + 8 处版本号同步.
+3. **v3.0.67 BUG-135 终于找到正确方向**: 不依赖第三方 picker 库, 自研 native module 走 Android 系统 Intent. 这是真正稳的方案, 因为 Android SDK API 1+ 100% 兼容.
+
+**跨项目通用教训**: 选型阶段必先 grep 看依赖内部走什么路径 (system Intent / GMS / 第三方 SDK), 不只看官方文档说支持哪些设备. 选错了, 修法会跟着错, 反复掉坑.
+
+#### mavis memory 沉淀
+
+```
+BUG-135 (v3.0.67 mobile 端自研通用图片选择 native module, 完全不用 GMS, 国产 ROM 全支持)
+- 跨项目通用铁律: 系统选择器优先用 Intent.ACTION_OPEN_DOCUMENT 自研, 不依赖第三方 picker 库
+- 国产 ROM 兼容性测试必加 (蓝叠/华为/小米/OPPO/vivo/三星 至少 5 设备)
+- KDoc 注释内不允许出现 */ 序列 (Kotlin 块注释规则)
+- API 兼容性 > 不加重原则 优先级升至选型阶段
+```

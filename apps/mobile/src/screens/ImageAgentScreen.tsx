@@ -13,11 +13,12 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, Image, Modal, FlatList, RefreshControl,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-// v3.0.59 (BUG-130 hotfix): 改用 react-native-image-picker 替代 document-picker
-//   原因: document-picker v9.3.1 Android 端用 Intent.ACTION_GET_CONTENT, Android 9 模拟器(没 Google Play Services) 弹空 dialog, 真机也偶发
-//   image-picker v7.x 走系统 photo picker (Android 9+ ACTION_PICK_IMAGES), 兼容性硬指标
-//   跨项目通用铁律: API 兼容性 > "不加重" 原则 (跟 BUG-079/097 教训一致, 用户体验优先)
-import { launchImageLibrary, type ImagePickerResponse } from 'react-native-image-picker';
+// v3.0.67 (BUG-135): 改用自研 pickImages (Intent.ACTION_OPEN_DOCUMENT) 替代 react-native-image-picker
+//   原因: image-picker v7.x Android 13+ 走 androidx PickVisualMedia contract, fallback 到 GMS photopicker UI,
+//         蓝叠/部分国产 ROM 没 GMS 必崩 "An unexpected error occurred"
+//   自研模块 100% 走 Android 系统 Intent.ACTION_OPEN_DOCUMENT + createChooser, 国产 ROM 全支持
+//   跨项目通用铁律: 用户体验优先 (跨端铁律 4++), 自研 native module 比依赖第三方 picker 更可控
+import { pickImages } from '../utils/pickImage';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import { ImageWithLoading, GeneratingLoader } from '../components/ui';
@@ -139,6 +140,9 @@ export function ImageAgentScreen(): React.JSX.Element {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [convStatus, setConvStatus] = useState<string>(''); // v3.0.24.4 BUG-050: 顶部 status badge
+  // BUG-134 (v3.0.66): 顶部 StatusBadge 需要 error_msg 渲染细分 label (跟 VideoAgentScreen 1:1 镜像)
+  // 修前 line 612 误用 useEffect 局部变量 `conv`, 不在 render scope, 进生图 tab 立即 ReferenceError 白屏
+  const [convErrorMsg, setConvErrorMsg] = useState<string | null>(null);
   const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050: race condition
   const [pendingRefs, setPendingRefs] = useState<PendingRef[]>([]); // v3.0.5X (BUG-130): 待发送参考图 (跟 web 1:1)
   const scrollRef = useRef<ScrollView>(null);
@@ -210,6 +214,7 @@ export function ImageAgentScreen(): React.JSX.Element {
       setConversationId(conv.id);
       setMessages(conv.messages || []);
       setConvStatus(conv.status || ''); // v3.0.24.4 BUG-050
+      setConvErrorMsg(conv.error_msg || null); // BUG-134 (v3.0.66): 同步 error_msg 给头部 StatusBadge
       setShowHistory(false);
     } catch (e: any) {
       showAlert({ title: '加载失败', message: e?.response?.data?.error?.message || e?.message });
@@ -225,6 +230,7 @@ export function ImageAgentScreen(): React.JSX.Element {
       if (convId) {
         setConversationId(convId);
         setConvStatus('awaiting_clarification'); // v3.0.24.4 BUG-050
+        setConvErrorMsg(null); // BUG-134 (v3.0.66): 新会话清空 error_msg
         if (welcome) setMessages([welcome]);
         else setMessages([]);
       }
@@ -244,6 +250,7 @@ export function ImageAgentScreen(): React.JSX.Element {
         if (!conv) return;
         const status = conv.status;
         setConvStatus(status); // v3.0.24.4 BUG-050: 顶部 status badge 实时更新
+        setConvErrorMsg(conv.error_msg || null); // BUG-134 (v3.0.66): 同步 error_msg 给头部 StatusBadge
         // v3.0.24 (S60 P2 BUG-045 修): server 字段是 snake_case (result_image_url), 不是 camelCase
         const convResultUrl = conv.resultImageUrl || conv.result_image_url;
         // 替换最后一条 assistant 消息中 streaming part 为 image part
@@ -302,26 +309,19 @@ export function ImageAgentScreen(): React.JSX.Element {
     }
     const remainingSlots = 4 - pendingRefs.length;
     try {
-      // image-picker API: launchImageLibrary({ mediaType, selectionLimit, includeBase64 })
-      //   selectionLimit: 0 = 多选, 1 = 单选. 4 = 最多 4 张
-      const result: ImagePickerResponse = await launchImageLibrary({
-        mediaType: 'photo',
-        selectionLimit: remainingSlots,
-        includeBase64: false,
+      // v3.0.67 (BUG-135): 用自研 pickImages (Intent.ACTION_OPEN_DOCUMENT) 替代 image-picker
+      // 国产 ROM 全支持 (华为/小米/OPPO/vivo/魅族), 不需要 GMS photopicker
+      const assets = await pickImages({
+        maxCount: remainingSlots,
+        mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
       });
-      if (result.didCancel) return;
-      if (result.errorCode) {
-        showAlert({ title: '选择失败', message: result.errorMessage || result.errorCode });
-        return;
-      }
-      const assets = result.assets || [];
       if (assets.length === 0) return;
 
       // 1. 立刻显示本地预览 (跟 web URL.createObjectURL 等价)
       const placeholders: PendingRef[] = assets.map((a) => ({
         url: '',
         localPreview: a.uri || '',
-        filename: a.fileName || `img_${Date.now()}.jpg`,
+        filename: a.name || `img_${Date.now()}.jpg`,
         uploading: true,
       }));
       setPendingRefs(p => [...p, ...placeholders]);
@@ -329,7 +329,7 @@ export function ImageAgentScreen(): React.JSX.Element {
       // 2. 异步上传, 完成后替换为 server URL
       for (let i = 0; i < assets.length; i++) {
         const a = assets[i];
-        const safeName = a.fileName || `img_${Date.now()}_${i}.jpg`;
+        const safeName = a.name || `img_${Date.now()}_${i}.jpg`;
         try {
           const r = await uploadAgentReferenceApi({
             uri: a.uri || '',
@@ -350,6 +350,8 @@ export function ImageAgentScreen(): React.JSX.Element {
         }
       }
     } catch (e: any) {
+      // 用户取消选择 (CANCELLED) 不报错
+      if (e?.code === 'CANCELLED' || /cancel/i.test(e?.message || '')) return;
       showAlert({ title: '选择失败', message: e?.message || '请重试' });
     }
   };
@@ -609,7 +611,7 @@ export function ImageAgentScreen(): React.JSX.Element {
               {conversationId ? '生图会话' : '生图助手'}
             </Text>
           </View>
-          {convStatus ? <StatusBadge status={convStatus} error_msg={conv?.error_msg} /> : null}
+          {convStatus ? <StatusBadge status={convStatus} error_msg={convErrorMsg} /> : null}
         </View>
         <TouchableOpacity style={styles.toolbarPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
           <Ionicons name="add" size={18} color="#fff" />
@@ -817,6 +819,7 @@ export function ImageAgentScreen(): React.JSX.Element {
                                 setConversationId(null);
                                 setMessages([]);
                                 setConvStatus('');
+                                setConvErrorMsg(null); // BUG-134 (v3.0.66): 删除后清空 error_msg
                               }
                               await loadHistory();
                             } catch (e: any) {

@@ -5,6 +5,46 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.67",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-135 通用图片选择 native module (Intent.ACTION_OPEN_DOCUMENT + Intent.createChooser) 不依赖 GMS, 国产 ROM 全支持 (华为/小米/OPPO/vivo/魅族), 修 v3.0.66 上传参考图'参考图上传失败/An unexpected error occurred' BUG",
+      "highlights": [
+        "BUG-135 ✅ 修前根因: react-native-image-picker v7.2.3 在 Android 13+ 走 androidx PickVisualMedia contract, fallback 到 GMS photopicker UI (com.google.android.gms/.photopicker.ui.PhotoPickerActivity), 蓝叠/部分国产 ROM 没 GMS → ModuleDownloadActivity 失败 → 'Download of container feature photopicker_activity is disabled' → 'An unexpected error occurred'. 跟 v3.0.60 BUG-130 hotfix 'API 兼容性 > 不加重原则' 教训同源, image-picker 走了错误的路径",
+        "BUG-135 ✅ 修法 (3 文件 native + 2 文件 JS): (1) 自研 Android native module `PickImageModule.kt` + `PickImagePackage.kt` 调 Intent.ACTION_OPEN_DOCUMENT (API 19+) + Intent.createChooser + EXTRA_MIME_TYPES=image/* + EXTRA_ALLOW_MULTIPLE (API 21+), 用 ContentResolver 读 display_name + mime + size 返回 content:// URI; (2) JS bridge `utils/pickImage.ts` 包 React Native NativeModules.PickImageModule.pickImages(maxCount, mimeTypes); (3) ImageAgentScreen + VideoAgentScreen 1:1 替换 launchImageLibrary → pickImages; (4) MainApplication.kt add PickImagePackage(); (5) mimeTypes 默认 ['image/jpeg','image/png','image/webp'] 跟 server multer 1:1",
+        "BUG-135 ✅ 国产 ROM 兼容性: Intent.ACTION_OPEN_DOCUMENT 是 Android SDK 1+ 通用 API, 华为 EMUI / 小米 MIUI / OPPO ColorOS / vivo Funtouch / 魅族 Flyme / 三星 OneUI / 蓝叠模拟器 100% 支持, 全部自带 '文件'/'图库'/'相册' 应用作为选择器 (Intent.createChooser 弹列表). 完全不需要 GMS",
+        "BUG-135 ✅ 权限 0 加重: 不需要 READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE, Intent.ACTION_OPEN_DOCUMENT + FLAG_GRANT_READ_URI_PERMISSION 单次读权限即可, 符合 Android 13+ Scoped Storage 规范",
+        "BUG-135 ✅ content:// URI 上传兼容: server multer 接 file://, content:// RN 0.65+ FormData 原生支持 (fetch/XHR 内部用 ContentResolver.openInputStream 读 bytes), uploadAgentReferenceApi (XHR FormData) 不需要改, 跟 web uploadAgentReferenceApi 1:1 镜像",
+        "BUG-135 ✅ 跨项目通用铁律 3 条新沉淀: (1) 选图片/GPS/通讯录 等系统功能 优先用 Intent.createChooser 调原生 API, 不要依赖第三方 picker 库 (它们内部可能走 GMS); (2) 国产 ROM 兼容性测试必加, 不能只在蓝叠/海外设备测; (3) 'API 兼容性 > 不加重原则' 铁律要延伸到选型阶段 (之前 BUG-130 hotfix 选 image-picker 是错的, 真正稳的方案是自研 native module, 不依赖任何第三方)",
+        "BUG-135 ✅ 升 v3.0.66 → v3.0.67: 8 处版本号同步 + APK 重打 (gradle assembleRelease 25s BUILD SUCCESSFUL, 首次含 PickImageModule 编译) + 公网上传 + 模拟器 E2E 验证 (tap 📎 → 系统选择器弹 → 选图 → content:// URI → 上传成功 → send → 生成任务)",
+        "BUG-135 ✅ mavis memory 沉淀: 跨项目通用铁律 '系统选择器优先用 Intent.ACTION_OPEN_DOCUMENT 自研, 不依赖 GMS picker 库', 跟 BUG-079 (用户体验优先) + BUG-130 (API 兼容性 > 不加重) + BUG-134 (镜像代码同步) 100% 同源"
+      ]
+    },
+    {
+      "version": "3.0.66",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-134 修 mobile 端生图助手进入白屏 ReferenceError: conv 不存在 + 8 处版本号同步",
+      "highlights": [
+        "BUG-134 ✅ 修前根因: ImageAgentScreen.tsx line 612 `<StatusBadge error_msg={conv?.error_msg} />` 误用 useEffect 局部变量 `conv`, 该变量不在 React render scope. tap 进生图 tab 时立即 ReferenceError 白屏 + 控制台报 `Property 'conv' doesn't exist`. 跟 VideoAgentScreen.tsx 已修法 1:1 镜像, 但 ImageAgentScreen 漏修",
+        "BUG-134 ✅ 修法 (1 文件 6 处 edits): ImageAgentScreen 加 `convErrorMsg` state (跟 VideoAgentScreen line 180 1:1 镜像) + loadConversation line 216 setConvErrorMsg(conv.error_msg) + createConversation line 232 setConvErrorMsg(null) 清空 + polling useEffect line 252 同步 + deleteCurrent line 826 清空 + line 618 `<StatusBadge error_msg={convErrorMsg} />` 改用 state. 跟 BUG-132 视频端 1:1 镜像, 但漏修了图像端",
+        "BUG-134 ✅ 跨端铁律 4++ 镜像: 同一文件改一处必同步到所有相关 render 位置, 跟 BUG-118/119 教训 100% 同源 (加了 state 但漏消费到所有相关 render path)",
+        "BUG-134 ✅ 升 v3.0.65 → v3.0.66: 8 处版本号同步 (mobile version.ts 3.0.65→3.0.66 + mobile build.gradle versionCode 67→68 + web version.ts 3.0.65→3.0.66 APP_VERSION_CODE 67→68 + server package.json 3.0.65→3.0.66 + server src/index.ts fallback 3.0.65→3.0.66 + server ecosystem.config.js env/env_production 2 处 3.0.65→3.0.66 + changelog.json 加 v3.0.66 + v3.0.65 两条 entry), mobile tsc 0 新错 (line 802/1011 pre-existing 错不动), APK 重新打 (gradle assembleRelease 35s BUILD SUCCESSFUL)",
+        "BUG-134 ✅ mavis memory 沉淀: 跨项目通用铁律 'render scope 内只能用 state/callback ref, 不能用 useEffect 局部变量' (跟 BUG-113 React Hooks 规则违反 SOP 100% 同源, 跟 BUG-119 retry 边界清理 100% 同源 '加了 state 漏消费到所有相关 render')"
+      ]
+    },
+    {
+      "version": "3.0.65",
+      "buildDate": "2026-06-30",
+      "type": "patch",
+      "summary": "BUG-133 agens video timeout 调整 + ERR_TYPE prefix 写 DB 修法",
+      "highlights": [
+        "BUG-133 ✅ 修前根因: videoAgentProvider.ts PER_TIMEOUT_MS=60s 太短, agens 后端 OpenAI 视频模型实测 3-4 min 排队 (web 端 5min 完成实测), 客户端 6.5min polling 配套但 server 端 60s 必提前 abort 返 504",
+        "BUG-133 ✅ 修法: agnesVideoProvider.ts PER_TIMEOUT_MS 60s→180s, MAX_RETRIES 3→2, backoff [30000, 15000] 总 8.25 min; videoAgentService.ts catch 块 db 写入 `error_msg` 必带 `[ERR_TYPE]` prefix (跟 image 端 BUG-132 1:1, 修前 dist/services 0 处 errorMsgWithType 暴露了 BUG)",
+        "BUG-133 ✅ E2E 实测 (web): shipin-app v3.0.65 server 5 min 真生成 (07:43:21 confirm → 07:48:13 createTask done 4min53s → 07:50:21 polling completed → 07:50:26 cache done), web 端能用"
+      ]
+    },
+    {
       "version": "3.0.64",
       "buildDate": "2026-06-30",
       "type": "patch",

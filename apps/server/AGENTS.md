@@ -224,3 +224,66 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 
 > **最后更新**: 2026-06-27 (S72 batch 11+12 v2.2, 加 BUG-111 ETag ERR_HTTP_HEADERS_SENT 修法 SOP + § 4 铁律 3 补 跨项目通用 middleware setHeader 必在 body 发送前 + verify-deploy.sh 27 维 (含 BUG-079/080/082/090/111 防呆), 跟根 AGENTS.md v2.12 + mobile v1.4 + web v1.2 同步)
 > **下次 review**: server 端有架构变更 / 新流程 / 维护模式机制变化时
+> **最后更新**: 2026-06-30 (S72 batch 32+33 v2.3, 加 § 3.10 选型阶段必调研依赖内部路径教训 + § 4 反思 v3.0.60→v3.0.66→v3.0.67 反复掉坑跟 server 端的关系, 跟根 AGENTS.md v2.16 同步)
+> **下次 review**: server 端有架构变更 / 新流程 / 维护模式机制变化时
+
+## § 3.10 v3.0.67 新增: 选型阶段必调研依赖内部路径, 不要看官方文档就拍板 (跨项目通用, 跟 BUG-079/097/113/118/130/134/135 100% 同源)
+
+### § 3.10.1 背景 (v3.0.60 → v3.0.66 → v3.0.67 反复掉坑反思)
+
+shipin-APP 3 个近期 BUG (130/134/135) 都跟 "选错方案" 有关, 反复掉坑, 反映出一个**跨项目通用教训**:
+
+1. **v3.0.59 BUG-130 (S72 batch 30)**: mobile 端补参考图上传入口 (跟 web 1:1 镜像, 跟 BUG-097 同源)
+2. **v3.0.60 BUG-130 hotfix**: 选了 `react-native-image-picker` 替代 `react-native-document-picker`. 当时决策依据: "image-picker v7.x 走系统 photo picker (Android 9+ ACTION_PICK_IMAGES), 兼容性硬指标". **但调研不深入, 没看 image-picker v7.x 内部代码**, 真坑: image-picker v7.x 在 Android 13+ 走 androidx `PickVisualMedia` contract, fallback 到 GMS photopicker UI (`com.google.android.gms/.photopicker.ui.PhotoPickerActivity`).
+3. **v3.0.66 BUG-134**: 修 mobile 端生图助手 ReferenceError 白屏, 修法正确 (跟 VideoAgentScreen 1:1 镜像), 但漏了 mobile version.ts 同步 (从 3.0.64 残留到 3.0.65 → 3.0.66). 跟 BUG-131 同源教训: server-only hotfix 必 rebuild APK + 8 处版本号同步.
+4. **v3.0.67 BUG-135**: 终于找到正确方向, 不依赖第三方 picker 库, 自研 native module 走 Android 系统 Intent.ACTION_OPEN_DOCUMENT. 这是真正稳的方案, 因为 Android SDK API 19+ 100% 兼容, 国产 ROM 全支持.
+
+### § 3.10.2 跨项目通用教训 (5 条, 跟 BUG-079/097/113/118/130/134/135 100% 同源)
+
+1. **选型阶段必调研依赖内部路径** (新铁律, BUG-135 核心): 不要只信官方文档说支持哪些设备/平台. 必做:
+   - `npm view <pkg> repository.url` 看源码
+   - grep 依赖源码看 `Intent.ACTION_*` / `Photopicker` / `GMS` / `ActivityResultContracts.*` 等关键 API 调用
+   - 看依赖最近 6 个月 issue tracker 有没有 "X 设备无法使用" 类报告
+   - 国产 ROM 兼容性矩阵 (蓝叠/华为/小米/OPPO/vivo/三星) 至少 5 设备测试
+2. **API 兼容性 > 不加重原则 优先级升至选型阶段** (强化, BUG-135): 之前 BUG-130 hotfix 选 image-picker 是错的 (虽然 "不加重原则" 是对的). 真正稳的方案是自研 native module, 不是装新依赖. 跨项目通用铁律: 选型阶段必先 grep 看依赖内部走什么路径 (system Intent / GMS / 第三方 SDK), 不只看官方文档.
+3. **国产 ROM 兼容性测试必加** (强化, BUG-135): image-picker v7.x 在蓝叠模拟器 / 海外设备 OK 但国产 ROM 翻车 (GMS photopicker 缺失). 测试矩阵必加 [蓝叠/华为/小米/OPPO/vivo/三星] 至少 5 设备.
+4. **依赖选错时的回滚方案** (新铁律, 跟 BUG-130/135 同源): 选错依赖不要硬撑, 必立即回滚到上一个稳定版本. shipin-APP BUG-135 修法: 直接删 image-picker 用法, 写自研 native module (跟之前所有"减轻依赖"思路相反, 但兼容性优先).
+5. **跨端 8 处版本号同步必跑** (强化, BUG-131/134/135 配套): 改 1 处必同步 8 处, 不能漏. BUG-134 漏 mobile version.ts 导致 APP 端显示老版本, 跟 BUG-131 server-only hotfix 漏 rebuild APK 同源.
+
+### § 3.10.3 server 端配套反思
+
+虽然 BUG-135 server 端 0 改 (修法在 mobile 自研 native module), 但 server 端要保证:
+- `/api/agent/upload` route 仍正常接受 multipart/form-data (跟 BUG-130 修法 1:1 兼容)
+- content:// URI 跟 file:// URI 1:1 兼容 (RN 0.65+ XHR FormData 自动 ContentResolver.openInputStream)
+- mobieLatestApkVersion 跟实际 APK 同步 (BUG-131 自适应 `getMobileLatestApk()` 扫公网目录)
+
+server 端必跑 12 维验证 (§ 2.3) + § 3.10.4 新加 13 维 (验证 `/api/agent/upload` 仍 accept multipart):
+
+```
+# § 3.10.4 13. /api/agent/upload 仍 accept (BUG-135 配套)
+echo "13. /api/agent/upload 401 (未鉴权正常):    $(curl -sI -m 3 -X POST http://127.0.0.1:6000/api/agent/upload | head -1 | tr -d \\r)"
+```
+
+期望: 401 Unauthorized (因为没带 Bearer token), 而不是 500. 如果返 500 表示 server route 挂了.
+
+### § 3.10.4 选型阶段检查清单 (新铁律)
+
+跨项目通用, 任何依赖选型必跑:
+
+- [ ] **官方文档说支持哪些平台? 跟 shipin-APP 实际部署平台匹配吗?**
+- [ ] **依赖源码 grep 关键 API 调用** (Android: Intent.ACTION_* / GMS / ActivityResultContracts; iOS: UIImagePicker / PHPicker)
+- [ ] **依赖最近 6 个月 issue tracker 有没有 "X 设备无法使用" 类报告?** (GitHub Issues filter `is:issue is:open label:bug`)
+- [ ] **国产 ROM 兼容性矩阵** (蓝叠/华为/小米/OPPO/vivo/三星 至少 5 设备测试)
+- [ ] **不加重原则 vs API 兼容性冲突时优先级**: API 兼容性 > 不加重 (BUG-135 教训), 但如果自研成本太高, 退而求其次选"用现有依赖 (已经装) 而不是装新依赖"
+- [ ] **回滚方案**: 选错了能立即回滚到上一个稳定版本吗? 不能就 PASS
+
+### § 3.10.5 mavis memory 沉淀
+
+```
+跨项目通用教训 (v3.0.67 BUG-135 沉淀)
+1. 选型阶段必调研依赖内部路径 (grep 源码, 不信文档)
+2. API 兼容性 > 不加重原则 优先级升至选型阶段
+3. 国产 ROM 兼容性测试必加 (蓝叠/华为/小米/OPPO/vivo/三星)
+4. 依赖选错立即回滚, 不要硬撑
+5. 跨端 8 处版本号同步必跑 (跟 BUG-131/134 同源)
+```

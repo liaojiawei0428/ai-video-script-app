@@ -14,8 +14,10 @@ import {
 //   react-native-video 6.x 用 Android 原生 MediaPlayer/ExoPlayer, Android 5+ 全兼容
 import Video from 'react-native-video';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-// v3.0.59 (BUG-130 hotfix): 改用 react-native-image-picker 替代 document-picker (跟 ImageAgentScreen 1:1)
-import { launchImageLibrary, type ImagePickerResponse } from 'react-native-image-picker';
+// v3.0.67 (BUG-135): 改用自研 pickImages (Intent.ACTION_OPEN_DOCUMENT) 替代 react-native-image-picker
+// 原因: image-picker v7.x 走 GMS photopicker UI (com.google.android.gms/.photopicker.ui), 蓝叠/部分国产 ROM 没 GMS 必崩
+//      自研模块 100% 走 Android 系统 Intent, 国产 ROM 全支持 (华为/小米/OPPO/vivo/魅族)
+import { pickImages } from '../utils/pickImage';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import {
@@ -340,30 +342,25 @@ export function VideoAgentScreen(): React.JSX.Element {
     }
     const remainingSlots = 4 - pendingRefs.length;
     try {
-      const result: ImagePickerResponse = await launchImageLibrary({
-        mediaType: 'photo',
-        selectionLimit: remainingSlots,
-        includeBase64: false,
+      // v3.0.67 (BUG-135): 用自研 pickImages (Intent.ACTION_OPEN_DOCUMENT) 替代 image-picker
+      // 国产 ROM 全支持, 不需要 GMS
+      const assets = await pickImages({
+        maxCount: remainingSlots,
+        mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
       });
-      if (result.didCancel) return;
-      if (result.errorCode) {
-        showAlert({ title: '选择失败', message: result.errorMessage || result.errorCode });
-        return;
-      }
-      const assets = result.assets || [];
       if (assets.length === 0) return;
 
       const placeholders: PendingRef[] = assets.map((a) => ({
         url: '',
         localPreview: a.uri || '',
-        filename: a.fileName || `img_${Date.now()}.jpg`,
+        filename: a.name || `img_${Date.now()}.jpg`,
         uploading: true,
       }));
       setPendingRefs(p => [...p, ...placeholders]);
 
       for (let i = 0; i < assets.length; i++) {
         const a = assets[i];
-        const safeName = a.fileName || `img_${Date.now()}_${i}.jpg`;
+        const safeName = a.name || `img_${Date.now()}_${i}.jpg`;
         try {
           const r = await uploadAgentReferenceApi({
             uri: a.uri || '',
@@ -384,6 +381,8 @@ export function VideoAgentScreen(): React.JSX.Element {
         }
       }
     } catch (e: any) {
+      // 用户取消选择 (CANCELLED) 不报错
+      if (e?.code === 'CANCELLED' || /cancel/i.test(e?.message || '')) return;
       showAlert({ title: '选择失败', message: e?.message || '请重试' });
     }
   };
