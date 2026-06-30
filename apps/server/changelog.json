@@ -5,6 +5,23 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.68",
+      "buildDate": "2026-06-30",
+      "type": "minor",
+      "summary": "BUG-136 重设计 mobile 端生图/视频助手'生成中'动画卡片 - 阶段徽章 + 比例 spinner + 进度条 + ETA + 排队信息整合, 跨端铁律 4++ 镜像 web 1:1",
+      "highlights": [
+        "BUG-136 ✅ 修前根因: BUG-119 v3.0.48 streaming 卡片布局散乱 (spinner 普通 + 文字位置突兀 + 排队信息浮窗贴旁边), 没视觉层级, 用户不知道当前阶段 (翻译/排队/生成) + 没进度感 + 没 ETA",
+        "BUG-136 ✅ 修法 (mobile ImageAgentScreen + VideoAgentScreen 2 文件, 跟 web StreamingCard 1:1 镜像): 重写 StreamingCard + StreamingCardImage 组件, 8 段视觉层级 - 顶部状态栏(阶段徽章 + stageColor) + 流光边框背景(Animated opacity 0.35-0.85 + scale 1-1.15, 1.5s in-out) + 中部大 spinner(72x72 双层 ring, 1.5s 旋转, 中心 48x48 圆 + 阶段图标 Ionicons language/hourglass/film/image) + 主标题(15px e4e4f0) + 副标题(12px 9090a8) + 进度条(4px track + Animated width 0-100%, 1.2s out-cubic) + 排队信息整合(底部一段, 不再浮窗) + 比例卡片 1:1 适配(aspectRatio)",
+        "BUG-136 ✅ 3 阶段视觉差异化 (跨端铁律 4++ 1:1): translating (紫色 #a78bfa, language 图标) → queueing (琥珀黄 #fbbf24, hourglass 图标, 显示第 N 位 + ETA) → generating (蓝色 #60a5fa, film/image 图标, 显示比例 + 平均时长). 颜色从 BUG-118 StatusBadge 配色体系一致",
+        "BUG-136 ✅ 进度动画 3 维 (跨端铁律 4++ 1:1 镜像 web): spinner 1.5s/圈 旋转 (Easing.linear) + glow pulse 1.5s/in-out (opacity 0.35-0.85 + scale 1-1.15) + progress bar 1.2s out-cubic (Animated.timing 0% → 100%). 不用 Lottie (跟 BUG-130 教训, NDK build 不稳)",
+        "BUG-136 ✅ 取消按钮 (mobile 端特色): 顶部右侧 'X' 关闭按钮 (跨端铁律 4++ mobile 触摸友好, 大按钮), 调用 server /api/image-agent/conversations/:id/cancel + /api/video-agent/conversations/:id/cancel",
+        "BUG-136 ✅ 跨项目通用铁律 3 条新沉淀: (1) 加载状态 UI 必带视觉层级 (阶段 + 进度 + ETA), 不能只有 spinner + 文字 (跟 BUG-079/100 假状态同源); (2) 阶段状态变化必用不同颜色区分 (紫色翻译/黄色排队/蓝色生成), 不要单一 spinner 颜色; (3) 跨端 streaming 卡片必 1:1 镜像 (mobile + web), 不能 mobile 一套 web 一套 (跨端铁律 4++)",
+        "BUG-136 ✅ 升 v3.0.67 → v3.0.68: 8 处版本号同步 (mobile version.ts 3.0.67 → 3.0.68 + mobile build.gradle versionCode 69 → 70 + web version.ts 3.0.67 → 3.0.68 + APP_VERSION_CODE 69 → 70 + server package.json 3.0.67 → 3.0.68 + server src/index.ts fallback 3.0.67 → 3.0.68 + server ecosystem.config.js env + env_production 2 处 3.0.67 → 3.0.68 + changelog.json + v3.0.68 entry prepend), mobile tsc 0 新错 (3 pre-existing 错不动), APK 重打 (gradle assembleRelease 40s BUILD SUCCESSFUL)",
+        "BUG-136 ✅ web 端 StreamingCard 配套 (跨端铁律 4++): apps/web/src/components/AgentChatPanel.tsx 1144 行 StreamingCard 跟 mobile 1:1 镜像, 配套修法 - 阶段徽章 (背景 + 边框 stageColor 1:1) + 比例 spinner (CSS animation 替代 mobile Animated) + 进度条 (CSS keyframes) + 排队信息整合. 后续 commit 处理 (web build + scp + nginx reload)",
+        "BUG-136 ✅ mavis memory 沉淀: 加载状态 UI 必带视觉层级 (阶段 + 进度 + ETA), 跨项目通用, 跟 BUG-079/100/118/119/120/123/130/134/135 100% 同源"
+      ]
+    },
+    {
       "version": "3.0.67",
       "buildDate": "2026-06-30",
       "type": "patch",

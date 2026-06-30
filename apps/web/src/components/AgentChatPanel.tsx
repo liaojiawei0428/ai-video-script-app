@@ -10,7 +10,7 @@
  * 两个 Agent Page 通过传入 `api` 对象 (imageAgentApi / videoAgentApi) 复用本组件。
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Send, Loader2, Image as ImageIcon, Video as VideoIcon, CheckCircle2, AlertCircle, Sparkles, FileText, Download, Paperclip, X, Trash2, Ban } from 'lucide-react';
+import { Send, Loader2, Image as ImageIcon, Video as VideoIcon, CheckCircle2, AlertCircle, Sparkles, FileText, Download, Paperclip, X, Trash2, Ban, Hourglass, Languages, Film, ImageDown } from 'lucide-react';
 import type { AgentMessage, AgentPart } from '../hooks/useAgentChat';
 import { partsToText } from '../hooks/useAgentChat';
 import { useAuthStore } from '../store/auth';
@@ -1160,47 +1160,166 @@ function StreamingCard({ aspectStyle, stage, kind, isUser, conversationId }: {
 
   const kindLabel = kind === 'image' ? '生图 40 次/分钟' : '生视频 2 次/分钟';
 
+  // v3.0.68 (BUG-136): 3 阶段视觉差异化 (跟 mobile 1:1 镜像, 跨端铁律 4++)
+  const visualStage: 'translating' | 'queueing' | 'generating' =
+    stage === 'translating' ? 'translating' :
+    inQueue ? 'queueing' : 'generating';
+
+  const stageColorMap = {
+    translating: '#a78bfa', // 紫
+    queueing: '#fbbf24',    // 琥珀黄
+    generating: '#60a5fa',  // 蓝
+  };
+  const stageColor = stageColorMap[visualStage];
+
+  const stageLabelMap = {
+    translating: '翻译中',
+    queueing: `排队中 · 第 ${queueInfo?.position ?? 1} 位`,
+    generating: 'AI 创作中',
+  };
+  const stageLabel = stageLabelMap[visualStage];
+
+  const mainLabelMap = {
+    translating: '正在翻译成 AI 识别的最佳提示词...',
+    queueing: '排队中, 稍候开始创作',
+    generating: kind === 'video' ? 'AI 正在渲染视频' : 'AI 正在绘制中',
+  };
+  const mainLabel = mainLabelMap[visualStage];
+
+  const subLabelMap = {
+    translating: '首次可能需要 5-10 秒',
+    queueing: `预计等待 ${queueInfo?.etaSeconds ?? 0} 秒 · ${kindLabel}`,
+    generating: kind === 'video' ? '通常 1-3 分钟, 请稍候...' : '通常 5-20 秒, 请稍候...',
+  };
+  const subLabel = subLabelMap[visualStage];
+
+  // 进度条 - CSS keyframes
+  const progressPercent = (() => {
+    if (visualStage === 'queueing' && queueInfo) {
+      const pos = queueInfo.position ?? 1;
+      return Math.max(5, Math.min(80, 100 - pos * 10));
+    }
+    if (visualStage === 'generating') {
+      return Math.min(95, 15 + Math.random() * 5);
+    }
+    return 5;
+  })();
+
+  const StageIcon = visualStage === 'translating' ? Languages : visualStage === 'queueing' ? Hourglass : (kind === 'video' ? Film : ImageDown);
+
   return (
     <div
-      className="mt-1 rounded-lg bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/20 flex flex-col items-center justify-center gap-2"
+      className="mt-1 rounded-2xl relative overflow-hidden flex flex-col"
       style={{
         ...aspectStyle,
         width: '100%',
+        background: '#0e0e1a',
+        border: `1px solid ${stageColor}40`,
+        boxShadow: `0 0 24px ${stageColor}25`,
+        padding: 20,
         color: isUser ? 'white' : undefined,
       }}
     >
-      <GeneratingLoader
-        size="md"
-        label={
-          stage === 'translating'
-            ? '正在翻译成AI识别的最佳提示词...'
-            : kind === 'video'
-              ? 'AI 正在渲染视频, 通常 1-3 分钟, 别关页面...'
-              : 'AI 正在绘制中...'
-        }
+      {/* 流光边框背景 (Animated CSS) */}
+      <div
+        className="absolute rounded-2xl pointer-events-none"
+        style={{
+          top: -20, left: -20, right: -20, bottom: -20,
+          background: stageColor,
+          opacity: 0.35,
+          animation: 'pulse-glow 3s ease-in-out infinite',
+        }}
       />
-      {inQueue && queueInfo && (
-        <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded px-2 py-1 mt-1">
-          <span className="font-medium">⏳ 排队中:</span>{' '}
-          第 <span className="font-bold">{queueInfo.position}</span> 位
-          {' · '}
-          预计 <span className="font-bold">{queueInfo.etaSeconds}</span> 秒
-          {' · '}
-          {kindLabel}
+
+      {/* 顶部状态栏 */}
+      <div className="flex items-center justify-between mb-3 relative">
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+          style={{
+            backgroundColor: `${stageColor}20`,
+            border: `1px solid ${stageColor}60`,
+          }}
+        >
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              backgroundColor: stageColor,
+              animation: 'pulse-dot 1.5s ease-in-out infinite',
+            }}
+          />
+          <span className="text-[11px] font-semibold tracking-wide" style={{ color: stageColor }}>
+            {stageLabel}
+          </span>
+        </div>
+      </div>
+
+      {/* 中部: 双层旋转环 + 中心图标 */}
+      <div className="flex-1 flex items-center justify-center relative my-2">
+        <div
+          className="w-[72px] h-[72px] relative"
+          style={{
+            animation: 'spin 1.5s linear infinite',
+          }}
+        >
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              borderWidth: 3,
+              borderStyle: 'solid',
+              borderColor: 'transparent transparent transparent ' + stageColor,
+            }}
+          />
+          <div
+            className="absolute inset-0 rounded-full opacity-30"
+            style={{
+              borderWidth: 3,
+              borderStyle: 'solid',
+              borderColor: 'transparent transparent transparent ' + stageColor + '60',
+            }}
+          />
+        </div>
+        <div
+          className="absolute w-12 h-12 rounded-full flex items-center justify-center"
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.04)',
+          }}
+        >
+          <StageIcon size={28} color={stageColor} />
+        </div>
+      </div>
+
+      {/* 主标题 + 副标题 */}
+      <div className="text-center text-[15px] font-semibold mt-1 mb-0.5" style={{ color: '#e4e4f0' }}>
+        {mainLabel}
+      </div>
+      <div className="text-center text-xs mb-3 tracking-wide" style={{ color: '#9090a8' }}>
+        {subLabel}
+      </div>
+
+      {/* 进度条 */}
+      <div className="h-1 rounded-full overflow-hidden mb-2 relative" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+        <div
+          className="h-full rounded-full transition-all duration-1000"
+          style={{
+            width: `${progressPercent}%`,
+            backgroundColor: stageColor,
+            transition: 'width 1.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        />
+      </div>
+
+      {/* 排队信息整合 (不浮窗, 是卡片底部一段) */}
+      {visualStage === 'queueing' && queueInfo && (
+        <div className="text-[11px] text-center tracking-wide" style={{ color: stageColor }}>
+          ⏳ 第 <span className="font-bold">{queueInfo.position}</span> 位 · 预计 <span className="font-bold">{queueInfo.etaSeconds}</span> 秒
         </div>
       )}
-      {!inQueue && waitingForResource && globalInfo && (
-        <div className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded px-2 py-1 mt-1">
-          <span className="font-medium">⏳ 等待资源:</span>{' '}
-          当前 <span className="font-bold">{globalInfo.active}/{globalInfo.limit}</span> 在跑
+      {visualStage === 'generating' && waitingForResource && globalInfo && (
+        <div className="text-[11px] text-center tracking-wide" style={{ color: stageColor }}>
+          ⏳ 资源紧张 · 当前 <span className="font-bold">{globalInfo.active}/{globalInfo.limit}</span> 在跑
           {globalInfo.avgDurationMs > 0 && (
-            <>
-              {' · '}
-              平均 <span className="font-bold">{Math.round(globalInfo.avgDurationMs / 1000)}</span>s/任务
-            </>
+            <> · 平均 <span className="font-bold">{Math.round(globalInfo.avgDurationMs / 1000)}</span>s/任务</>
           )}
-          {' · '}
-          {kindLabel}
         </div>
       )}
     </div>

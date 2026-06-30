@@ -47,3 +47,17 @@
 .animate-slideDown {
   animation: slideDown 0.25s ease-out;
 }
+
+/* v3.0.68 (BUG-136): 生成动画卡片 3 维动画 - 跨端铁律 4++ 1:1 镜像 mobile StreamingCard */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.15); }
+}
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.4); }
+}

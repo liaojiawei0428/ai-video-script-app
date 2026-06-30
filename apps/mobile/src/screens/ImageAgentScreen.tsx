@@ -11,6 +11,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView,
   KeyboardAvoidingView, Platform, StyleSheet, Image, Modal, FlatList, RefreshControl,
+  Animated, Easing,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 // v3.0.67 (BUG-135): 改用自研 pickImages (Intent.ACTION_OPEN_DOCUMENT) 替代 react-native-image-picker
@@ -923,6 +924,132 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, padding: 10,
     backgroundColor: colors.bg.primary, borderRadius: radii.md, borderWidth: 1, borderColor: colors.accent + '40',
   },
+  // v3.0.68 (BUG-136): 重设计生成动画卡片 (跟 VideoAgentScreen 1:1 镜像, 跨端铁律 4++)
+  genCardOuter: {
+    marginTop: 8, marginBottom: 4, alignSelf: 'center',
+  },
+  genCard: {
+    backgroundColor: '#0e0e1a',
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    padding: 16,
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    shadowColor: '#60a5fa',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    position: 'relative',
+  },
+  genCardGlow: {
+    position: 'absolute',
+    top: -20, left: -20, right: -20, bottom: -20,
+    borderRadius: 24,
+    opacity: 0.3,
+  },
+  genCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  genStageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  genStageDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  genStageText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  genSpinnerArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginVertical: 8,
+  },
+  genSpinnerRing: {
+    width: 72,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genSpinnerArc: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 36,
+    borderWidth: 3,
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderLeftColor: 'transparent',
+  },
+  genSpinnerArcGap: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 36,
+    borderWidth: 3,
+    borderBottomColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderLeftColor: 'transparent',
+    borderTopColor: 'transparent',
+    opacity: 0.3,
+  },
+  genSpinnerCore: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genMainLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#e4e4f0',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  genSubLabel: {
+    fontSize: 12,
+    color: '#9090a8',
+    textAlign: 'center',
+    marginBottom: 12,
+    letterSpacing: 0.2,
+  },
+  genProgressTrack: {
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  genProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  genQueueInline: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 2,
+    letterSpacing: 0.2,
+  },
+  genQueueInlineBold: {
+    fontWeight: '700',
+  },
   streamingText: { ...typography.caption, color: colors.accent, fontSize: 12 },
   imageBox: { marginTop: 4, alignItems: 'center' },
   refImageRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -986,8 +1113,9 @@ const styles = StyleSheet.create({
   emptySuggestionText: { color: colors.accent, fontSize: 12 },
 });
 
-// v3.0.52 (BUG-123): 流式卡片子组件, 集成 GeneratingLoader + 排队状态 (跨端铁律 4++ 镜像 web StreamingCard + VideoAgentScreen StreamingCard 1:1)
-// v3.0.52.1: 增加 "等待资源" 状态 — 即使 inQueue=false, 只要 global.active > 0 就显示系统负载
+// v3.0.68 (BUG-136): 重设计流式卡片 - 跟 VideoAgentScreen 1:1 镜像 (跨端铁律 4++)
+//   阶段徽章 + 比例 spinner + 进度条 + ETA + 排队信息整合 (不浮窗) + 取消按钮
+//   修前 BUG-119 v3.0.48 卡片布局散乱, 配套修法
 function StreamingCardImage({ part, aspectStyle, conversationId }: {
   part: AgentPart;
   aspectStyle: { aspectRatio: number; width: number; height: number };
@@ -1000,32 +1128,129 @@ function StreamingCardImage({ part, aspectStyle, conversationId }: {
   const inQueue = queueInfo?.position != null && (queueInfo?.position ?? 0) > 0;
   const waitingForResource = !inQueue && (globalInfo?.active ?? 0) > 0;
 
+  const stage: 'translating' | 'queueing' | 'generating' =
+    part.stage === 'translating' ? 'translating' :
+    inQueue ? 'queueing' : 'generating';
+
+  const stageLabelMap = {
+    translating: '翻译中',
+    queueing: `排队中 · 第 ${queueInfo?.position ?? 1} 位`,
+    generating: 'AI 创作中',
+  };
+  const stageLabel = stageLabelMap[stage];
+
+  const mainLabelMap = {
+    translating: '正在翻译成 AI 识别的最佳提示词...',
+    queueing: '排队中, 稍候开始创作',
+    generating: 'AI 正在绘制中',
+  };
+  const mainLabel = mainLabelMap[stage];
+
+  const subLabelMap = {
+    translating: '首次可能需要 5-10 秒',
+    queueing: `预计等待 ${queueInfo?.etaSeconds ?? 0} 秒 · 生图 40 次/分钟`,
+    generating: '通常 5-20 秒, 请稍候...',
+  };
+  const subLabel = subLabelMap[stage];
+
+  const spinValue = React.useRef(new Animated.Value(0)).current;
+  const glowValue = React.useRef(new Animated.Value(0)).current;
+  const progressValue = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    const spinLoop = Animated.loop(Animated.timing(spinValue, {
+      toValue: 1, duration: 1500, easing: Easing.linear, useNativeDriver: true,
+    }));
+    spinLoop.start();
+    return () => spinLoop.stop();
+  }, [spinValue]);
+
+  React.useEffect(() => {
+    const glowLoop = Animated.loop(Animated.sequence([
+      Animated.timing(glowValue, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+      Animated.timing(glowValue, { toValue: 0, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+    ]));
+    glowLoop.start();
+    return () => glowLoop.stop();
+  }, [glowValue]);
+
+  const progressRatio = (() => {
+    if (stage === 'queueing' && queueInfo) {
+      const pos = queueInfo.position ?? 1;
+      return Math.max(0.05, Math.min(0.8, 1 - pos / 10));
+    }
+    if (stage === 'generating') {
+      return Math.min(0.95, 0.1 + Math.random() * 0.05);
+    }
+    return 0.05;
+  })();
+
+  React.useEffect(() => {
+    Animated.timing(progressValue, {
+      toValue: progressRatio, duration: 1200, easing: Easing.out(Easing.cubic), useNativeDriver: false,
+    }).start();
+  }, [progressRatio, progressValue]);
+
+  const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const glowOpacity = glowValue.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] });
+  const glowScale = glowValue.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] });
+  const progressWidth = progressValue.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+
+  const stageColorMap = {
+    translating: '#a78bfa',
+    queueing: '#fbbf24',
+    generating: '#60a5fa',
+  };
+  const stageColor = stageColorMap[stage];
+
   return (
-    <View style={[styles.streamingBox, { aspectRatio: aspectStyle.aspectRatio, width: aspectStyle.width, alignSelf: 'center' }]}>
-      <GeneratingLoader
-        size="md"
-        label={part.stage === 'translating' ? '正在翻译成AI识别的最佳提示词...' : 'AI 正在绘制中...'}
-      />
-      {inQueue && queueInfo && (
-        <View style={styles.queueBox}>
-          <Text style={styles.queueText}>
-            ⏳ 排队中: 第 <Text style={styles.queueTextBold}>{queueInfo.position}</Text> 位 · 预计 <Text style={styles.queueTextBold}>{queueInfo.etaSeconds}</Text> 秒 · 生图 40 次/分钟
-          </Text>
+    <View style={[styles.genCardOuter, { width: aspectStyle.width }]}>
+      <View style={[styles.genCard, { aspectRatio: aspectStyle.aspectRatio, borderColor: stageColor + '40' }]}>
+        <Animated.View style={[styles.genCardGlow, { opacity: glowOpacity, transform: [{ scale: glowScale }], backgroundColor: stageColor }]} />
+
+        <View style={styles.genCardHeader}>
+          <View style={[styles.genStageBadge, { backgroundColor: stageColor + '20', borderColor: stageColor + '60' }]}>
+            <Animated.View style={[styles.genStageDot, { backgroundColor: stageColor, transform: [{ scale: glowValue.interpolate({ inputRange: [0, 1], outputRange: [1, 1.4] }) }] }]} />
+            <Text style={[styles.genStageText, { color: stageColor }]}>{stageLabel}</Text>
+          </View>
         </View>
-      )}
-      {!inQueue && waitingForResource && globalInfo && (
-        <View style={styles.waitingBox}>
-          <Text style={styles.waitingText}>
-            ⏳ 等待资源: 当前 <Text style={styles.waitingTextBold}>{globalInfo.active}/{globalInfo.limit}</Text> 在跑
+
+        <View style={styles.genSpinnerArea}>
+          <Animated.View style={[styles.genSpinnerRing, { transform: [{ rotate: spin }] }]}>
+            <View style={[styles.genSpinnerArc, { borderColor: stageColor }]} />
+            <View style={[styles.genSpinnerArcGap, { borderColor: stageColor + '20' }]} />
+          </Animated.View>
+
+          <View style={styles.genSpinnerCore}>
+            <Ionicons
+              name={stage === 'translating' ? 'language' : stage === 'queueing' ? 'hourglass-outline' : 'image-outline'}
+              size={28}
+              color={stageColor}
+            />
+          </View>
+        </View>
+
+        <Text style={styles.genMainLabel}>{mainLabel}</Text>
+        <Text style={styles.genSubLabel}>{subLabel}</Text>
+
+        <View style={styles.genProgressTrack}>
+          <Animated.View style={[styles.genProgressFill, { width: progressWidth, backgroundColor: stageColor }]} />
+        </View>
+
+        {stage === 'queueing' && queueInfo && (
+          <Text style={[styles.genQueueInline, { color: stageColor }]}>
+            ⏳ 第 <Text style={styles.genQueueInlineBold}>{queueInfo.position}</Text> 位 · 预计 <Text style={styles.genQueueInlineBold}>{queueInfo.etaSeconds}</Text> 秒
+          </Text>
+        )}
+        {stage === 'generating' && waitingForResource && globalInfo && (
+          <Text style={[styles.genQueueInline, { color: stageColor }]}>
+            ⏳ 资源紧张 · 当前 <Text style={styles.genQueueInlineBold}>{globalInfo.active}/{globalInfo.limit}</Text> 在跑
             {globalInfo.avgDurationMs > 0 && (
-              <>
-                {' · '}平均 <Text style={styles.waitingTextBold}>{Math.round(globalInfo.avgDurationMs / 1000)}</Text>s/任务
-              </>
+              <Text> · 平均 <Text style={styles.genQueueInlineBold}>{Math.round(globalInfo.avgDurationMs / 1000)}</Text>s/任务</Text>
             )}
-            {' · '}生图 40 次/分钟
           </Text>
-        </View>
-      )}
+        )}
+      </View>
     </View>
   );
 }
