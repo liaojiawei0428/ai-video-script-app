@@ -1525,3 +1525,124 @@ BUG-139 (v3.0.71 server 修 UPSTREAM_BUSY 文案 + 加 10 秒自动重试, image
 | 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256334 |
 | systemd Environment=APP_VERSION 同步 | ✅ 3.0.71 |
 | shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.71 |
+
+## § 6.20 v3.0.72 新增: 跨端 AgentChatPanel generating/confirmingId UI state 跟会话 ID 绑定 (BUG-140, 跟 web § 5.12 1:1 镜像)
+
+> **新增 2026-07-01 (v3.0.72 BUG-140)**: 修 web + mobile 跨端 AgentChatPanel generating / confirmingId 是全局 bool state, 新会话按钮被旧会话生成中状态卡死. 修法 web 端 generating → generatingConvId (string \| null), mobile 端 if (confirmingId) → if (confirmingId === convId), 跨端铁律 4++ 1:1 镜像.
+
+### § 6.20.1 背景 (跟 web § 5.12.1 1:1)
+
+用户反馈: 视频助手会话列表中已有会话在跑生成 (例如 6c5de242 显示"排队中"), 用户新建一个会话, 进去输入需求 → 等方案就绪 → 右下角 plan 卡片显示"方案已就绪 ✨ 点下方'确认方案'出视频!开始生成" → 但右上角的按钮一直显示"视频生成中(首次 30-60s)..." → 永远点不动. 用户期望: 列表中的其他会话框即使有任务正在生成, 新建会话框也可以正常再进行新生成任务.
+
+### § 6.20.2 修前根因 (跟 web § 5.12.2 1:1)
+
+**BUG-A (web AgentChatPanel.tsx)**: generating 是全局 useState bool (line 160), 不跟 conversationId 绑定. 触发链:
+1. 用户在 ConvA 点"确认生成" → setGenerating(true) → 后台 polling 起来
+2. 用户新建 ConvB → startNew() 只设 conversationId=ConvB + status='awaiting_clarification', **没 reset generating**
+3. ConvB 完成 plan 翻译 → status='plan_ready' 显示方案卡
+4. 但按钮判断 generating ? '生成中(30-60s)...' : '确认生成' 还是生成中 → 按钮 disabled + 显示"视频生成中" → 永远点不动
+
+**BUG-B (mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx)**: 同源问题. confirmingId 是任意值时:
+- confirmGenerate(convId) 入口 if (confirmingId) return 阻止其他会话 confirm (line 441)
+- 按钮 disabled={!!confirmingId} 阻止其他会话 confirm 按钮 (line 554)
+- 结果: 新会话点了 confirm 不做任何事 (silent return)
+
+**BUG-C (BUG-138 v3.0.70 修了 status 但漏了 generating)**: 100% 同源 "修了后端状态没修前端 UI state". BUG-138 修了 pollingOwnerRef 但**没修 generating 这个独立的 UI state**.
+
+### § 6.20.3 修法 (跨端铁律 4++ 1:1 镜像 web)
+
+`
+apps/web/src/components/AgentChatPanel.tsx (跨端铁律 4++ 主修, 跟 mobile § 6.20.3 1:1):
+├─ generating (全局 bool) → generatingConvId: string | null (跟当前 convId 绑定)
+├─ 入口判断 if (generating) return → if (generatingConvId === conversationId) return
+│   (允许其他会话在跑生成时新会话也能 confirm)
+├─ confirmAndGenerate + confirm 入口: setGeneratingConvId(conversationId)
+├─ 完成后: setGeneratingConvId(null)
+├─ 按钮 disabled {generating} → {generatingConvId === conversationId}
+└─ 按钮文案 {generating ? "生成中..." : "确认生成"} → {generatingConvId === conversationId ? "生成中..." : "确认生成"}
+
+apps/mobile/src/screens/VideoAgentScreen.tsx + ImageAgentScreen.tsx (跨端铁律 4++ 镜像 web 1:1):
+├─ confirmGenerate(convId) 入口 if (confirmingId) return → if (confirmingId === convId) return
+│   (只阻止当前会话重复点, 不阻止其他会话新任务)
+├─ 按钮 disabled {!!confirmingId} → {confirmingId === conversationId}
+│   (跟 web 端 generatingConvId === conversationId 1:1 镜像)
+└─ ImageAgentScreen 保留 	ranslating 状态 (plan 翻译阶段用), 不动
+`
+
+### § 6.20.4 跨端铁律 4++ 镜像 (跟 server 端 1:1, 跟 web § 5.12.4 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| UI state 类型 | generatingConvId: string \| null | confirmingId: string \| null | ✅ 1:1 (跨端铁律 4++) |
+| 入口判断 | generatingConvId === conversationId | confirmingId === convId | ✅ 1:1 (行为一致, 参数命名略异) |
+| 按钮 disabled | generatingConvId === conversationId | confirmingId === conversationId | ✅ 1:1 |
+| 按钮文案 (tool_queued / plan_ready) | generatingConvId === conversationId ? '生成中...' : '确认生成' | confirmingId === conversationId ? <ActivityIndicator/> : '确认生成' | ✅ 1:1 风格略异 (icon + text) |
+| 全局 bool 反模式 | if (generating) return (修前) → 修后 | if (confirmingId) return (修前) → 修后 | ✅ 1:1 (反模式跨端同源) |
+| ImageAgentScreen translating 保留 | n/a | 保留 (plan 翻译阶段用) | ✅ 仅 mobile |
+| startNew/loadConversation 需重置 | 不需要 (新会话 convId 跟 generatingConvId 自动解耦) | 不需要 (mobile BUG-138 已 setPollingConvId(null)) | ✅ 1:1 |
+
+### § 6.20.5 使用规范 (跟 web § 5.12.5 1:1, 跨项目通用铁律)
+
+1. **UI 状态必跟会话 ID 绑定, 不能是全局 bool**: generating / inFlight / submitting / confirmingId 必带 convId 维度, 全局 bool 必跨会话污染 (跟 BUG-138 polling owner 同源)
+2. **修 polling lifecycle 必同步修 UI state lifecycle**: BUG-138 修了 status 但漏了 generating, 100% 同源 "修了后端状态没修前端 UI state". 修一个 lifecycle 必 grep 同模块所有 useState 看是否还有遗留
+3. **入口判断必检查当前 convId 匹配**: if (someBool) return 是反模式, 改成 if (someBool === convId) return
+4. **按钮 disabled 必跟当前 convId 匹配**: disabled={!!someGlobalBool} 是反模式, 改成 disabled={someGlobalBool === currentConvId}
+5. **加 useState 必问 "这个 state 跟会话 ID 有关吗?"**: 有关就必带 convId 维度, 否则 false 改成 string | null
+6. **跨端改一处必 web + mobile 1:1 镜像修 (跨端铁律 4++)**: web 端修 generating → mobile 端必同步修 confirmingId, 修法 1:1 镜像 (state 类型 + 入口判断 + 按钮 disabled 全部对齐)
+
+### § 6.20.6 跨项目通用铁律 4 条新沉淀 (跟 web § 5.12.6 1:1)
+
+1. **UI 状态必跟会话 ID 绑定, 不能是全局 bool (generating / inFlight / submitting 必带 convId 维度)**: 跨项目通用铁律
+2. **修 polling lifecycle 必同步修 UI state lifecycle (BUG-138 修了 status 但漏了 generating, 100% 同源)**: 跨项目通用铁律
+3. **入口判断必检查当前 convId 匹配 (if (confirmingId) return 是反模式, 改成 if (confirmingId === convId) return)**: 跨项目通用铁律
+4. **按钮 disabled 必跟当前 convId 匹配 (disabled={!!someGlobalBool} 是反模式, 改成 disabled={someGlobalBool === currentConvId})**: 跨项目通用铁律
+
+### § 6.20.7 跟其他 BUG 关系 (跟 web § 5.12.7 1:1)
+
+- **BUG-079** 假报告 — 跟 BUG-140 同源 "前端 UI 没法区分状态"
+- **BUG-097** mobile 漏修 web — BUG-140 反方向 (web + mobile 都有问题, 跨端铁律 4++ 1:1 同步修)
+- **BUG-100** loading UX 假修 — 同源 "loading 状态 UI 必真实反映后台"
+- **BUG-118** videoAgent tool_throttled 细分 — 跟 BUG-140 都是 UI state 跟会话绑定相关
+- **BUG-122** 拆 3 企业 key — BUG-140 跟 BUG-122 同源 "修了基础设施层没修 UI 层"
+- **BUG-132** video/image retry 策略细分 — BUG-140 是 retry 状态细分之外的 UI state 细分
+- **BUG-136** 加载状态视觉层级铁律 — BUG-140 跟 BUG-136 同源 "加了 state 漏消费到所有相关 render"
+- **BUG-138 (v3.0.70)** polling 不取消 — BUG-140 是 BUG-138 修法的延伸 (修了 status 但漏了 generating/confirmingId), 跨端铁律 4++ 必 1:1 镜像同步修
+- **BUG-139 (v3.0.71)** UPSTREAM_BUSY retry — BUG-140 跟 BUG-139 都是 retry / in-flight state UI 相关
+
+### § 6.20.8 mavis memory 沉淀 (跟 web § 5.12.8 1:1)
+
+`
+BUG-140 (v3.0.72 跨端 AgentChatPanel generating/confirmingId UI state 是全局 bool, 新会话按钮被旧会话生成中状态卡死):
+- 跨项目通用铁律: UI 状态必跟会话 ID 绑定, 不能是全局 bool (generating / inFlight / submitting 必带 convId 维度)
+- 跨项目通用铁律: 修 polling lifecycle 必同步修 UI state lifecycle (BUG-138 修了 status 但漏了 generating, 100% 同源)
+- 跨项目通用铁律: 入口判断必检查当前 convId 匹配 (if (confirmingId) return 是反模式, 改成 if (confirmingId === convId) return)
+- 跨项目通用铁律: 按钮 disabled 必跟当前 convId 匹配 (disabled={!!someGlobalBool} 是反模式, 改成 disabled={someGlobalBool === currentConvId})
+- 修前根因: web generating 全局 bool 不跟 conversationId 绑定, startNew/loadConversation 没 reset → 新会话按钮卡死. mobile confirmingId 是任意值时 disabled + return 阻止其他会话 confirm, 新会话点了不做事
+- 修法 web: generating (全局 bool) → generatingConvId: string | null, 入口判断 + 按钮 disabled + 文案 全部改成 generatingConvId === conversationId (跨端铁律 4++ 1:1 镜像)
+- 修法 mobile: if (confirmingId) return → if (confirmingId === convId) return, disabled={!!confirmingId} → disabled={confirmingId === conversationId} (跟 web 1:1 镜像)
+- E2E 验证: /api/version 3.0.72 + APK sha256 66E2B7C5... + web bundle index-CNQIgh2A.js 200 + ConvB 状态独立 + 代码 grep 全部 PASS
+`
+
+### § 6.20.9 E2E 验证 (跟 web § 5.12.9 1:1)
+
+- ✅ 公网 /api/version = 3.0.72
+- ✅ 公网 APK sha256 = 66E2B7C56AA48147142EF98CA9CA6A0539D8B0F82DECEA059B2F6037C85D5FE3 一致
+- ✅ 公网 web bundle index-CNQIgh2A.js HTTP 200 (新版本生效, 541769 bytes)
+- ✅ ConvA 跑任务 + ConvB 独立 awaiting_clarification (15s 后仍干净)
+- ✅ web AgentChatPanel.tsx 用 generatingConvId === conversationId (修复 BUG-140)
+- ✅ mobile VideoAgentScreen + ImageAgentScreen 用 confirmingId === convId (跨端铁律 4++ 1:1 镜像)
+
+### § 6.20.10 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ 9b5103 (v3.0.72 主修) → origin/main |
+| 远端 server restart (systemd) | ✅ active, PID 28362 |
+| /api/version 3.0.72 | ✅ version=3.0.72, mobileLatestApkVersion=3.0.72, downloadUrl=DeepScript_v3.0.72.apk |
+| APK 重打 (gradle assembleRelease) | ✅ pp-release.apk 30256362 bytes (versionCode 74, versionName 3.0.72) |
+| scp APK 到 /www/wwwroot/shipin-APP/public/ | ✅ DeepScript_v3.0.72.apk |
+| 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256362 |
+| 公网 APK sha256 | ✅ 66E2B7C56AA48147142EF98CA9CA6A0539D8B0F82DECEA059B2F6037C85D5FE3 |
+| systemd Environment=APP_VERSION 同步 | ✅ 3.0.72 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.72 |
+| web dist 部署 | ✅ index-CNQIgh2A.js HTTP 200 (web 端新版生效) |

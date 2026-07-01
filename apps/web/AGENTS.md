@@ -569,3 +569,84 @@ BUG-139 (v3.0.71 server 修 UPSTREAM_BUSY 文案 + 加 10 秒自动重试, image
 | 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256334 |
 | systemd Environment=APP_VERSION 同步 | ✅ 3.0.71 |
 | shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.71 |
+
+## § 5.12 v3.0.72 新增: 跨端 AgentChatPanel generating/confirmingId UI state 跟会话 ID 绑定 (BUG-140, 跟 mobile § 6.20 1:1 镜像)
+
+> **新增 2026-07-01 (v3.0.72 BUG-140)**: 修 web + mobile 跨端 AgentChatPanel generating / confirmingId 是全局 bool state, 新会话按钮被旧会话生成中状态卡死. 修法 web 端 generating → generatingConvId (string \| null), mobile 端 if (confirmingId) → if (confirmingId === convId), 跨端铁律 4++ 1:1 镜像.
+
+### § 5.12.1 背景 (跟 mobile § 6.20.1 1:1)
+
+用户反馈: 视频助手会话列表中已有会话在跑生成 (例如 6c5de242 显示"排队中"), 用户新建一个会话, 进去输入需求 → 等方案就绪 → 右下角 plan 卡片显示"方案已就绪 ✨ 点下方'确认方案'出视频!开始生成" → 但右上角的按钮一直显示"视频生成中(首次 30-60s)..." → 永远点不动. 用户期望: 列表中的其他会话框即使有任务正在生成, 新建会话框也可以正常再进行新生成任务.
+
+### § 5.12.2 修前根因 (跟 mobile § 6.20.2 1:1)
+
+**BUG-A (web AgentChatPanel.tsx)**: generating 是全局 useState bool (line 160), 不跟 conversationId 绑定. 触发链:
+1. 用户在 ConvA 点"确认生成" → setGenerating(true) → 后台 polling 起来
+2. 用户新建 ConvB → startNew() 只设 conversationId=ConvB + status='awaiting_clarification', **没 reset generating**
+3. ConvB 完成 plan 翻译 → status='plan_ready' 显示方案卡
+4. 但按钮判断 generating ? '生成中(30-60s)...' : '确认生成' 还是生成中 → 按钮 disabled + 显示"视频生成中" → 永远点不动
+
+**BUG-B (mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx)**: 同源问题. confirmingId 是任意值时:
+- confirmGenerate(convId) 入口 if (confirmingId) return 阻止其他会话 confirm (line 441)
+- 按钮 disabled={!!confirmingId} 阻止其他会话 confirm 按钮 (line 554)
+- 结果: 新会话点了 confirm 不做任何事 (silent return)
+
+**BUG-C (BUG-138 v3.0.70 修了 status 但漏了 generating)**: 100% 同源 "修了后端状态没修前端 UI state". BUG-138 修了 pollingOwnerRef 但**没修 generating 这个独立的 UI state**.
+
+### § 5.12.3 修法 (跨端铁律 4++ 1:1 镜像 mobile)
+
+跟 mobile § 6.20.3 完全镜像 (跨端铁律 4++ 1:1), 详见 § 6.20.3.
+
+`
+apps/web/src/components/AgentChatPanel.tsx (跨端铁律 4++ 主修, 跟 mobile § 6.20.3 1:1):
+├─ generating (全局 bool) → generatingConvId: string | null (跟当前 convId 绑定)
+├─ 入口判断 if (generating) return → if (generatingConvId === conversationId) return
+│   (允许其他会话在跑生成时新会话也能 confirm)
+├─ confirmAndGenerate + confirm 入口: setGeneratingConvId(conversationId)
+├─ 完成后: setGeneratingConvId(null)
+├─ 按钮 disabled {generating} → {generatingConvId === conversationId}
+└─ 按钮文案 {generating ? "生成中..." : "确认生成"} → {generatingConvId === conversationId ? "生成中..." : "确认生成"}
+
+apps/mobile/src/screens/VideoAgentScreen.tsx + ImageAgentScreen.tsx (跨端铁律 4++ 镜像 web 1:1):
+├─ confirmGenerate(convId) 入口 if (confirmingId) return → if (confirmingId === convId) return
+│   (只阻止当前会话重复点, 不阻止其他会话新任务)
+├─ 按钮 disabled {!!confirmingId} → {confirmingId === conversationId}
+│   (跟 web 端 generatingConvId === conversationId 1:1 镜像)
+└─ ImageAgentScreen 保留 	ranslating 状态 (plan 翻译阶段用), 不动
+`
+
+### § 5.12.4 跨端铁律 4++ 镜像 (跟 server 端 1:1, 跟 mobile § 6.20.4 1:1)
+
+跟 mobile § 6.20.4 完全镜像, 详见 § 6.20.4.
+
+### § 5.12.5 使用规范 (跟 mobile § 6.20.5 1:1, 跨项目通用铁律)
+
+跟 mobile § 6.20.5 完全镜像, 详见 § 6.20.5.
+
+### § 5.12.6 跨项目通用铁律 4 条新沉淀 (跟 mobile § 6.20.6 1:1)
+
+1. **UI 状态必跟会话 ID 绑定, 不能是全局 bool (generating / inFlight / submitting 必带 convId 维度)**: 跨项目通用铁律
+2. **修 polling lifecycle 必同步修 UI state lifecycle (BUG-138 修了 status 但漏了 generating, 100% 同源)**: 跨项目通用铁律
+3. **入口判断必检查当前 convId 匹配 (if (confirmingId) return 是反模式, 改成 if (confirmingId === convId) return)**: 跨项目通用铁律
+4. **按钮 disabled 必跟当前 convId 匹配 (disabled={!!someGlobalBool} 是反模式, 改成 disabled={someGlobalBool === currentConvId})**: 跨项目通用铁律
+
+### § 5.12.7 跟其他 BUG 关系 (跟 mobile § 6.20.7 1:1)
+
+跟 mobile § 6.20.7 完全镜像, 详见 § 6.20.7.
+
+### § 5.12.8 mavis memory 沉淀 (跟 mobile § 6.20.8 1:1)
+
+跟 mobile § 6.20.8 完全镜像, 详见 § 6.20.8.
+
+### § 5.12.9 E2E 验证 (跟 mobile § 6.20.9 1:1)
+
+- ✅ 公网 /api/version = 3.0.72
+- ✅ 公网 APK sha256 = 66E2B7C56AA48147142EF98CA9CA6A0539D8B0F82DECEA059B2F6037C85D5FE3 一致
+- ✅ 公网 web bundle index-CNQIgh2A.js HTTP 200 (新版本生效, 541769 bytes)
+- ✅ ConvA 跑任务 + ConvB 独立 awaiting_clarification (15s 后仍干净)
+- ✅ web AgentChatPanel.tsx 用 generatingConvId === conversationId (修复 BUG-140)
+- ✅ mobile VideoAgentScreen + ImageAgentScreen 用 confirmingId === convId (跨端铁律 4++ 1:1 镜像)
+
+### § 5.12.10 部署全链路 (跨端铁律 5, 跟 mobile § 6.20.10 1:1)
+
+跟 mobile § 6.20.10 完全镜像, 详见 § 6.20.10.
