@@ -229,17 +229,28 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     const inFlight = status === 'tool_queued' || status === 'tool_executing';
 
     if (inFlight) {
-      // in-progress: 立刻 push 流式卡片
-      setMessages(m => {
-        const last = m[m.length - 1];
-        if (!last) return m;
-        if (last.parts.some(p => p.type === 'streaming')) return m;
-        if (last.parts.some(p => p.type === 'image' || p.type === 'video')) return m;
-        return [...m.slice(0, -1), {
-          ...last,
-          parts: [...last.parts, { type: 'streaming', stage: 'generating' as const }],
-        }];
-      });
+      // BUG-138 (v3.0.70): push streaming 前 check pollingOwnerRef, 防止旧 polling 改 status 把流式卡片推到新会话
+      //   修前: 用户在 ConvA 点"确认方案" → pollingOwnerRef=A, status='tool_queued'
+      //         用户点"新建" → startNew 设 conversationId=ConvB, status='awaiting_clarification' (activeConvIdRef=B)
+      //         旧 polling tickStatus → status='tool_queued' (ConvA 还跑着)
+      //         statusEffectTimerRef 触发 → inFlight=true → push streaming 到 ConvB 的 last assistant
+      //         → ConvB 显示"正在生成方案"
+      //   修法: 只有当前 conversationId 是 pollingOwner 时才 push
+      if (pollingOwnerRef.current !== conversationId) {
+        // polling 不是当前会话 (已经被切走), 不 push streaming
+      } else {
+        // in-progress: 立刻 push 流式卡片
+        setMessages(m => {
+          const last = m[m.length - 1];
+          if (!last) return m;
+          if (last.parts.some(p => p.type === 'streaming')) return m;
+          if (last.parts.some(p => p.type === 'image' || p.type === 'video')) return m;
+          return [...m.slice(0, -1), {
+            ...last,
+            parts: [...last.parts, { type: 'streaming', stage: 'generating' as const }],
+          }];
+        });
+      }
     }
 
     // 不管 inFlight 状态, 拉最新 conv.messages 同步 (server 可能 push 新消息)
@@ -308,8 +319,23 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     return () => clearInterval(timer);
   }, [conversationId, status, kind]);
 
+  // BUG-138 (v3.0.70): 跨端通用铁律 — 后台 polling 必须有 owner ref + cancel 机制
+  //   修前: confirmAndGenerate / confirm 的 while 循环是 fire-and-forget, 切换会话时不会自动取消
+  //         旧 polling 每 4-5s poll 旧 conv, 把全局 status 改回 'tool_queued'/'tool_executing'
+  //         触发 statusEffectTimerRef useEffect push streaming part 到新会话 messages
+  //         → 新建会话也一直显示"提示词方案正在生成"
+  //   修法: 加 activeConvIdRef (当前活跃会话) + pollingOwnerRef (谁在跑 polling)
+  //         startNew/loadConversation 更新 activeConvIdRef, 清空 pollingOwnerRef (cancel 旧 polling)
+  //         while 循环每次 poll 前 check, 取消则 break
+  //         status effect push streaming 前 check pollingOwnerRef
+  const activeConvIdRef = useRef<string | null>(null);   // 当前 React state 的 conversationId
+  const pollingOwnerRef = useRef<string | null>(null);   // 当前在跑 confirmAndGenerate/confirm polling 的 conv id (null = 没有)
+
   // 加载会话详情
   const loadConversation = async (id: string) => {
+    // BUG-138: 切到历史会话前, 标记活跃会话, 并取消旧 polling (让旧 while 循环退出)
+    activeConvIdRef.current = id;
+    pollingOwnerRef.current = null;
     setLoading(true);
     setError(null);
     try {
@@ -330,10 +356,14 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   const startNew = async () => {
     setIsCreatingConversation(true);
     setError(null);
+    // BUG-138: 提前标记 pollingOwnerRef=null, 让旧 confirmAndGenerate/confirm 的 while 循环下次 poll 看到 activeConvId 变了立即 break
+    // (activeConvIdRef 在拿到新 id 后再更新)
+    pollingOwnerRef.current = null;
     try {
       const r = await api.createConversation();
       const { conversationId: id, welcome } = r.data.data;
       setConversationId(id);
+      activeConvIdRef.current = id;  // BUG-138: 标记活跃会话
       setStatus('awaiting_clarification');
       setMessages(welcome ? [welcome] : []);
       refreshHistory();
@@ -483,6 +513,9 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   const confirmAndGenerate = async () => {
     if (!conversationId || generating || confirmingRef.current) return;
     confirmingRef.current = true;
+    // BUG-138 (v3.0.70): 标记 polling owner, 切换会话时让旧 polling break
+    const capturedConvId = conversationId;
+    pollingOwnerRef.current = capturedConvId;
     setGenerating(true);
     setError(null);
 
@@ -535,11 +568,18 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       let lastStatusSeen = '';
       const tickStatus = (s: string) => {
         lastStatusSeen = s;
-        setStatus(s as any);
+        // BUG-138 (v3.0.70): tickStatus 前 check, 用户已经切走就不污染全局 status
+        if (pollingOwnerRef.current === capturedConvId) {
+          setStatus(s as any);
+        }
       };
 
       while (Date.now() - startTime < MAX_POLL_MS) {
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+        // BUG-138 (v3.0.70): 用户切走 (startNew/loadConversation 清空了 pollingOwnerRef) → break
+        if (pollingOwnerRef.current !== capturedConvId) {
+          break;
+        }
         try {
           const conv = await api.getById(conversationId);
           const cur = conv.data.data.conversation;
@@ -571,6 +611,11 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
         }
       }
 
+      // BUG-138 (v3.0.70): 退出循环后再 check 一次, 切走后不要清 messages (新会话的 messages 不该被旧 polling 改)
+      if (pollingOwnerRef.current !== capturedConvId) {
+        return;  // 用户切走了, 完全不渲染结果 (新会话有自己的状态)
+      }
+
       if (!finalImageUrl && !finalError) {
         finalError = '生成超时 (5min), 请刷新页面查看是否完成';
       }
@@ -594,20 +639,27 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       refreshHistory();
     } catch (e: any) {
       setError(e?.response?.data?.error?.message || e?.message || '生成失败');
-      setStatus('plan_ready');
-      // 清掉 streaming part
-      setMessages(m => {
-        const next = [...m];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant') {
-          next[next.length - 1] = {
-            ...last,
-            parts: last.parts.filter(p => p.type !== 'streaming'),
-          };
-        }
-        return next;
-      });
+      // BUG-138: 切走后不要 setStatus 污染新会话
+      if (pollingOwnerRef.current === capturedConvId) {
+        setStatus('plan_ready');
+        // 清掉 streaming part
+        setMessages(m => {
+          const next = [...m];
+          const last = next[next.length - 1];
+          if (last && last.role === 'assistant') {
+            next[next.length - 1] = {
+              ...last,
+              parts: last.parts.filter(p => p.type !== 'streaming'),
+            };
+          }
+          return next;
+        });
+      }
     } finally {
+      // BUG-138: 只在还是 owner 时清
+      if (pollingOwnerRef.current === capturedConvId) {
+        pollingOwnerRef.current = null;
+      }
       setGenerating(false);
       confirmingRef.current = false;
     }
@@ -616,10 +668,14 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   // v3.0.0.2 BUG 修复: 确认生成 (video agent 走这个, 旧流程)
   // 之前在 setMessages updater 内部调 setStatus (React 反模式) → 状态可能丢失, 按钮卡在"生成中"
   // v3.0.0.18: 走流式卡片 + 轮询 (跟 confirmAndGenerate 一致), 删啰嗦文案
+  // BUG-138 (v3.0.70): 加 capturedConvId / pollingOwnerRef (跟 confirmAndGenerate 1:1 镜像, 修跨端通用 polling 不取消 BUG)
   const confirm = async () => {
     if (!conversationId || generating) return;
     setGenerating(true);
     setError(null);
+    // BUG-138: 标记 owner
+    const capturedConvId = conversationId;
+    pollingOwnerRef.current = capturedConvId;
     try {
       // 1. 立刻把 plan part 替换为流式卡片 (kind: 'generating')
       // BUG-119 (v3.0.48): 先 clearResultParts 清掉旧 video/error/旧 streaming (避免堆叠), 再 push 新 streaming
@@ -666,6 +722,10 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       let finalError: string | null = null;
       while (Date.now() - startTime < MAX_POLL_MS) {
         await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
+        // BUG-138: 切走后立即 break
+        if (pollingOwnerRef.current !== capturedConvId) {
+          return;
+        }
         try {
           const conv = await api.getById(conversationId);
           const cur = conv.data.data.conversation;
@@ -682,6 +742,10 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
             break;
           }
         } catch {}
+      }
+      // BUG-138: 退出后再 check 一次
+      if (pollingOwnerRef.current !== capturedConvId) {
+        return;
       }
       if (!finalResultUrl && !finalError) {
         finalError = '生成超时 (5min), 请刷新页面查看是否完成';
@@ -708,20 +772,26 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       refreshHistory();
     } catch (e: any) {
       setError(e?.response?.data?.error?.message || e?.message || '确认失败');
-      // 清掉 streaming part
-      setMessages(m => {
-        const next = [...m];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant') {
-          next[next.length - 1] = {
-            ...last,
-            parts: last.parts.filter(p => p.type !== 'streaming'),
-          };
-        }
-        return next;
-      });
-      setStatus('plan_ready');
+      // BUG-138: 切走后不污染新会话
+      if (pollingOwnerRef.current === capturedConvId) {
+        // 清掉 streaming part
+        setMessages(m => {
+          const next = [...m];
+          const last = next[next.length - 1];
+          if (last && last.role === 'assistant') {
+            next[next.length - 1] = {
+              ...last,
+              parts: last.parts.filter(p => p.type !== 'streaming'),
+            };
+          }
+          return next;
+        });
+        setStatus('plan_ready');
+      }
     } finally {
+      if (pollingOwnerRef.current === capturedConvId) {
+        pollingOwnerRef.current = null;
+      }
       setGenerating(false);
     }
   };

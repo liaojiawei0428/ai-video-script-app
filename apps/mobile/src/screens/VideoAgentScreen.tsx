@@ -247,6 +247,11 @@ export function VideoAgentScreen(): React.JSX.Element {
   };
 
   const loadConversation = async (id: string) => {
+    // BUG-138 (v3.0.70): 切换到历史会话前, 先取消旧 polling (避免旧 polling 把新会话的 convStatus/messages 改乱)
+    //   修前: 修前 polling useEffect 依赖 pollingConvId, 切换会话没 reset pollingConvId → 旧 polling 还在跑
+    //         → 每 3s 改 setConvStatus / 替换 messages → 新会话的 UI 显示错乱
+    //         (跟 web AgentChatPanel 的 confirmAndGenerate while 循环 fire-and-forget 不取消同源, 跨端通用铁律 4++ 1:1 镜像)
+    setPollingConvId(null);
     try {
       const res = await videoAgentGetApi(id);
       // v3.0.24 (S60 P2 BUG-041 修): server 返 {data:{conversation: {...}}}, 不是 {data:{...}}
