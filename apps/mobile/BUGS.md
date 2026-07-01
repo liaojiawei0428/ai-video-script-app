@@ -7722,3 +7722,142 @@ mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx (跨端铁律 4++ 镜像 web 
 | systemd Environment=APP_VERSION 同步 | ✅ 3.0.72 |
 | shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.72 |
 | web dist 部署 | ✅ index-CNQIgh2A.js HTTP 200 (web 端新版生效) |
+
+## BUG-141 + BUG-142 (v3.0.73 mobile 端生图/视频助手会话列表删除 + 新建 race condition, setUserInitiated closure 异步问题导致'越删越多' + '按两次才新建')
+
+### 背景 (跟 web AGENTS.md § 5.13.1 1:1)
+
+用户反馈 APP 端 (mobile) 视频/生图助手:
+1. **会话越删越多, 根本无法正常删除会话**: 用户按删除按钮 (历史侧栏的垃圾桶图标或 toolbar 三点菜单) → 列表里**多了一个空会话**而不是删掉
+2. **新建要按两次才会新建会话**: 用户按新建按钮 → 第 1 次不响应 (UI 没明显变化) → 第 2 次才生效
+
+### 修前根因 (双 BUG 同源 race condition, 跟 BUG-138 polling owner 100% 同源)
+
+mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx 的 5 个用户操作入口都同时调 createConversation(true) + loadHistory():
+
+`
+1. deleteCurrent (toolbar 三点菜单删除, line 476-499): createConversation(true); loadHistory()
+2. toolbar 新建按钮 (line 649/632):             onPress={() => { createConversation(true); loadHistory(); }}
+3. emptyPrimaryBtn (空状态新建按钮, line 672/655): onPress={() => { createConversation(true); loadHistory(); }}
+4. history 顶部新建按钮 (line 825/786):         onPress={() => { createConversation(true); setShowHistory(false); loadHistory(); }}
+5. historyItemDeleteBtn (line 855-882):         await loadHistory()
+`
+
+**真根因**:
+- createConversation(true) 内部 setUserInitiated(true) 是 React state 异步更新 (line 278)
+- loadHistory() 在 onPress handler 立即同步调用 closure 里 userInitiated 还是 **false** (旧的) !
+- loadHistory 走到 line 220-227:
+  `	sx
+  if (userInitiated) {  // ← closure 是 false, 拦截失败
+    setUserInitiated(false);
+    return;  // 期望: 用户主动操作时拦截
+  }
+  const lastResult = list.find((c: ConvListItem) => c.resultVideoUrl);
+  if (lastResult) await loadConversation(lastResult.id);
+  else createConversation();  // ← BUG: 走到兜底创建分支
+  `
+- 结果: **删一条建一个** (BUG-141) / **按一次建两个** (BUG-142)
+
+**触发链 (BUG-141 删除越删越多)**:
+1. 用户按 historyItemDeleteBtn → setUserInitiated(true) → async update
+2. 立即调 wait loadHistory() → closure userInitiated 还是 false → 跳过拦截
+3. delete API 完成 + loadHistory 拉到 list (删完后剩 [B,C,D])
+4. lastResult 找不到 (假设列表里没 resultVideoUrl 的会话) → else createConversation() → **建一个新会话 E!**
+5. list setHistory([B,C,D,E]), 但 conversationId 是空
+6. userInitiated 此时变 false (因为已经过 loadHistory 异步链)
+7. 用户看到 "A 没了, 但多了 E" → 感觉 "越删越多"
+
+**触发链 (BUG-142 按两次才新建)**:
+1. 用户按 toolbar 新建按钮 → createConversation(true) → server 建会话 A → setUserInitiated(true) async update
+2. 同时 loadHistory() 立即同步调用 → closure userInitiated=false → 走到 else createConversation() → **再建一个会话 A'!**
+3. server 端总共创建 2 个会话 (1 个 from onPress, 1 个 from loadHistory 兜底)
+4. UI: list 还没拉到 (loadHistory 在 await 状态) → 用户感觉 "按了没反应"
+5. 用户按第二次 → 再走一遍 → list 这次可能更新了 → 才看到新建生效
+
+### 修法 (跨端铁律 4++ 1:1 镜像 web + mobile)
+
+`
+mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx (跨端铁律 4++ 镜像 web 1:1):
+1. deleteCurrent (toolbar 三点菜单删除): createConversation(true); loadHistory() → refreshHistory()
+   修后: 删完就停 (不创建新会话, 跟 web 端 1:1 镜像)
+2. toolbar 新建按钮: createConversation(true); loadHistory() → refreshHistory()
+3. emptyPrimaryBtn (空状态新建按钮): 同上
+4. history 顶部新建按钮: 同上
+5. historyItemDeleteBtn: await loadHistory() → await refreshHistory()
+
+保留 loadHistory 兜底逻辑: useEffect mount 1 处 (line 200/160) 保留 auto-load 体验
+  首次进入没有 result 会话时自动建一个空会话, 跟修前一致
+`
+
+**refreshHistory vs loadHistory** (line 239-253, S72 batch 6 BUG-089 拆分):
+`	sx
+const refreshHistory = async () => {
+  try {
+    const res = await videoAgentHistoryApi(50);
+    const list = ...;
+    setHistory(list);  // 只刷列表, 不 auto-load, 不创建会话
+  } catch (e) { ... }
+};
+`
+
+### 跨端铁律 4++ 镜像 (跟 web 端 + mobile 端 1:1)
+
+| 维度 | VideoAgentScreen.tsx | ImageAgentScreen.tsx | 一致性 |
+|---|---|---|---|
+| deleteCurrent (toolbar 三点菜单删除) | refreshHistory() | refreshHistory() | ✅ 1:1 |
+| toolbar 新建按钮 | refreshHistory() | refreshHistory() | ✅ 1:1 |
+| emptyPrimaryBtn (空状态新建按钮) | refreshHistory() | refreshHistory() | ✅ 1:1 |
+| history 顶部新建按钮 | refreshHistory() | refreshHistory() | ✅ 1:1 |
+| historyItemDeleteBtn (历史侧栏删除) | refreshHistory() | refreshHistory() | ✅ 1:1 |
+| loadHistory() 保留位置 | useEffect mount 1 处 (auto-load 体验) | 同 | ✅ 1:1 |
+| refreshHistory() 总调用次数 | 6 处 (4 用户入口 + 1 historyItemDelete + 1 polling) | 6 处 | ✅ 1:1 |
+
+### 使用规范 (跨项目通用铁律)
+
+1. **React state 异步更新, onPress handler 立即读 closure 是旧值**: 必用 useRef 或 await setState, 同步 setState + 同步读 state 必 race
+2. **setUserInitiated(true) 跟 loadHistory() 不能在同一 tick 调用**: 会触发 race condition, 拆成 2 步 (先 setState 再 await next tick 再 loadHistory)
+3. **loadHistory 兜底 createConversation 是反模式**: 用户主动操作 (新建/删除) 必用 refreshHistory 只刷列表, 不触发 auto-load
+4. **必 grep 所有调 loadHistory 的地方**: 改成 refreshHistory (除了首次进入 useEffect mount 1 处保留 auto-load 体验)
+5. **跨端改一处必同步 web + mobile 1:1 镜像 (跨端铁律 4++)**: web 端不会删完自动建, mobile 端之前反模式 → 1:1 镜像 web
+6. **删完不自动建新会话**: 跟 web 端 1:1 镜像, web 端 deleteCurrent 删完就停, 不创建新会话
+
+### 跨项目通用铁律 4 条新沉淀 (跟 BUG-138/140 100% 同源)
+
+1. **React state 异步更新, onPress handler 立即读 closure 是旧值, 必用 useRef 或 await setState**: 跨项目通用铁律
+2. **setUserInitiated(true) 跟 loadHistory() 不能在同一 tick 调用, 会触发 race condition**: 跨项目通用铁律
+3. **loadHistory 兜底 createConversation 是反模式, 用户主动操作 (新建/删除) 必用 refreshHistory 只刷列表**: 跨项目通用铁律
+4. **必 grep 所有调 loadHistory 的地方, 改成 refreshHistory (除了首次进入 useEffect mount 1 处保留 auto-load 体验)**: 跨项目通用铁律
+
+### 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — BUG-141/142 同源 race condition 导致前端 UI 跟实际后端状态不一致
+- **BUG-097** mobile 漏修 web — BUG-141/142 反方向 (web 端正确, mobile 端反模式)
+- **BUG-100** loading UX 假修 — 同源 "loading 状态 UI 必真实反映后台"
+- **BUG-118** videoAgent tool_throttled 细分 — 跟 BUG-141/142 都是状态细分
+- **BUG-122** 拆 3 企业 key — BUG-141/142 跟 BUG-122 同源 "修了基础设施层没修 UI 层"
+- **BUG-138 (v3.0.70)** polling 不取消 — BUG-141/142 是 BUG-138 同源 "closure race condition 导致 state 保护失效"
+- **BUG-140 (v3.0.72)** UI state 全局 bool — BUG-141/142 是 BUG-140 同源 "UI state 跨会话污染"
+- **BUG-139 (v3.0.71)** UPSTREAM_BUSY retry — 跟 BUG-141/142 都是 retry/in-flight state UI 相关
+
+### E2E 验证 (跟 web AGENTS.md § 5.13.9 1:1)
+
+- ✅ 公网 /api/version = 3.0.73 + mobileLatestApkVersion=3.0.73
+- ✅ 公网 APK sha256 = c09d991fa6ca3bf61d29e5adb821c6e0da029e09539abcc62056b440b17ade7b 一致 (30256263 bytes)
+- ✅ server 端 5 轮 create + delete 全部正常 (server 端 0 改, race condition 修法在 mobile 端)
+- ✅ mobile VideoAgentScreen + ImageAgentScreen 5 处用户操作入口全部 loadHistory() → refreshHistory()
+- ✅ mobile 2 个文件 loadHistory() 调用 各只剩 1 处 (useEffect mount, 保留 auto-load 体验)
+- ✅ mobile 2 个文件 refreshHistory() 调用 ≥4 处 (4 个用户操作入口 + polling 完成 1 处 = 5 处)
+
+### 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ 5b99117 (v3.0.73 主修) → origin/main |
+| 远端 server restart (systemd) | ✅ active, PID 25840 |
+| /api/version 3.0.73 | ✅ version=3.0.73, mobileLatestApkVersion=3.0.73, downloadUrl=DeepScript_v3.0.73.apk |
+| APK 重打 (gradle assembleRelease) | ✅ pp-release.apk 30256263 bytes (versionCode 75, versionName 3.0.73) |
+| scp APK 到 /www/wwwroot/shipin-APP/public/ | ✅ DeepScript_v3.0.73.apk |
+| 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256263 |
+| 公网 APK sha256 | ✅ c09d991fa6ca3bf61d29e5adb821c6e0da029e09539abcc62056b440b17ade7b (本机跟远端 1:1) |
+| systemd Environment=APP_VERSION 同步 | ✅ 3.0.73 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.73 |
