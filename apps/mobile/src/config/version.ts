@@ -1,4 +1,4 @@
-﻿// APP 闁绘鐗婂﹢鎵磼閻斿墎顏辩紒鐙呯磿閹?
+// APP 闁绘鐗婂﹢鎵磼閻斿墎顏辩紒鐙呯磿閹?
 // 闁告瑦鍨电粩鐑藉棘閹殿喖顣奸柡鍫墯濡炲倿宕ｉ鍫熶粯濞ｅ浂鍠楅弫鐓庮潰閵堝拋妲?(閻犳亽鍔庨顒勬煣娴ｅ摜浼?3: 8 濠㈣泛瀚晶妤呭嫉椤掆偓瑜板潡宕ョ仦缁㈠妱, 闁?VERSION_MANAGEMENT.md 閹?5)
 //
 // 濞ｅ浂鍠楅弫鐓幟规担琛℃煠:
@@ -12,7 +12,7 @@
 //   4. commit message 闊洤鎳庨悽顐︽偋閸喐鎷遍柨?(闂佸彞绀佺欢?6): `vX.Y.Z: <闁衡偓閻熸澘袟> (BUG-NNN)`
 //   5. 闂侇喓鍔庣拋?+ 12 缂備焦鎸抽悰娆撴晸?(BAOTA_NODE_PROJECT_DEPLOY.md 閹?2.3)
 
-export const APP_VERSION = '3.0.72';
+export const APP_VERSION = '3.0.73';
 
 // v3.0.62 (BUG-131 S72 batch 31): 闁稿浚鍓涚紞?APK 閻犱警鍨扮欢?server-side 闁活亞鍠庨悿鍕偓娑櫭﹢顏勎涢埀顒勫蓟?
 //   - 濞ｅ浂鍠栨晶? /api/version downloadUrl 闁?`DeepScript_v${process.env.APP_VERSION}.apk`, server-only hotfix (3.0.61) 閻犺櫣鍠庨崣鏇犵磾?APK (3.0.60) 濞戞挸绉崇粩鎾嚊?闁?闁稿娲ｇ粭鍛姜?404 HTML 闂佹寧鐟ㄩ銈嗐亜?闁?Status Code 16

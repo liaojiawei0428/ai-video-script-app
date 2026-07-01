@@ -469,8 +469,14 @@ export function ImageAgentScreen(): React.JSX.Element {
           setMessages([]);
           setPollingConvId(null);
           setConvStatus('');
-          createConversation(true); // 立刻建个新的
-          loadHistory();
+          // BUG-141 (v3.0.73): 改成 refreshHistory() (不是 loadHistory())
+          //   修前 deleteCurrent 内 createConversation(true) + loadHistory() 触发 race condition:
+          //     setUserInitiated(true) 异步, loadHistory 立即调用 closure 里 userInitiated=false
+          //     → 走到 else createConversation() 兜底分支 → "删除"按钮变成"新建"按钮
+          //     → 用户感觉"越删越多"
+          //   修后: 删完就停 (不创建新会话, 跟 web 端 1:1 镜像)
+          //     refreshHistory() 只刷新列表不 auto-load, 避免 race condition 触发兜底创建
+          refreshHistory();
         } catch (e: any) {
           showAlert({ title: '删除失败', message: e?.response?.data?.error?.message || e?.message });
         }
@@ -629,7 +635,7 @@ export function ImageAgentScreen(): React.JSX.Element {
           </View>
           {convStatus ? <StatusBadge status={convStatus} error_msg={convErrorMsg} /> : null}
         </View>
-        <TouchableOpacity style={styles.toolbarPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
+        <TouchableOpacity style={styles.toolbarPrimaryBtn} onPress={() => { createConversation(true); refreshHistory(); }}>
           <Ionicons name="add" size={18} color="#fff" />
           <Text style={styles.toolbarPrimaryBtnText}>新建</Text>
         </TouchableOpacity>
@@ -652,7 +658,7 @@ export function ImageAgentScreen(): React.JSX.Element {
             </View>
             <Text style={styles.emptyTitle}>开始你的第一张图</Text>
             <Text style={styles.emptyHint}>描述画面内容、风格、比例, AI 会整理方案后生成高清图片</Text>
-            <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={() => { createConversation(true); loadHistory(); }}>
+            <TouchableOpacity style={styles.emptyPrimaryBtn} onPress={() => { createConversation(true); refreshHistory(); }}>
               <Ionicons name="add" size={20} color="#fff" />
               <Text style={styles.emptyPrimaryBtnText}>新建生图会话</Text>
             </TouchableOpacity>
@@ -783,7 +789,7 @@ export function ImageAgentScreen(): React.JSX.Element {
             <View style={{ padding: 12 }}>
               <TouchableOpacity
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 12 }}
-                onPress={() => { createConversation(true); setShowHistory(false); loadHistory(); }}
+                onPress={() => { createConversation(true); setShowHistory(false); refreshHistory(); }}
               >
                 <Ionicons name="add" size={18} color="#fff" />
                 <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>新建生图会话</Text>
@@ -837,7 +843,7 @@ export function ImageAgentScreen(): React.JSX.Element {
                                 setConvStatus('');
                                 setConvErrorMsg(null); // BUG-134 (v3.0.66): 删除后清空 error_msg
                               }
-                              await loadHistory();
+                              await refreshHistory();
                             } catch (e: any) {
                               showAlert({ title: '删除失败', message: e?.response?.data?.error?.message || e?.message });
                             }

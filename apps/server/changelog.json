@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.73",
+      "buildDate": "2026-07-01",
+      "type": "patch",
+      "summary": "BUG-141 + BUG-142 修 mobile 端生图/视频助手会话列表删除 + 新建 race condition (setUserInitiated closure 异步问题导致 loadHistory 兜底 createConversation, 用户感觉'越删越多' + '按两次才新建')",
+      "highlights": [
+        "BUG-141 + BUG-142 ✅ 修前根因 (双 BUG 同源 race condition): toolbar 新建按钮 / toolbar 三点菜单删除 / 历史侧栏顶部新建 / 历史侧栏每条删除 / 空状态新建按钮 这 5 处都同时调 `createConversation(true)` + `loadHistory()`. `createConversation(true)` 内部 `setUserInitiated(true)` 是 React state 异步更新, `loadHistory()` 同步立即执行 closure 里 userInitiated 还是 false → 走到 `else createConversation()` 兜底分支 → 删一条建一个 / 按一次建两个 (跟 BUG-138 polling owner 100% 同源: closure race condition 导致 state 保护失效)",
+        "BUG-141 ✅ 修法 deleteCurrent (toolbar 三点菜单删除): 删完立刻建新会话 `createConversation(true)` + `loadHistory()` → 改成只删不建 + `refreshHistory()`. 修前用户期望 '删除后回到空状态' 但代码删完又建一个, 实际 userInitiated race → 又多建一个 → '越删越多'. 修后跟 web 端 1:1 镜像 (web 端不会删完自动建, mobile 端之前反模式)",
+        "BUG-142 ✅ 修法 toolbar 新建按钮 + 空状态新建按钮 + 历史侧栏顶部新建按钮: `createConversation(true); loadHistory()` → `createConversation(true); refreshHistory()`. refreshHistory() 只刷新列表不 auto-load, 避免 race condition 触发兜底 createConversation. 修前用户按一次按钮 server 端创建 2 个会话 (1 个 from onPress + 1 个 from loadHistory 兜底), UI 不立即更新 (list 还没拉到新会话) → 用户感觉 '按了没反应' → 按第二次",
+        "BUG-141 + BUG-142 ✅ 修法 historyItemDeleteBtn (历史侧栏每条删除按钮): `await loadHistory()` → `await refreshHistory()`. 同样 race condition, 删一条列表兜底 createConversation 一个 → '越删越多'",
+        "BUG-141 + BUG-142 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-138/140 100% 同源): (1) React state 异步更新, onPress handler 立即读 closure 是旧值, 必用 useRef 或 await setState; (2) setUserInitiated(true) 跟 loadHistory() 不能在同一 tick 调用, 会触发 race condition; (3) loadHistory 兜底 createConversation 是反模式, 用户主动操作 (新建/删除) 必用 refreshHistory 只刷列表; (4) 必 grep 所有调 loadHistory 的地方, 改成 refreshHistory (除了首次进入 useEffect mount 1 处保留 auto-load 体验)",
+        "BUG-141 + BUG-142 ✅ 升 v3.0.72 → v3.0.73: 8 处版本号同步 (mobile version.ts 3.0.72 → 3.0.73 + mobile build.gradle versionCode 74 → 75 + versionName 3.0.72 → 3.0.73 + web version.ts 3.0.72 → 3.0.73 + APP_VERSION_CODE 74 → 75 + server package.json 3.0.72 → 3.0.73 + server src/index.ts fallback 3.0.72 → 3.0.73 + server ecosystem.config.js env + env_production 2 处 3.0.72 → 3.0.73 + changelog.json + changelog_remote.json + v3.0.73 entry prepend)"
+      ]
+    },
+    {
       "version": "3.0.72",
       "buildDate": "2026-07-01",
       "type": "patch",
