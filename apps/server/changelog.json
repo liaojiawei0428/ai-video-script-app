@@ -5,6 +5,19 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.72",
+      "buildDate": "2026-07-01",
+      "type": "patch",
+      "summary": "BUG-140 修 web + mobile 跨端 AgentChatPanel generating/confirmingId UI state 是全局 bool, 新会话按钮被旧会话生成中状态卡死 (跟 BUG-138 polling owner 同源, 跨端铁律 4++ 1:1 镜像)",
+      "highlights": [
+        "BUG-140 ✅ 修前根因: web AgentChatPanel.tsx `generating` 是全局 useState bool, 不跟 conversationId 绑定. 用户在 ConvA 点'确认生成' → setGenerating(true) → 用户新建 ConvB → startNew() 只设 conversationId=ConvB + status='awaiting_clarification', **没 reset generating** → ConvB 完成 plan 翻译后 status='plan_ready' 显示方案卡 → 但右上角按钮 disabled + 显示'视频生成中(首次 30-60s)...' → 永远点不动 (跟 BUG-079/100/118/132/138 100% 同源: UI state 没真反映当前会话实际状态). mobile VideoAgentScreen + ImageAgentScreen 同源问题: `confirmingId` 是任意值时 `if (confirmingId) return` + `disabled={!!confirmingId}` 阻止其他会话 confirm, 新建会话点了 confirmGenerate 不做任何事",
+        "BUG-140 ✅ 修法 web AgentChatPanel.tsx (跨端铁律 4++ 主修): `generating` (全局 bool) → `generatingConvId: string | null` (跟当前 convId 绑定). 入口判断 `if (generating) return` → `if (generatingConvId === conversationId) return` (允许其他会话在跑生成时新会话也能 confirm). setGenerating(true/false) → setGeneratingConvId(conversationId/null). 按钮 disabled `{generating}` → `{generatingConvId === conversationId}`. 按钮文案 `{generating ? '生成中...' : '确认生成'}` → `{generatingConvId === conversationId ? '生成中...' : '确认生成'}`. 修前 startNew/loadConversation 必须重置 generating 才能修, 修后新会话 convId 跟 generatingConvId 不一样自动解耦, 不用额外 reset 入口",
+        "BUG-140 ✅ 修法 mobile VideoAgentScreen.tsx + ImageAgentScreen.tsx (跨端铁律 4++ 镜像 web 1:1): `confirmGenerate(convId)` 入口 `if (confirmingId) return` → `if (confirmingId === convId) return` (只阻止当前会话重复点, 不阻止其他会话新任务). 按钮 disabled `{!!confirmingId}` → `{confirmingId === conversationId}` (跟 web 端 generatingConvId === conversationId 1:1 镜像). ImageAgentScreen 保留 `translating` 状态 (plan 翻译阶段用), 不动",
+        "BUG-140 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/100/118/132/138/139 100% 同源): (1) UI 状态必跟会话 ID 绑定, 不能是全局 bool (generating / inFlight / submitting 必带 convId 维度); (2) 修 polling lifecycle 必同步修 UI state lifecycle (BUG-138 修了 status 但漏了 generating, 100% 同源 '修了后端状态没修前端 UI state'); (3) 入口判断必检查当前 convId 匹配 (if (confirmingId) return 是反模式, 改成 if (confirmingId === convId) return); (4) 按钮 disabled 必跟当前 convId 匹配 (disabled={!!someGlobalBool} 是反模式, 改成 disabled={someGlobalBool === currentConvId})",
+        "BUG-140 ✅ 升 v3.0.71 → v3.0.72: 8 处版本号同步 (mobile version.ts 3.0.71 → 3.0.72 + mobile build.gradle versionCode 73 → 74 + versionName 3.0.71 → 3.0.72 + web version.ts 3.0.71 → 3.0.72 + APP_VERSION_CODE 73 → 74 + server package.json 3.0.71 → 3.0.72 + server src/index.ts fallback 3.0.71 → 3.0.72 + server ecosystem.config.js env + env_production 2 处 3.0.71 → 3.0.72 + changelog.json + changelog_remote.json + v3.0.72 entry prepend)"
+      ]
+    },
+    {
       "version": "3.0.71",
       "buildDate": "2026-07-01",
       "type": "patch",

@@ -1,4 +1,4 @@
-// apps/server/src/index.ts
+﻿// apps/server/src/index.ts
 // v3.0.32 (S71 BUG-078): web "账单明细" API mount (/api/billing)
 // v3.0.32 (S71 BUG-079): �?S71 PS 5.1 写入丢失换行符的损坏 (整文件挤 3 �? tsc 编译�?11 �?dist, node 启动立即 exit)
 // 修法: Write 工具强写干净�? 每个 import 一�?
@@ -102,7 +102,7 @@ import { readChangelog, loadChangelog } from './shared/changelog';
 // 避免 server-only hotfix (v3.0.61) 跟公网 APK (v3.0.60) 不一致导致 Status Code 16 假下载
 import { getMobileLatestApk } from './services/apkVersion';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.71';
+  const currentVersion = process.env.APP_VERSION || '3.0.72';
   const clientVersion = req.query.version as string || '0.0.0';
   // v3.0.62 BUG-131: needUpdate 跟 mobileLatestApkVersion 比, 不是 server APP_VERSION (避免 server-only hotfix 假升级)
   const mobileApk = getMobileLatestApk();

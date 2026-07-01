@@ -438,7 +438,9 @@ export function VideoAgentScreen(): React.JSX.Element {
   };
 
   const confirmGenerate = async (convId: string) => {
-    if (!convId || confirmingId) return;
+    // BUG-140 (v3.0.72): 改成 confirmingId === convId, 允许其他会话 in-flight 时新会话也能 confirm
+    //   (跟 web 端 generatingConvId === conversationId 跨端铁律 4++ 1:1 镜像)
+    if (!convId || confirmingId === convId) return;
     setConfirmingId(convId);
     try {
       const res = await videoAgentConfirmApi(convId);
@@ -553,7 +555,8 @@ export function VideoAgentScreen(): React.JSX.Element {
             <TouchableOpacity
               style={[styles.confirmBtn, confirmingId === conversationId && styles.confirmBtnDisabled]}
               onPress={() => confirmGenerate(conversationId)}
-              disabled={!!confirmingId}
+              // BUG-140 (v3.0.72): 改成 confirmingId === conversationId, 跟 web 端 generatingConvId === conversationId 1:1 镜像
+              disabled={confirmingId === conversationId}
             >
               {confirmingId === conversationId ? (
                 <ActivityIndicator size="small" color="#fff" />

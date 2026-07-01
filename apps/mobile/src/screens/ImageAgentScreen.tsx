@@ -409,7 +409,9 @@ export function ImageAgentScreen(): React.JSX.Element {
 
   // v3.0.24 (BUG-041 修): 调 /image-agent/confirm (不是 /video-agent/confirm)
   const confirmGenerate = async (convId: string) => {
-    if (!convId || confirmingId) return;
+    // BUG-140 (v3.0.72): 改成 confirmingId === convId, 允许其他会话 in-flight 时新会话也能 confirm
+    //   (跟 web 端 generatingConvId === conversationId + VideoAgentScreen 1:1 镜像, 跨端铁律 4++)
+    if (!convId || confirmingId === convId) return;
     setConfirmingId(convId);
     try {
       // v3.0.24: 先翻译 plan (image 端, 跟 web 一致)
@@ -528,7 +530,8 @@ export function ImageAgentScreen(): React.JSX.Element {
             <TouchableOpacity
               style={[styles.confirmBtn, (confirmingId === conversationId || translating) && styles.confirmBtnDisabled]}
               onPress={() => confirmGenerate(conversationId)}
-              disabled={!!confirmingId || translating}
+              // BUG-140 (v3.0.72): 改成 confirmingId === conversationId, 跟 web + VideoAgentScreen 1:1 镜像
+              disabled={(confirmingId === conversationId) || translating}
             >
               {confirmingId === conversationId || translating ? (
                 <ActivityIndicator size="small" color="#fff" />

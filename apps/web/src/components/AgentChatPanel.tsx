@@ -157,7 +157,10 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   const [status, setStatus] = useState<string>('idle');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  // BUG-140 (v3.0.72): 用 generatingConvId 替代全局 bool `generating`, 避免旧会话在跑生成时
+  //   新建/切换会话后按钮卡在"生成中"无法点 (修前: generating 是全局 state, startNew/loadConversation 不重置)
+  //   跨端铁律 4++ 跟 mobile 端 confirmingId 1:1 镜像
+  const [generatingConvId, setGeneratingConvId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   // BUG-118: 主头部 statusBadge 需要 errorMsg 决定细分 label, 同步 conv.errorMsg 到 state
@@ -177,7 +180,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   // 滚到底
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, loading, generating]);
+  }, [messages, loading, generatingConvId]);
 
   // 加载会话列表
   const refreshHistory = async () => {
@@ -511,12 +514,13 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   // 不再调 LLM 翻译 (PR-M 极简 passthrough 已删), 直接调 confirm
   const confirmingRef = useRef(false);
   const confirmAndGenerate = async () => {
-    if (!conversationId || generating || confirmingRef.current) return;
+    // BUG-140 (v3.0.72): 改成 generatingConvId === conversationId 判定, 允许其他会话在跑生成时新会话也能 confirm
+    if (!conversationId || generatingConvId === conversationId || confirmingRef.current) return;
     confirmingRef.current = true;
     // BUG-138 (v3.0.70): 标记 polling owner, 切换会话时让旧 polling break
     const capturedConvId = conversationId;
     pollingOwnerRef.current = capturedConvId;
-    setGenerating(true);
+    setGeneratingConvId(conversationId);
     setError(null);
 
     // 1. 立刻把 plan part 替换成流式卡片 (generating 阶段, 极简模式无 translating)
@@ -660,7 +664,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       if (pollingOwnerRef.current === capturedConvId) {
         pollingOwnerRef.current = null;
       }
-      setGenerating(false);
+      setGeneratingConvId(null);
       confirmingRef.current = false;
     }
   };
@@ -669,9 +673,10 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
   // 之前在 setMessages updater 内部调 setStatus (React 反模式) → 状态可能丢失, 按钮卡在"生成中"
   // v3.0.0.18: 走流式卡片 + 轮询 (跟 confirmAndGenerate 一致), 删啰嗦文案
   // BUG-138 (v3.0.70): 加 capturedConvId / pollingOwnerRef (跟 confirmAndGenerate 1:1 镜像, 修跨端通用 polling 不取消 BUG)
+  // BUG-140 (v3.0.72): generating → generatingConvId, 跟 mobile 端 confirmingId === convId 1:1 镜像
   const confirm = async () => {
-    if (!conversationId || generating) return;
-    setGenerating(true);
+    if (!conversationId || generatingConvId === conversationId) return;
+    setGeneratingConvId(conversationId);
     setError(null);
     // BUG-138: 标记 owner
     const capturedConvId = conversationId;
@@ -792,7 +797,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
       if (pollingOwnerRef.current === capturedConvId) {
         pollingOwnerRef.current = null;
       }
-      setGenerating(false);
+      setGeneratingConvId(null);
     }
   };
 
@@ -933,7 +938,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
           {status === 'plan_cn_ready' && api.translatePlan && (
             <button
               onClick={confirmAndGenerate}
-              disabled={generating || (!dailyStats?.isVip && kind === 'image' && (dailyStats?.todayCount ?? 0) >= 30)}
+              disabled={generatingConvId === conversationId || (!dailyStats?.isVip && kind === 'image' && (dailyStats?.todayCount ?? 0) >= 30)}
               className="btn-primary flex items-center gap-1.5"
               title={
                 kind === 'image'
@@ -945,8 +950,8 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
                       : (selectedDuration === 5 ? '免费生成' : '0.1 元/条'))
               }
             >
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-              {generating ? '生成中...' : '确认方案, 出图'}
+              {generatingConvId === conversationId ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              {generatingConvId === conversationId ? '生成中...' : '确认方案, 出图'}
             </button>
           )}
           {status === 'plan_translating' && (
@@ -958,11 +963,11 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
           {status === 'plan_ready' && (
             <button
               onClick={confirm}
-              disabled={generating}
+              disabled={generatingConvId === conversationId}
               className="btn-primary flex items-center gap-1.5"
             >
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-              {generating ? `${kind === 'image' ? '生图' : '视频'}生成中 (首次 30-60s)...` : '确认生成'}
+              {generatingConvId === conversationId ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              {generatingConvId === conversationId ? `${kind === 'image' ? '生图' : '视频'}生成中 (首次 30-60s)...` : '确认生成'}
             </button>
           )}
         </div>
