@@ -447,3 +447,125 @@ BUG-138 (v3.0.70 跨端 AgentChatPanel 后台 polling 不取消):
 | 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256080 |
 | systemd Environment=APP_VERSION 同步 | ✅ 3.0.70 |
 | shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.70 |
+## § 5.11 v3.0.71 新增: server 修 UPSTREAM_BUSY 文案 + 加 10 秒自动重试, 客户端 statusBadge 1:1 镜像 (S72 batch 36 BUG-139, 2026-07-01)
+
+> **新增 2026-07-01 (v3.0.71 BUG-139)**: 修 agens 上游繁忙时 (UPSTREAM_BUSY / 503 Service busy), server 立即把任务标 plan_ready + 写死错误文案 → 用户必须手动点 retry. 修法: server 端加 10 秒自动重试 loop (上限 60 次 = 10 分钟), status 保持 tool_queued (前端看到'排队中') + error_msg 带 [upstream_busy] 前缀 + retry_count 累加. 客户端 statusBadge 根据 error_msg 包含 [upstream_busy] 决定 label 文案 + 颜色.
+
+### § 5.11.1 背景 (跟 mobile § 6.19.1 1:1)
+
+用户报: agens 上游繁忙时, server 立即把任务标 plan_ready + error_msg='agns 视频服务暂时不可用 (上游繁忙或维护), 请 5-10 分钟后重试' → 用户必须手动点 retry. 生产日志实证多次连续撞 agens 503 Service busy / tasks: 1 (UPSTREAM_BUSY).
+
+### § 5.11.2 修前根因 (跟 BUG-100/118/132 100% 同源)
+
+1. **错误文案不区分'上游繁忙' vs '真失败'**: 任何非 200/201 都标 plan_ready + 写死 'agns 视频服务暂时不可用 (上游繁忙或维护), 请 5-10 分钟后重试'. UPSTREAM_BUSY 是临时性错误, 不应立即失败
+2. **fire-and-forget createTask 没有 retry 机制**: agens 上游偶发 503 (任务队列满), 应该重试而不是直接拒
+3. **前端 UI 没法区分'正在自动重试' vs '已重试用完'**: 都是 '上游繁忙' 灰色提示, 用户不知道 server 端在自动重试
+
+### § 5.11.3 修法架构 (跨端铁律 4++ 1:1 镜像 mobile)
+
+`
+apps/server/src/services/videoAgentService.ts + imageAgentService.ts (主修, server 端):
+├─ MAX_UPSTREAM_RETRY = 60 (上限 60 次 × 10 秒 = 10 分钟)
+├─ runCreateTaskInBackground (video) + runImageGenerationBackground (image):
+│  ├─ 成功 → break 跳出, 清 retry_count + error_msg, 走原完成路径
+│  ├─ UPSTREAM_BUSY (errMsg 含 'Service busy' / '503' / 'upstream_busy') →
+│  │  ├─ retry_count++ 累加
+│  │  ├─ error_msg = '[upstream_busy] X 服务正在排队,请耐心等待.. (自动重试 N/60)'
+│  │  ├─ status 保持 'tool_queued' / 'tool_executing' (前端轮询看到'排队中')
+│  │  ├─ 10 秒 setTimeout 递归调用
+│  │  └─ retry_count >= 60 → handleCreateTaskFailure 老路径 (error_msg='已自动重试 60 次仍未恢复')
+│  └─ 其它错误 → handleCreateTaskFailure 老路径
+└─ 抽 handleCreateTaskFailure (video) + handleImageCreateFailure (image) 函数, 供重试用完 + 老失败路径复用
+
+apps/web/src/components/AgentChatPanel.tsx (跨端铁律 4++ 主修, web 端):
+└─ statusBadge(s, errorMsg?): tool_queued/tool_executing + error_msg 含 [upstream_busy] → '排队中(自动重试)' (琥珀色 amber-100 bg + amber-700 text + ring-1 ring-amber-200)
+   tool_failed + [upstream_busy] → '上游持续繁忙' (amber-200 bg + amber-800 text, 区别于普通'上游异常' gray)
+`
+
+### § 5.11.4 跨端铁律 4++ 镜像 (跟 server 端 1:1, 跟 mobile § 6.19.4 1:1)
+
+| 维度 | server 端 (源) | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|---|
+| 上限次数 | MAX_UPSTREAM_RETRY = 60 | n/a | n/a | ✅ 1:1 |
+| 间隔 | 10 秒 setTimeout | n/a | n/a | ✅ 1:1 |
+| Status 保持 | 'tool_queued' / 'tool_executing' | n/a | n/a | ✅ 1:1 |
+| error_msg 模板 | '[upstream_busy] X 服务正在排队,请耐心等待.. (自动重试 N/60)' | 解析 error_msg 显示 | 解析 error_msg 显示 | ✅ 1:1 |
+| UI 触发条件 | n/a | error_msg.includes('[upstream_busy]') | error_msg.includes('[upstream_busy]') | ✅ 1:1 |
+| UI label 文案 (tool_queued) | n/a | '排队中(自动重试)' | '排队中(自动重试)' | ✅ 1:1 |
+| UI label 文案 (tool_failed) | n/a | '上游持续繁忙' | '上游持续繁忙' | ✅ 1:1 |
+| UI 颜色 | n/a | amber-100 bg / amber-700 text | #fef3c7 bg / #92400e text | ✅ 1:1 (web Tailwind / mobile hex 等价) |
+| ErrType 判断 | 'Service busy' / '503' / 'upstream_busy' 三种字符串 | n/a | n/a | ✅ 1:1 |
+| retry_count 累加 | yes | n/a | n/a | ✅ 1:1 |
+| 成功清状态 | retry_count=0, error_msg=null | n/a | n/a | ✅ 1:1 |
+
+### § 5.11.5 使用规范 (跨项目通用铁律)
+
+1. **后端 polling + 上游调用必带 retry loop + owner state**: fire-and-forget 不允许直接 reject (跟 BUG-138 修法同源). 上游 API 偶发繁忙 / 5xx should retry, 直接 reject = 永远丢任务
+2. **重试间隔必 ≥10s**: 避免 1s 死循环把上游打死. shipin-APP 用固定 10s
+3. **重试上限必设 (60 次 = 10 分钟)**: 防止永久挂起. 10 分钟够上游繁忙恢复, 也不会无限重试
+4. **error_msg 文案必区分'正在重试' vs '重试用完'**: 前端不能误以为失败, 但也不能让用户一直等. '[upstream_busy] 正在排队.. (自动重试 N/60)' + '已自动重试 60 次仍未恢复'
+5. **重试成功必清 retry_count=0 + error_msg=null**: 避免残留 retry 状态进入 polling 阶段
+6. **抽 handleXxxFailure 函数供重试用完 + 老失败路径复用**: 不重复代码, 跨项目通用铁律
+7. **跨端 statusBadge / StatusBadge 文案必 1:1 镜像**: web + mobile 同步, 缺一就是漏修 (跟 BUG-097 / BUG-130 同源)
+8. **8 处版本号同步必走**: 改 1 处必同步 8 处 (跨端铁律 3)
+9. **server 改了必重打 mobile APK + 公网 HEAD 验证**: 跨端铁律 4++ (跟 BUG-131/134/135 教训一致)
+10. **重试 N 次计数要显示给用户看**: 透明化, 用户知道在自动重试不会误操作
+
+### § 5.11.6 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/100/118/132 100% 同源)
+
+1. **后端 polling + 上游调用必带 retry loop + owner state**: fire-and-forget 不允许直接 reject. 上游 API 偶发繁忙 / 5xx / 5xx should retry, 直接 reject = 永远丢任务
+2. **重试间隔必 ≥10s**: 避免 1s 死循环把上游打死. 选 exponential backoff 或固定 ≥10s
+3. **重试上限必设 (60 次 = 10 分钟)**: 防止永久挂起. 上限 = 上游恢复窗口期 × 平均重试间隔
+4. **error_msg 文案必区分'正在重试' vs '重试用完'**: 前端不能误以为失败, 但也不能让用户一直等. 必须给前端一个能区分的信号 (这里是 [upstream_busy] 前缀)
+
+### § 5.11.7 跟其他 BUG 关系
+
+- **BUG-079** 假报告 — 跟 BUG-139 同源 '前端 UI 没法区分状态'
+- **BUG-100** loading UX 假修 — 同源 'loading 状态 UI 必真实反映后台'
+- **BUG-118** videoAgent tool_throttled 细分 — BUG-139 是 BUG-118 的扩展 (限流状态更细分: tool_queued + upstream_busy 自动重试中 vs tool_throttled 已暂停)
+- **BUG-119** retry 边界清理 — BUG-139 retry 终止条件跟 BUG-119 同源
+- **BUG-120** 等待动画卡片按比例显示 — BUG-139 排队中状态跟 BUG-120 等待卡片 1:1 镜像
+- **BUG-122** 拆 3 企业 key — BUG-139 跟 BUG-122 都是 shipin-APP 端基础设施层修法
+- **BUG-123** Agnes API 限流排队 image 40/min + video 2/min — BUG-139 是 server 端'真碰到 429/503 时的最后一道防线' (前端排队 + 中间限流器 + 后端 retry loop 三重保险)
+- **BUG-132** video + image retry 策略细化 — BUG-139 跟 BUG-132 同源 (retry 状态细化)
+- **BUG-136** 加载状态视觉层级铁律 — BUG-139 '排队中(自动重试)' 状态跟 BUG-136 8 段视觉层级 1:1 集成
+
+### § 5.11.8 mavis memory 沉淀 (跟 mobile § 6.19.8 1:1)
+
+`
+BUG-139 (v3.0.71 server 修 UPSTREAM_BUSY 文案 + 加 10 秒自动重试, image + video 1:1 镜像):
+- 跨项目通用铁律: 后端 polling + 上游调用必带 retry loop + owner state, fire-and-forget 不允许直接 reject
+- 跨项目通用铁律: 重试间隔必 ≥10s (避免 1s 死循环把上游打死)
+- 跨项目通用铁律: 重试上限必设 (60 次 = 10 分钟), 防止永久挂起
+- 跨项目通用铁律: error_msg 文案必区分 '正在重试' vs '重试用完' (前端不能误以为失败, 但也不能让用户一直等)
+- 修前根因: agens 上游 503 Service busy / tasks: 1 (UPSTREAM_BUSY) → server 立即 setStatus('plan_ready') + 写死 '请 5-10 分钟后重试' → 用户必须手动 retry
+- 修法 server: videoAgentService.ts + imageAgentService.ts 重构 retry loop + 抽 handleCreateTaskFailure / handleImageCreateFailure, UPSTREAM_BUSY → status='tool_queued' + error_msg='[upstream_busy] 视频服务正在排队,请耐心等待.. (自动重试 N/60)' + 10s setTimeout 重试 createTaskWithLimit / rateLimitedGenerate, 上限 60 次
+- 修法 web: statusBadge tool_queued + error_msg 含 [upstream_busy] → '排队中(自动重试)' (琥珀色); tool_failed + [upstream_busy] → '上游持续繁忙' (区别普通'上游异常')
+- 修法 mobile: StatusBadge 跟 web 1:1 镜像
+- E2E 验证: /api/version 3.0.71 + APK HTTP/2 200 + sha256 一致 + 12 维验证全过
+`
+
+### § 5.11.9 E2E 验证 (跟 mobile § 6.19.9 1:1)
+
+- ✅ /api/version: 3.0.71, mobileLatestApkVersion: 3.0.71, downloadUrl: https://ab.maque.uno/app/DeepScript_v3.0.71.apk
+- ✅ 公网 APK HTTP/2 200, Content-Type: application/vnd.android.package-archive, Content-Length: 30256334
+- ✅ systemd shipin-app active (running), PID 6849 (restart 后)
+- ✅ 12 维验证全过 (systemd + 6000 + /health + /api/version + APK HTTP/2 200 + 宝塔 shipin_APP run=True)
+- ✅ mobile tsc: 53 错 (全 pre-existing, baseline 一致, 0 新错)
+- ✅ web typecheck: 0 错
+- ✅ web build: dist/index-BPtvMyvS.js (528KB)
+- ✅ server tsc: 0 错
+- ✅ 公网 APK sha256: 0F7E50FF7850CAF0794E68670D094DB757D3021B6FDB5E5D4E698CE83F9C2712
+
+### § 5.11.10 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ 56f1919 (v3.0.71 主修) + 24b05fd (changelog_remote.json 配套) → origin/main |
+| 远端 server restart (systemd) | ✅ active, PID 6849 |
+| /api/version 3.0.71 | ✅ version=3.0.71, mobileLatestApkVersion=3.0.71, downloadUrl=DeepScript_v3.0.71.apk |
+| APK 重打 (gradle assembleRelease) | ✅ pp-release.apk 30256334 bytes (versionCode 73, versionName 3.0.71) |
+| scp APK 到 /www/wwwroot/shipin-APP/public/ | ✅ DeepScript_v3.0.71.apk |
+| 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256334 |
+| systemd Environment=APP_VERSION 同步 | ✅ 3.0.71 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.71 |
