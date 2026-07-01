@@ -5,6 +5,19 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.71",
+      "buildDate": "2026-07-01",
+      "type": "patch",
+      "summary": "BUG-139 修 UPSTREAM_BUSY 文案 + 加 10 秒自动重试, 用户无需手动 retry (image + video 1:1 镜像)",
+      "highlights": [
+        "BUG-139 ✅ 修前根因: agnes 上游返 UPSTREAM_BUSY (503 Service busy / tasks: 1) → server 立即 setStatus('plan_ready') + error_msg='agns 视频服务暂时不可用 (上游繁忙或维护), 请 5-10 分钟后重试' → 用户必须手动点重试, 体验差 + 失败率高 (生产日志实证多次连续撞上游繁忙)",
+        "BUG-139 ✅ 修法 server videoAgentService.ts + imageAgentService.ts (跨端铁律 4++ 1:1 镜像): UPSTREAM_BUSY 改为 status 仍 'tool_queued'/'tool_executing' (前端轮询看到'排队中') + error_msg='[upstream_busy] 视频/图像服务正在排队,请耐心等待.. (自动重试 N/60)' + retry_count 累加, 10 秒 setTimeout 重试 createTaskWithLimit / rateLimitedGenerate, 上限 60 次 (10 分钟). 重试用完 → handleCreateTaskFailure 老失败路径, error_msg='已自动重试 60 次仍未恢复, 请稍后再试'",
+        "BUG-139 ✅ 修法客户端 (web + mobile 1:1 镜像): statusBadge 在 tool_queued/tool_executing + error_msg 含 [upstream_busy] 时显示 '排队中(自动重试)' 琥珀色, 用户知道 server 端在自动重试 (10s 一次, 不会丢任务). tool_failed + [upstream_busy] 时显示 '上游持续繁忙' 区别于普通'上游异常' (重试用完标记)",
+        "BUG-139 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/100/118/132 100% 同源): (1) 后端 polling + 上游调用必带 retry loop + owner state, fire-and-forget 不允许直接 reject (跟 BUG-138 修法同源); (2) 重试间隔必 exponential backoff 或 固定 ≥10s (避免 1s 死循环把上游打死); (3) 重试上限必设 (60 次 = 10 分钟), 防止永久挂起; (4) error_msg 文案必区分 '正在重试' vs '重试用完' (前端不能误以为失败, 但也不能让用户一直等)",
+        "BUG-139 ✅ 升 v3.0.70 → v3.0.71: 8 处版本号同步 (mobile version.ts 3.0.70 → 3.0.71 + mobile build.gradle versionCode 72 → 73 + versionName 3.0.70 → 3.0.71 + web version.ts 3.0.70 → 3.0.71 + APP_VERSION_CODE 72 → 73 + server package.json 3.0.70 → 3.0.71 + server src/index.ts fallback 3.0.70 → 3.0.71 + server ecosystem.config.js env + env_production 2 处 3.0.70 → 3.0.71 + changelog.json + v3.0.71 entry prepend)"
+      ]
+    },
+    {
       "version": "3.0.70",
       "buildDate": "2026-07-01",
       "type": "patch",

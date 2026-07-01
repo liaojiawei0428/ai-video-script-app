@@ -100,6 +100,7 @@ const THROTTLED_SUBTYPE_MAP: Record<string, { label: string; bg: string; fg: str
 };
 
 // v3.0.64 (BUG-132 配套): tool_failed 也走 ERR_TYPE 细分 (跟 web 1:1), 修前只 label='失败' 不 parse
+// v3.0.71 (BUG-139): UPSTREAM_BUSY 重试用完后 label "上游异常" → "上游持续繁忙" (区别自动重试中的状态)
 function StatusBadge({ status, error_msg }: { status: string; error_msg?: string | null }) {
   // BUG-118 + BUG-132: tool_throttled / tool_failed 都按 error_msg 前缀细分子标签 (跨端铁律 4++)
   let m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
@@ -110,6 +111,11 @@ function StatusBadge({ status, error_msg }: { status: string; error_msg?: string
     if (errType && THROTTLED_SUBTYPE_MAP[errType]) {
       m = THROTTLED_SUBTYPE_MAP[errType];
     }
+  }
+  // v3.0.71 (BUG-139): tool_queued + error_msg 含 [upstream_busy] → "排队中(自动重试)" 琥珀色
+  //   用户看到 server 端在自动重试 (10s 一次, 上限 60 次 = 10 分钟), 而不是失败的"上游异常"
+  if (status === 'tool_queued' && error_msg && /^\[upstream_busy\]/.test(error_msg)) {
+    m = { label: '排队中(自动重试)', bg: '#fef3c7', fg: '#b45309' };
   }
   return (
     <View style={{ backgroundColor: m.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 2 }}>

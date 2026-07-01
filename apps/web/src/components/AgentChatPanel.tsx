@@ -829,6 +829,7 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
     // BUG-118: tool_throttled 时根据 error_msg 前缀细分子标签
     // BUG-132 (v3.0.64): 同时对 tool_throttled / tool_failed 都 parse [content_policy]/[rate_limit]/[upstream_busy]/[timeout] 4 种 ERR_TYPE
     // 修前只 parse 3 种 [404]/[429]/[5xx], 漏 [content_policy] 引导致用户看到 "暂停/失败" 通用 label, 不知道是策略拦截
+    // v3.0.71 (BUG-139): UPSTREAM_BUSY 重试用完后显示 "上游持续繁忙" 区别于普通的"上游异常"
     const isRetryable = s === 'tool_throttled' || s === 'tool_failed';
     if (isRetryable && errorMsg) {
       if (/^\[(content_policy|invalid_input)\]/.test(errorMsg)) {
@@ -839,12 +840,19 @@ export function AgentChatPanel({ kind, api, title, icon, accentColor }: AgentCha
           ? { label: '限流暂停', cls: 'bg-orange-100 text-orange-700' }
           : { label: '限流失败', cls: 'bg-orange-100 text-orange-700' };
       } else if (/^\[(upstream_busy|5xx)\]/.test(errorMsg)) {
-        m = { label: '上游异常', cls: 'bg-amber-100 text-amber-700' };
+        // BUG-139 v3.0.71: 跟 mobile 1:1 镜像, 跟 server auto-retry 文案配套
+        m = s === 'tool_throttled'
+          ? { label: '上游异常', cls: 'bg-amber-100 text-amber-700' }
+          : { label: '上游持续繁忙', cls: 'bg-amber-100 text-amber-700' };
       } else if (/^\[timeout\]/.test(errorMsg)) {
         m = { label: '超时', cls: 'bg-amber-100 text-amber-700' };
       } else if (/^\[404\]/.test(errorMsg)) {
         m = { label: '任务失效', cls: 'bg-red-100 text-red-700' };
       }
+    }
+    // v3.0.71 (BUG-139): tool_queued + error_msg 含 [upstream_busy] → 显示 "排队中(自动重试)", 用户知道 server 端在自动重试而不是失败
+    if (s === 'tool_queued' && errorMsg && /^\[upstream_busy\]/.test(errorMsg)) {
+      m = { label: '排队中(自动重试)', cls: 'bg-amber-100 text-amber-700' };
     }
     return <span className={`text-xs px-2 py-0.5 rounded-full ${m.cls}`} title={errorMsg || undefined}>{m.label}</span>;
   };

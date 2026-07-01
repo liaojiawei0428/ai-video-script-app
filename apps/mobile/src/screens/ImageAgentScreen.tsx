@@ -112,6 +112,7 @@ const SUBTYPE_MAP: Record<string, { label: string; bg: string; fg: string }> = {
 
 function StatusBadge({ status, error_msg }: { status: string; error_msg?: string | null }) {
   // BUG-118 + BUG-132: tool_throttled / tool_failed 都按 error_msg 前缀细分子标签 (跟 video 1:1, 跨端铁律 4++)
+  // v3.0.71 (BUG-139): UPSTREAM_BUSY 重试用完后 label "上游异常" → "上游持续繁忙" (区别自动重试中的状态)
   let m = STATUS_MAP[status] || { label: status, bg: '#f3f4f6', fg: '#4b5563' };
   const isRetryable = status === 'tool_throttled' || status === 'tool_failed';
   if (isRetryable && error_msg) {
@@ -120,6 +121,12 @@ function StatusBadge({ status, error_msg }: { status: string; error_msg?: string
     if (errType && SUBTYPE_MAP[errType]) {
       m = SUBTYPE_MAP[errType];
     }
+  }
+  // v3.0.71 (BUG-139): tool_queued/tool_executing + error_msg 含 [upstream_busy] → "排队中(自动重试)" 琥珀色
+  //   image 跟 video 不同: image agent 没有单独的 tool_queued 阶段, 直接 tool_executing (跟 video agent 区别)
+  //   用户看到 server 端在自动重试 (10s 一次, 上限 60 次 = 10 分钟), 而不是失败
+  if ((status === 'tool_queued' || status === 'tool_executing') && error_msg && /^\[upstream_busy\]/.test(error_msg)) {
+    m = { label: '排队中(自动重试)', bg: '#fef3c7', fg: '#b45309' };
   }
   return (
     <View style={{ backgroundColor: m.bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginTop: 2 }}>

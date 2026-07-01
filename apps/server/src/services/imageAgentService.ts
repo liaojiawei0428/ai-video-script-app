@@ -514,6 +514,13 @@ export class ImageAgentService {
    *  - 跟 video 的 startPolling 类似, 但 image API 是同步返 URL, 不用轮询
    *  - 5min 超时 (跟 agnesImageProvider 内部一致)
    *  - 失败 → tool_failed + error_msg
+   *
+   * v3.0.71 (BUG-139): UPSTREAM_BUSY 改 10 秒自动重试, 上限 60 次 (10 分钟)
+   *   修前: catch 块立即 setStatus('tool_failed') + error_msg="5-10 分钟后重试", 用户必须手动 retry
+   *   修法: UPSTREAM_BUSY 保持 status='tool_executing' + error_msg="图像服务正在排队,请耐心等待.." + retry_count++
+   *         10 秒后 setTimeout 重试 rateLimitedGenerate
+   *         其他错误 (CONTENT_POLICY / RATE_LIMIT / TIMEOUT / INVALID_INPUT / NETWORK / UNKNOWN) 走 handleImageCreateFailure (立即终止)
+   *         重试用完 (60 次 = 10 分钟) 走 handleImageCreateFailure, error_msg="已自动重试 10 分钟仍未恢复"
    */
   private async runImageGenerationBackground(
     conversationId: string,
@@ -522,76 +529,134 @@ export class ImageAgentService {
     lastResultUrl: string | null,
     amount: number,
   ): Promise<void> {
-    try {
-      // 1) 收集 ref: 优先 user ref, 没有则 last_result_url
-      const userRefUrls: string[] = (plan.refImageUrls || []).slice(0, 1);
-      const isModification = !!lastResultUrl;
-      const refImages: string[] | undefined = userRefUrls.length > 0
-        ? userRefUrls
-        : (isModification && lastResultUrl ? [lastResultUrl] : undefined);
+    // BUG-139 (v3.0.71): UPSTREAM_BUSY 自动重试 10 秒间隔, 上限 60 次 (10 分钟)
+    const MAX_UPSTREAM_RETRY = 60;
+    const UPSTREAM_RETRY_INTERVAL_MS = 10_000;
 
-      // 2) i2i prompt 策略 (跟之前一致)
-      let finalPrompt = plan.prompt || '';
-      if (isModification && refImages && refImages.length > 0) {
-        let userOriginalText = '';
-        try {
-          const conv = await imageConversationModel.findById(conversationId);
-          if (conv) {
-            const allMessages = parseMessages(conv.messages);
-            for (let i = allMessages.length - 1; i >= 0; i--) {
-              if (allMessages[i].role === 'user') {
-                userOriginalText = partsToText(allMessages[i].parts);
-                break;
-              }
+    let result: { url: string } | null = null;
+    let upstreamAttempts = 0;
+
+    // 1) 收集 ref: 优先 user ref, 没有则 last_result_url
+    const userRefUrls: string[] = (plan.refImageUrls || []).slice(0, 1);
+    const isModification = !!lastResultUrl;
+    const refImages: string[] | undefined = userRefUrls.length > 0
+      ? userRefUrls
+      : (isModification && lastResultUrl ? [lastResultUrl] : undefined);
+
+    // 2) i2i prompt 策略 (跟之前一致)
+    let finalPrompt = plan.prompt || '';
+    if (isModification && refImages && refImages.length > 0) {
+      let userOriginalText = '';
+      try {
+        const conv = await imageConversationModel.findById(conversationId);
+        if (conv) {
+          const allMessages = parseMessages(conv.messages);
+          for (let i = allMessages.length - 1; i >= 0; i--) {
+            if (allMessages[i].role === 'user') {
+              userOriginalText = partsToText(allMessages[i].parts);
+              break;
             }
           }
-        } catch {}
-        if (userOriginalText) {
-          finalPrompt =
-            `${userOriginalText}\n\n` +
-            `[Instruction for AI]: Based on the input image, apply ONLY the changes described above. ` +
-            `Preserve everything else from the input image (composition, character identity, facial expression, ` +
-            `pose, background scene, lighting, camera angle, style, colors, all other elements). ` +
-            `The output should look 95% identical to the input except for the specified changes.`;
-        } else {
-          finalPrompt =
-            `Based on the input image, regenerate applying these updates: ${plan.prompt}\n\n` +
-            `CRITICAL: Preserve the original composition, character identity, facial expression, pose, ` +
-            `background scene, lighting, camera angle, and all other unchanged elements from the input image. ` +
-            `Only modify what is explicitly specified in the updates above.`;
         }
+      } catch {}
+      if (userOriginalText) {
+        finalPrompt =
+          `${userOriginalText}\n\n` +
+          `[Instruction for AI]: Based on the input image, apply ONLY the changes described above. ` +
+          `Preserve everything else from the input image (composition, character identity, facial expression, ` +
+          `pose, background scene, lighting, camera angle, style, colors, all other elements). ` +
+          `The output should look 95% identical to the input except for the specified changes.`;
+      } else {
+        finalPrompt =
+          `Based on the input image, regenerate applying these updates: ${plan.prompt}\n\n` +
+          `CRITICAL: Preserve the original composition, character identity, facial expression, pose, ` +
+          `background scene, lighting, camera angle, and all other unchanged elements from the input image. ` +
+          `Only modify what is explicitly specified in the updates above.`;
       }
+    }
 
-      // 3) v3.0.0.17 8K/4K bug fix: 用 parseAspectToDims 解析所有比例 (4K/8K/16:9/2K/1:1/1152x768/1280x720 全部支持)
-      const dims = parseAspectToDims(plan.aspectRatio) || DEFAULT_IMG_DIM;
-      const [w, h] = dims;
+    // 3) v3.0.0.17 8K/4K bug fix: 用 parseAspectToDims 解析所有比例 (4K/8K/16:9/2K/1:1/1152x768/1280x720 全部支持)
+    const dims = parseAspectToDims(plan.aspectRatio) || DEFAULT_IMG_DIM;
+    const [w, h] = dims;
 
-      logger.info('ImageAgent: background run start', {
-        conversationId, taskId, isModification, w, h, aspect: plan.aspectRatio,
-        promptLen: finalPrompt.length,
-      });
+    logger.info('ImageAgent: background run start', {
+      conversationId, taskId, isModification, w, h, aspect: plan.aspectRatio,
+      promptLen: finalPrompt.length,
+    });
 
-      // 4) 状态: tool_queued → tool_executing
-      await imageConversationModel.update(conversationId, {
-        status: 'tool_executing' as AgentConversationStatus,
-      } as any);
+    // 4) 状态: tool_queued → tool_executing
+    await imageConversationModel.update(conversationId, {
+      status: 'tool_executing' as AgentConversationStatus,
+    } as any);
 
-      // 5) 调 agens image (5min 超时, 内部有 3 次重试)
-      // v3.0.0 硬编码 'comic' — v3.1.0 等前端确认 plan.style 取值范围后从 (plan as any).style 取
-      // 临时 fallback: plan.style → 'comic' (避免前端没传时拿 undefined 进 agens)
-      // v3.0.52 (BUG-123): 包装 rate limiter (40/min), 排队时自动 await, log 排队位置 + ETA
-      const result = await rateLimitedGenerate({
-        taskId,
-        label: 'imageAgent',
-        imageOptions: {
-          prompt: finalPrompt,
-          angle: (plan as any).style || 'comic',
-          width: w,
-          height: h,
-          referenceImages: refImages?.slice(0, 1),
-        },
-      });
+    // 5) BUG-139 (v3.0.71): UPSTREAM_BUSY 重试 loop (最多 60 次 = 10 分钟)
+    for (let attempt = 1; attempt <= MAX_UPSTREAM_RETRY; attempt++) {
+      try {
+        // 调 agens image (5min 超时, 内部有 3 次重试)
+        // v3.0.0 硬编码 'comic' — v3.1.0 等前端确认 plan.style 取值范围后从 (plan as any).style 取
+        // 临时 fallback: plan.style → 'comic' (避免前端没传时拿 undefined 进 agens)
+        // v3.0.52 (BUG-123): 包装 rate limiter (40/min), 排队时自动 await, log 排队位置 + ETA
+        result = await rateLimitedGenerate({
+          taskId,
+          label: 'imageAgent',
+          imageOptions: {
+            prompt: finalPrompt,
+            angle: (plan as any).style || 'comic',
+            width: w,
+            height: h,
+            referenceImages: refImages?.slice(0, 1),
+          },
+        });
+        // 成功! 跳出 retry loop
+        break;
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        // v3.0.71 BUG-139: UPSTREAM_BUSY → 不终止, 10 秒后重试 (上限 60 次 = 10 分钟)
+        const isUpstreamBusy = (err instanceof AgnesImageError && err.type === AgnesImageErrorType.UPSTREAM_BUSY)
+          || errMsg.includes('Service busy') || errMsg.includes('503') || errMsg.includes('upstream_busy');
+        if (!isUpstreamBusy) {
+          // 非 UPSTREAM_BUSY: 走老失败路径
+          await this.handleImageCreateFailure(err, conversationId, taskId, /* upstreamAttempts */ 0);
+          return;
+        }
 
+        upstreamAttempts = attempt;
+        if (attempt >= MAX_UPSTREAM_RETRY) {
+          // 重试用完, 走老失败路径
+          logger.warn('ImageAgent: UPSTREAM_BUSY retry exhausted, marking tool_failed', {
+            conversationId, taskId, attempts: attempt,
+          });
+          const timeoutErr = new Error('agns 图像服务持续繁忙, 已自动重试 10 分钟仍未恢复, 请稍后再试');
+          await this.handleImageCreateFailure(timeoutErr, conversationId, taskId, upstreamAttempts);
+          return;
+        }
+
+        // 还有重试次数: 更新 status 保持 tool_executing, error_msg 显示正在自动重试, retry_count++
+        const waitMsg = `[upstream_busy] 图像服务正在排队,请耐心等待.. (自动重试 ${attempt}/${MAX_UPSTREAM_RETRY})`;
+        try {
+          await imageConversationModel.update(conversationId, {
+            error_msg: waitMsg,
+            retry_count: attempt,
+          } as any);
+        } catch (updErr) {
+          logger.warn('ImageAgent: UPSTREAM_BUSY retry status update failed (non-fatal)', {
+            conversationId, taskId, error: (updErr as Error).message,
+          });
+        }
+        logger.warn('ImageAgent: UPSTREAM_BUSY, auto retry in 10s', {
+          conversationId, taskId, attempt, maxRetry: MAX_UPSTREAM_RETRY, error: errMsg,
+        });
+        await new Promise(resolve => setTimeout(resolve, UPSTREAM_RETRY_INTERVAL_MS));
+        // 继续下一轮 for 循环
+      }
+    }
+
+    if (!result) {
+      // 兜底防 TS narrow
+      return;
+    }
+
+    try {
       // 6) 写结果
       // v3.0.0.27 (S47): mutate 已有 streaming part → image (role: 'result'), 不再 push 新 message
       const prevMessages = parseMessages(
@@ -608,6 +673,9 @@ export class ImageAgentService {
         aspectRatio: plan.aspectRatio,
         chargedAmount: amount,
         messages,
+        // BUG-139 (v3.0.71): 重试成功后清掉 retry_count + error_msg
+        retry_count: 0,
+        error_msg: null as any,
       } as any);
 
       await imageGenerationModel.update(taskId, {
@@ -638,75 +706,100 @@ export class ImageAgentService {
       }
 
       logger.info('ImageAgent: background run done', {
-        conversationId, taskId, resultUrl: result.url.slice(0, 80),
+        conversationId, taskId, resultUrl: result.url.slice(0, 80), upstreamAttempts,
       });
     } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      logger.error('ImageAgent: background run failed', {
-        conversationId, taskId, error: errMsg,
+      // BUG-139 (v3.0.71): 重试成功后写结果失败 → 老失败路径
+      logger.error('ImageAgent: write result failed after retry', {
+        conversationId, taskId, error: (err as Error)?.message,
       });
-      // 友好化错误
-      // v3.0.63 BUG-132 配套: 按 AgnesImageError type 返友好文案, 修前一刀切 "API 限流中" 误导
-      // v3.0.69 BUG-137 配套: 加 NETWORK / UNKNOWN 友好文案 (修前落到 default fallback "agns 图像服务异常" 掩盖真因)
-      let friendlyMsg = errMsg;
-      if (err instanceof AgnesImageError) {
-        switch (err.type) {
-          case AgnesImageErrorType.CONTENT_POLICY:
-            friendlyMsg = '图片描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述或图片后重试';
-            break;
-          case AgnesImageErrorType.RATE_LIMIT:
-            friendlyMsg = 'agns 图像 API 限流中, 请 1-2 分钟后重试';
-            break;
-          case AgnesImageErrorType.UPSTREAM_BUSY:
-            friendlyMsg = 'agns 图像服务暂时不可用 (上游繁忙), 请 5-10 分钟后重试';
-            break;
-          case AgnesImageErrorType.TIMEOUT:
-            friendlyMsg = 'agns 图像生成超时, 请稍后重试或减少尺寸';
-            break;
-          case AgnesImageErrorType.INVALID_INPUT:
-            friendlyMsg = '图片请求参数无效, 请重试或联系客服';
-            break;
-          case AgnesImageErrorType.NETWORK:
-            friendlyMsg = '图片生成时网络异常 (可能是 shipin-APP 上游/agens 之间丢包), 请稍后重试';
-            break;
-          case AgnesImageErrorType.UNKNOWN:
-            friendlyMsg = '图片生成遇到未知错误, 请稍后重试 (若多次失败请联系客服)';
-            break;
-          default:
-            friendlyMsg = 'agns 图像服务异常, 请稍后重试';
-        }
-      } else {
-        // 兼容老错误
-        if (errMsg.includes('timeout') || errMsg.includes('fetch failed')) {
-          friendlyMsg = 'agnes 图像服务暂时不可用 (上游 OpenAI 繁忙), 请稍后重试';
-        } else if (errMsg.includes('429')) {
-          friendlyMsg = 'agns 图像 API 限流中, 请 1-2 分钟后重试';
-        }
-      }
-      // v3.0.32 BUG-082: 强制归一为 string, 防历史: agnes API error 形如 {code, message} 被原样存进 messages JSON, web 渲染对象触发 React #31
-      const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '图片生成失败');
-      // 写失败状态
-      // v3.0.0.27 (S47): mutate streaming → error, refresh 也能看到失败信息
-      try {
-        const prevMessages = parseMessages(
-          (await imageConversationModel.findById(conversationId))?.messages,
-        );
-        const failMessages = replaceStreamingPart(prevMessages, {
-          type: 'error', message: safeFriendlyMsg,
-        } as unknown as AgentPart);
-        // v3.0.63 BUG-132 配套: 跟 BUG-118 1:1 镜像, error_msg 必带 ERR_TYPE 前缀, 前端 parse 决定 UI label
-        const errorMsgWithType = err instanceof AgnesImageError ? `[${err.type}] ${safeFriendlyMsg}` : safeFriendlyMsg;
-        await imageConversationModel.update(conversationId, {
-          status: 'tool_failed' as AgentConversationStatus,
-          error_msg: errorMsgWithType,
-          messages: failMessages as any,
-        } as any);
-        await imageGenerationModel.update(taskId, {
-          status: 'failed',
-          error_msg: errorMsgWithType,
-        } as any);
-      } catch {}
+      await this.handleImageCreateFailure(err, conversationId, taskId, upstreamAttempts);
     }
+  }
+
+  /**
+   * v3.0.71 (BUG-139): image createTask 失败的统一处理函数
+   *   抽出来供 UPSTREAM_BUSY 重试用完 + 老失败路径复用
+   *   行为: setStatus('tool_failed') + 替换 streaming part 为 error + update image_generations 标 failed
+   */
+  private async handleImageCreateFailure(
+    err: any,
+    conversationId: string,
+    taskId: string,
+    upstreamAttempts: number,
+  ): Promise<void> {
+    const errMsg = (err?.message) || String(err);
+    logger.error('ImageAgent: background run failed (after retry)', {
+      conversationId, taskId, error: errMsg, upstreamAttempts,
+    });
+    // 友好化错误
+    // v3.0.63 BUG-132 配套: 按 AgnesImageError type 返友好文案
+    // v3.0.69 BUG-137 配套: NETWORK / UNKNOWN 友好文案
+    // v3.0.71 BUG-139: UPSTREAM_BUSY 重试用完 (走到这里) 文案统一改成 "已自动重试 N 次仍未恢复"
+    let friendlyMsg = errMsg;
+    if (err instanceof AgnesImageError) {
+      switch (err.type) {
+        case AgnesImageErrorType.CONTENT_POLICY:
+          friendlyMsg = '图片描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述或图片后重试';
+          break;
+        case AgnesImageErrorType.RATE_LIMIT:
+          friendlyMsg = 'agns 图像 API 限流中, 请 1-2 分钟后重试';
+          break;
+        case AgnesImageErrorType.UPSTREAM_BUSY:
+          // v3.0.71 BUG-139: 重试用完 (60 次 = 10 分钟) 后才走到这里
+          friendlyMsg = upstreamAttempts > 0
+            ? `[upstream_busy] 图像服务持续繁忙, 已自动重试 ${upstreamAttempts} 次仍未恢复, 请稍后再试`
+            : '图像服务正在排队,请耐心等待.. (上游繁忙)';
+          break;
+        case AgnesImageErrorType.TIMEOUT:
+          friendlyMsg = 'agns 图像生成超时, 请稍后重试或减少尺寸';
+          break;
+        case AgnesImageErrorType.INVALID_INPUT:
+          friendlyMsg = '图片请求参数无效, 请重试或联系客服';
+          break;
+        case AgnesImageErrorType.NETWORK:
+          friendlyMsg = '图片生成时网络异常 (可能是 shipin-APP 上游/agens 之间丢包), 请稍后重试';
+          break;
+        case AgnesImageErrorType.UNKNOWN:
+          friendlyMsg = '图片生成遇到未知错误, 请稍后重试 (若多次失败请联系客服)';
+          break;
+        default:
+          friendlyMsg = 'agns 图像服务异常, 请稍后重试';
+      }
+    } else {
+      // 兼容老错误
+      if (errMsg.includes('timeout') || errMsg.includes('fetch failed') || errMsg.includes('Service busy') || errMsg.includes('503')) {
+        friendlyMsg = upstreamAttempts > 0
+          ? `[upstream_busy] 图像服务持续繁忙, 已自动重试 ${upstreamAttempts} 次仍未恢复, 请稍后再试`
+          : '图像服务正在排队,请耐心等待.. (上游繁忙)';
+      } else if (errMsg.includes('429')) {
+        friendlyMsg = 'agns 图像 API 限流中, 请 1-2 分钟后重试';
+      }
+    }
+    // v3.0.32 BUG-082: 强制归一为 string
+    const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '图片生成失败');
+    // 写失败状态
+    try {
+      const prevMessages = parseMessages(
+        (await imageConversationModel.findById(conversationId))?.messages,
+      );
+      const failMessages = replaceStreamingPart(prevMessages, {
+        type: 'error', message: safeFriendlyMsg,
+      } as unknown as AgentPart);
+      // BUG-139 v3.0.71: UPSTREAM_BUSY case 重试用完已经有 [upstream_busy] 前缀, 不重复加
+      const errorMsgWithType = (err instanceof AgnesImageError && err.type !== AgnesImageErrorType.UPSTREAM_BUSY)
+        ? `[${err.type}] ${safeFriendlyMsg}`
+        : (safeFriendlyMsg.includes('[upstream_busy]') ? safeFriendlyMsg : `[${err instanceof AgnesImageError ? err.type : 'unknown'}] ${safeFriendlyMsg}`);
+      await imageConversationModel.update(conversationId, {
+        status: 'tool_failed' as AgentConversationStatus,
+        error_msg: errorMsgWithType,
+        messages: failMessages as any,
+      } as any);
+      await imageGenerationModel.update(taskId, {
+        status: 'failed',
+        error_msg: errorMsgWithType,
+      } as any);
+    } catch {}
   }
 }
 

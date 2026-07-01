@@ -555,6 +555,13 @@ export class VideoAgentService {
   /**
    * v3.0.0.26 (S45): 后台跑 createTask + 失败回滚 + 持久化 + startPolling
    * 从 confirm() 拆出来, fire-and-forget. 不阻塞 HTTP 响应.
+   *
+   * v3.0.71 (BUG-139): UPSTREAM_BUSY 改 10 秒自动重试, 上限 60 次 (10 分钟)
+   *   修前: catch 块立即 setStatus('plan_ready') + error_msg="5-10 分钟后重试", 用户必须手动 retry (体验差)
+   *   修法: UPSTREAM_BUSY 保持 status='tool_queued' + error_msg="视频服务正在排队,请耐心等待.." + retry_count++
+   *         10 秒后 setTimeout 重试 createTaskWithLimit
+   *         其他错误 (CONTENT_POLICY / RATE_LIMIT / TIMEOUT / INVALID_INPUT) 走 handleCreateTaskFailure (立即终止)
+   *         重试用完 (60 次 = 10 分钟) 走 handleCreateTaskFailure, error_msg="已自动重试 10 分钟仍未恢复"
    */
   private async runCreateTaskInBackground(
     conversationId: string,
@@ -569,106 +576,87 @@ export class VideoAgentService {
     fps: number,
     refUrls: string[]
   ) {
-    let createResult;
-    try {
-      // 调 agnes video 创建任务 (包装 rate limiter, 2/min 排队)
-      // v3.0.0.15: i2v 模式 — 用 last_result_url 作 image, 不混 user ref
-      // v3.0.52 (BUG-123): 排队时自动 await, 排队位置 + ETA 自动 log
-      // v3.0.57 (BUG-128): 透传 negativePrompt 拦三视图展示/走样/低质量
-      createResult = await agnesVideoProvider.createTaskWithLimit(
-        {
-          prompt: plan.prompt,
-          negativePrompt: (plan as any).negativePrompt || undefined,
-          image,
-          images,
-          width, height,
-          numFrames: numFramesForDuration(durationSec, fps),
-          frameRate: fps,
-        },
-        conversationId,
-        'videoAgent',
-      );
-    } catch (err) {
-      // v3.0.63 BUG-132 修法: 按 AgnesVideoError type 友好提示, 不再统一误导文案 "API 限流中"
-      // 修前: 用户 prompt 触发 content_policy → 3 次 retry → 撞 agens 2/min 限流 → 误显示 "API 限流中"
-      // 修后: 区分 4 种 type, 各对应正确文案, retry 跟 strategy 精细化
-      const errMsg = (err as Error).message;
-      let friendlyMsg = errMsg;
-      if (err instanceof AgnesVideoError) {
-        switch (err.type) {
-          case AgnesVideoErrorType.CONTENT_POLICY:
-            // 内容策略拦截: 必须改 prompt, retry 没用
-            friendlyMsg = '视频描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述后重试';
-            break;
-          case AgnesVideoErrorType.RATE_LIMIT:
-            // agens 真实限流: 需等
-            friendlyMsg = 'agns 视频 API 限流中, 请 1-2 分钟后重试';
-            break;
-          case AgnesVideoErrorType.UPSTREAM_BUSY:
-            friendlyMsg = 'agns 视频服务暂时不可用 (上游繁忙或维护), 请 5-10 分钟后重试';
-            break;
-          case AgnesVideoErrorType.TIMEOUT:
-            friendlyMsg = 'agns 视频生成超时, 请稍后重试或减少时长';
-            break;
-          case AgnesVideoErrorType.INVALID_INPUT:
-            friendlyMsg = '视频请求参数无效, 请重试或联系客服';
-            break;
-          default:
-            friendlyMsg = 'agns 视频服务异常, 请稍后重试';
-        }
-      } else {
-        // 兼容老错误: 根据 errMsg 关键词判断
-        if (errMsg.includes('timeout') || errMsg.includes('fetch failed') || errMsg.includes('Service busy') || errMsg.includes('503')) {
-          friendlyMsg = 'agns 视频服务暂时不可用 (上游 OpenAI 繁忙或服务维护), 请 5-10 分钟后重试';
-        } else if (errMsg.includes('429')) {
-          friendlyMsg = 'agns 视频 API 限流中, 请 1-2 分钟后重试';
-        }
-      }
-      // v3.0.32 BUG-082: 强制归一为 string, 防上游返 {code, message} 对象 (历史: agnes API error 形如 {code, message}, 被原样存进 messages JSON, web 渲染对象触发 React #31)
-      const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '视频生成失败');
-      // v3.0.64 BUG-132 (video 配套): 跟 image 1:1 镜像, error_msg 必带 [ERR_TYPE] 前缀 (跟 BUG-118 1:1), 前端 parse 决定 UI label 颜色
-      // 修前 error_msg 写 "agns 视频生成超时..." 没前缀, 客户端 status badge 无法区分 timeout/content_policy/etc.
-      const errorMsgWithType = err instanceof AgnesVideoError ? `[${err.type}] ${safeFriendlyMsg}` : safeFriendlyMsg;
-      logger.error('VideoAgent: agnes createTask failed (background), rolling back to plan_ready', {
-        conversationId, error: errMsg, friendly: friendlyMsg, type: err instanceof AgnesVideoError ? err.type : 'unknown',
-      });
-      // v3.0.0.27 (S47): mutate messages - 替换 streaming part 为 error, 跟 plan+streaming 一起持久化
-      const curConv = await videoConversationModel.findById(conversationId);
-      const failMessages = curConv
-        ? replaceStreamingPart(parseMessages(curConv.messages), { type: 'error', message: errorMsgWithType } as unknown as AgentPart)
-        : [];
-      await videoConversationModel.update(conversationId, {
-        status: 'plan_ready' as AgentConversationStatus,
-        plan: originalPlan as any,
-        error_msg: errorMsgWithType,
-        messages: failMessages as any,
-      } as any);
-      // v3.0.37 BUG-100: 必更新 video_generations 表标 failed (防 69 任务卡 queued, 累积 17 天)
-      //   历史: 旧修法只回滚 video_conversations, video_generations 行永远卡 'queued' 状态
-      //   根因: catch 块没"补刀"video_generations (跟 BUG-098 admin approve 同源: 单路径修法不彻底)
-      //   修法: queryOne 找该 conversation 最新一条 video_generations row, UPDATE status='failed' + error_msg
-      //   配套: 清旧数据 SQL 在 deploy-bug100.sh 跑 (跟铁律 4 跨端同步配套, 跟 BUG-095 DB schema enum ALTER 同源)
+    // BUG-139 (v3.0.71): UPSTREAM_BUSY 自动重试 10 秒间隔, 上限 60 次 (10 分钟)
+    const MAX_UPSTREAM_RETRY = 60;
+    const UPSTREAM_RETRY_INTERVAL_MS = 10_000;
+
+    let createResult: Awaited<ReturnType<typeof agnesVideoProvider.createTask>> | null = null;
+    let upstreamAttempts = 0;
+
+    for (let attempt = 1; attempt <= MAX_UPSTREAM_RETRY; attempt++) {
       try {
-        const { queryOne } = await import('../models/db');
-        const genRow = await queryOne<any>(
-          `SELECT id FROM video_generations WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
-          [conversationId]
+        // 调 agnes video 创建任务 (包装 rate limiter, 2/min 排队)
+        // v3.0.0.15: i2v 模式 — 用 last_result_url 作 image, 不混 user ref
+        // v3.0.52 (BUG-123): 排队时自动 await, 排队位置 + ETA 自动 log
+        // v3.0.57 (BUG-128): 透传 negativePrompt 拦三视图展示/走样/低质量
+        createResult = await agnesVideoProvider.createTaskWithLimit(
+          {
+            prompt: plan.prompt,
+            negativePrompt: (plan as any).negativePrompt || undefined,
+            image,
+            images,
+            width, height,
+            numFrames: numFramesForDuration(durationSec, fps),
+            frameRate: fps,
+          },
+          conversationId,
+          'videoAgent',
         );
-        if (genRow?.id) {
-          await videoGenerationModel.update(genRow.id, {
-            status: 'failed',
-            error_msg: errorMsgWithType.slice(0, 200),
+        // 成功! 跳出 retry loop
+        break;
+      } catch (err) {
+        // v3.0.71 BUG-139: UPSTREAM_BUSY → 不终止, 10 秒后重试 (上限 60 次 = 10 分钟)
+        //   修前: 立即 setStatus('plan_ready') + error_msg="5-10 分钟后重试", 用户必须手动点重试
+        //   修法: 保持 status='tool_queued' (前端轮询看到"排队中"), error_msg 显示正在自动重试, retry_count 累加
+        const errMsg = (err as Error).message;
+        const isUpstreamBusy = (err instanceof AgnesVideoError && err.type === AgnesVideoErrorType.UPSTREAM_BUSY)
+          || errMsg.includes('Service busy') || errMsg.includes('503') || errMsg.includes('upstream_busy');
+        if (!isUpstreamBusy) {
+          // 非 UPSTREAM_BUSY (CONTENT_POLICY / RATE_LIMIT / TIMEOUT / INVALID_INPUT / NETWORK / UNKNOWN)
+          // → 失败处理 (立即终止, 不重试, 让用户处理)
+          await this.handleCreateTaskFailure(
+            err, conversationId, originalPlan, /* upstreamAttempts */ 0,
+          );
+          return;
+        }
+
+        upstreamAttempts = attempt;
+        if (attempt >= MAX_UPSTREAM_RETRY) {
+          // 重试用完, 终止, 让用户知道排队超时
+          logger.warn('VideoAgent: UPSTREAM_BUSY retry exhausted, marking tool_failed', {
+            conversationId, attempts: attempt,
+          });
+          const timeoutErr = new Error('agns 视频服务持续繁忙, 已自动重试 10 分钟仍未恢复, 请稍后再试');
+          await this.handleCreateTaskFailure(
+            timeoutErr, conversationId, originalPlan, upstreamAttempts,
+          );
+          return;
+        }
+
+        // 还有重试次数: 更新 status 保持 tool_queued, error_msg 显示正在自动重试, retry_count++
+        // 前端 statusBadge 显示 "排队中", 不会误以为失败了
+        const waitMsg = `[upstream_busy] 视频服务正在排队,请耐心等待.. (自动重试 ${attempt}/${MAX_UPSTREAM_RETRY})`;
+        try {
+          await videoConversationModel.update(conversationId, {
+            status: 'tool_queued' as AgentConversationStatus,
+            error_msg: waitMsg,
+            retry_count: attempt,
           } as any);
-          logger.info('VideoAgent: video_generations marked failed (createTask catch)', {
-            conversationId, genId: genRow.id, errorMsg: errorMsgWithType.slice(0, 80),
+        } catch (updErr) {
+          logger.warn('VideoAgent: UPSTREAM_BUSY retry status update failed (non-fatal)', {
+            conversationId, error: (updErr as Error).message,
           });
         }
-      } catch (genErr) {
-        // 视频生成审计表写失败不阻断主流程, 仅 warn
-        logger.warn('VideoAgent: video_generations.markFailed failed (non-fatal)', {
-          conversationId, error: (genErr as Error).message,
+        logger.warn('VideoAgent: UPSTREAM_BUSY, auto retry in 10s', {
+          conversationId, attempt, maxRetry: MAX_UPSTREAM_RETRY, error: errMsg,
         });
+        await new Promise(resolve => setTimeout(resolve, UPSTREAM_RETRY_INTERVAL_MS));
+        // 继续下一轮 for 循环
       }
+    }
+
+    if (!createResult) {
+      // 理论上 for 循环里 UPSTREAM_BUSY 用完会 return; 这里兜底防 TS narrow
       return;
     }
 
@@ -686,6 +674,10 @@ export class VideoAgentService {
         resolution: `${width}x${height}`,
         fps,
         plan: { ...(plan as any), _agnesVideoId: createResult.videoId } as any,
+        // BUG-139 (v3.0.71): 重试成功后清掉 retry_count (表示本轮重试结束, 进入 polling)
+        retry_count: 0,
+        // 清掉上游繁忙 error_msg (让前端 statusBadge 显示正常的 "排队中/生成中", 不是 "排队中 (自动重试)")
+        error_msg: null as any,
       } as any);
     } catch (err) {
       logger.error('VideoAgent: persist taskId/videoId failed (background)', {
@@ -697,6 +689,7 @@ export class VideoAgentService {
         error_msg: (err as Error).message,
       } as any);
       // v3.0.37 BUG-100: 必更新 video_generations 表标 failed (跟 createTask catch 配套, 同样 69 卡死根因)
+
       try {
         const { queryOne } = await import('../models/db');
         const genRow = await queryOne<any>(
@@ -724,8 +717,104 @@ export class VideoAgentService {
     this.startPolling(conversationId, createResult.videoId);
 
     logger.info('VideoAgent: createTask done (background), polling started', {
-      conversationId, videoId: createResult.videoId.slice(0, 60),
+      conversationId, videoId: createResult.videoId.slice(0, 60), upstreamAttempts,
     });
+  }
+
+  /**
+   * v3.0.71 (BUG-139): createTask 失败的统一处理函数
+   *   之前逻辑嵌入 runCreateTaskInBackground 的 catch 块里, 现在抽出来供 UPSTREAM_BUSY 重试用完 + 老失败路径复用
+   *   行为: setStatus('plan_ready') + 替换 streaming part 为 error + update video_generations 标 failed
+   */
+  private async handleCreateTaskFailure(
+    err: any,
+    conversationId: string,
+    originalPlan: any,
+    upstreamAttempts: number,
+  ): Promise<void> {
+    // v3.0.63 BUG-132 修法: 按 AgnesVideoError type 友好提示, 不再统一误导文案 "API 限流中"
+    // v3.0.71 BUG-139 改法: UPSTREAM_BUSY 不再走这条路 (除非重试用完), 文案统一改成 "排队中"/"排队超时"
+    const errMsg = (err as Error).message;
+    let friendlyMsg = errMsg;
+    if (err instanceof AgnesVideoError) {
+      switch (err.type) {
+        case AgnesVideoErrorType.CONTENT_POLICY:
+          // 内容策略拦截: 必须改 prompt, retry 没用
+          friendlyMsg = '视频描述触发了策略限制 (可能是敏感词或超出内容策略), 请修改描述后重试';
+          break;
+        case AgnesVideoErrorType.RATE_LIMIT:
+          // agens 真实限流: 需等 (区别于 UPSTREAM_BUSY, 这里走老失败路径)
+          friendlyMsg = 'agns 视频 API 限流中, 请 1-2 分钟后重试';
+          break;
+        case AgnesVideoErrorType.UPSTREAM_BUSY:
+          // v3.0.71 BUG-139: 重试用完 (60 次 = 10 分钟) 后才走到这里
+          friendlyMsg = upstreamAttempts > 0
+            ? `[upstream_busy] 视频服务持续繁忙, 已自动重试 ${upstreamAttempts} 次仍未恢复, 请稍后再试`
+            : '视频服务正在排队,请耐心等待.. (上游繁忙)';
+          break;
+        case AgnesVideoErrorType.TIMEOUT:
+          friendlyMsg = 'agns 视频生成超时, 请稍后重试或减少时长';
+          break;
+        case AgnesVideoErrorType.INVALID_INPUT:
+          friendlyMsg = '视频请求参数无效, 请重试或联系客服';
+          break;
+        default:
+          friendlyMsg = 'agns 视频服务异常, 请稍后重试';
+      }
+    } else {
+      // 兼容老错误: 根据 errMsg 关键词判断
+      if (errMsg.includes('timeout') || errMsg.includes('fetch failed') || errMsg.includes('Service busy') || errMsg.includes('503')) {
+        friendlyMsg = upstreamAttempts > 0
+          ? `[upstream_busy] 视频服务持续繁忙, 已自动重试 ${upstreamAttempts} 次仍未恢复, 请稍后再试`
+          : '视频服务正在排队,请耐心等待.. (上游繁忙)';
+      } else if (errMsg.includes('429')) {
+        friendlyMsg = 'agns 视频 API 限流中, 请 1-2 分钟后重试';
+      }
+    }
+    // v3.0.32 BUG-082: 强制归一为 string, 防上游返 {code, message} 对象
+    const safeFriendlyMsg = extractErrorMessage(friendlyMsg, '视频生成失败');
+    // v3.0.64 BUG-132 (video 配套): 跟 image 1:1 镜像, error_msg 必带 [ERR_TYPE] 前缀
+    // BUG-139 v3.0.71: UPSTREAM_BUSY case 重试用完已经有 [upstream_busy] 前缀, 不重复加
+    const errorMsgWithType = (err instanceof AgnesVideoError && err.type !== AgnesVideoErrorType.UPSTREAM_BUSY)
+      ? `[${err.type}] ${safeFriendlyMsg}`
+      : (safeFriendlyMsg.includes('[upstream_busy]') ? safeFriendlyMsg : `[${err instanceof AgnesVideoError ? err.type : 'unknown'}] ${safeFriendlyMsg}`);
+    logger.error('VideoAgent: createTask failed (background, after retry), rolling back to plan_ready', {
+      conversationId, error: errMsg, friendly: friendlyMsg,
+      type: err instanceof AgnesVideoError ? err.type : 'unknown',
+      upstreamAttempts,
+    });
+    // v3.0.0.27 (S47): mutate messages - 替换 streaming part 为 error
+    const curConv = await videoConversationModel.findById(conversationId);
+    const failMessages = curConv
+      ? replaceStreamingPart(parseMessages(curConv.messages), { type: 'error', message: errorMsgWithType } as unknown as AgentPart)
+      : [];
+    await videoConversationModel.update(conversationId, {
+      status: 'plan_ready' as AgentConversationStatus,
+      plan: originalPlan as any,
+      error_msg: errorMsgWithType,
+      messages: failMessages as any,
+    } as any);
+    // v3.0.37 BUG-100: 必更新 video_generations 表标 failed
+    try {
+      const { queryOne } = await import('../models/db');
+      const genRow = await queryOne<any>(
+        `SELECT id FROM video_generations WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1`,
+        [conversationId]
+      );
+      if (genRow?.id) {
+        await videoGenerationModel.update(genRow.id, {
+          status: 'failed',
+          error_msg: errorMsgWithType.slice(0, 200),
+        } as any);
+        logger.info('VideoAgent: video_generations marked failed (handleCreateTaskFailure)', {
+          conversationId, genId: genRow.id, errorMsg: errorMsgWithType.slice(0, 80),
+        });
+      }
+    } catch (genErr) {
+      logger.warn('VideoAgent: video_generations.markFailed failed (non-fatal)', {
+        conversationId, error: (genErr as Error).message,
+      });
+    }
   }
 
   /** 后台轮询 — 起步 5s, 失败 backoff 到 30s 上限, 连续失败 5 次暂停 */
