@@ -7371,4 +7371,146 @@ BUG-137 (v3.0.69 server 端 Agnes API 调用规范对照, shipin-APP 合规率 7
 - **BUG-119 (v3.0.48)** retry 边界清理 — BUG-119 修了 streaming 卡片集成 GeneratingLoader, BUG-136 进一步重设计卡片视觉
 - **BUG-120 (v3.0.49)** 等待动画卡片按比例显示 — BUG-136 跟 BUG-120 1:1 配套, 都用 selectedRatio 决定卡片尺寸
 - **BUG-123 (v3.0.52)** Agnes API 限流排队 — BUG-136 把 BUG-123 排队信息整合到卡片底部, 不再浮窗
-- **BUG-130 (v3.0.59)** mobile 端补参考图上传入口 — BUG-136 同属 mobile 端 UI 改进系列
+- **BUG-130 (v3.0.59)** mobile 端补参考图上传入口 — BUG-136 同属 mobile 端 UI 改进系列---
+
+## BUG-138 (v3.0.70 web + mobile 跨端 AgentChatPanel 后台 polling 不取消, 切换会话旧 polling 污染新会话 UI, 新会话一直显示"提示词方案正在生成")
+
+### 背景
+
+用户反馈: 提示词正在生成方案时 (status='tool_queued' / 'tool_executing'), 无论新建多少个会话框, 都一直显示"提示词方案正在生成". 无论切到哪个会话都卡在"正在生成"状态.
+
+### 修前根因 (2 重)
+
+**BUG-A (web AgentChatPanel.tsx)**: `confirmAndGenerate` / `confirm` 函数的后台 polling 是 **fire-and-forget** 的 (while + await setTimeout, line 541-572 / 668-685), 切换会话时不会被自动取消. 修前:
+1. 用户在 ConvA 点"确认方案" → `confirmAndGenerate` 进入, 设 `status='tool_queued'`, 进入 fire-and-forget while 循环 (4s 间隔 poll conv status)
+2. 用户在 status='tool_queued' 期间点"新建" → `startNew()` 创 ConvB, 设 `conversationId=ConvB`, `status='awaiting_clarification'`, `messages=[welcome]`
+3. **同时**, 旧 `confirmAndGenerate` 的 while 循环还在跑 (不受 React state 切换影响)
+4. 4-5s 后旧 polling poll 拿到 ConvA.status (还是 'tool_queued' / 'tool_executing') → `tickStatus(cur.status)` → **`setStatus('tool_queued')` 全局状态被改回去**
+5. status 变 → 触发 `statusEffectTimerRef` useEffect (line 227-309) cleanup + re-run
+6. 重新跑时, **conversationId 是当前 React state = ConvB**, 但 status 是 ConvA 改的 'tool_queued'
+7. inFlight=true → `setMessages` push streaming part 到 **ConvB 的 messages 最后一个**
+8. **结果**: ConvB 显示"正在生成方案"的流式卡片
+
+**BUG-B (mobile ImageAgentScreen + VideoAgentScreen)**: `loadConversation` 函数没重置 `pollingConvId`. 修前:
+1. 用户在 ConvA 点"确认生成" → `setPollingConvId(convA)`
+2. useEffect 依赖 `pollingConvId` 没变 → 不 cleanup, **setInterval 还在跑**
+3. 用户切到历史会话 ConvC → `loadConversation(C)` 没 reset pollingConvId
+4. polling 还在跑 → 每 3s `setConvStatus` / `setMessages` → **改新会话 ConvC 的 UI**
+
+### 修法 (跨端铁律 4++ 1:1 镜像)
+
+```
+apps/web/src/components/AgentChatPanel.tsx (跨端铁律 4++ 主修):
+├─ 加 activeConvIdRef = useRef<string | null>(null) (追踪当前活跃会话)
+├─ 加 pollingOwnerRef = useRef<string | null>(null) (追踪 polling owner)
+├─ startNew / loadConversation 入口:
+│   ├─ activeConvIdRef.current = newId (更新活跃会话)
+│   └─ pollingOwnerRef.current = null (cancel 旧 polling)
+├─ confirmAndGenerate / confirm 进入:
+│   ├─ capturedConvId = conversationId (闭包捕获)
+│   └─ pollingOwnerRef.current = capturedConvId (声明 owner)
+├─ confirmAndGenerate / confirm while 循环:
+│   ├─ 每次 poll 前 check: if (pollingOwnerRef.current !== capturedConvId) break
+│   ├─ tickStatus / setStatus / setMessages 前 check pollingOwnerRef === capturedConvId
+│   └─ finally: pollingOwnerRef.current === capturedConvId 时清 null
+└─ statusEffectTimerRef useEffect (line 227-309) push streaming 前 check:
+    if (pollingOwnerRef.current !== conversationId) {
+      // 旧 polling 改的 status 不该 push streaming 到新会话
+    } else {
+      // in-progress: push 流式卡片
+    }
+
+apps/mobile/src/screens/ImageAgentScreen.tsx + VideoAgentScreen.tsx (跨端铁律 4++ 镜像 web 1:1):
+└─ loadConversation 入口加 setPollingConvId(null)
+    // 切历史会话时取消旧 polling (useEffect 依赖 pollingConvId 变 → cleanup clearInterval)
+```
+
+### 8 处版本号同步 (跨端铁律 3, v3.0.69 → v3.0.70)
+
+| 位置 | 修前 | 修后 |
+|---|---|---|
+| apps/mobile/src/config/version.ts APP_VERSION | '3.0.69' | **'3.0.70'** |
+| apps/mobile/android/app/build.gradle versionCode | 71 | **72** |
+| apps/mobile/android/app/build.gradle versionName | "3.0.69" | **"3.0.70"** |
+| apps/web/src/config/version.ts APP_VERSION | '3.0.69' | **'3.0.70'** |
+| apps/web/src/config/version.ts APP_VERSION_CODE | 71 | **72** |
+| apps/server/package.json version | "3.0.69" | **"3.0.70"** |
+| apps/server/src/index.ts APP_VERSION fallback | '3.0.69' | **'3.0.70'** |
+| apps/server/ecosystem.config.js env APP_VERSION | '3.0.69' | **'3.0.70'** |
+| apps/server/ecosystem.config.js env_production APP_VERSION | '3.0.69' | **'3.0.70'** |
+| apps/server/changelog.json | (top v3.0.69) | **+ v3.0.70 prepend** |
+| apps/server/changelog_remote.json | (top v3.0.69) | **+ v3.0.70 prepend** |
+| apps/server/.env APP_VERSION | 3.0.69 | **3.0.70** |
+| /etc/systemd/system/shipin-app.service Environment=APP_VERSION | 3.0.69 | **3.0.70** |
+| 公网 APK | DeepScript_v3.0.69.apk | **DeepScript_v3.0.70.apk** (30256080 bytes) |
+
+### 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/097/100/119/130/134/135 100% 同源)
+
+1. **后台 polling 必须有 cancel 机制 (useEffect-based 优于 fire-and-forget while 循环)**: React useEffect cleanup 必清 setInterval, 切会话 / unmount / 重新挂载 都会自动取消. fire-and-forget while 循环是"野指针", 没法响应 React state 变化. 修前 confirmAndGenerate 用了 while + await setTimeout (line 541-572), 等同于"开了 setInterval 但没用 useRef 管理", 修后改用 pollingOwnerRef check 强制 cancel
+2. **fire-and-forget async 任务必须捕获 conversationId + owner ref**: 修前 confirmAndGenerate 闭包内的 polling 永远拿 conversationId (闭包变量), 跟当前 React state 的 conversationId 失去同步. 修后用 capturedConvId (闭包捕获) + pollingOwnerRef (React state 同步) 双 ref check, 切走时立即 break. 跨项目通用: 任何后台任务必捕获 start-time context, 不能依赖 React state
+3. **跨端轮询逻辑必 1:1 镜像, 修一处必同步双端**: web 端 confirmAndGenerate/confirm fire-and-forget (BUG), mobile 端 pollingConvId useEffect (修法更优雅). BUG-138 跨端铁律 4++ 1:1 镜像修法, web 用 pollingOwnerRef, mobile 用 setPollingConvId(null), 效果一致
+4. **加了 useEffect 必查 cleanup 路径, 没 cleanup = polling 跨会话泄漏**: mobile 端 pollingConvId useEffect 有 cleanup (`return () => clearInterval(timer)`), web 端 statusEffectTimerRef useEffect 也有 cleanup. 但 confirmAndGenerate/confirm 内部的 while 循环是野指针, 没有 useEffect 包裹. 修后用 pollingOwnerRef 模拟 cleanup. 跨项目铁律: 用 useEffect 启动的 polling 才能自动 cleanup, fire-and-forget polling 必手动加 owner check
+
+### 沉淀 (跨项目通用铁律, 跟 BUG-079/100/118/119/130/134/135 100% 同源)
+
+1. **useEffect-based polling 优于 fire-and-forget polling**: React 组件内的 polling 必走 useEffect + setInterval + cleanup return. 原因是 useEffect cleanup 在 unmount + dependency 变化时自动跑, 防止"野指针 polling" 跨会话污染. 修前 web confirmAndGenerate/confirm 用了 while + await setTimeout, 等同于 setInterval 但没 cleanup, 切换会话时 React state 改了但 polling 还在跑
+2. **fire-and-forget async 任务必捕获 owner context**: 任何后台 async 任务必须捕获 start 时的 conversationId / userId / requestId, 跟当前 React state / 当前用户比较. 不匹配就立即退出, 不污染全局 state. 这是个泛化的铁律, 不限于 polling, 也适用于 retry 任务, 上传任务, 任何"长跑"的 async 操作
+3. **跨端代码改一处必同步双端 + E2E 验证**: web 修了 polling cancel, mobile 端必然有同样问题 (跟 BUG-097 mobile 漏修 web 反向). BUG-138 1:1 镜像修法 + E2E 同时验证两端. 跨端铁律 4++ 跟 BUG-130 同源
+4. **新代码用 useEffect 而不是 async function 启动 polling**: shipin-APP 老代码 (v3.0.0) 用了 fire-and-forget 是历史包袱, 新代码必走 useEffect 路径. AGENTS.md § 5.10.4 修法 3 配套: 跨端 `clearResultParts` + GeneratingLoader 集成已经走 useEffect 路径, polling 跟上
+
+### 跟其他 BUG 关系
+
+- **BUG-079 (v3.0.13)** 假报告 — 跟 BUG-138 同源 "UI 状态跟实际后端状态不一致 = 用户被误导"
+- **BUG-097 (S72 batch 6)** mobile 漏修 web — BUG-138 反方向漏修 (web 修了 mobile 没修), 跨端铁律 4++ 1:1 镜像修法
+- **BUG-100 (S58)** loading UX 假修 — BUG-138 同源 "loading 状态 UI 必真实反映后台"
+- **BUG-119 (v3.0.48)** retry 边界清理 — BUG-138 跟 BUG-119 配套, 都是"切换会话时清旧状态"
+- **BUG-120 (v3.0.49)** 等待动画卡片按比例显示 — BUG-138 statusEffectTimerRef push streaming 前 check 跟 BUG-120 1:1 镜像
+- **BUG-123 (v3.0.52)** Agnes API 限流排队 — BUG-138 是更上层的"轮询生命周期管理"
+- **BUG-130 (v3.0.59)** mobile 端补参考图上传入口 — BUG-138 mobile 修法跟 BUG-130 跨端铁律 4++ 同源
+- **BUG-131 (v3.0.62)** server-only hotfix 必 rebuild APK — BUG-138 此次已重打 mobile APK
+- **BUG-132 (v3.0.63)** video/image retry 策略细化 — BUG-138 retry 终止条件跟 BUG-132 同源
+- **BUG-135 (v3.0.67)** 自研 native module 完全不用 GMS — BUG-138 跟 BUG-135 都是 mobile 端基础设施层修法
+- **BUG-136 (v3.0.68)** 生成中动画卡片重设计 — BUG-138 statusEffectTimerRef push streaming 前 check 跟 BUG-136 配套
+- **BUG-137 (v3.0.69)** Agnes API 调用规范 — BUG-138 跨项目通用铁律 "useEffect-based > fire-and-forget" 跟 BUG-137 "API 协议规范" 同源 (都是基础设施层)
+
+### mavis memory 沉淀
+
+```
+BUG-138 (v3.0.70 跨端 AgentChatPanel 后台 polling 不取消, 切换会话旧 polling 污染新会话 UI):
+- 跨项目通用铁律: 后台 polling 必须有 cancel 机制 (useEffect-based > fire-and-forget)
+- 跨项目通用铁律: fire-and-forget async 任务必捕获 conversationId + owner ref, 切会话时 check 不污染全局
+- 跨项目通用铁律: 跨端轮询逻辑必 1:1 镜像 (mobile pollingConvId useEffect 跟 web pollingOwnerRef 1:1), 修一处必同步双端
+- 跨项目通用铁律: 加 useEffect 必查 cleanup 路径, 没 cleanup = polling 跨会话泄漏
+- 修前根因: web confirmAndGenerate/confirm 是 fire-and-forget while 循环, 切换会话不会被取消
+- 修法 web: 加 activeConvIdRef + pollingOwnerRef, startNew/loadConversation 清 pollingOwnerRef, while 循环 poll 前 check (if pollingOwnerRef !== capturedConvId) break, tickStatus/setMessages/setStatus 前 check pollingOwnerRef, statusEffectTimerRef push streaming 前 check pollingOwnerRef === conversationId
+- 修法 mobile: loadConversation 入口加 setPollingConvId(null), 切历史会话时取消旧 polling
+- E2E 验证: ConvB 立即 + 15s 后都是 awaiting_clarification 无 streaming part, ConvA 正常 tool_completed
+```
+
+### E2E 验证 (deploy 后实测, 2026-07-01)
+
+- ✅ /api/version: 3.0.70, mobileLatestApkVersion: 3.0.70, downloadUrl: https://ab.maque.uno/app/DeepScript_v3.0.70.apk
+- ✅ 公网 APK HTTP/2 200, Content-Type: application/vnd.android.package-archive, Content-Length: 30256080
+- ✅ systemd shipin-app active (running), Main PID node
+- ✅ mobile tsc: 53 错 (全 pre-existing, baseline 一致, 0 新错)
+- ✅ web typecheck: 0 错
+- ✅ web build: dist/index-B2cs5aH1.js (528KB) + dist/index-fvkPNNko.css (44KB)
+- ✅ E2E (image agent, testuser_bug138):
+  - ConvA: 发"卡通猫" → plan_ready (2s) → confirm → tool_executing → tool_completed (15s)
+  - ConvB (立即创, 模拟用户切换): status=awaiting_clarification (✅ 没被旧 polling 污染)
+  - ConvB 15s 后: status=awaiting_clarification, messages count=1, 无 streaming part (✅ 旧 polling 持续运行也没污染)
+  - ConvA 15s 后: status=tool_completed (✅ 正常完成)
+  - **PASS**: BUG-138 已修, 跨端轮询生命周期管理规范化
+
+### 部署全链路 (跨端铁律 5, 跟根 AGENTS.md 同步)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ `5647add` (ae961b8 → 5647add) → origin/main |
+| 远端 server restart (systemd) | ✅ active, Main PID 8265 |
+| `/api/version` 3.0.70 | ✅ version=3.0.70, mobileLatestApkVersion=3.0.70 |
+| APK 重打 (gradle assembleRelease) | ✅ `app-release.apk` 30256080 bytes (versionCode 72, versionName 3.0.70) |
+| scp APK 到 `/www/wwwroot/shipin-APP/public/` | ✅ `DeepScript_v3.0.70.apk` |
+| 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256080 |
+| systemd Environment=APP_VERSION 同步 | ✅ 3.0.70 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.70 |

@@ -332,4 +332,118 @@ mobile 端 1:1 镜像见 mobile § 6.15.2.
 - **BUG-097** mobile 漏修 web — BUG-130 100% 同源 (漏修方向反转)
 - **BUG-103** 自动退款漏刷 APK — BUG-130 此次重打 mobile APK
 - **BUG-118/119/120/121/122/123/124/125/126/127/128/129** — BUG-130 是这一系列延伸
-- **BUG-128** VIDEO_PROMPT_REF_IMAGE_SYSTEM — BUG-130 直接受益, mobile 现在能传 ref image 给 video
+- **BUG-128** VIDEO_PROMPT_REF_IMAGE_SYSTEM — BUG-130 直接受益, mobile 现在能传 ref image 给 video## § 5.10 v3.0.70 新增: 跨端 AgentChatPanel 后台 polling 不取消, 切换会话旧 polling 污染新会话 UI (BUG-138, 跟 mobile § 6.18 1:1 镜像)
+
+> **新增 2026-07-01 (v3.0.70 BUG-138)**: 修 web + mobile 跨端 AgentChatPanel 后台 polling 切换会话时不取消 → 旧 polling tickStatus 把全局 status 改回 tool_queued → 触发 statusEffectTimerRef useEffect 给新会话 push streaming part → 新会话一直显示"提示词方案正在生成".
+
+### § 5.10.1 背景 (跟 mobile § 6.18.1 1:1)
+
+用户反馈: 提示词正在生成方案时, 无论新建多少个会话框, 都一直显示"提示词方案正在生成". 跟 BUG-079/100/118/119/120/123/130/134/135/136/137 100% 同源.
+
+### § 5.10.2 修前根因 (跟 mobile § 6.18.2 1:1)
+
+**BUG-A (web AgentChatPanel.tsx)**: `confirmAndGenerate` / `confirm` 函数的后台 polling 是 **fire-and-forget** 的 (while + await setTimeout, line 541-572 / 668-685), 切换会话时不会被自动取消. 4-5s 后旧 polling poll 拿到 ConvA.status → `tickStatus(cur.status)` → 全局 status 被改回去 → 触发 statusEffectTimerRef useEffect → 给 ConvB 的 messages 最后一个 push streaming part → ConvB 显示"正在生成方案".
+
+**BUG-B (mobile ImageAgentScreen + VideoAgentScreen)**: `loadConversation` 函数没重置 `pollingConvId`. 跟 web 1:1 同源, 详见 mobile § 6.18.2.
+
+### § 5.10.3 修法架构 (跨端铁律 4++ 1:1 镜像 mobile § 6.18.3)
+
+```
+apps/web/src/components/AgentChatPanel.tsx (跨端铁律 4++ 主修):
+├─ 加 activeConvIdRef = useRef<string | null>(null) (追踪当前活跃会话)
+├─ 加 pollingOwnerRef = useRef<string | null>(null) (追踪 polling owner)
+├─ startNew / loadConversation 入口:
+│   ├─ activeConvIdRef.current = newId (更新活跃会话)
+│   └─ pollingOwnerRef.current = null (cancel 旧 polling)
+├─ confirmAndGenerate / confirm 进入:
+│   ├─ capturedConvId = conversationId (闭包捕获)
+│   └─ pollingOwnerRef.current = capturedConvId (声明 owner)
+├─ confirmAndGenerate / confirm while 循环:
+│   ├─ 每次 poll 前 check: if (pollingOwnerRef.current !== capturedConvId) break
+│   ├─ tickStatus / setStatus / setMessages 前 check pollingOwnerRef === capturedConvId
+│   └─ finally: pollingOwnerRef.current === capturedConvId 时清 null
+└─ statusEffectTimerRef useEffect (line 227-309) push streaming 前 check:
+    if (pollingOwnerRef.current !== conversationId) {
+      // 旧 polling 改的 status 不该 push streaming 到新会话
+    } else {
+      // in-progress: push 流式卡片
+    }
+
+apps/mobile/src/screens/ImageAgentScreen.tsx + VideoAgentScreen.tsx (跨端铁律 4++ 镜像 web 1:1):
+└─ loadConversation 入口加 setPollingConvId(null)
+```
+
+### § 5.10.4 跨端铁律 4++ 镜像 (跟 mobile § 6.18.4 1:1)
+
+| 维度 | web 端 | mobile 端 | 一致性 |
+|---|---|---|---|
+| Polling owner 追踪 | `pollingOwnerRef = useRef<string \| null>(null)` | `pollingConvId` state | 概念 1:1 |
+| Cancel 旧 polling 入口 | `startNew` / `loadConversation` 设 `pollingOwnerRef.current = null` | `loadConversation` 入口 `setPollingConvId(null)` | ✅ 行为 1:1 |
+| Polling while / setInterval poll 前 check | `if (pollingOwnerRef.current !== capturedConvId) break` | useEffect 依赖 `pollingConvId` 变 → cleanup | ✅ 1:1 |
+| statusEffectTimerRef / useEffect push streaming 前 check | `if (pollingOwnerRef.current !== conversationId)` | mobile 没有 (useEffect 自动 cleanup) | web 端独有 |
+
+### § 5.10.5 使用规范 (跟 mobile § 6.18.5 1:1)
+
+1. **后台 polling 必须有 cancel 机制 (useEffect-based 优于 fire-and-forget)**: React useEffect cleanup 必清 setInterval, 切会话 / unmount / 重新挂载 都会自动取消. fire-and-forget while 循环是"野指针", 没法响应 React state 变化
+2. **fire-and-forget async 任务必捕获 owner context**: 任何后台 async 任务必须捕获 start 时的 conversationId / userId / requestId, 跟当前 React state / 当前用户比较. 不匹配就立即退出
+3. **跨端轮询逻辑必 1:1 镜像, 修一处必同步双端**: web 修了 polling cancel, mobile 端必然有同样问题 (跟 BUG-097 mobile 漏修 web 反向)
+4. **加了 useEffect 必查 cleanup 路径**: 没 cleanup = polling 跨会话泄漏
+5. **新代码必走 useEffect 不用 fire-and-forget**: shipin-APP 老代码 (v3.0.0) 用了 fire-and-forget 是历史包袱, 新代码必走 useEffect 路径
+
+### § 5.10.6 跨项目通用铁律 4 条新沉淀 (跟 mobile § 6.18.6 1:1)
+
+1. **useEffect-based polling 优于 fire-and-forget polling**: React 组件内的 polling 必走 useEffect + setInterval + cleanup return
+2. **fire-and-forget async 任务必捕获 owner context**: 任何后台 async 任务必须捕获 start 时的 conversationId + owner ref
+3. **跨端代码改一处必同步双端 + E2E 验证**: web 修了 polling cancel, mobile 端必然有同样问题
+4. **加 useEffect 必查 cleanup 路径**: 没 cleanup = polling 跨会话泄漏
+
+### § 5.10.7 跟其他 BUG 关系 (跟 mobile § 6.18.7 1:1)
+
+- **BUG-079** 假报告 — 跟 BUG-138 同源
+- **BUG-097** mobile 漏修 web — BUG-138 反方向漏修
+- **BUG-100** loading UX 假修 — 同源
+- **BUG-119** retry 边界清理 — BUG-138 跟 BUG-119 配套
+- **BUG-120** 等待动画卡片按比例显示 — statusEffectTimerRef push streaming 前 check 跟 BUG-120 1:1
+- **BUG-123** Agnes API 限流排队 — BUG-138 是更上层的"轮询生命周期管理"
+- **BUG-130** mobile 端补参考图上传入口 — 跨端铁律 4++ 同源
+- **BUG-131** server-only hotfix 必 rebuild APK — BUG-138 此次已重打 mobile APK
+- **BUG-132** video/image retry 策略细化 — retry 终止条件跟 BUG-132 同源
+- **BUG-135** 自研 native module — 跟 BUG-138 都是 mobile 端基础设施层修法
+- **BUG-136** 生成中动画卡片重设计 — statusEffectTimerRef push streaming 前 check 跟 BUG-136 配套
+- **BUG-137** Agnes API 调用规范 — 跨项目通用铁律 "useEffect-based > fire-and-forget" 跟 BUG-137 "API 协议规范" 同源
+
+### § 5.10.8 mavis memory 沉淀 (跟 mobile § 6.18.8 1:1)
+
+```
+BUG-138 (v3.0.70 跨端 AgentChatPanel 后台 polling 不取消):
+- 跨项目通用铁律: 后台 polling 必须有 cancel 机制 (useEffect-based > fire-and-forget)
+- 跨项目通用铁律: fire-and-forget async 任务必捕获 conversationId + owner ref
+- 跨项目通用铁律: 跨端轮询逻辑必 1:1 镜像, 修一处必同步双端
+- 跨项目通用铁律: 加 useEffect 必查 cleanup 路径, 没 cleanup = polling 跨会话泄漏
+- 修法 web: 加 activeConvIdRef + pollingOwnerRef, startNew/loadConversation 清 pollingOwnerRef, while 循环 poll 前 check
+- 修法 mobile: loadConversation 入口加 setPollingConvId(null)
+- E2E 验证: ConvB 立即 + 15s 后都是 awaiting_clarification 无 streaming part, ConvA 正常 tool_completed
+```
+
+### § 5.10.9 E2E 验证 (跟 mobile § 6.18.9 1:1)
+
+- ✅ /api/version: 3.0.70, mobileLatestApkVersion: 3.0.70
+- ✅ 公网 APK HTTP/2 200, Content-Length: 30256080
+- ✅ systemd shipin-app active
+- ✅ mobile tsc: 53 错 (全 pre-existing, baseline 一致, 0 新错)
+- ✅ web typecheck: 0 错, web build 成功
+- ✅ E2E (image agent, testuser_bug138): ConvB 立即 + 15s 后都是 awaiting_clarification 无 streaming part, ConvA 正常 tool_completed
+- **PASS**: BUG-138 已修, 跨端轮询生命周期管理规范化
+
+### § 5.10.10 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ `5647add` (ae961b8 → 5647add) → origin/main |
+| 远端 server restart (systemd) | ✅ active, Main PID 8265 |
+| `/api/version` 3.0.70 | ✅ version=3.0.70, mobileLatestApkVersion=3.0.70 |
+| APK 重打 (gradle assembleRelease) | ✅ `app-release.apk` 30256080 bytes (versionCode 72, versionName 3.0.70) |
+| scp APK 到 `/www/wwwroot/shipin-APP/public/` | ✅ `DeepScript_v3.0.70.apk` |
+| 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256080 |
+| systemd Environment=APP_VERSION 同步 | ✅ 3.0.70 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.70 |
