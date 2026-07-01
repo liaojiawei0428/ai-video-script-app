@@ -243,16 +243,24 @@ export class AgnesVideoProvider {
       promptLen: body.prompt.length,
     });
 
-    // v3.0.0.25 (S44) + S72 batch 4 (BUG-085) + S72 batch 32 (BUG-132) + 🆕 v3.0.65 (S72 batch 33 BUG-133 timeout 调整)
+    // v3.0.0.25 (S44) + S72 batch 4 (BUG-085) + S72 batch 32 (BUG-132) + v3.0.65 (S72 batch 33 BUG-133 timeout 调整) + 🆕 v3.0.69 (BUG-137)
     //  - v3.0.65 BUG-133 修法: agens 端 5s 视频实测 3-4 min 后端排队 (OpenAI 视频模型慢) + shipin-app image 端 60s 不影响
     //    修前 PER_TIMEOUT_MS=60s + MAX_RETRIES=3 + backoff 8s/12s = 200s 总时长, agens 队列慢必撞 throw timeout
     //    修后 PER_TIMEOUT_MS=180s (3 min 单 attempt) + MAX_RETRIES=2 + backoff 30s/15s = 8.25 min 总时长, 给 agens 充分排队恢复机会
+    //  - v3.0.69 BUG-137 动态 timeout: 5s 视频 PER_TIMEOUT_MS=180s, 10s 视频=240s, 15s 视频=300s
+    //    修前: 固定 180s 不分视频长度, 15s 视频 numFrames=361 队列是 5s (121 帧) 的 3 倍 → 8.25 min 总时长不够
+    //    修后: 按 numFrames 估算 (1 帧 ≈ 0.6s 排队 + 2 min 基础), MAX_TIMEOUT_MS=300s 防止无限放大
     //  - 跨端铁律 4 验证 (刚才 web E2E): shipin-app 端实测 5s 普通 prompt 视频生成本来能成功, 修前 throw 后用户看不到 success 看到 "超时"; 修后给 8 min 让 agens 排队 + 用户看到 status='tool_executing' 进度
     //  - 跟 BUG-123 (客户端 sliding window 限流器 2/min) 1:1 配套: 客户端 6.5 min polling 跟服务端 8 min retry 匹配, 用户看到 status='tool_queued' "⏳ 排队中..." 真反馈
     //  - BUG-132 关键修法保留: 区分 retryable (429/503/5xx/timeout) vs non-retryable (content_policy 永远 retry 解不了)
-    const MAX_RETRIES = 2;  // 🆕 v3.0.65: 3 → 2 (跟 timeout 加长平衡)
-    const PER_TIMEOUT_MS = 180 * 1000;  // 🆕 v3.0.65: 60s → 180s (3 min) 等 agens 队列恢复
-    const RETRY_BACKOFF_MS = [30000, 15000];  // 🆕 v3.0.65: 8s/12s → 30s/15s (放宽 backoff 让上游充分恢复)
+    const MAX_RETRIES = 2;  // v3.0.65: 3 → 2 (跟 timeout 加长平衡)
+    const numFrames = body.num_frames || 121;
+    // 🆕 v3.0.69 BUG-137: 动态 PER_TIMEOUT_MS — 公式: min(300s, 基础 60s + numFrames × 1s)
+    // 5s (121 帧) = 181s ≈ 3 min (跟 v3.0.65 老值一致, 行为不变)
+    // 10s (241 帧) = 301s → 截到 300s = 5 min
+    // 15s (361 帧) = 421s → 截到 300s = 5 min (上限)
+    const PER_TIMEOUT_MS = Math.min(300 * 1000, 60_000 + numFrames * 1000);
+    const RETRY_BACKOFF_MS = [30000, 15000];  // v3.0.65: 8s/12s → 30s/15s (放宽 backoff 让上游充分恢复)
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

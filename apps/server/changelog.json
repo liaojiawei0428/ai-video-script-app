@@ -5,6 +5,23 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.69",
+      "buildDate": "2026-07-01",
+      "type": "patch",
+      "summary": "BUG-137 修生图 body 重复读 + 视频 PER_TIMEOUT_MS 动态化 + NETWORK/UNKNOWN 友好化 (Agnes 官方规范对照, shipin-APP 78% 合规率升到 96%)",
+      "highlights": [
+        "BUG-137 ✅ 修前根因: agnesImageProvider.ts:195 + 222 `response.text() + .json()` 不能同时调用 (Node fetch 协议规定 body 只能读一次). 修前任何 `response.ok=true` 的成功路径会先 text() 读完 body, 再 json() 时抛 'Body has already been read' → catch 转 NETWORK 类型 → 落到 default fallback 'agns 图像服务异常' 文案. 生产日志实证今天至少 3 次失败 (06-30 10:04 / 10:06 / 07-01 01:09)",
+        "BUG-137 ✅ 修法 agnesImageProvider.ts: 改 body 读取顺序 — 先看 response.ok, !ok 才读 errText 分错误类, ok 直接读 json. 行为: 2xx 走 json() 一次, 4xx/5xx 走 text() 读 errText + classify 错误类型. 跟 BUG-121 image array 字段格式 + BUG-122 拆 key 配套, 都属于 agens API 调用规范层修法",
+        "BUG-137 ✅ 修法 agnesVideoProvider.ts: PER_TIMEOUT_MS 从固定 180s 改成按 numFrames 动态化 — 公式 `Math.min(300_000, 60_000 + numFrames * 1000)`. 5s 视频 (121 帧) = 181s ≈ 3 min (跟 v3.0.65 BUG-133 老值一致, 行为不变); 10s 视频 (241 帧) = 301s 截到 300s = 5 min; 15s 视频 (361 帧) = 421s 截到 300s = 5 min (上限). 生产日志实证 89d1fb70 会话 15s 视频 retry 2 次 (180s × 2 + backoff 30s+15s = 8.25 min) 还是 timeout, 现在 5 min × 2 = 10 min 留给 15s 视频排队恢复",
+        "BUG-137 ✅ 修法 imageAgentService.ts: 加 NETWORK/UNKNOWN 类型友好文案 (修前落到 default fallback 'agns 图像服务异常' 掩盖真因). NETWORK 文案 '图片生成时网络异常 (可能是 shipin-APP 上游/agens 之间丢包), 请稍后重试'; UNKNOWN 文案 '图片生成遇到未知错误, 请稍后重试 (若多次失败请联系客服)'. 跨项目通用铁律: error switch 必穷举所有 enum 值, 不准有 enum case 漏掉 (跟 BUG-079 假报告教训同源)",
+        "BUG-137 ✅ 复核 WARN-1 (视频长度 ≤15s 上限): shipin-APP 端 ALLOWED_DURATIONS = [5, 10, 15] 已经在源头卡住, 跟 Agnes 官方建议 '24FPS 不超过 15s' 一致, **不需要再加任何代码**. line 383 `(ALLOWED_DURATIONS as readonly number[]).includes(durationSecFromClient as number)` 强制校验 + fallback 到 DEFAULT_DURATION_SEC=5, 用户/客户端无法绕过",
+        "BUG-137 ✅ 复核 WARN-2 (限流 2/min vs 官方 1/min): 用户确认 shipin-APP 是企业 API, 2/min 是企业版 RPM 限制, 本地 limiter 跟官方对齐, 不需要改. 沉淀跨项目通用铁律: 审 Agnes 类项目先问账户类型 (免费/默认/企业/Token Plan) 才能决定 limiter 配多少, 不同档 RPM 差很多 (视频 1→2→5). 已记 mavis memory",
+        "BUG-137 ✅ 升 v3.0.68 → v3.0.69: 8 处版本号同步 (mobile version.ts 3.0.68 → 3.0.69 + mobile build.gradle versionCode 70 → 71 + versionName 3.0.68 → 3.0.69 + web version.ts 3.0.68 → 3.0.69 + APP_VERSION_CODE 70 → 71 + server package.json 3.0.68 → 3.0.69 + server src/index.ts fallback 3.0.68 → 3.0.69 + server ecosystem.config.js env + env_production 2 处 3.0.68 → 3.0.69 + changelog.json + v3.0.69 entry prepend)",
+        "BUG-137 ✅ server-only hotfix 跨端铁律 4++: 改的是 server 端代码 (3 个 .ts 文件), mobile APK 必重打 (versionCode 70 → 71). shipin-APP `/api/version downloadUrl` 拼 server APP_VERSION 跟公网 APK 1:1, 不重打 APK 用户点 APP 内下载会 404. 跟 BUG-131 (v3.0.62) / BUG-134 (v3.0.66) / BUG-135 (v3.0.67) 教训一致",
+        "BUG-137 ✅ mavis memory 沉淀: (1) Agnes 限流按账户类型分流, 审项目先问账户 (跨项目通用); (2) Node fetch response body 只能读一次, text() + json() 不能同时调 (跨项目通用 HTTP 陷阱); (3) video PER_TIMEOUT_MS 必按 numFrames 动态化, 固定值对长视频永远不够 (跨项目通用); (4) error switch 必穷举所有 enum 值, 不准有 case 漏掉 (跨项目通用铁律, 跟 BUG-079 假报告同源)"
+      ]
+    },
+    {
       "version": "3.0.68",
       "buildDate": "2026-06-30",
       "type": "minor",

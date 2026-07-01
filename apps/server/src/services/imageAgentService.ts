@@ -647,6 +647,7 @@ export class ImageAgentService {
       });
       // 友好化错误
       // v3.0.63 BUG-132 配套: 按 AgnesImageError type 返友好文案, 修前一刀切 "API 限流中" 误导
+      // v3.0.69 BUG-137 配套: 加 NETWORK / UNKNOWN 友好文案 (修前落到 default fallback "agns 图像服务异常" 掩盖真因)
       let friendlyMsg = errMsg;
       if (err instanceof AgnesImageError) {
         switch (err.type) {
@@ -664,6 +665,12 @@ export class ImageAgentService {
             break;
           case AgnesImageErrorType.INVALID_INPUT:
             friendlyMsg = '图片请求参数无效, 请重试或联系客服';
+            break;
+          case AgnesImageErrorType.NETWORK:
+            friendlyMsg = '图片生成时网络异常 (可能是 shipin-APP 上游/agens 之间丢包), 请稍后重试';
+            break;
+          case AgnesImageErrorType.UNKNOWN:
+            friendlyMsg = '图片生成遇到未知错误, 请稍后重试 (若多次失败请联系客服)';
             break;
           default:
             friendlyMsg = 'agns 图像服务异常, 请稍后重试';

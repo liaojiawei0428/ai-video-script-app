@@ -192,29 +192,32 @@ export class AgnesImageProvider implements ImageProvider {
         });
         clearTimeout(timeoutId);
 
-        const errText = await response.text().catch(() => '');
-        const errorType = classifyAgnesImageError(response.status, errText);
-
-        // v3.0.63 BUG-132: content_policy_violation / invalid_input 不 retry, 立刻抛出
-        if (errorType === AgnesImageErrorType.CONTENT_POLICY || errorType === AgnesImageErrorType.INVALID_INPUT) {
-          logger.error('AgnesImageProvider: non-retryable error', {
-            attempt, status: response.status, type: errorType, errorText: errText.slice(0, 100),
-          });
-          throw new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
-        }
-
-        if (response.status === 429 || errorType === AgnesImageErrorType.UPSTREAM_BUSY || errorType === AgnesImageErrorType.RATE_LIMIT) {
-          // 限流/上游忙: 重试
-          lastError = new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
-          logger.warn('AgnesImageProvider: rate limited / upstream busy', { attempt: attempt + 1, type: errorType, status: response.status });
-          if (attempt < MAX_RETRIES - 1) {
-            await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
-            continue;
-          }
-          throw lastError;
-        }
-
+        // v3.0.69 BUG-137: response body 只能读一次 — 先看 response.ok, !ok 才读 errText, ok 直接读 json
+        // 修前: 无论 status 都先 response.text() 读 body, 然后如果 ok 又 response.json() → "Body has already been read"
+        // 修后: status 4xx/5xx 走 text() 读 errText 分错误类, status 2xx 直接走 json() 读结果
         if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          const errorType = classifyAgnesImageError(response.status, errText);
+
+          // v3.0.63 BUG-132: content_policy_violation / invalid_input 不 retry, 立刻抛出
+          if (errorType === AgnesImageErrorType.CONTENT_POLICY || errorType === AgnesImageErrorType.INVALID_INPUT) {
+            logger.error('AgnesImageProvider: non-retryable error', {
+              attempt, status: response.status, type: errorType, errorText: errText.slice(0, 100),
+            });
+            throw new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
+          }
+
+          if (response.status === 429 || errorType === AgnesImageErrorType.UPSTREAM_BUSY || errorType === AgnesImageErrorType.RATE_LIMIT) {
+            // 限流/上游忙: 重试
+            lastError = new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
+            logger.warn('AgnesImageProvider: rate limited / upstream busy', { attempt: attempt + 1, type: errorType, status: response.status });
+            if (attempt < MAX_RETRIES - 1) {
+              await new Promise(r => setTimeout(r, RETRY_BACKOFF_MS[attempt]));
+              continue;
+            }
+            throw lastError;
+          }
+
           logger.error('Agnes API error', { status: response.status, errorText: errText });
           throw new AgnesImageError(errorType, response.status, `Agnes Image API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
         }
