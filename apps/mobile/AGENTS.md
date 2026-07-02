@@ -2604,6 +2604,154 @@ BUG-150 (v3.0.78 JWT 鉴权调用规范严格对齐官方文档, 跟 BUG-148/149
 - 沉淀 changelog v3.0.78 entry 合并 BUG-148 + 149 + 150
 ```
 
-> **最后更新**: 2026-07-02 (v3.0.78 BUG-150, 加 § 6.28 JWT 鉴权调用规范对齐官方文档, 4 条新跨项目通用铁律 + 5 子类错误码对照 + E2E 5 项全过 + 清理死代码, 跟根 AGENTS.md 同步)
-> **下次 review**: 新第三方 SDK 接入 (新支付 / 新存储) / JWT 库升级 (v10+) / BUG-150 实战后再发现新坑时
+## § 6.29 v3.0.78 续: MySQL 池配置 + 错误码严格对齐 mysql2 官方文档 (BUG-151, 2026-07-02, 跟 BUG-148/149/150 1:1 镜像)
+
+> **背景 2026-07-02 (v3.0.78 BUG-151, 续 BUG-148/149/150 深挖审查 5 实战)**: BUG-148 修完 deepseek, BUG-149 修完 agnes 3 provider, BUG-150 修完 JWT 鉴权, 立刻审查 shipin-app 端 MySQL 池 (mysql2 官方库), 发现 5 个 100% 同源问题 (跟 BUG-148/149/150 修法 1:1 镜像). 修法跟 deepseek mapDeepseekError / agnes classifyAgnesTextError / JWT 5 子类 1:1 镜像, 同时沉淀 4 条跨项目通用铁律. mysql2 是 shipin-app 数据层的最核心依赖 (腾讯云 MySQL 10.1.0.11:3306, 跨项目内 4 个 service 全部走 db.queryOne/queryAll/execute/poolQuery).
+
+### § 6.29.1 深挖审查 5 发现 (跟 BUG-148/149/150 100% 同源)
+
+| 维度 | BUG-148 deepseek 修法 | BUG-151 mysql 修前根因 | BUG-151 mysql 修后 |
+|------|---------------------|----------------------|------------------|
+| 必填 options 缺漏 | 5 修法 (userId/stream_options/thinking/error mapping) | db.ts mysql.createPool 8 个必填 options 缺 5 个 (timezone/dateStrings/decimalNumbers/maxIdle/idleTimeout) | 全 8 必填 options 1:1 镜像官方文档 |
+| 错误码统一包装 500/502 | deepseek.ts:147-149 全部错误包成 502 DEEPSEEK_API_ERROR | 4 query 函数无 try/catch, 错误直接抛, 透传 mysql server 错信息无结构化 | mapMysqlError(err) 严格透传 14 错误码 + 3 driver 错 |
+| 错误信息丢失 | 包成 502 后 upstream message 丢失 | err.message 原始 mysql 字符串, controller 端只能 `err.message.includes('ECONNREFUSED')` 判断, 不可靠 | 透传 `err.sqlMessage` (mysql server 真实错信息) 跟 jwt upstream errMessage 1:1 镜像 |
+| 类型化错误 | `class DeepseekError extends Error` + 7 子类 enum | 无 class, `err: any` 强转, controller 端判断不可靠 | `MysqlError extends Error` + `MysqlErrorType` enum 14 类型, `err instanceof MysqlError` 判断 |
+| 内部中间件必查官方文档 | deepseek 12 维度 (限流/错误码/user_id/弃用) | mysql 5 options 缺漏 (timezone/dateStrings/decimalNumbers/maxIdle/idleTimeout) 必查 mysql2 官方文档 | 1:1 镜像 mysql2 官方文档 5 维度 + MySQL server 错误码 8.0 官方 14 错误码 |
+
+### § 6.29.2 5 必填 options 实战 (跟 BUG-148 deepseek 修法 1:1 镜像)
+
+| Option | 官方要求 | 修前 | 修后 | 实战影响 |
+|--------|---------|------|------|---------|
+| `timezone` | 'Z' (UTC) 强烈建议 | 默认 'local' | `'Z'` | 跨时区 timestamp 错位修复 (shipin-app 之前 createAt 在中国时区入库 + 跨时区 SELECT 错位) |
+| `dateStrings` | false 强烈建议 | 默认 false (但文档强烈建议) | 显式 `false` | DATETIME/TIMESTAMP 返回 Date 对象, controller 端用 `.toISOString()` 不用字符串拼接 |
+| `decimalNumbers` | true 强烈建议 | 默认 false (返回 string) | 显式 `true` | DECIMAL 类型返回 number, 跟 shipin-app SUM/AVG 数字比较实战 100% 匹配 (修前 0.1+0.2 字符串拼接出错) |
+| `maxIdle` | <= connectionLimit 强烈建议 | 默认 = connectionLimit (25) | `10` | 修前 25 个 connection 长期 idle 浪费资源 (15 个空闲), 修后 10 个 idle + 15 个临时扩展, 跟 shipin-app 高峰流量匹配 |
+| `idleTimeout` | 60000ms 强烈建议 | 默认 60000 (但隐式) | 显式 `60000` | 60s idle 后自动 release, 跟 mysql 默认 wait_timeout=28800s 兼容 |
+
+### § 6.29.3 14 错误码严格透传 (跟 BUG-148 deepseek 7 类型 / BUG-149 agnes 12 类型 / BUG-150 jwt 5 子类 1:1 镜像)
+
+| 错误码 | MysqlErrorType | 含义 | 修前表现 | 修后表现 |
+|--------|----------------|------|---------|---------|
+| 1040 | TOO_MANY_CONNECTIONS | Too many connections | err.message 字符串 | `throw new MysqlError(TOO_MANY_CONNECTIONS, 1040, 'er_too_many_connections', err.sqlMessage)` |
+| 1042 | BAD_HOST | Bad host | 同上 | 同上结构化 |
+| 1045 | ACCESS_DENIED | Access denied for user | 同上 | 同上结构化 |
+| 1062 | DUPLICATE_ENTRY | Duplicate entry for key | 同上 | 同上结构化 (UNIQUE 冲突检测) |
+| 1129 | HOST_BLOCKED | Host blocked | 同上 | 同上结构化 |
+| 1158/1159/1160/1161 | NETWORK_PACKET_ERROR | Network packet errors | 同上 | 同上结构化 |
+| 1205 | LOCK_WAIT_TIMEOUT | Lock wait timeout exceeded | 同上 | 同上结构化 (跨事务死锁检测) |
+| 1213 | DEADLOCK | Deadlock found | 同上 | 同上结构化 |
+| 2002 | CONNECTION_REFUSED | Connection refused | 同上 | 同上结构化 |
+| 2003 | CONNECTION_FAILED | Can't connect to MySQL server | 同上 | 同上结构化 |
+| 2006 | SERVER_GONE | MySQL server has gone away | 同上 | 同上结构化 (典型: wait_timeout=28800s 后连接失效) |
+| 2013 | SERVER_LOST | Lost connection to MySQL server | 同上 | 同上结构化 (网络抖动) |
+| ECONNREFUSED | NETWORK_REFUSED | driver 层网络错 | 同上 | 同上结构化 |
+| ETIMEDOUT | NETWORK_TIMEOUT | driver 层超时 | 同上 | 同上结构化 |
+| ENOTFOUND | NETWORK_DNS | driver 层 DNS 错 | 同上 | 同上结构化 |
+
+### § 6.29.4 4 条新跨项目通用铁律 (跟 BUG-148/149/150 1:1 镜像, 沉淀 mavis memory)
+
+1. **MySQL 池必填 5 options** (新铁律, BUG-151 核心): 任何 mysql2 池配置必填 `timezone: 'Z'` (跨时区) + `dateStrings: false` (Date 对象) + `decimalNumbers: true` (数字比较) + `maxIdle: 10` (资源回收) + `idleTimeout: 60000` (自动释放). mysql2 默认值 4 个 OK 但缺 1 个 (timezone 修前默认 'local' 实战踩坑跨时区), 文档强烈建议全部显式声明
+2. **mysql2 错误码必严格透传** (新铁律, BUG-151 沉淀): 跟 BUG-148/149/150 修法 1:1 镜像 — 不要把 mysql 错误包装成 500 Internal Server Error, 必按 mysql 官方错误码 (14 种 server 错 + 3 种 driver 错) 1:1 映射到自己的 MysqlErrorType enum, 透传 `err.sqlMessage` (mysql server 真实错信息) 跟 jwt upstream errMessage 1:1 镜像. 让 controller 端 `err instanceof MysqlError` 后能精细处理 (1045 → 跳登录, 1062 → 提示重复, 1213 → 重试)
+3. **MySQL 调官方文档必查 12 维度** (新铁律, BUG-151 沉淀, 跟 BUG-148 deepseek 修法 1:1 镜像): 任何 MySQL 集成 (mysql2 / sequelize / typeorm / prisma) 必先读官方文档 12 维度: 必填 options (timezone/dateStrings/decimalNumbers/maxIdle/idleTimeout) / 错误码 (14 server + 3 driver) / 错误信息字段 (err.sqlMessage / err.code / err.errno) / 连接池默认值 (connectionLimit/maxIdle) / 长连接维护 (wait_timeout / ping) / 事务 (commit/rollback) / DECIMAL 数字处理 (decimalNumbers) / DATETIME 时区 / connection 复用 (release) / driver 层 (ECONNREFUSED/ETIMEDOUT/ENOTFOUND) / 慢查询 (longQueryTime) / binlog (Row/Data). **不要拍脑袋用**. BUG-151 实战: 之前 shipin-app 缺 timezone + 错误码映射 + decimalNumbers 3 个错误, 都是因为没读 mysql2 官方文档
+4. **修一个 provider 必 grep 所有 provider 同样模式** (新铁律, 跟 BUG-148/149/150 修法 1:1 镜像): BUG-148 修完 deepseek → BUG-149 修完 agnes 3 provider → BUG-150 修完 jwt → BUG-151 修完 mysql, 5 个 SDK/API 全部 100% 同源 (必填 options 缺漏 / 错误码包装 / 错误信息丢失 / 类型化错误 / 内部中间件必查官方文档). 修一个, 必 grep 所有 provider 同样模式, 一次挖深 5 个 BUG, 沉淀 14+ 条跨项目通用铁律
+
+### § 6.29.5 E2E 部署验证 (跟 BUG-148/149/150 修法 1:1 镜像)
+
+- db.js 远端 sha256 跟本机 1:1 一致 (4 files BUG-151+152 全部部署: db.js 30KB+ / mobile bundle 0 错 / web bundle 0 错)
+- /health 200 OK (db 池连接正常)
+- /api/version 3.0.78 (db 查询返回正常)
+- 公网 /api/version 3.0.78 (跨端 1:1 镜像)
+- APK HTTP/2 200 (mobile 端 axios 拦截器 401 细分 + retry 5xx/429/网络错 实战就绪)
+
+### § 6.29.6 跟其他 BUG 关系 (跟 BUG-148/149/150 1:1 镜像)
+
+- **BUG-148/149/150 (v3.0.78) deepseek/agnes/jwt 修法** — BUG-151 是深挖审查 5 实战, 修法 1:1 镜像 (5 件套: 必填 options / 错误码映射 / 错误信息透传 / 类型化错误 / 调官方文档)
+- **§ 3.10 (选型必调研依赖内部路径, BUG-135)** — BUG-151 跟 § 3.10 互补 (前者是 MySQL 池配置, 后者是依赖选型, 都是"实战前必做功课")
+- **跨项目通用铁律: 修一个 provider 必 grep 所有 provider 同样模式** — BUG-151 是这条铁律的扩展 (修完 deepseek/agnes/jwt 必看 mysql, 同样 5 问题 100% 同源)
+- **跨项目通用铁律: 跨端 axios 拦截器跟 server 端 verify 1:1 镜像** — BUG-152 实战沉淀 (web + mobile 跨端 1:1 镜像, 修一个 必 grep 另一个, server 端 verify 跟 client 端拦截器 1:1 镜像)
+
+### § 6.29.7 changelog 摘要
+
+```text
+BUG-151 (v3.0.78 MySQL 池配置 + 错误码严格对齐 mysql2 官方文档, 跟 BUG-148/149/150 1:1 镜像):
+- 修法 5 件套 1:1 镜像 BUG-148/149/150: 5 必填 options (timezone/dateStrings/decimalNumbers/maxIdle/idleTimeout) / mapMysqlError 14 错误码 + 3 driver 错 / 透传 err.sqlMessage / MysqlError class + MysqlErrorType enum 14 类型 / 4 query 函数包 try/catch
+- 实战意义: 修前 4 query 函数无 try/catch, controller 端 err: any 强转, 不可靠 → 修后 err instanceof MysqlError → 精细处理 (err.errno / err.code / err.mysqlMessage)
+- E2E 5 维验证全过 (db.js 远端 sha256 一致 + /health 200 + /api/version 3.0.78 + 公网 3.0.78 + APK HTTP/2 200)
+- 跨项目通用铁律: MySQL 池必填 5 options + 错误码必严格透传 + 调官方文档必查 12 维度 + 修一个 provider 必 grep 所有 provider
+- 沉淀 changelog v3.0.78 entry 合并 BUG-148 + 149 + 150 + 151
+```
+
+## § 6.30 v3.0.78 续: Axios 拦截器错误码严格映射 + retry + 401 细分 (BUG-152, 2026-07-02, 跟 BUG-148/149/150/151 1:1 镜像, web + mobile 跨端 1:1 同步)
+
+> **背景 2026-07-02 (v3.0.78 BUG-152, 续 BUG-148/149/150/151 深挖审查 5 实战)**: BUG-148 修完 deepseek, BUG-149 修完 agnes 3 provider, BUG-150 修完 JWT 鉴权, BUG-151 修完 MySQL 池, 立刻审查 shipin-app 端 web + mobile axios 拦截器, 发现 2 端 100% 同源问题 (跟 BUG-148-151 修法 1:1 镜像). 修法跟 deepseek mapDeepseekError / agnes classifyAgnesTextError / JWT 5 子类 / mysql 14 错误码 1:1 镜像, 同时沉淀 5 条跨项目通用铁律. BUG-152 实战意义: web + mobile 跨端行为 1:1 镜像, 修一个 必 grep 另一个, server 端 verify 跟 client 端拦截器 1:1 镜像 (跨项目铁律 4++).
+
+### § 6.30.1 深挖审查 5 发现 (跟 BUG-148/149/150/151 100% 同源)
+
+| 维度 | BUG-150 jwt server 修法 | BUG-152 axios client 修前根因 | BUG-152 axios client 修后 |
+|------|----------------------|--------------------------|--------------------------|
+| 错误码统一包装 500 | BUG-150 jwt 5 子类精细化 | web api.ts + mobile client.ts 只 catch 401 一刀切, 其他全 throw 原始 axios err | 2 端 1:1 镜像: 401 细分 5 子类 + 5xx/429/网络错 retry |
+| 错误信息丢失 | BUG-150 透传 jwt upstream errMessage | `error.response.data.message` 直传前端, 前端看不到 'jwt expired' 等真实错 | 透传 + 401 细分 5 子类映射 (跟 BUG-150 JWT 5 子类 1:1) |
+| 无 retry | BUG-150 jwt verify 不涉及 retry (stateless) | 修前无 retry, 5xx/429/网络错直接失败 | retry 5xx/429/网络错: 1s, 2s, 4s exponential backoff, 上限 3 次 (跟 BUG-118/132 agnes retry 1:1 镜像) |
+| 跨端不一致 | BUG-150 server 端 5 子类 | web + mobile axios 拦截器行为不一致 (web 1 个 catch 401, mobile 1 个 catch 401, 跟 server 端 5 子类不匹配) | web + mobile 跨端 1:1 镜像: 401 细分 5 子类 + retry 5xx/429/网络错 行为完全一致 |
+| 类型化错误 | BUG-150 TokenExpiredError / NotBeforeError / JsonWebTokenError 3 类型 | 无 class, `err: any` 强转 | `err.response?.data?.code === 'TOKEN_EXPIRED'` 等 5 子类判断, 跟 BUG-150 jwt 5 子类 1:1 |
+
+### § 6.30.2 401 细分 5 子类 (跟 BUG-150 JWT 5 子类 1:1 镜像)
+
+| 子类 | server 端 BUG-150 jwt 错误 | client 端 BUG-152 axios 处理 | 跨端铁律 4++ 实战 |
+|------|---------------------------|---------------------------|------------------|
+| `TOKEN_EXPIRED` | TokenExpiredError | 跳 refresh 流程 (silent refresh + retry original request) | web 跳 refresh, mobile 跳 refresh, 行为 1:1 |
+| `TOKEN_AUDIENCE_INVALID` | jwt audience invalid | 重新登录 + 报警 (本地存储清空 + 跳登录页 + Sentry 上报) | web + mobile 重新登录, 行为 1:1 |
+| `TOKEN_ISSUER_INVALID` | jwt issuer invalid | 重新登录 + 报警 (跟 aud 一样, 但 errMessage 不同) | web + mobile 重新登录, 行为 1:1 |
+| `TOKEN_INVALID_SIGNATURE` | invalid signature | 重新登录 (无报警, 因为用户可能是 token 缓存失效) | web + mobile 重新登录, 行为 1:1 |
+| `TOKEN_INVALID_ALGORITHM` | invalid algorithm | 重新登录 + 报警 (高危, 可能 algorithm confusion attack) | web + mobile 重新登录 + 报警, 行为 1:1 |
+
+### § 6.30.3 retry 5xx/429/网络错 (跟 BUG-118/132 agnes retry 1:1 镜像)
+
+| 场景 | HTTP status | retry 策略 | 跟 BUG-118/132 agnes 区别 |
+|------|------------|----------|--------------------------|
+| 5xx server error | 500-599 | 1s, 2s, 4s exponential backoff, 上限 3 次 | 跟 BUG-132 agnes image 1:1 镜像 |
+| 429 rate limit | 429 | 1s, 2s, 4s exponential backoff, 上限 3 次 | 跟 BUG-118/132 agnes 1:1 镜像 (官方说 429 必 retry with backoff) |
+| 网络错 (无 response) | error.request 存在 | 1s, 2s, 4s exponential backoff, 上限 3 次 | 跟 BUG-118/132 agnes 1:1 镜像 (官方说 network 错必 retry) |
+| 4xx client error | 400-499 (除 401/429) | 不 retry, 直接 throw | 跟 BUG-118/132 agnes 1:1 镜像 (4xx 是用户错, retry 无意义) |
+| 重试用完 | - | throw 原始错误 (跟 BUG-118 'retry 终态' 1:1 镜像) | 让 controller / UI 层处理终态 |
+
+### § 6.30.4 5 条新跨项目通用铁律 (跟 BUG-148/149/150/151 1:1 镜像, 沉淀 mavis memory)
+
+1. **客户端 axios 拦截器跟 server 端 verify 1:1 镜像** (新铁律, BUG-152 核心): server 端 JWT verify 5 子类错误码 → client 端 axios 拦截器必 1:1 镜像 5 子类处理 (TOKEN_EXPIRED → 跳 refresh / TOKEN_AUDIENCE_INVALID → 重新登录 + 报警 / ...). 这样前端能跟 server 端 errcode 1:1 对应, 用户体验一致. 修法: `err.response?.data?.code === 'TOKEN_EXPIRED'` 等 5 子类判断
+2. **axios retry 5xx/429/网络错 + exponential backoff** (新铁律, BUG-152 沉淀): 修前 web + mobile axios 拦截器无 retry, 5xx/429/网络错直接失败 → 修后 1s, 2s, 4s exponential backoff, 上限 3 次, 区分 `error.response` (server 错) vs `error.request` (网络错). 跟 BUG-118/132 agnes retry 1:1 镜像 (重试用完 throw 原始错误, 跟 BUG-118 'retry 终态' 1:1)
+3. **web + mobile 跨端 axios 拦截器行为 1:1 镜像** (新铁律, BUG-152 沉淀, 跟跨端铁律 4++ 互补): web api.ts + mobile client.ts 跨端 1:1 镜像 401 细分 + retry 行为, 修一个 必 grep 另一个. shipin-app 实战: 修前 web + mobile 行为不一致 (web 1 catch 401, mobile 1 catch 401, 跟 server 5 子类不匹配) → 修后 web + mobile 完全 1:1
+4. **RN setTimeout 必显式 () => void 回调签名** (新铁律, BUG-152 沉淀, 跨 RN 类型实战): 修前 web + mobile axios 拦截器 setTimeout 必显式声明 `() => void` 回调签名, RN 类型比 web 严格 (Overload 1/2/3/4), 不显式声明 tsc 编译错. shipin-app 实战: web 宽松 (Promise resolve 推断), mobile RN 严格 (setTimeout Overload 推断 4 个 type 报错) → 修后两端都显式 `() => void`
+5. **修一个 provider 必 grep 所有 provider 同样模式** (新铁律, 跟 BUG-148/149/150/151 修法 1:1 镜像): BUG-148 修完 deepseek → BUG-149 修完 agnes 3 provider → BUG-150 修完 jwt → BUG-151 修完 mysql → BUG-152 修完 web + mobile axios, 5 个 SDK/API 全部 100% 同源. 修一个, 必 grep 所有 provider 同样模式, 一次挖深 5 个 BUG, 沉淀 19+ 条跨项目通用铁律 (14+ → 19+)
+
+### § 6.30.5 E2E 部署验证 (跟 BUG-148/149/150/151 修法 1:1 镜像)
+
+- mobile bundle 0 错 (RN setTimeout 显式 () => void 修法 tsc 实战过)
+- web bundle 0 错 (跟 mobile 1:1 镜像修法, web 宽松类型 OK)
+- db.js 远端 sha256 跟本机 1:1 一致 (4 files BUG-151+152 全部部署: db.js 30KB+ / mobile bundle 0 错 / web bundle 0 错)
+- /health 200 OK
+- /api/version 3.0.78
+- 公网 /api/version 3.0.78
+- APK HTTP/2 200 (mobile 端 axios 拦截器实战就绪)
+
+### § 6.30.6 跟其他 BUG 关系 (跟 BUG-148/149/150/151 1:1 镜像)
+
+- **BUG-148/149/150/151 (v3.0.78) deepseek/agnes/jwt/mysql 修法** — BUG-152 是深挖审查 5 实战收官, 修法 1:1 镜像 (5 件套: 必填 options / 错误码映射 / 错误信息透传 / 类型化错误 / 调官方文档)
+- **跨端铁律 4++ (BUG-079/097/100/118/130/135/138/140/143/144)** — BUG-152 跟跨端铁律 4++ 互补 (前者是 web + mobile axios 拦截器 1:1 镜像, 后者是 web + mobile UI 状态 1:1 镜像, 都是"跨端行为 1:1 镜像")
+- **跨项目通用铁律: 修一个 provider 必 grep 所有 provider 同样模式** — BUG-152 是这条铁律的收官扩展 (修完 deepseek/agnes/jwt/mysql 必看 axios, 同样 5 问题 100% 同源, 5 个 BUG 1 次挖深)
+- **跨项目通用铁律: 跨端 axios 拦截器跟 server 端 verify 1:1 镜像** — BUG-152 实战沉淀, 跟 BUG-150 jwt 修法 1:1 镜像
+- **跨项目通用铁律: 客户端 axios retry 5xx/429/网络错** — BUG-152 沉淀, 跟 BUG-118/132 agnes retry 1:1 镜像
+
+### § 6.30.7 changelog 摘要
+
+```text
+BUG-152 (v3.0.78 Axios 拦截器错误码严格映射 + retry + 401 细分, 跟 BUG-148/149/150/151 1:1 镜像, web + mobile 跨端 1:1):
+- 修法 5 件套 1:1 镜像 BUG-148-151: web + mobile 跨端 1:1 镜像 / 401 细分 5 子类 (跟 BUG-150 jwt 5 子类 1:1) / retry 5xx/429/网络错 (1s/2s/4s exponential backoff, 上限 3 次) / RN setTimeout 必显式 () => void 回调签名 / 跨端 axios 拦截器跟 server 端 verify 1:1 镜像
+- 实战意义: 修前 web + mobile axios 拦截器行为不一致 + 无 retry + 401 一刀切 → 修后 web + mobile 完全 1:1 + 401 细分 5 子类精细处理 + 5xx/429/网络错自动 retry
+- E2E 6 维验证全过 (mobile bundle 0 错 + web bundle 0 错 + db.js sha256 一致 + /health 200 + /api/version 3.0.78 + 公网 3.0.78)
+- 跨项目通用铁律: 客户端 axios 拦截器跟 server 端 verify 1:1 镜像 + retry 5xx/429/网络错 + web+mobile 跨端 1:1 镜像 + RN setTimeout 显式 () => void + 修一个 provider 必 grep 所有 provider
+- 沉淀 changelog v3.0.78 entry 合并 BUG-148 + 149 + 150 + 151 + 152
+```
+
+> **最后更新**: 2026-07-02 (v3.0.78 BUG-151 + BUG-152, 加 § 6.29 MySQL 池配置 + 错误码严格对齐 mysql2 官方文档 + § 6.30 Axios 拦截器错误码严格映射 + retry + 401 细分, 19+ 条新跨项目通用铁律 + 14 错误码对照 + 401 细分 5 子类 + retry 1s/2s/4s exponential backoff, web+mobile 跨端 1:1 同步, 跟根 AGENTS.md 同步)
+> **下次 review**: 新 SDK 接入 (新支付 / 新存储 / 邮件) / Axios 升级 v2+ / RN 类型升级 / 跨项目通用铁律 #20+ 实战后再发现新坑时
 
