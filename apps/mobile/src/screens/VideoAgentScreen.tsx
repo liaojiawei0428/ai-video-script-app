@@ -504,7 +504,11 @@ export function VideoAgentScreen(): React.JSX.Element {
     });
   };
 
-  const renderPart = (part: AgentPart, idx: number) => {
+  // v3.0.75 (BUG-144 修): renderPart 加 allParts 参数, 让 plan part 能判断后续是否有 video/image result
+  //   修前: plan part 渲染时无脑显示"确认生成"按钮, 不管后续是否已成功生成视频 → 用户点击按钮 → server 返"确认失败"
+  //   修后: plan part 判断后续是否有 video/image result (非 reference), 有就不显示"确认生成"按钮
+  //   跟 web 端 status-based 按钮 1:1 镜像 (web 端只在 plan_cn_ready/plan_translating/plan_ready 显示, 已生成 status 改变 → 按钮自动消失)
+  const renderPart = (part: AgentPart, idx: number, allParts?: AgentPart[]) => {
     if (part.type === 'text') {
       return <Text key={idx} style={styles.partText}>{part.text}</Text>;
     }
@@ -523,6 +527,15 @@ export function VideoAgentScreen(): React.JSX.Element {
       //   - 跟 web AgentChatPanel 1:1 镜像 (跨端铁律 4++)
       const refImageCount = typeof part.data.refImageCount === 'number' ? part.data.refImageCount : 0;
       const negativeText = part.data.negativePrompt || '';
+      // v3.0.75 (BUG-144 修): 扫 plan 之后的 parts, 看是否有 video/image result
+      //   - video: BUG-119 streaming → BUG-119 完成 → push video part, 后续会再生成 result
+      //   - image(role='reference' 是用户上传的参考图, 不是生图结果, 不算)
+      const hasResultAfter = allParts
+        ? allParts.slice(idx + 1).some(p =>
+            p.type === 'video' ||
+            (p.type === 'image' && (p as any).role !== 'reference')
+          )
+        : false;
       return (
         <View key={idx} style={styles.planBox}>
           <View style={styles.planHeader}>
@@ -556,8 +569,10 @@ export function VideoAgentScreen(): React.JSX.Element {
           {part.data.estimatedCost !== undefined && (
             <Text style={styles.planCost}>预计费用: {part.data.estimatedCost === 0 ? '免费' : `¥${part.data.estimatedCost}`}</Text>
           )}
-          <Text style={styles.planHint}>确认后开始生成视频, 通常 1-3 分钟</Text>
-          {conversationId && (
+          <Text style={styles.planHint}>
+            {hasResultAfter ? '方案已确认 ✅ 视频已生成, 可继续发送修改内容' : '确认后开始生成视频, 通常 1-3 分钟'}
+          </Text>
+          {conversationId && !hasResultAfter && (
             <TouchableOpacity
               style={[styles.confirmBtn, confirmingId === conversationId && styles.confirmBtnDisabled]}
               onPress={() => confirmGenerate(conversationId)}
@@ -697,7 +712,7 @@ export function VideoAgentScreen(): React.JSX.Element {
                   <Text style={styles.aiLabel}>视频助手</Text>
                 </View>
               )}
-              {m.parts.map((p, idx) => renderPart(p, idx))}
+              {m.parts.map((p, idx) => renderPart(p, idx, m.parts))}
             </View>
           </View>
         ))}

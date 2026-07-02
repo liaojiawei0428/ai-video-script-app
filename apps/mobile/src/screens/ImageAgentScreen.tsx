@@ -484,7 +484,11 @@ export function ImageAgentScreen(): React.JSX.Element {
     });
   };
 
-  const renderPart = (part: AgentPart, idx: number, msgId: string) => {
+  // v3.0.75 (BUG-144 修): renderPart 加 allParts 参数, 让 plan part 能判断后续是否有 image/video result
+  //   修前: plan part 渲染时无脑显示"确认生成"按钮, 不管后续是否已成功生成图片 → 用户点击按钮 → server 返"确认失败"
+  //   修后: plan part 判断后续是否有 image/video result (非 reference), 有就不显示"确认生成"按钮
+  //   跟 web 端 status-based 按钮 1:1 镜像 (web 端只在 plan_cn_ready/plan_translating/plan_ready 显示, 已生成 status 改变 → 按钮自动消失)
+  const renderPart = (part: AgentPart, idx: number, msgId: string, allParts?: AgentPart[]) => {
     if (part.type === 'text') {
       return <Text key={idx} style={styles.partText}>{part.text}</Text>;
     }
@@ -503,6 +507,15 @@ export function ImageAgentScreen(): React.JSX.Element {
       //   - negativePrompt: UI 显示排除内容 (走样/低质量 等)
       const refImageCount = typeof part.data.refImageCount === 'number' ? part.data.refImageCount : 0;
       const negativeText = part.data.negativePrompt || '';
+      // v3.0.75 (BUG-144 修): 扫 plan 之后的 parts, 看是否有 image/video result
+      //   - image(role='reference' 是用户上传的参考图, 不是生图结果, 不算)
+      //   - video: 跨端铁律 4++ 1:1 镜像, 即使 image agent 通常只生图, 也判断 video part (兼容性)
+      const hasResultAfter = allParts
+        ? allParts.slice(idx + 1).some(p =>
+            p.type === 'video' ||
+            (p.type === 'image' && (p as any).role !== 'reference')
+          )
+        : false;
       return (
         <View key={idx} style={styles.planBox}>
           <View style={styles.planHeader}>
@@ -531,8 +544,10 @@ export function ImageAgentScreen(): React.JSX.Element {
             {part.data.aspectRatio ? `比例: ${part.data.aspectRatio}  ` : ''}
             {part.data.style ? `风格: ${part.data.style}` : ''}
           </Text>
-          <Text style={styles.planHint}>确认后按上面的内容发送给生图大模型</Text>
-          {conversationId && (
+          <Text style={styles.planHint}>
+            {hasResultAfter ? '方案已确认 ✅ 图片已生成, 可继续发送修改内容' : '确认后按上面的内容发送给生图大模型'}
+          </Text>
+          {conversationId && !hasResultAfter && (
             <TouchableOpacity
               style={[styles.confirmBtn, (confirmingId === conversationId || translating) && styles.confirmBtnDisabled]}
               onPress={() => confirmGenerate(conversationId)}
@@ -680,7 +695,7 @@ export function ImageAgentScreen(): React.JSX.Element {
                   <Text style={styles.aiLabel}>生图助手</Text>
                 </View>
               )}
-              {m.parts.map((p, idx) => renderPart(p, idx, m.id))}
+              {m.parts.map((p, idx) => renderPart(p, idx, m.id, m.parts))}
             </View>
           </View>
         ))}

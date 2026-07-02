@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.75",
+      "buildDate": "2026-07-02",
+      "type": "patch",
+      "summary": "BUG-144 修 mobile 端生图/视频助手已生成视频/图片后, plan part 仍然显示'确认生成'按钮 (用户点按钮 → server 返'确认失败'). 修法: renderPart 加 allParts 参数, plan part 判断后续是否有 image/video result, 有就不显示'确认生成'按钮 + hint 文案改成'方案已确认 ✅ 已生成, 可继续发送修改内容'",
+      "highlights": [
+        "BUG-144 ✅ 修前根因 (跟 BUG-079/097/118/130/138/140/141/142/143 100% 同源, 跟 web 端反方向 1:1 镜像): mobile VideoAgentScreen.tsx:519 + ImageAgentScreen.tsx:499 修前 plan part 渲染逻辑 `if (part.type === 'plan') { ... {conversationId && (<TouchableOpacity ...>确认生成</TouchableOpacity>)} }` 无脑显示'确认生成'按钮. 触发链: 用户成功生成视频/图片后, server 端 conversation.status='tool_completed' → messages 数组中 plan part 之后会 push video/image result part → 但 plan part 自己还是带按钮 (跟 server status 解耦). 用户按按钮 → 调 /api/agent/image-confirm 或 /api/agent/video-confirm → server 检查 status 不是 plan_ready/plan_translating → 返 '确认失败 An unexpected error occurred'",
+        "BUG-144 ✅ 跨端对比: web 端 AgentChatPanel.tsx:963-969 '确认生成'按钮是全局的, 按 status 字段绑定 (`{status === 'plan_ready' && (...)}`), 已生成时 status 改变 → 按钮自动消失. mobile 端把按钮绑在 plan part 内部 → 跟 status 解耦 → 已生成时按钮还在. 跨端铁律 4++ 1:1 镜像 web 行为, 但保持 mobile 端 plan part 内部按钮的视觉紧凑性",
+        "BUG-144 ✅ 修法: renderPart 签名加 allParts?: AgentPart[] 参数 (mobile VideoAgentScreen.tsx:511 + ImageAgentScreen.tsx:491). plan 分支计算 `const hasResultAfter = allParts ? allParts.slice(idx + 1).some(p => p.type === 'video' || (p.type === 'image' && p.role !== 'reference')) : false`. 视频 (VideoAgentScreen) + 图片 (ImageAgentScreen) 1:1 镜像同源 BUG. 调用方 `m.parts.map((p, idx) => renderPart(p, idx, m.id, m.parts))` (mobile) + `m.parts.map((p, idx) => renderPart(p, idx, m.parts))` (mobile VideoAgentScreen, 没 msgId)",
+        "BUG-144 ✅ 用户体验: (a) 已生成时 planHint 文案改成动态: '方案已确认 ✅ 视频已生成, 可继续发送修改内容' (video) / '方案已确认 ✅ 图片已生成, 可继续发送修改内容' (image), 跟 web 端'status 已生成'语义 1:1 镜像. (b) '确认生成'按钮在 hasResultAfter=true 时不渲染 (跟 server status='tool_completed' 1:1 镜像). (c) 用户发新消息 (输入框打字) → 新一轮 plan 生成 → 新的'确认生成'按钮出现 (跟 web 端 status 变 plan_ready 1:1 镜像)",
+        "BUG-144 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/097/100/118/119/130/134/135/138/140/143 100% 同源): (1) UI 状态必跟后端真实状态 1:1 镜像, 不能前端硬编码 (UI 渲染条件跟 server 字段解耦 = 状态错位); (2) 跨端行为必 1:1 镜像 (web 端怎么隐藏按钮, mobile 端同样行为), 跨端铁律 4++; (3) 跨端 button 触发条件要同步 (web 端按 status, mobile 端扫 parts 数组, 都跟 server 状态同步); (4) UI 状态判定必查整个 message context (m.parts 整个数组), 不能只查当前 part (跟 BUG-143 src URL 稳定性同源: 局部状态不可靠, 必查全局)",
+        "BUG-144 ✅ 升 v3.0.74 → v3.0.75: 8 处版本号同步 (mobile version.ts 3.0.74 → 3.0.75 + mobile build.gradle versionCode 76 → 77 + versionName 3.0.74 → 3.0.75 + web version.ts 3.0.74 → 3.0.75 + APP_VERSION_CODE 76 → 77 + server package.json 3.0.74 → 3.0.75 + server src/index.ts fallback 3.0.74 → 3.0.75 + server ecosystem.config.js env + env_production 2 处 3.0.74 → 3.0.75 + changelog.json + changelog_remote.json + v3.0.75 entry prepend)"
+      ]
+    },
+    {
       "version": "3.0.74",
       "buildDate": "2026-07-02",
       "type": "patch",
