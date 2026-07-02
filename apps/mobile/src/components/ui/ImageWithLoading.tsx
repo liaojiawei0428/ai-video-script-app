@@ -66,6 +66,21 @@ interface ImageWithLoadingProps {
   onRetry?: () => void;
 }
 
+/**
+ * v3.0.74 (BUG-143 修): 从 src URL 抽出 path 部分 (不含 query string / hash)
+ *   - 用于判断"是否同一张图": path 相同 → 同一张图 (即使 token/query 变化也不重置 loading)
+ *   - 跨项目通用铁律: "图片 src path 部分" = 图片内容身份, 跟 query string (token/缓存戳) 解耦
+ */
+function getSrcPath(src: string): string {
+  if (!src) return '';
+  const qIdx = src.indexOf('?');
+  const hIdx = src.indexOf('#');
+  let endIdx = src.length;
+  if (qIdx !== -1) endIdx = Math.min(endIdx, qIdx);
+  if (hIdx !== -1) endIdx = Math.min(endIdx, hIdx);
+  return src.slice(0, endIdx);
+}
+
 export function ImageWithLoading({
   src,
   alt = '',
@@ -82,9 +97,31 @@ export function ImageWithLoading({
   const [retryCount, setRetryCount] = useState(0);
   const loadedRef = useRef(false);
   const opacity = useRef(new Animated.Value(0)).current;
+  // v3.0.74 (BUG-143 修): prevSrcRef 追踪上一次 src, 只在 src 字符串真的有变化时才重置 loading
+  //   兜底防御: 防止调用方传不稳定的 src (如 buildImageUrl 带 Date.now()) 触发频繁 reload + 黑屏闪烁
+  //   即使 src 字符串整体变了, 但 path 部分没变 (仅 query string token/hash 变), 也认为"同一张图", 不重置
+  const prevSrcRef = useRef(src);
+  // v3.0.74 (BUG-143 修): srcPathRef 抽出 src 的 path 部分 (无 query string), 用于判断"是否同一张图"
+  const srcPathRef = useRef(getSrcPath(src));
 
   useEffect(() => {
-    // src 变了重置 loading
+    // v3.0.74 (BUG-143 修): 防御兜底 — 只在 src path 部分真的有变化时才重置 loading
+    //   - src 整体字符串变 (如 token 刷新) 但 path 不变 → 不重置 (同一张图, 浏览器复用缓存)
+    //   - src path 变了 → 重置 loading + retryCount++
+    //   - 这是兜底防御, 跟 buildImageUrl 用 djb2 hash 稳定 filename 是双保险
+    const newPath = getSrcPath(src);
+    if (newPath === srcPathRef.current && src !== prevSrcRef.current) {
+      // src 字符串微变 (如 token 刷新) 但 path 不变, 不重置 loading
+      prevSrcRef.current = src;
+      return;
+    }
+    if (newPath === srcPathRef.current && src === prevSrcRef.current) {
+      // src 完全没变 (依赖检查冗余), 不重置
+      return;
+    }
+    // src path 真变了, 重置 loading
+    prevSrcRef.current = src;
+    srcPathRef.current = newPath;
     setState('loading');
     setRetryCount(c => c + 1);
     loadedRef.current = false;

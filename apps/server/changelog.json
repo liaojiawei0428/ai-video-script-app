@@ -5,6 +5,20 @@
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
   "entries": [
     {
+      "version": "3.0.74",
+      "buildDate": "2026-07-02",
+      "type": "patch",
+      "summary": "BUG-143 修 mobile 端生图卡片黑屏 (输入文字触发 setInput re-render, buildImageUrl 内 Date.now() 让 src URL 每次 render 都变, ImageWithLoading useEffect [src] 触发 opacity.setValue(0) → 黑屏闪烁)",
+      "highlights": [
+        "BUG-143 ✅ 修前根因 (双 BUG 同源, 跟 BUG-079/097/100/118/119/130/134/138/140 100% 同源): apps/mobile/src/utils/agentDownload.ts:33 buildImageUrl 内部 `const filename = \\`deep剧本-图片-${Date.now()}.${ext}\\`` 把 Date.now() 拼到 filename, filename 又拼到 src URL. 触发链: 用户在生图助手输入文字 → setInput → 整个 ImageAgentScreen re-render → renderPart 重跑 (line 683) → `const imgUrl = buildImageUrl(part.url, token)` 重调 → **Date.now() 变了** → 返回的 src URL 字符串变了 → `<ImageWithLoading src={imgUrl}>` useEffect [src] (line 92) 触发 → setState('loading') + opacity.setValue(0) + setRetryCount(c => c + 1) → 图片透明度归零 = 黑屏 → 新 src 重新加载 → handleLoad → opacity 渐变到 1 = 恢复 → 用户再打字 → 又循环. 用户感觉: '生成图片后输入文字图片就黑屏, 等一会儿恢复, 再打字又黑屏'",
+        "BUG-143 ✅ 根因 (跟 web 端 1:1 镜像对比, web 端没这毛病): web AgentChatPanel.tsx:1429 `refUrl = fullUrl + token` (line 1429) **不含** filename/Date.now(), src URL 稳定. mobile buildImageUrl 把 server Content-Disposition 的 metadata (filename) 泄漏到 src URL 稳定性, 是明显的副作用泄漏. filename 用途: 用户保存图片时的默认文件名, inline 显示(<img>)用不到, 但稳定性是硬要求",
+        "BUG-143 ✅ 修法 1 (根因修): apps/mobile/src/utils/agentDownload.ts 加 djb2Hex() 函数 (跟 mediaCache.ts hashUrl + AGENTS.md § 6.7 跨项目通用铁律 1:1 镜像), buildImageUrl 跟 buildVideoUrl filename 都改成 `\\`deep剧本-图片-${djb2Hex(url)}.${ext}\\`` (video 用 .mp4). 同样 part.url 永远生成同样 filename → src URL 稳定 → 不触发 ImageWithLoading loading 重置. 跨端铁律 4++ 1:1 镜像 web 端 refUrl = fullUrl + token 行为",
+        "BUG-143 ✅ 修法 2 (兜底防御): apps/mobile/src/components/ui/ImageWithLoading.tsx 加 getSrcPath() helper + prevSrcRef + srcPathRef. useEffect 改为: src path 部分 (无 query string / hash) 真变了才重置 loading; src 字符串整体变 (如 token 刷新) 但 path 不变 → 不重置 (同一张图, 浏览器复用缓存). 这是兜底防御, 跟 buildImageUrl 用 djb2 hash 稳定 filename 是双保险, 防止未来有人再次写出类似 'src 含 Date.now()' 的 BUG",
+        "BUG-143 ✅ 跟其他 BUG 同源关系: (a) 跟 BUG-079 假报告 100% 同源 (前端 UI 跟实际图片状态不一致); (b) 跟 BUG-097 mobile 漏修 web 反方向同源 (web 端 1:1 正确, mobile 端副作用泄漏); (c) 跟 BUG-100 loading UX 假修 100% 同源 (loading 状态 UI 必真实反映后台); (d) 跟 BUG-130 加 document-picker / image-picker 选错同源 (server 端 0 改, 但依赖选错 / 副作用泄漏的反思同源)",
+        "BUG-143 ✅ 升 v3.0.73 → v3.0.74: 8 处版本号同步 (mobile version.ts 3.0.73 → 3.0.74 + mobile build.gradle versionCode 75 → 76 + versionName 3.0.73 → 3.0.74 + web version.ts 3.0.73 → 3.0.74 + APP_VERSION_CODE 75 → 76 + server package.json 3.0.73 → 3.0.74 + server src/index.ts fallback 3.0.73 → 3.0.74 + server ecosystem.config.js env + env_production 2 处 3.0.73 → 3.0.74 + changelog.json + changelog_remote.json + v3.0.74 entry prepend)"
+      ]
+    },
+    {
       "version": "3.0.73",
       "buildDate": "2026-07-01",
       "type": "patch",
