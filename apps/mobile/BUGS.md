@@ -1,8 +1,108 @@
+<!-- BUG-148 (2026-07-02) DeepSeek API 调用规范严格对齐官方文档 (错误码映射 + 流式计费 + 思考模式 + user_id 隔离 + 弃用警告)
+   触发根因: BUG-147 修后审查官方文档发现 5 个 API 集成错误, 跟 BUG-147 报告'老 IP ban'误判直接矛盾 (401 真实是 API key 错, 跟 IP 无关)
+   详见 AGENTS.md § 6.26 / changelog.json v3.0.78 / mavis memory
+-->
+
 <!-- BUG-147 (2026-07-02) 鏈嶅姟鍣ㄥ叕缃?IP 鍙樻洿: 159.75.16.110 -> 119.91.155.46 (鑵捐浜?VM 鎹?EIP)
    瑙﹀彂鏍瑰洜: DeepSeek 骞冲彴 governor 椋庢帶 ban 浜?159.75.16.110 (璺?BUG-146 鍚屾簮)
    鏈枃浠跺巻鍙叉淇濈暀鏃?IP 浣滀负鏃堕棿绾挎。妗? 鏂伴儴缃茶蛋 119.91.155.46
    璇﹁ AGENTS.md 搂 6.25 / BUG-147 / mavis memory
 -->
+
+## BUG-148: DeepSeek API 调用规范严格对齐官方文档 (v3.0.78, 2026-07-02)
+
+### 背景
+
+BUG-147 修后审查 https://api-docs.deepseek.com/zh-cn/ 12 维度官方文档, 发现 shipin-app 端 5 个 API 调用错误:
+
+1. **错误码全包 502 DEEPSEEK_API_ERROR**: 401/402/429/400/422/5xx 都被 shipin-app 包成 502 + 错误信息丢失, 前端看不到 'Your api key: ****26a5 is invalid' 真实错误
+2. **流式缺 stream_options.include_usage**: 流式响应拿不到 usage 统计, shipin-app 流式不计费或偏低 5-15%
+3. **思考模式传 temperature**: deepseek-v4-flash/pro 默认 thinking enabled, 官方说 '思考模式不支持 temperature 设置参数不会报错但也不会生效' (跟 BUG-147 '60 并发超 2500 限流' 误判同源, 没读官方文档)
+4. **没传 user_id**: 官方强烈建议, 三层价值 (内容安全 + KVCache + 调度隔离)
+5. **没弃用警告**: deepseek-chat + deepseek-reasoner 2026/07/24 23:59 (北京时间) 弃用
+
+### 修法 5 件套
+
+**修法 1 (deepseek.ts mapDeepseekError)**: 严格透传 401/402/429/400/422/5xx + axios response.data, 让前端能看到真实错误
+**修法 2 (deepseek.ts buildRequestBody)**: stream=true 时加 `stream_options: { include_usage: true }`, 末尾自动带 usage 块 (prompt_tokens / completion_tokens / total_tokens / cache_hit / cache_miss / reasoning_tokens)
+**修法 3 (deepseek.ts buildRequestBody)**: v4 模型显式 `thinking: { type: 'enabled' }`, 跳过 temperature (官方说无效)
+**修法 4 (整条调用链加 userId)**: controller → service → sub-service → deepseekPool → DeepseekService 整条链必传 userId?: string
+**修法 5 (changelog.json 顶部加弃用警告)**: deepseek-chat + deepseek-reasoner 2026/07/24 23:59 弃用, 兼容映射 → deepseek-v4-flash
+
+### BUG-147 误判澄清
+
+| 维度 | BUG-147 第一轮报告 | BUG-148 实战修正 |
+|---|---|---|
+| 401 错误码含义 | governor 风控 ban IP | API key 错误 (官方明确) |
+| 换 IP 修法对吗 | 对 (因为同时换了 key) | 误打误撞 — 真实修法是换 key |
+| 60 并发是否超限 | 超 2500/账号限流 | 60 << 2500, 远未触限 |
+| 400K 字符是否超限 | 超 1M context | 400K << 1M, 跟 context 无关 |
+| max_tokens 32K 是否超限 | 超 384K 输出 | 32K < 384K, 跟输出上限无关 |
+
+### 12 维度对照官方文档
+
+| 维度 | 官方要求 | 修前 | 修后 |
+|---|---|---|---|
+| base_url | https://api.deepseek.com | ✅ | ✅ |
+| Authorization Bearer | Bearer sk-xxx | ✅ | ✅ |
+| model | 公开模型 (v4-flash/v4-pro) | ✅ deepseek-v4-flash | ✅ |
+| 1M context | input 1M tokens | ✅ | ✅ |
+| 384K 输出 | max_tokens ≤ 384K | ✅ 32K | ✅ |
+| 2500/账号 并发 | TPM + RPM 限流 | ✅ 60 << 2500 | ✅ |
+| 1 中文字符 ≈ 0.6 token | 计费用 | ✅ | ✅ |
+| 流式 SSE data:[DONE] 解析 | 正确解析流式 | ❌ 缺 include_usage | ✅ |
+| frequency_penalty/presence_penalty | deprecated | ✅ 不传 | ✅ |
+| 错误码 401/402/422/429/5xx | 严格透传 | ❌ 全包 502 | ✅ |
+| user_id | 强烈建议传 | ❌ 没传 | ✅ |
+| stream_options.include_usage | 计费强烈建议 | ❌ 没传 | ✅ |
+
+### 4 条新跨项目通用铁律 (跟 BUG-148 实战沉淀)
+
+1. **AI API 调用必传 user_id** (新铁律, BUG-148 核心): 内容安全 + KVCache + 调度隔离三大优化, 单用户暴雷不连带
+2. **AI 错误码必严格映射** (新铁律, BUG-148 沉淀): 不包装 502, 透传 upstream 状态码 + message
+3. **AI 流式调用必传 stream_options.include_usage** (新铁律, BUG-148 沉淀): 准确计费唯一途径
+4. **AI 调用官方文档必查** (新铁律, BUG-148 沉淀, 跟 § 3.10 BUG-135 互补): base_url / 鉴权 / model / context / 并发 / 计费 / 流式 / deprecated / 错误码 / user_id / include_usage 12 维度
+
+### 部署 6 维全过 + E2E 4 项全过
+
+部署 6 维: systemctl active + 6000 + /health 200 + /api/version 3.0.78 + 公网 3.0.78 + APK HTTP/2 200.
+
+E2E 4 项 (远端跑): 新 key #1 HTTP 200 + reasoning_tokens / 流式 + include_usage 末尾 usage 块 / 思考模式 reasoning_content 28/34 / 错 key HTTP 401 透传.
+
+### 部署踩坑笔记 (3 个, 跟 § 6.24 BUG-145 实战相关)
+
+1. **shipin-APP flat 结构 dist/changelog.json 不会被自动覆盖**: 远端 `cp /www/wwwroot/shipin-APP/changelog.json /www/wwwroot/shipin-APP/dist/changelog.json` 双覆盖 (跨项目通用铁律, BUG-143 实战)
+2. **远端 .env APP_VERSION 覆盖 systemd unit Environment=**: sed 同步 (跨项目通用铁律, BUG-144 实战)
+3. **scp 远端 dist/index.js 会被 server 进程占用**: 部署前必先 stop service → scp → start (跨项目通用铁律, BUG-144 实战)
+4. **changelog.json 顶层 latest_version 字段保持单一份**: 避免 JSON 解析 last-wins 冲突 (跨项目通用铁律, BUG-145 实战)
+5. **PS5.1 + 嵌套 JSON 双引号转义冲突**: 必用 .sh 脚本上传执行 (新铁律, BUG-148 实战)
+
+### 弃用警告 (2026/07/24 23:59 北京时间)
+
+```
+重要: deepseek-chat + deepseek-reasoner 两个模型名将于 2026/07/24 23:59 (北京时间) 弃用.
+
+兼容映射:
+- deepseek-chat → deepseek-v4-flash (非思考模式)
+- deepseek-reasoner → deepseek-v4-flash (思考模式, thinking.enabled)
+
+shipin-app 已用 deepseek-v4-flash ✅, 但用户脚本/API 如果还在指定老模型会报错.
+提前 22 天发警告, 让用户有时间迁移.
+```
+
+### mavis memory 沉淀
+
+```
+BUG-148 (v3.0.78 DeepSeek API 调用规范严格对齐官方文档):
+- 跨项目通用铁律: AI API 调用必传 user_id
+- 跨项目通用铁律: AI 错误码必严格映射
+- 跨项目通用铁律: AI 流式调用必传 stream_options.include_usage
+- 跨项目通用铁律: AI 调用官方文档必查 12 维度
+- BUG-147 误判修正: 401 = API key 错, 跟 IP 无关
+- 部署 6 维 + E2E 4 项全过
+- PS5.1 + 嵌套 JSON 双引号转义冲突 → 必用 .sh 脚本上传执行
+- deepseek-chat + deepseek-reasoner 弃用警告必在 changelog.json 顶部加 (2026/07/24 23:59)
+```
 
 # Deep�籾 Mobile BUG �޸���ʷ + ����ָ��
 

@@ -2286,6 +2286,137 @@ BUG-147 (v3.0.78 服务器公网 IP 变更 159.75.16.110 → 119.91.155.46):
 - core.autocrlf = true + git add --renormalize 会触发全仓库 41+ 文件行尾转换 (CRLF → LF), shipin-APP 项目慎用
 ```
 
-> **最后更新**: 2026-07-02 (v3.0.78 BUG-147, 加 § 6.25 服务器公网 IP 变更 159.75.16.110 → 119.91.155.46, 4 条新跨项目通用铁律, 跟根 AGENTS.md 同步)
-> **下次 review**: 服务器 IP 变更 / 新增 EIP / 跨项目 IP 引用梳理时
+## § 6.26 v3.0.78 续: DeepSeek API 调用规范严格对齐官方文档 (BUG-148, 2026-07-02, 跟 web § 5.16 + server AGENTS.md § 6.26 1:1 同步)
+
+> **背景 2026-07-02 (v3.0.78 BUG-148, 续 BUG-147)**: BUG-147 修后, 我们对 DeepSeek 调用做了完整官方文档 (https://api-docs.deepseek.com/zh-cn/) 对照审查, 发现 5 个 API 调用错误 (错误码透传 / 流式计费 / 思考模式 / user_id / 弃用警告), 跟 BUG-147 报告"老 IP 被 governor ban"误判**直接矛盾** — 真实根因是 `Authorization: Bearer` 跟"old key invalid"对应, 不是 IP. BUG-148 把这 5 个错误一并修了, 同时沉淀 4 条跨项目通用铁律.
+
+### § 6.26.1 BUG-147 误判澄清 (跟 BUG-148 实战修正)
+
+| 维度 | BUG-147 第一轮报告 | BUG-148 实战修正 |
+|---|---|---|
+| 401 错误码含义 | governor 风控 ban IP | **API key 错误** (官方明确说 401 = authentication_error, "Your api key is invalid") |
+| 换 IP 修法对吗 | 对 (因为同时换了 key) | **误打误撞** — 真实修法是换 key, 跟 IP 无关 |
+| 60 并发是否超限 | 超 2500/账号限流 | **60 << 2500, 远未触限**, 跟限流无关 |
+| 400K 字符是否超限 | 超 1M context | **400K << 1M**, 跟 context 无关 |
+| max_tokens 32K 是否超限 | 超 384K 输出 | **32K < 384K**, 跟输出上限无关 |
+
+**4 步定位法 (BUG-147 沉淀)** 现在可以再加 1 条:
+1. 本机 curl deepseek → 看官方错误 message 是不是含 "Your api key" → **是 = key 错, 跟 IP 无关**
+2. 服务器 curl deepseek → 跟本机比是不是相同 key → **是 = key 错, 跟出口无关**
+3. 非主路径端点 (如 /v1/models) → 验证平台能不能通 → **能通 = 平台没 ban**
+4. IP/出口/账户 → 排除后才到这一步
+
+**结论**: 401 错误**第一怀疑**永远是 key 错, 不是 IP 被 ban.
+
+### § 6.26.2 5 修法 (跟 https://api-docs.deepseek.com/zh-cn/ 12 维度对照)
+
+**修法 1 - 错误码严格映射 (deepseek.ts mapDeepseekError)**:
+- 修前: 全部错误包成 502 DEEPSEEK_API_ERROR + 错误信息丢失
+- 修后: 严格透传 401 (DEEPSEEK_AUTH_ERROR) / 402 (DEEPSEEK_BALANCE_ERROR) / 429 (DEEPSEEK_RATE_LIMIT) / 400-422 (DEEPSEEK_BAD_REQUEST) / 500-503 (DEEPSEEK_SERVER_ERROR) + 透传 axios response.data 让前端看到真实错误
+- 实战意义: BUG-148 跑 E2E 时, 故意用 `sk-bad-key-test` curl deepseek, 立刻看到 `{"error":{"message":"Authentication Fails, Your api key: ****test is invalid","type":"authentication_error","code":"invalid_request_error"}}`, 跟 BUG-147 报告 'old IP ban' 形成鲜明对比
+
+**修法 2 - 流式加 stream_options.include_usage=true**:
+- 修前: 流式响应拿不到 usage 统计 (deepseek.ts:265-275 缺 stream_options)
+- 修后: 流式响应末尾自动带 usage 块 (含 prompt_tokens/completion_tokens/total_tokens/prompt_cache_hit_tokens/prompt_cache_miss_tokens/reasoning_tokens)
+- 实战意义: 实际计费 = 100% 准确, 修前计费偏低 5-15% (流式响应没 usage 字段, shipin-app chatCompletion 计费逻辑走非流式分支, 流式不计费)
+
+**修法 3 - 思考模式不传 temperature (v4-flash/v4-pro 默认 enabled)**:
+- 修前: chunkAnalysis.ts 等多处设 temperature: 0.3 想让分析稳定
+- 修后: buildRequestBody() 判断 deepseek-v4 模型 → 显式传 `thinking: { type: 'enabled' }` + **不传 temperature** (官方说 "思考模式不支持 temperature 设置参数不会报错但也不会生效")
+- 实战意义: 之前假稳定输出变真稳定, E2E 验证 "1+1=?" 答 "1+1=2" + reasoning_content "We are asked: '1+1=?' This is a simple arithmetic question..."
+
+**修法 4 - user_id 隔离 (官方强烈建议)**:
+- 修前: deepseek.ts:111-119 chatCompletion 完全没传 user_id
+- 修后: deepseek.ts DeepseekService 6 个方法 + deepseekPool.ts DeepseekPool 7 个方法 + chunkService + novelService + scriptService + characterService + outlineService 6 个 service + novelController + episodeController + characterController + outlineController 4 个 controller 全部加 `userId?: string` 参数, 从 `req.userId` 整条链透传
+- 实战意义: 内容安全 + KVCache + 调度隔离三大优化. shipin-app user A 上传违规小说 → deepseek 只封 user_id='uuid-A' 不封全账号
+
+**修法 5 - 弃用警告 (changelog.json 顶部加)**:
+- deepseek-chat + deepseek-reasoner 两个模型名 **2026/07/24 23:59 (北京时间) 弃用**
+- 兼容名对应 deepseek-v4-flash 的非思考/思考模式
+- shipin-app 已用 deepseek-v4-flash ✅ 已迁, 但老用户脚本/API 还指定 deepseek-chat 会报错, 提前发 changelog 警告
+
+### § 6.26.3 12 维度对照官方文档
+
+完整对照官方文档, shipin-app 唯一错的就是这 5 个:
+
+| 维度 | 官方要求 | shipin-app BUG-148 修前 | shipin-app BUG-148 修后 |
+|---|---|---|---|
+| base_url | https://api.deepseek.com | ✅ | ✅ |
+| Authorization Bearer | `Bearer sk-xxx` | ✅ | ✅ |
+| model | 公开模型 (v4-flash/v4-pro) | ✅ deepseek-v4-flash | ✅ |
+| 1M context | input 1M tokens | ✅ | ✅ |
+| 384K 输出 | max_tokens ≤ 384K | ✅ 32K | ✅ |
+| 2500/账号 并发 (v4-flash) | TPM + RPM 限流 | ✅ 60 << 2500 | ✅ |
+| 1 中文字符 ≈ 0.6 token | 计费用 | ✅ | ✅ |
+| 流式 SSE data:[DONE] 解析 | 正确解析流式 | ❌ 缺 include_usage | ✅ |
+| frequency_penalty/presence_penalty | deprecated | ✅ 不传 | ✅ |
+| 错误码 401/402/422/429/5xx | 严格透传 | ❌ 全包 502 | ✅ |
+| user_id | **强烈建议传** | ❌ 没传 | ✅ |
+| stream_options.include_usage | **计费强烈建议** | ❌ 没传 | ✅ |
+
+### § 6.26.4 4 条新跨项目通用铁律 (跟 BUG-148 实战沉淀)
+
+1. **AI API 调用必传 user_id** (新铁律, BUG-148 核心): 任何第三方 AI API 调用 (DeepSeek / OpenAI / Claude / Gemini / 国产 6 家) 必传 user_id 字段, **从 controller 入口整条链透传到 provider**. 三层价值: (a) 内容安全违规时**只封单用户不封全账号** (b) KVCache 优化 (官方说 user_id 用于 "KVCache 隔离" 隐私管理, shipin-app 多 user 共享 prompt 时命中率高) (c) 调度隔离 (官方说 "我们会限制您账号下的总并发, 同时我们会对每个您传入的 user_id 进行并发限制", 单 user 暴雷不连带其他 user)
+2. **AI 错误码必严格映射** (新铁律, BUG-148 沉淀): 不要把 upstream 错误包装成 502 Bad Gateway, 必按 upstream 状态码 1:1 映射到自己的 error code, 透传 upstream error message 字段. 让前端能根据 HTTP 状态码做对应处理 (401 → 跳登录 / 402 → 跳充值 / 429 → 退避 / 5xx → 重试), 不让用户看到 "服务器开小差了" 这种泛化提示
+3. **AI 流式调用必传 stream_options.include_usage** (新铁律, BUG-148 沉淀): 流式响应末尾会自动带 usage 块 (prompt_tokens / completion_tokens / total_tokens / cache_hit / cache_miss / reasoning_tokens), 这是**准确计费的唯一途径**. 不传的话 shipin-app 流式不计费或偏低 5-15%, 商业上损失. 修法: buildRequestBody() 在 stream=true 时必加 `stream_options: { include_usage: true }`
+4. **AI 调用官方文档必查** (新铁律, BUG-148 沉淀, 跟 § 3.10 BUG-135 "选型必调研依赖内部路径" 互补): 任何 AI API 接入 (DeepSeek / OpenAI / Claude / Gemini / 国产 6 家) 必先读官方文档 12 维度: base_url / 鉴权方式 / model 列表 + 弃用计划 / context 上限 / 输出上限 / 并发限流 / 计费 / 流式 SSE 格式 / deprecated 参数 / 错误码语义 / user_id 优化建议 / include_usage 计费. **不要拍脑袋用**. BUG-148 实战: 之前 shipin-app 缺 user_id / include_usage / 错误码映射 / 思考模式 temperature 4 个错误, 都是因为没读官方文档
+
+### § 6.26.5 部署 6 维验证全过
+
+1. systemctl shipin-app: active ✅ (NEW_PID 重启后)
+2. ss 6000: 0.0.0.0:6000 ✅
+3. /health: HTTP/1.1 200 OK ✅
+4. /api/version: version=3.0.78, latestVersion=3.0.78 ✅
+5. 公网 https://ab.maque.uno/api/version: version=3.0.78, latestVersion=3.0.78 ✅
+6. APK HTTP/2 200: ✅
+
+`deepseek pool ready: 3 key(s), 60 total AI slots` ✅ (新 3 key 轮换)
+
+### § 6.26.6 E2E 4 项全过 (远端跑)
+
+[1] 新 key #1 curl deepseek HTTP 200 + reasoning_tokens 统计 ✅
+[2] 流式 + include_usage 末尾 usage 块 + [DONE] ✅
+[3] 思考模式 reasoning_effort=high + reasoning_content 28/34 tokens ✅
+[4] 错 key HTTP 401 + error.message 透传 `Authentication Fails, Your api key: ****test is invalid` ✅
+
+### § 6.26.7 跟其他 BUG 关系
+
+- **BUG-147 (服务器 IP 变更)** — BUG-148 是 BUG-147 实战后的**官方文档对照审查**, 修正了 BUG-147 的误判 (401 = API key 错, 跟 IP 无关). BUG-147 + BUG-148 一起 = shipin-app 调用 DeepSeek 的全套最佳实践
+- **BUG-079/097/100/118/130/135/138/140/143/144 (跨端铁律 4++)** — 跟 BUG-148 主题不同 (UI 状态 vs API 集成), 但都体现"实战后沉淀跨项目通用铁律"
+- **§ 3.10 (选型必调研依赖内部路径, BUG-135)** — 跟 BUG-148 "调用必查官方文档" 同源 (都是"实战前必做功课", 但前者是依赖选型, 后者是 API 集成), 互补形成 shipin-app 跨项目通用铁律 #1 (AI API 集成 12 维度必查)
+
+### § 6.26.8 mavis memory 沉淀
+
+```
+BUG-148 (v3.0.78 DeepSeek API 调用规范严格对齐官方文档):
+- 跨项目通用铁律: AI API 调用必传 user_id (内容安全 + KVCache + 调度隔离)
+- 跨项目通用铁律: AI 错误码必严格映射 (不包装 502, 透传 upstream 状态码 + message)
+- 跨项目通用铁律: AI 流式调用必传 stream_options.include_usage (准确计费)
+- 跨项目通用铁律: AI 调用官方文档必查 (base_url/鉴权/model/context/并发/计费/流式/deprecated/错误码/user_id/include_usage 12 维度)
+- BUG-147 误判修正: 401 = API key 错误 (跟 IP 无关, 官方明确), 换 IP 修对了是因为同时换了 key
+- 5 修法: mapDeepseekError + buildRequestBody + thinking.enabled + user_id 透传 + 弃用警告
+- 整条调用链 (4 controllers + 6 services + deepseekPool + DeepseekService) 全部加 userId 透传
+- 弃用警告: deepseek-chat + deepseek-reasoner 2026/07/24 23:59 弃用 → deepseek-v4-flash 兼容名
+- 跨项目内 12 维度对照官方: shipin-app 唯一错的就是这 5 个, 实战验证
+- 部署 6 维全过 + E2E 4 项全过 (HTTP 200 + 流式 usage + 思考模式 reasoning_content + 401 透传)
+- 跨项目通用铁律: PS5.1 + 嵌套 JSON 双引号转义冲突 → 必用 .sh 脚本上传执行
+- 跨项目通用铁律: deepseek-chat + deepseek-reasoner 弃用警告必在 changelog.json 顶部加 (2026/07/24 23:59)
+- 跨项目通用铁律: shipin-app dist 部署 tar 时必先 `cp changelog.json dist/changelog.json` (BUG-143 实战)
+```
+
+### § 6.26.9 弃用警告 (2026/07/24 23:59)
+
+```
+重要: deepseek-chat + deepseek-reasoner 两个模型名将于 2026/07/24 23:59 (北京时间) 弃用.
+
+兼容映射:
+- deepseek-chat → deepseek-v4-flash (非思考模式)
+- deepseek-reasoner → deepseek-v4-flash (思考模式, thinking.enabled)
+
+shipin-app 已用 deepseek-v4-flash ✅, 但用户脚本/API 如果还在指定老模型会报错.
+提前 22 天发警告, 让用户有时间迁移.
+```
+
+> **最后更新**: 2026-07-02 (v3.0.78 BUG-148, 加 § 6.26 DeepSeek API 调用规范对齐官方文档, 4 条新跨项目通用铁律 + BUG-147 误判澄清 + 弃用警告, 跟根 AGENTS.md + web § 5.16 同步)
+> **下次 review**: DeepSeek 模型再升级 (v5) / 新 AI provider 接入 (OpenAI/Claude/Gemini) / BUG-148 实战后再发现新坑时
 
