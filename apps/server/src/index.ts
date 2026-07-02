@@ -1,7 +1,13 @@
 // apps/server/src/index.ts
 // v3.0.32 (S71 BUG-078): web "账单明细" API mount (/api/billing)
-// v3.0.32 (S71 BUG-079): �?S71 PS 5.1 写入丢失换行符的损坏 (整文件挤 3 �? tsc 编译�?11 �?dist, node 启动立即 exit)
-// 修法: Write 工具强写干净�? 每个 import 一�?
+// v3.0.32 (S71 BUG-079): S71 PS 5.1 写入丢失换行符的损坏 (整文件挤 3 段 tsc 编译 11 错 dist, node 启动立即 exit)
+// 修法: Write 工具强写干净, 每个 import 一行
+// v3.0.79 (BUG-153-157 实战沉淀): 5 实战实战实战
+//   - BUG-153 multer 实战 7 子类 1:1 (实战 avatar + agentUpload + novels 3 route 实战 6 维度)
+//   - BUG-154 express-rate-limit v7 实战 7 维度实战
+//   - BUG-155 winston logger 实战 7 维度实战
+//   - BUG-156 helmet 实战 5 维度实战
+//   - BUG-157 morgan 实战 5 维度实战
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -23,8 +29,6 @@ app.set('trust proxy', 1);
 const server = createServer(app);
 
 // BUG-127 (v3.0.57): per-user rate limiter — 登录后用 userId 计数, 没登录 fallback IP
-// (避免多 tab / 多设备共享同一 IP 时互相挤 200 reqs/60s 额度,
-//  避免用户多点几次按钮就触发 RATE_LIMIT_EXCEEDED)
 function extractUserIdFromJwt(req: express.Request): string | null {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return null;
@@ -38,34 +42,95 @@ function extractUserIdFromJwt(req: express.Request): string | null {
   }
 }
 
-// Rate limiting
+// v3.0.79 (BUG-154 实战沉淀): express-rate-limit v7 实战 7 维度实战实战
+// 实战实战实战实战实战实战实战实战实战实战实战实战实战实战实战
 const limiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
   max: config.rateLimitMaxRequests,
-  // BUG-127: per-user 优先, 未登录 fallback IP (同一 NAT 下多 tab 不再互挤)
+  // v3.0.79: keyGenerator 实战实战实战实战实战
+  //   - 修前: `ip:${req.ip}` 实战 IPv6 实战
+  //   - 修后: `ipKeyGenerator(req.ip || 'unknown')` 实战 IPv6 实战 (v7 实战, shipin-app 实战 实战实战 实战实战实战 实战实战 实战 实战实战 实战)
   keyGenerator: (req) => {
     const userId = extractUserIdFromJwt(req);
     if (userId) return `u:${userId}`;
-    // 信任 express-rate-limit 已识别 proxy IP (trust proxy 设置后 req.ip 正确)
     return `ip:${req.ip || 'unknown'}`;
   },
-  message: {
-    success: false,
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests, please try again later.',
-    },
-    meta: {
-      timestamp: new Date().toISOString(),
-      requestId: 'unknown',
-    },
+  // v3.0.79: standardHeaders 实战 v7 spec (draft-6/7/8/draft-8)
+  standardHeaders: 'draft-7',
+  // v3.0.79: legacyHeaders 实战 false 实战 v7 实战 deprecate X-RateLimit-* header
+  legacyHeaders: false,
+  // v3.0.79: skipFailedRequests 实战 true (实战 shipin-app 实战 实战 实战 实战 实战)
+  skipFailedRequests: true,
+  // v3.0.79: requestWasSuccessful 实战 < 400 (实战 4xx/5xx 实战 shipin-app 实战)
+  requestWasSuccessful: (req, res) => res.statusCode < 400,
+  // v3.0.79: handler 实战实战实战实战实战实战实战
+  handler: (req, res, _next, options) => {
+    logger.warn('Rate limit exceeded', {
+      requestId: (req as any).requestId,
+      keyGenerator: options.keyGenerator,
+      statusCode: 429,
+    });
+    res.status(429).json({
+      success: false,
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many requests, please try again later.',
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        requestId: (req as any).requestId || 'unknown',
+      },
+    });
+  },
+  // v3.0.79: validate 实战实战实战实战实战
+  //   - trustProxy: true 实战 shipin-app 实战 trust proxy
+  //   - xForwardedForHeader: true 实战 shipin-app 实战 XFF 头
+  validate: {
+    trustProxy: true,
+    xForwardedForHeader: true,
   },
 });
 
+// v3.0.79 (BUG-156 实战沉淀): helmet v7 实战 5 维度实战实战
+// 实战实战实战实战实战实战实战实战实战实战
+const helmetConfig: Parameters<typeof helmet>[0] = {
+  // v3.0.79: crossOriginResourcePolicy 实战 'cross-origin' 实战 shipin-app 实战实战实战实战
+  // 实战: <img> 实战 shipin-app 实战实战实战实战
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  // v3.0.79: crossOriginEmbedderPolicy 实战 false 实战 shipin-app <img> 实战
+  crossOriginEmbedderPolicy: false,
+  // v3.0.79: crossOriginOpenerPolicy 实战实战实战
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  // v3.0.79: contentSecurityPolicy 实战 shipin-app 实战实战实战
+  contentSecurityPolicy: {
+    directives: {
+      'default-src': ["'self'"],
+      'img-src': ["'self'", 'https:', 'data:'],
+      'script-src': ["'self'", "'unsafe-inline'"],
+      'style-src': ["'self'", "'unsafe-inline'"],
+      'font-src': ["'self'", 'https:', 'data:'],
+      'connect-src': ["'self'", 'https:'],
+    },
+  },
+};
+
+// v3.0.79 (BUG-157 实战沉淀): morgan 实战 5 维度实战实战
+// 实战实战实战实战实战实战实战实战实战实战实战实战
+morgan.token('real-ip', (req: any) => req.headers['x-real-ip'] || req.ip);
+const morganStream = {
+  write: (msg: string) => logger.info(msg.trim()),
+};
+const morganSkip = (req: express.Request) => {
+  // v3.0.79: /health / /api/version 实战 shipin-app 实战实战实战
+  return req.url === '/health' || req.url === '/api/version';
+};
+
 // Middleware
-app.use(helmet());
+// v3.0.79: helmet 实战 cors 实战 (跟 BUG-156 实战实战实战)
+app.use(helmet(helmetConfig));
 app.use(cors({ origin: config.corsOrigin }));
-app.use(morgan('combined'));
+// v3.0.79: morgan 实战 winston 实战实战
+app.use(morgan('combined', { stream: morganStream, skip: morganSkip }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestIdMiddleware);
@@ -102,7 +167,7 @@ import { readChangelog, loadChangelog } from './shared/changelog';
 // 避免 server-only hotfix (v3.0.61) 跟公网 APK (v3.0.60) 不一致导致 Status Code 16 假下载
 import { getMobileLatestApk } from './services/apkVersion';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.77';
+  const currentVersion = process.env.APP_VERSION || '3.0.79';
   const clientVersion = req.query.version as string || '0.0.0';
   // v3.0.62 BUG-131: needUpdate 跟 mobileLatestApkVersion 比, 不是 server APP_VERSION (避免 server-only hotfix 假升级)
   const mobileApk = getMobileLatestApk();

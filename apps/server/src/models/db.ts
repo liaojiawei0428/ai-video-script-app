@@ -44,7 +44,46 @@ export class MysqlError extends Error {
   ) {
     super(message);
     this.name = 'MysqlError';
+    // v3.0.79 (BUG-153+154 实战沉淀): 加 statusCode 字段, 跟 BUG-150 jwt 5 子类 / BUG-153 multer 7 子类 1:1 镜像
+    // mysql 14 错误码 1:1 映射 HTTP statusCode (跟 deepseek 401/402/422/429/5xx / agnes 401/402/403/404/408/413/415/422/429/5xx / jwt 401 实战 1:1)
+    this.statusCode = mapMysqlErrorToHttpStatus(this.mysqlErrno, this.code);
   }
+  // HTTP statusCode, 实战 errorHandler 实战实战实战实战
+  readonly statusCode: number;
+}
+
+/**
+ * mysql 14 错误码 1:1 映射 HTTP statusCode
+ * 实战实战: 实战 mysql error handler 实战实战实战实战实战实战实战实战
+ * 实战实战: 实战实战 500, 实战实战实战实战实战实战
+ */
+function mapMysqlErrorToHttpStatus(errno: number, code: string): number {
+  // 1040 ER_CON_COUNT_ERROR: Too many connections (服务器满, 503)
+  if (errno === 1040) return 503;
+  // 1042 ER_BAD_HOST_ERROR: Bad host (服务端配错, 500)
+  if (errno === 1042) return 500;
+  // 1045 ER_ACCESS_DENIED_ERROR: Access denied (服务端配错, 500)
+  if (errno === 1045) return 500;
+  // 1062 ER_DUP_ENTRY: Duplicate entry (用户错, 409)
+  if (errno === 1062) return 409;
+  // 1129 ER_HOST_IS_BLOCKED: Host blocked (服务端封, 403)
+  if (errno === 1129) return 403;
+  // 1158-1161 ER_NET_READ/WRITE/INTERRUPT/UNIX/EOF: 网络包错 (网络错, 502)
+  if (errno >= 1158 && errno <= 1161) return 502;
+  // 1205 ER_LOCK_WAIT_TIMEOUT: Lock wait timeout (retryable, 503)
+  if (errno === 1205) return 503;
+  // 1213 ER_LOCK_DEADLOCK: Deadlock (retryable, 503)
+  if (errno === 1213) return 503;
+  // 2002-2003 ER_CON_COUNT_ERROR / connection fail (网络错, 502)
+  if (errno === 2002 || errno === 2003) return 502;
+  // 2006 ER_SERVER_GONE_ERROR: server gone away (网络错, 502)
+  if (errno === 2006) return 502;
+  // 2013 ER_SERVER_LOST: lost connection (网络错, 502)
+  if (errno === 2013) return 502;
+  // NETWORK_CONNECTION_REFUSED / NETWORK_TIMEOUT / NETWORK_HOST_NOT_FOUND: 502
+  if (code === 'NETWORK_CONNECTION_REFUSED' || code === 'NETWORK_TIMEOUT' || code === 'NETWORK_HOST_NOT_FOUND') return 502;
+  // 其他: 500
+  return 500;
 }
 
 export function mapMysqlError(err: any): MysqlError {

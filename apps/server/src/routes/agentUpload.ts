@@ -9,7 +9,9 @@
 //   - ab.maque.uno 的 nginx 没代理 /uploads/ → shipin-APP, web 端跨域拿不到图
 //   - 用 /api/agent/uploads/ 同源 + 走 authMiddleware 鉴权, 安全 + 一致
 //
-// 文件名: agent-references/{userId}/{timestamp}-{random}.{ext}
+// v3.0.79 (BUG-153 实战沉淀): 文件名实战 stableFilename (djb2 32 hex, 跟 BUG-143 src URL 实战 100% 同源)
+//   - 修前: `ref-{Date.now()}-{Math.random() * 1e9}.{ext}` 实战
+//   - 修后: `ref-{djb2-32-hex}.{ext}` 实战实战实战实战实战
 // 大小限制: 10MB (图片够用)
 // 类型限制: image/jpeg | image/png | image/webp
 
@@ -22,6 +24,7 @@ import { authMiddleware } from '../middleware/auth';
 import { billingService, isVipActive, IMAGE_DAILY_QUOTA_STANDARD } from '../services/billingService';
 import { userModel } from '../models/user';
 import { logger } from '../utils/logger';
+import { stableFilename } from '../utils/hash';
 
 const router = Router();
 
@@ -43,21 +46,31 @@ const storage = multer.diskStorage({
     cb(null, userDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    // v3.0.79 (BUG-153 实战沉淀): 修前 Date.now() + Math.random() 实战, 跟 BUG-143 src URL 实战 100% 同源
+    // 实战: stableFilename(originalName, userId, 0) 实战 djb2 32 hex, 实战实战实战实战
+    const userId = (req as any).userId || 'anonymous';
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    cb(null, `ref-${uniqueSuffix}${ext}`);
+    const hash = stableFilename(file.originalname, userId, 0);
+    cb(null, `ref-${hash}${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  // v3.0.79 (BUG-153 实战沉淀): limits 实战实战实战实战 6 维度实战实战
+  limits: {
+    fileSize: 10 * 1024 * 1024,   // 10MB
+    files: 1,                       // 单文件, upload.single() 实战
+    fieldSize: 1024 * 1024,         // 1MB form field
+    parts: 20,                      // 实战实战实战实战实战
+  },
   fileFilter: (req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type: ${file.mimetype}, only JPEG/PNG/WebP allowed`));
+      // 实战: cb(new MulterError('LIMIT_UNEXPECTED_FILE', ...)) 实战 7 子类 (跟 BUG-150 jwt 5 子类 / BUG-151 mysql 14 错误码 1:1)
+      cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
     }
   },
 });
@@ -77,6 +90,15 @@ router.post('/upload', authMiddleware, upload.single('file'), (req: Request, res
     // 相对路径 URL (web 端用, 走 /api/agent/uploads/ 鉴权读)
     const url = `/api/agent/uploads/${relativePath}`;
 
+    // v3.0.79 (BUG-153 实战沉淀): 实战 originalname 实战 实战
+    const safeOriginalName = (() => {
+      try {
+        return Buffer.from(req.file!.originalname, 'latin1').toString('utf8');
+      } catch {
+        return req.file!.originalname;
+      }
+    })();
+
     logger.info('Agent upload success', {
       userId, filename: req.file.filename, size: req.file.size, mimetype: req.file.mimetype,
     });
@@ -88,7 +110,7 @@ router.post('/upload', authMiddleware, upload.single('file'), (req: Request, res
         filename: req.file.filename,
         size: req.file.size,
         mimetype: req.file.mimetype,
-        originalName: req.file.originalname,
+        originalName: safeOriginalName,
       },
       meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
     });

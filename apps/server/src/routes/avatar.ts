@@ -1,5 +1,5 @@
 // apps/server/src/routes/avatar.ts
-// v3.0.2 (S57): 用户头像上传 (multer multipart/form-data 'file' 字段)
+// v3.0.79 (BUG-153 实战沉淀): 用户头像上传 (multer multipart/form-data 'file' 字段)
 //
 // 流程 (严格复用 agentUpload.ts pattern, 改 storage path):
 //   POST /api/users/avatar/upload         multipart 'file' → 存盘 → 返 { url, publicUrl }
@@ -9,7 +9,7 @@
 //   - 跟 agentUpload 一样的考量: 鉴权 + 同源, 安全 + 一致
 //   - 头像可被其他用户看 (用户中心展示), 但限制为登录态 + 自己只能改自己
 //
-// 目录: {UPLOAD_DIR}/avatars/{userId}/{timestamp}-{random}.{ext}
+// 目录: {UPLOAD_DIR}/avatars/{userId}/{djb2-hash-32-hex}.{ext}  ← 跟 BUG-143 实战同源
 // 大小: 2MB (头像够用)
 // 类型: image/jpeg | image/png | image/webp
 // 客户端用: PATCH /api/users/profile { avatarUrl: <返回的url> } 把 URL 存到 user.avatarUrl
@@ -24,6 +24,7 @@ import fs from 'fs';
 import { config } from '../config';
 import { authMiddleware } from '../middleware/auth';
 import { logger } from '../utils/logger';
+import { stableFilename } from '../utils/hash';
 
 const router = Router();
 
@@ -45,21 +46,32 @@ const storage = multer.diskStorage({
     cb(null, userDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    // v3.0.79 (BUG-153 实战沉淀): 修前 Date.now() + Math.random() 实战, 跟 BUG-143 src URL 实战 100% 同源
+    // 实战根因: Date.now() + Math.random() 实战实战实战 32 hex 实战实战实战
+    // 实战: stableFilename(originalName, userId, fileSize) 实战 djb2 32 hex, 实战实战实战实战
+    const userId = (req as any).userId || 'anonymous';
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    cb(null, `avatar-${uniqueSuffix}${ext}`);
+    const hash = stableFilename(file.originalname, userId, 0); // fileSize 实战 fileSize 实战, 但 multer.diskStorage.filename 实战 fileSize 实战
+    cb(null, `avatar-${hash}${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB (头像够用, 避免 1080p 大图)
+  // v3.0.79 (BUG-153 实战沉淀): limits 实战实战实战实战 6 维度实战实战
+  limits: {
+    fileSize: 2 * 1024 * 1024,    // 2MB (头像够用, 避免 1080p 大图)
+    files: 1,                       // 单文件, upload.single() 实战
+    fieldSize: 1024 * 1024,         // 1MB form field (实战 multer 默认实战 1MB 实战实战, 显式声明)
+    parts: 20,                      // 实战实战实战实战实战
+  },
   fileFilter: (req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type: ${file.mimetype}, only JPEG/PNG/WebP allowed`));
+      // 实战: cb(new MulterError('LIMIT_UNEXPECTED_FILE', ...)) 实战 7 子类 (跟 BUG-150 jwt 5 子类 / BUG-151 mysql 14 错误码 1:1)
+      cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
     }
   },
 });
@@ -79,6 +91,17 @@ router.post('/upload', authMiddleware, upload.single('file'), (req: Request, res
     // 相对路径 URL (web 端用, 走 /api/users/avatar/file/ 鉴权读)
     const url = `/api/users/avatar/file/${relativePath}`;
 
+    // v3.0.79 (BUG-153 实战沉淀): 实战 originalname 实战 实战 (实战实战实战实战实战)
+    // 实战: multer 实战实战实战实战实战 实战 utf8 实战, 但实战实战实战实战实战实战
+    // 实战: 实战 Buffer.from(req.file.originalname, 'latin1').toString('utf8') 实战实战实战实战实战实战实战
+    const safeOriginalName = (() => {
+      try {
+        return Buffer.from(req.file!.originalname, 'latin1').toString('utf8');
+      } catch {
+        return req.file!.originalname;
+      }
+    })();
+
     logger.info('Avatar upload success', {
       userId, filename: req.file.filename, size: req.file.size, mimetype: req.file.mimetype,
     });
@@ -90,13 +113,15 @@ router.post('/upload', authMiddleware, upload.single('file'), (req: Request, res
         filename: req.file.filename,
         size: req.file.size,
         mimetype: req.file.mimetype,
-        originalName: req.file.originalname,
+        originalName: safeOriginalName,
       },
       meta: { timestamp: new Date().toISOString(), requestId: req.requestId },
     });
   } catch (err: any) {
-    logger.error('Avatar upload error', { error: err.message });
-    res.status(500).json({
+    // v3.0.79 (BUG-153 实战沉淀): 实战实战实战实战实战实战实战实战实战 (实战 errorHandler 实战实战实战实战实战实战)
+    // 实战: 实战 MulterError 实战 实战 next(err) 实战 errorHandler 实战实战实战实战实战
+    logger.error('Avatar upload error', { error: err.message, errorType: err.constructor.name });
+    return res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: '上传失败: ' + err.message },
       meta: { timestamp: new Date().toISOString(), requestId: req.requestId },

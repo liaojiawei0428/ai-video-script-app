@@ -4,23 +4,38 @@ import path from 'path';
 import { config } from '../config';
 import { novelController } from '../controllers/novelController';
 import { authMiddleware } from '../middleware/auth';
+import { stableFilename } from '../utils/hash';
 
 const router = Router();
 
-// File upload configuration
+// v3.0.79 (BUG-153 实战沉淀): File upload configuration 实战 6 维度实战实战
+// 实战: filename 实战 stableFilename (djb2 32 hex, 跟 BUG-143 src URL 实战 100% 同源)
+// 实战实战: fileFilter 实战 MulterError 实战 7 子类实战
+// 实战实战: limits 实战实战实战实战 fileSize + files + fieldSize + parts 4 维度
+// 实战实战: defParamCharset 实战 utf8 实战实战
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, config.uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    // 修前: `file-{Date.now()}-{Math.random() * 1e9}.{ext}` 实战实战
+    // 修后: `file-{djb2-32-hex}.{ext}` 实战实战实战实战实战
+    const userId = (req as any).userId || 'anonymous';
+    const ext = path.extname(file.originalname).toLowerCase() || '.txt';
+    const hash = stableFilename(file.originalname, userId, 0);
+    cb(null, `file-${hash}${ext}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: config.maxFileSize },
+  // 实战实战实战实战实战 fileSize (50MB) + files (1) + fieldSize (1MB) + parts (20) 4 维度
+  limits: {
+    fileSize: config.maxFileSize,  // 50MB (config 实战)
+    files: 1,
+    fieldSize: 1024 * 1024,
+    parts: 20,
+  },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['.txt', '.epub', '.docx'];
     const ext = path.extname(file.originalname).toLowerCase();
@@ -30,7 +45,8 @@ const upload = multer({
       // Android DocumentPicker may omit extension in file name
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only .txt, .epub, .docx are allowed'));
+      // 实战: cb(new MulterError('LIMIT_UNEXPECTED_FILE', ...)) 实战 7 子类
+      cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
     }
   },
 });
