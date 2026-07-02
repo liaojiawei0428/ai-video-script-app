@@ -331,7 +331,7 @@ export class NovelService {
     return novel;
   }
 
-  async analyzeNovel(novelId: string): Promise<TaskJob> {
+  async analyzeNovel(novelId: string, userId?: string): Promise<TaskJob> {
     const novel = await novelModel.findById(novelId);
     if (!novel) throw new AppError('NOVEL_NOT_FOUND', `Novel ${novelId} not found`, 404);
     if (!novel.filePath) throw new AppError('VALIDATION_ERROR', 'Novel file not available', 400);
@@ -370,12 +370,12 @@ export class NovelService {
     await taskJobModel.create(task);
     await novelModel.updateStatus(novelId, 'analyzing');
 
-    taskQueue.enqueue(novelId, novel.userId || '', task.id, () => this.executeAnalysis(novelId, content, task.id));
+    taskQueue.enqueue(novelId, userId || novel.userId || '', task.id, () => this.executeAnalysis(novelId, content, task.id, userId));
 
     return task;
   }
 
-  private async executeAnalysis(novelId: string, content: string, taskId: string): Promise<void> {
+  private async executeAnalysis(novelId: string, content: string, taskId: string, userId?: string): Promise<void> {
     try {
       logger.info('Starting novel analysis with chunk pipeline', { novelId, taskId, totalChars: content.length });
 
@@ -404,7 +404,7 @@ export class NovelService {
         await taskJobModel.updateProgress(taskId, 5, 1);
         websocketService.broadcastProgress(novelId, 5, 'analyzing');
 
-        await this.streamAnalysis(novelId, content, taskId);
+        await this.streamAnalysis(novelId, content, taskId, userId);
         return;
       }
 
@@ -425,6 +425,7 @@ export class NovelService {
           websocketService.broadcastChunkProgress(novelId, progress);
         },
         styleBibleBlock,
+        userId,
       );
 
       // S72 v3.0.33 P2 #11 修复 (ADR-0002): broadcast 加上 failedChunks 具体段号 (旧版只报 count, 用户不知道哪段失败)
@@ -447,7 +448,7 @@ export class NovelService {
         content: '🔗 正在合并所有段落分析结果...',
       });
 
-      const fullSummary = await chunkService.mergeSummaries(summaries, novelId, styleBibleBlock);
+      const fullSummary = await chunkService.mergeSummaries(summaries, novelId, styleBibleBlock, userId);
       logger.info('Full summary generated', { novelId, summaryLength: fullSummary.length });
 
       // 保存全文摘要到数据库
@@ -481,7 +482,9 @@ export class NovelService {
             stream: true,
           });
         },
-        0.3
+        0.3,
+        2,
+        userId,
       );
 
       // 流式已逐字推送完成
@@ -522,7 +525,7 @@ export class NovelService {
   /**
    * 短篇小说（<=80K）直接流式分析，不走分块管道
    */
-  private async streamAnalysis(novelId: string, content: string, taskId: string): Promise<void> {
+  private async streamAnalysis(novelId: string, content: string, taskId: string, userId?: string): Promise<void> {
     await taskJobModel.updateProgress(taskId, 10, 1);
     websocketService.broadcastProgress(novelId, 10, 'analyzing');
 
@@ -542,7 +545,9 @@ export class NovelService {
           stream: true,
         });
       },
-      0.3
+      0.3,
+      2,
+      userId,
     );
 
     websocketService.broadcastLlmUpdate(novelId, {

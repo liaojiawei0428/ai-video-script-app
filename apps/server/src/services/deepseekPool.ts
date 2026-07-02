@@ -47,53 +47,60 @@ export class DeepseekPool {
     return inst;
   }
 
+  // BUG-148 修法 5: 6 个方法都加 userId 透传 (官方 user_id 用于内容安全 + KVCache + 调度隔离)
   async chatCompletion(
     systemPrompt: string,
     userPrompt: string,
-    temperature: number = 0.7
+    temperature: number = 0.7,
+    userId?: string,
   ): Promise<LlmResult> {
-    return this.nextInstance().chatCompletion(systemPrompt, userPrompt, temperature);
+    return this.nextInstance().chatCompletion(systemPrompt, userPrompt, temperature, userId);
   }
 
   async chatCompletionWithRetry(
     systemPrompt: string,
     userPrompt: string,
     temperature: number = 0.7,
-    maxRetries: number = 3
+    maxRetries: number = 3,
+    userId?: string,
   ): Promise<LlmResult> {
-    return this.nextInstance().chatCompletionWithRetry(systemPrompt, userPrompt, temperature, maxRetries);
+    return this.nextInstance().chatCompletionWithRetry(systemPrompt, userPrompt, temperature, maxRetries, userId);
   }
 
   async chatCompletionWithMessages(
     messages: Array<{ role: string; content: string }>,
-    temperature: number = 0.7
+    temperature: number = 0.7,
+    userId?: string,
   ): Promise<LlmResult> {
-    return this.nextInstance().chatCompletionWithMessages(messages, temperature);
+    return this.nextInstance().chatCompletionWithMessages(messages, temperature, userId);
   }
 
   async chatCompletionWithMessagesRetry(
     messages: Array<{ role: string; content: string }>,
     temperature: number = 0.7,
-    maxRetries: number = 3
+    maxRetries: number = 3,
+    userId?: string,
   ): Promise<LlmResult> {
-    return this.nextInstance().chatCompletionWithMessagesRetry(messages, temperature, maxRetries);
+    return this.nextInstance().chatCompletionWithMessagesRetry(messages, temperature, maxRetries, userId);
   }
 
   async chatCompletionStream(
     systemPrompt: string,
     userPrompt: string,
     onChunk: (chunk: string) => void,
-    temperature: number = 0.7
+    temperature: number = 0.7,
+    userId?: string,
   ): Promise<void> {
-    return this.nextInstance().chatCompletionStream(systemPrompt, userPrompt, onChunk, temperature);
+    return this.nextInstance().chatCompletionStream(systemPrompt, userPrompt, onChunk, temperature, userId);
   }
 
   async chatCompletionStreamWithMessages(
     messages: Array<{ role: string; content: string }>,
     onChunk: (chunk: string) => void,
-    temperature: number = 0.7
+    temperature: number = 0.7,
+    userId?: string,
   ): Promise<void> {
-    return this.nextInstance().chatCompletionStreamWithMessages(messages, onChunk, temperature);
+    return this.nextInstance().chatCompletionStreamWithMessages(messages, onChunk, temperature, userId);
   }
 
   async chatCompletionStreamWithRetry(
@@ -101,9 +108,10 @@ export class DeepseekPool {
     userPrompt: string,
     onChunk: (chunk: string) => void,
     temperature: number = 0.7,
-    maxRetries: number = 2
+    maxRetries: number = 2,
+    userId?: string,
   ): Promise<void> {
-    return this.nextInstance().chatCompletionStreamWithRetry(systemPrompt, userPrompt, onChunk, temperature, maxRetries);
+    return this.nextInstance().chatCompletionStreamWithRetry(systemPrompt, userPrompt, onChunk, temperature, maxRetries, userId);
   }
 }
 

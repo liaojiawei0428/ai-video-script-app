@@ -9,7 +9,9 @@ export const outlineController = {
   async generateOutline(req: Request, res: Response, next: NextFunction) {
     try {
       const { novelId } = req.params;
-      const outline = await outlineService.generateOutline(novelId);
+      const userId = (req as any).userId;
+      // BUG-148: 传 userId 给 outlineService 用于 DeepSeek user_id 隔离
+      const outline = await outlineService.generateOutline(novelId, userId);
       res.json({
         success: true,
         data: outline,
@@ -69,7 +71,9 @@ export const outlineController = {
   async generatePlotGraph(req: Request, res: Response, next: NextFunction) {
     try {
       const { novelId } = req.params;
-      const graph = await outlineService.generatePlotGraph(novelId);
+      const userId = (req as any).userId;
+      // BUG-148: 传 userId 给 outlineService 用于 DeepSeek user_id 隔离
+      const graph = await outlineService.generatePlotGraph(novelId, userId);
       res.json({
         success: true,
         data: graph,

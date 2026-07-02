@@ -41,7 +41,7 @@ function safeJsonParse<T>(text: string): T {
 }
 
 export class OutlineService {
-  async generateOutline(novelId: string): Promise<EpisodeOutline> {
+  async generateOutline(novelId: string, userId?: string): Promise<EpisodeOutline> {
     const novel = await novelModel.findById(novelId);
     if (!novel?.filePath) throw new AppError('NOVEL_NOT_FOUND', 'Novel not found or no content', 404);
 
@@ -63,12 +63,13 @@ export class OutlineService {
       styleBibleBlock,
     }) + `\n\n请严格输出 ${target} 集大纲。`;
 
-    logger.info('OutlineService.generateOutline start', { novelId, target, charCount: characters.length });
+    logger.info('OutlineService.generateOutline start', { novelId, userId, target, charCount: characters.length });
     const result = await deepseekPool.chatCompletionWithRetry(
       episodeOutlineSystemPrompt(styleBibleBlock),
       userPrompt,
       0.7,
       2,
+      userId,
     );
     const parsed = safeJsonParse<{ items: EpisodeOutline['items'] }>(result.content);
     if (!parsed.items || !Array.isArray(parsed.items) || parsed.items.length === 0) {
@@ -101,7 +102,7 @@ export class OutlineService {
     return outline;
   }
 
-  async generatePlotGraph(novelId: string): Promise<PlotGraph> {
+  async generatePlotGraph(novelId: string, userId?: string): Promise<PlotGraph> {
     const novel = await novelModel.findById(novelId);
     if (!novel?.filePath) throw new AppError('NOVEL_NOT_FOUND', 'Novel not found or no content', 404);
 
@@ -119,12 +120,13 @@ export class OutlineService {
       styleBibleBlock,
     });
 
-    logger.info('OutlineService.generatePlotGraph start', { novelId, charCount: characters.length });
+    logger.info('OutlineService.generatePlotGraph start', { novelId, userId, charCount: characters.length });
     const result = await deepseekPool.chatCompletionWithRetry(
       plotGraphSystemPrompt(styleBibleBlock),
       userPrompt,
       0.6,
       2,
+      userId,
     );
     const parsed = safeJsonParse<{ chapters: PlotGraph['chapters'] }>(result.content);
     if (!parsed.chapters || !Array.isArray(parsed.chapters) || parsed.chapters.length === 0) {

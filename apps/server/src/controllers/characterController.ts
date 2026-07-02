@@ -62,10 +62,11 @@ export const characterController = {
       // 后台执行
       setImmediate(async () => {
         try {
-          const result = await extractDescriptions(novelId);
-          logger.info('Character extract completed', { novelId, ...result });
+          // BUG-148: 传 userId 给 characterService 用于 DeepSeek user_id 隔离
+          const result = await extractDescriptions(novelId, undefined, undefined, 'realistic', userId);
+          logger.info('Character extract completed', { novelId, userId, ...result });
         } catch (err) {
-          logger.error('Character extract failed', { novelId, error: err });
+          logger.error('Character extract failed', { novelId, userId, error: err });
         }
       });
     } catch (err) {

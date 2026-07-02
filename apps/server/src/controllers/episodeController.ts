@@ -38,8 +38,10 @@ export const episodeController = {
   async generateShots(req: Request, res: Response, next: NextFunction) {
     try {
       const { episodeId } = req.params;
-      logger.info('Starting shot generation', { episodeId });
-      const task = await scriptService.generateShots(episodeId);
+      const userId = (req as any).userId;
+      logger.info('Starting shot generation', { episodeId, userId });
+      // BUG-148: 传 userId 给 script service 用于 DeepSeek user_id 隔离
+      const task = await scriptService.generateShots(episodeId, userId);
       res.json({ success: true, data: { taskId: task.id, status: task.status }, meta: { timestamp: new Date().toISOString(), requestId: req.requestId } });
     } catch (error) {
       next(error);

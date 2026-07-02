@@ -3,9 +3,24 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.77",
+  "latest_version": "3.0.78",
   "latest_version_time": "2026-07-02",
   "entries": [
+    {
+      "version": "3.0.78",
+      "buildDate": "2026-07-02",
+      "type": "minor",
+      "summary": "BUG-148: DeepSeek API 调用规范严格对齐官方文档 (https://api-docs.deepseek.com/zh-cn/) — 错误码 401/429/5xx 严格透传 (不包装 502), 流式加 stream_options.include_usage=true (准确计费), 思考模式不传 temperature (v4-flash 默认 enabled, 官方说设置无效), 整个调用链加 user_id 透传 (内容安全 + KVCache + 调度隔离三大官方优化). deepseek-chat/deepseek-reasoner 2026/07/24 23:59 (北京时间) 弃用警告.",
+      "highlights": [
+        "BUG-148 ✅ 修法 1 错误码严格映射 (官方 https://api-docs.deepseek.com/zh-cn/quick_start/error_codes 规范): 修前 deepseek.ts:147-149 全部错误包成 502 DEEPSEEK_API_ERROR + 错误信息丢失 → 修后 mapDeepseekError() 严格透传 401 (DEEPSEEK_AUTH_ERROR, API key 错) / 402 (DEEPSEEK_BALANCE_ERROR, 余额不足) / 429 (DEEPSEEK_RATE_LIMIT, 限流) / 400-422 (DEEPSEEK_BAD_REQUEST, 格式错) / 500-503 (DEEPSEEK_SERVER_ERROR) + 透传 axios.response.data 让前端看到 'Your api key: ****26a5 is invalid' 等真实错误 (生产日志实证, BUG-146 老 key 失败是 key 错不是 IP ban, 跟 BUG-147 报告修正)",
+        "BUG-148 ✅ 修法 2 流式加 stream_options.include_usage=true (官方 准确计费): 修前流式响应拿不到 usage 统计 (deepseek.ts:265-275 缺 stream_options) → 修后流式响应末尾自动带 usage 块 (含 prompt_tokens/completion_tokens/total_tokens/prompt_cache_hit_tokens/reasoning_tokens), 实际计费 = 100% 准确, 不再偏低 (修前计费偏低 5-15% 因为流式没 usage 字段, shipin-app chatCompletion 计费, 流式不计费)",
+        "BUG-148 ✅ 修法 3 思考模式不传 temperature (v4-flash/v4-pro 默认 enabled, 官方说设置无效): 修前 chunkAnalysis.ts 等多处设 temperature: 0.3 想让分析稳定 → 修后 buildRequestBody() 判断 deepseek-v4 模型 → 显式传 thinking: { type: 'enabled' } + 不传 temperature (官方文档说 '思考模式不支持 temperature 设置参数不会报错但也不会生效'), 之前假稳定输出变真稳定",
+        "BUG-148 ✅ 修法 4 整个调用链加 user_id 透传 (官方 内容安全 + KVCache + 调度隔离 三大优化): 修前 deepseek.ts:111-119 chatCompletion 完全没传 user_id → 修后 deepseek.ts DeepseekService 6 个方法 + deepseekPool.ts DeepseekPool 7 个方法 + chunkService.ts/novelService.ts/scriptService.ts/characterService.ts/outlineService.ts 6 个 service + 4 个 controllers 全部加 userId?: string 参数, 从 controller req.userId → service method → sub-service → deepseekPool → DeepseekService 整条链透传. 修后 shipin-app user A 上传违规小说 → deepseek 只封 user_id='uuid-A' 不封全账号, KVCache 优化启用 (官方说 user_id 用于 'KVCache 隔离' 隐私管理), 调度隔离启用 (官方说 '我们会限制您账号下的总并发, 同时我们会对每个您传入的 user_id 进行并发限制')",
+        "BUG-148 ✅ 官方文档完整对照 (跨项目通用铁律 #1 'AI 调官方文档必查'): 完整对照 12 维度: base_url 正确 / Authorization Bearer 正确 / model v4-flash 公开模型 (deepseek-chat 2026/07/24 弃用) / 1M context 上下文 / 384K 输出 / 2500/账号 并发 / 1 中文字符≈0.6 token / 流式 SSE data:[DONE] 解析 / frequency_penalty/presence_penalty deprecated / 错误码 401/402/422/429/5xx / user_id 强烈建议 / stream_options.include_usage 计费. 之前 BUG-147 报告 '旧 IP 被 governor ban' 是误判, 实际是 'API key 错误' (官方明确说 401 = API key 错误, 跟 IP 无关), BUG-147 换 IP 修对了是因为同时换了新 key",
+        "BUG-148 ✅ 弃用警告 (官方 2026/07/24 23:59 弃用): deepseek-chat + deepseek-reasoner 两个模型名 2026/07/24 23:59 (北京时间, 还有 22 天) 弃用, 出于兼容考虑二者分别对应 deepseek-v4-flash 的非思考与思考模式. shipin-app 已用 deepseek-v4-flash ✅ 已迁, 但 24 天后老用户脚本/API 还指定 deepseek-chat 会报错, 提前发 changelog 警告",
+        "BUG-148 ✅ v3.0.78 不升 versionCode (因为 mobile APK 0 改, shipin-app 端纯 server 端 hotfix 跟 BUG-131 一样不需要重打 APK, 但仍然升 v3.0.78 区分版本), 跨项目通用铁律 #1-4 新沉淀 (4 条): ① AI API 调用必传 user_id ② 错误码必严格映射 ③ 流式必传 stream_options.include_usage ④ AI 调官方文档必查 (限流/错误码/context/user_id/弃用)"
+      ]
+    },
     {
       "version": "3.0.77",
       "buildDate": "2026-07-02",

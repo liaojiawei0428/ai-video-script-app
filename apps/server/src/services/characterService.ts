@@ -138,6 +138,7 @@ export async function extractDescriptions(
   fullSummary?: string,
   novelTitle?: string,
   styleId: StylePresetId = 'realistic',
+  userId?: string,
 ): Promise<CharacterDescriptionGenResult> {
   // 拉取小说所有角色
   const characters = await characterModel.findByNovelId(novelId);
@@ -191,6 +192,7 @@ export async function extractDescriptions(
       userPrompt,
       0.5,
       2,
+      userId,
     );
 
     // 解析 JSON（容错）

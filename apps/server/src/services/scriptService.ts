@@ -24,7 +24,8 @@ export class ScriptService {
   async generateEpisodes(
     novelId: string,
     targetDuration: number = 120,
-    tolerance: number = 10
+    tolerance: number = 10,
+    userId?: string,
   ): Promise<TaskJob> {
     const novel = await novelModel.findById(novelId);
     if (!novel?.filePath) throw new AppError('NOVEL_NOT_FOUND', 'Novel not found or no content', 404);
@@ -54,7 +55,7 @@ export class ScriptService {
     await taskJobModel.updateProgress(task.id, 1, 1);
     await novelModel.updateStatus(novelId, 'generating');
 
-    taskQueue.enqueue(novelId, novel.userId || '', task.id, () => this.executeEpisodeGeneration(novel, task.id, targetDuration), 'episode_generate');
+    taskQueue.enqueue(novelId, userId || novel.userId || '', task.id, () => this.executeEpisodeGeneration(novel, task.id, targetDuration, new Set(), userId), 'episode_generate');
 
     return task;
   }
@@ -65,7 +66,8 @@ export class ScriptService {
    */
   async continueEpisodeGeneration(
     novelId: string,
-    targetDuration: number = 120
+    targetDuration: number = 120,
+    userId?: string,
   ): Promise<TaskJob> {
     const novel = await novelModel.findById(novelId);
     if (!novel?.filePath) throw new AppError('NOVEL_NOT_FOUND', 'Novel not found or no content', 404);
@@ -100,8 +102,8 @@ export class ScriptService {
     await novelModel.updateStatus(novelId, 'generating');
 
     taskQueue.enqueue(
-      novelId, novel.userId || '', task.id,
-      () => this.executeEpisodeGeneration(novel, task.id, targetDuration, existingNumbers),
+      novelId, userId || novel.userId || '', task.id,
+      () => this.executeEpisodeGeneration(novel, task.id, targetDuration, existingNumbers, userId),
       'episode_generate'
     );
 
@@ -109,7 +111,7 @@ export class ScriptService {
   }
 
   private async executeEpisodeGeneration(
-    novel: any, taskId: string, targetDuration: number, skipNumbers: Set<number> = new Set()
+    novel: any, taskId: string, targetDuration: number, skipNumbers: Set<number> = new Set(), userId?: string
   ): Promise<void> {
     const novelId = novel.id;
     try {
@@ -142,7 +144,7 @@ export class ScriptService {
       let totalEpisodes = formulaEpisodes;
       let storyArcs: Array<{ epRange: string; name: string }> = [];
       try {
-        const planResult = await this.aiEpisodePlan(novel, fullSummary, charactersInfo, content.length, formulaEpisodes);
+        const planResult = await this.aiEpisodePlan(novel, fullSummary, charactersInfo, content.length, formulaEpisodes, userId);
         if (planResult.episodes >= 1 && planResult.episodes <= MAX_EPISODES) {
           totalEpisodes = planResult.episodes;
         }
@@ -182,7 +184,7 @@ export class ScriptService {
       // 将小说按段落分割并编号
       const paragraphs = this.splitParagraphs(content);
       const { episodesBoundaries, episodePlans } = await this.buildEpisodePlans(
-        novelId, content, paragraphs, totalEpisodes, storyArcs
+        novelId, content, paragraphs, totalEpisodes, storyArcs, userId
       );
 
       logger.info('Episode plans built', { novelId, totalEpisodes, boundariesFromAI: episodesBoundaries });
@@ -302,7 +304,7 @@ ${episodeText}`;
         await billingService.guardBalance(novelId, taskId, 'episode', episodeText.length);
         await billingService.chargeStep(novelId, 'episode', episodeText.length);
 
-        const { scriptText, streamSucceeded } = await this.generateEpisodeStream(novelId, epPhase, episodeReq, styleBibleBlock, voiceAndTone);
+        const { scriptText, streamSucceeded } = await this.generateEpisodeStream(novelId, epPhase, episodeReq, styleBibleBlock, voiceAndTone, userId);
         const llmDurationMs = Date.now() - llmStart;
 
         const titleMatch = scriptText.match(/第\d+集[：:](.+)/);
@@ -333,7 +335,7 @@ ${episodeText}`;
             try {
               rollingPlotSummary = await this.summarizeRecentScripts(
                 recentScriptEndings.slice(-COMPRESS_INTERVAL),
-                plan.episodeNumber, novelId
+                plan.episodeNumber, novelId, userId
               );
             } catch (e) {
               logger.warn('Rolling summary failed, using simple concat', { novelId, error: e instanceof Error ? e.message : String(e) });
@@ -395,7 +397,7 @@ ${episodeText}`;
   }
 
   /** 从 ID 列表中找语义切分点（LumberChunker 风格） */
-  private async findSemanticBoundary(paragraphs: string[], fromIdx: number, windowSize: number = 15): Promise<number | null> {
+  private async findSemanticBoundary(paragraphs: string[], fromIdx: number, windowSize: number = 15, userId?: string): Promise<number | null> {
     const endIdx = Math.min(fromIdx + windowSize, paragraphs.length);
     const idsText = paragraphs.slice(fromIdx, endIdx)
       .map((p, i) => `ID:${fromIdx + i}\n${p.slice(0, 200)}`)
@@ -413,7 +415,7 @@ ${idsText}
       const result = await deepseekPool.chatCompletionWithMessages([
         { role: 'system', content: '你是叙事分析专家。只返回"ID:数字"格式。' },
         { role: 'user', content: prompt },
-      ], 0.2);
+      ], 0.2, userId);
       const match = result.content.match(/(\d+)/);
       if (match) {
         const boundary = parseInt(match[1], 10);
@@ -425,7 +427,7 @@ ${idsText}
 
   /** AI 剧集规划：返回集数+剧情大阶段 */
   private async aiEpisodePlan(
-    novel: any, summary: string, charactersInfo: string, totalChars: number, formulaEstimate: number
+    novel: any, summary: string, charactersInfo: string, totalChars: number, formulaEstimate: number, userId?: string
   ): Promise<{ episodes: number; arcs: Array<{ epRange: string; name: string }> }> {
     const wordCountWan = (totalChars / 10000).toFixed(1);
     const prompt = `你是影视编剧。已知小说信息如下：
@@ -446,7 +448,7 @@ ${idsText}
     const result = await deepseekPool.chatCompletionWithMessages([
       { role: 'system', content: '你是影视编剧。只输出JSON，不要任何解释。' },
       { role: 'user', content: prompt },
-    ], 0.3);
+    ], 0.3, userId);
 
     try {
       const jsonMatch = result.content.match(/\{[\s\S]*\}/);
@@ -465,7 +467,7 @@ ${idsText}
   /** 构建分集计划（公式预估边界 + 语义微调） */
   private async buildEpisodePlans(
     novelId: string, content: string, paragraphs: string[],
-    totalEpisodes: number, storyArcs: Array<{ epRange: string; name: string }>
+    totalEpisodes: number, storyArcs: Array<{ epRange: string; name: string }>, userId?: string
   ): Promise<{
     episodesBoundaries: number;
     episodePlans: Array<{ episodeNumber: number; title: string; summary: string; startCharIndex: number; endCharIndex: number }>;
@@ -507,7 +509,7 @@ ${idsText}
         });
         if (paraSubset.length >= 5 && ep < totalEpisodes) {
           try {
-            const boundary = await this.findSemanticBoundary(paraSubset, 0, Math.min(15, paraSubset.length));
+            const boundary = await this.findSemanticBoundary(paraSubset, 0, Math.min(15, paraSubset.length), userId);
             if (boundary && boundary > 1 && boundary < paraSubset.length - 1) {
               const boundaryText = paraSubset[boundary]?.slice(0, 50) || '';
               const bIdx = content.indexOf(boundaryText, searchStart);
@@ -547,7 +549,7 @@ ${idsText}
   /** 生成单集剧本流 */
   private async generateEpisodeStream(
     novelId: string, epPhase: string, episodeReq: string,
-    styleBibleBlock?: string, voiceAndTone?: string,
+    styleBibleBlock?: string, voiceAndTone?: string, userId?: string,
   ): Promise<{ scriptText: string; streamSucceeded: boolean }> {
     let scriptText = '';
     let streamSucceeded = false;
@@ -570,7 +572,8 @@ ${idsText}
               tokens: scriptText.length, stream: true,
             });
           },
-          0.7
+          0.7,
+          userId
         );
         if (scriptText.trim().length > 50) {
           streamSucceeded = true;
@@ -667,7 +670,8 @@ ${idsText}
   private async summarizeRecentScripts(
     endings: string[],
     currentEp: number,
-    novelId: string
+    novelId: string,
+    userId?: string,
   ): Promise<string> {
     const joined = endings.map((e, i) => `[${currentEp - endings.length + i + 1}集尾] ${e}`).join('\n');
     const prompt = `请将以下剧本结尾片段压缩为 300 字内的"近几集剧情回顾"，保留关键人物状态、情感变化、剧情走向、悬念。不要解释，直接输出压缩结果。\n\n${joined}`;
@@ -689,7 +693,7 @@ ${idsText}
     }
   }
 
-  async regenerateEpisode(episodeId: string): Promise<TaskJob> {
+  async regenerateEpisode(episodeId: string, userId?: string): Promise<TaskJob> {
     const episode = await episodeModel.findById(episodeId);
     if (!episode) throw new AppError('NOVEL_NOT_FOUND', 'Episode not found', 404);
     const novel = await novelModel.findById(episode.novelId);
@@ -706,12 +710,12 @@ ${idsText}
     await taskJobModel.create(task);
 
     // 后台异步执行
-    this.executeEpisodeRegeneration(episode, novel, task.id);
+    this.executeEpisodeRegeneration(episode, novel, task.id, userId);
     return task;
   }
 
   private async executeEpisodeRegeneration(
-    episode: Episode, novel: any, taskId: string
+    episode: Episode, novel: any, taskId: string, userId?: string
   ): Promise<void> {
     const novelId = episode.novelId;
     try {
@@ -795,7 +799,8 @@ ${episodeText}`;
                 tokens: scriptText.length, stream: true,
               });
             },
-            0.7
+            0.7,
+            userId
           );
           if (scriptText.trim().length > 50) break;
         } catch (err) {
@@ -841,7 +846,7 @@ ${episodeText}`;
     }
   }
 
-  async generateShots(episodeId: string): Promise<TaskJob> {
+  async generateShots(episodeId: string, userId?: string): Promise<TaskJob> {
     const episode = await episodeModel.findById(episodeId);
     if (!episode) throw new AppError('NOVEL_NOT_FOUND', 'Episode not found', 404);
 
@@ -867,12 +872,12 @@ ${episodeText}`;
 
     await taskJobModel.create(task);
 
-    taskQueue.enqueue(episode.novelId, '', task.id, () => this.executeShotGeneration(episodeId, task.id));
+    taskQueue.enqueue(episode.novelId, userId || '', task.id, () => this.executeShotGeneration(episodeId, task.id, userId));
 
     return task;
   }
 
-  private async executeShotGeneration(episodeId: string, taskId: string): Promise<void> {
+  private async executeShotGeneration(episodeId: string, taskId: string, userId?: string): Promise<void> {
     try {
       const episode = await episodeModel.findById(episodeId);
       if (!episode) throw new Error('Episode not found');
@@ -952,7 +957,9 @@ ${episodeText}`;
                 stream: true,
               });
             },
-            0.7
+            0.7,
+            2,
+            userId
           );
 
           // 解析 + 校验

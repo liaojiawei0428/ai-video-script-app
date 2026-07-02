@@ -57,7 +57,8 @@ export const novelController = {
       // Auto-start analysis in background
       let taskId: string | undefined;
       try {
-        const task = await novelService.analyzeNovel(novel.id);
+        // BUG-148: 传 userId 给 analyzeNovel 用于 DeepSeek user_id 隔离
+        const task = await novelService.analyzeNovel(novel.id, userId);
         taskId = task.id;
       } catch (analysisError) {
         logger.warn('Auto-analysis trigger failed', { novelId: novel.id, error: analysisError });
@@ -94,7 +95,8 @@ export const novelController = {
       if (!novel) return res.status(404).json({ success: false, error: { code: 'NOVEL_NOT_FOUND', message: '小说不存在' } });
       if (novel.userId !== userId) return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: '无权访问该小说' } });
       logger.info('Starting analysis', { novelId, userId });
-      const task = await novelService.analyzeNovel(novelId);
+      // BUG-148: 传 userId 给 analyzeNovel 用于 DeepSeek user_id 隔离
+      const task = await novelService.analyzeNovel(novelId, userId);
       res.json({
         success: true,
         data: {
@@ -207,11 +209,13 @@ export const novelController = {
         return res.status(503).json({ success: false, error: { code: 'MAINTENANCE', message: '系统维护中，请稍候再试' } });
       }
       const { novelId } = req.params;
+      const userId = (req as any).userId;
       const { targetDuration = 120, tolerance = 10, continue: continueFlag } = req.body;
-      logger.info('Starting episode generation', { novelId, targetDuration, tolerance, continueFlag });
+      logger.info('Starting episode generation', { novelId, userId, targetDuration, tolerance, continueFlag });
+      // BUG-148: 传 userId 给 script service 用于 DeepSeek user_id 隔离
       const task = continueFlag
-        ? await scriptService.continueEpisodeGeneration(novelId, targetDuration)
-        : await scriptService.generateEpisodes(novelId, targetDuration, tolerance);
+        ? await scriptService.continueEpisodeGeneration(novelId, targetDuration, userId)
+        : await scriptService.generateEpisodes(novelId, targetDuration, tolerance, userId);
       res.json({
         success: true,
         data: {
@@ -231,8 +235,10 @@ export const novelController = {
   async regenerateEpisode(req: Request, res: Response, next: NextFunction) {
     try {
       const { episodeId } = req.params;
-      logger.info('Starting episode regeneration', { episodeId });
-      const task = await scriptService.regenerateEpisode(episodeId);
+      const userId = (req as any).userId;
+      logger.info('Starting episode regeneration', { episodeId, userId });
+      // BUG-148: 传 userId 给 script service 用于 DeepSeek user_id 隔离
+      const task = await scriptService.regenerateEpisode(episodeId, userId);
       res.json({
         success: true,
         data: {

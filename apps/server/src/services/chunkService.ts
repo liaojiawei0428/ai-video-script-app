@@ -108,6 +108,7 @@ export class ChunkService {
     novelId: string,
     onProgress: (progress: ChunkProgress) => void,
     styleBibleBlock?: string,
+    userId?: string,
   ): Promise<ChunkSummary[]> {
     const total = chunks.length;
     const chunkStates: ChunkStatus[] = chunks.map(c => ({
@@ -154,7 +155,8 @@ export class ChunkService {
               chunkContent += token;
               websocketService.broadcastChunkStream(novelId, chunk.index, token);
             },
-            0.3
+            0.3,
+            userId,
           );
 
           summaries.push({
@@ -254,7 +256,7 @@ export class ChunkService {
   /**
    * 一次性合并所有块摘要为全文摘要
    */
-  async mergeSummaries(summaries: ChunkSummary[], novelId?: string, styleBibleBlock?: string): Promise<string> {
+  async mergeSummaries(summaries: ChunkSummary[], novelId?: string, styleBibleBlock?: string, userId?: string): Promise<string> {
     const sorted = [...summaries].sort((a, b) => a.index - b.index);
 
     const validSummaries = sorted.filter(s => !s.failed && s.content);
@@ -291,7 +293,8 @@ export class ChunkService {
       const result = await deepseekPool.chatCompletion(
         chunkMergeSystemPrompt(styleBibleBlock),
         chunkMergeUserPrompt(summariesText, styleBibleBlock),
-        0.3
+        0.3,
+        userId,
       );
 
       logger.info('Summaries merged', {
