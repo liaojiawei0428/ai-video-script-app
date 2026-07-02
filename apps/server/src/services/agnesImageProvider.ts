@@ -136,6 +136,9 @@ export class AgnesImageProvider implements ImageProvider {
       extra_body: {
         response_format: 'url',                  // ← v3.0.0: 必须在 extra_body
       },
+      // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段 (跟 BUG-148 deepseek user_id 1:1 镜像)
+      // Agnes 文档未明确列, 但 OpenAI 兼容协议默默支持 (shipin-app 透传 shipin-app userId, 用于内容安全 + KVCache)
+      ...(options.userId && { user: options.userId }),
     };
 
     if (options.referenceImages && options.referenceImages.length > 0) {

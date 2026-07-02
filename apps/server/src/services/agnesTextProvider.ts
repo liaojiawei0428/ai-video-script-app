@@ -8,6 +8,11 @@
 //   2. 图片 key 通用文本接口 (curl 验证 AGNES_IMAGE_API_KEY 也能调 chat/completions)
 // v3.0.51 (BUG-122): 拆 3 个企业 key, text 优先读 AGNES_TEXT_API_KEY (企业配额独立, 并发更高)
 //   - 优先级: AGNES_TEXT_API_KEY (企业 text 专用) > AGNES_API_KEY (统一) > AGNES_IMAGE_API_KEY (老兼容)
+// v3.0.78 (BUG-149): 错误码严格映射 (跟 image/video BUG-132/137 1:1 镜像, 修前只判断 429 其他包装错误信息丢失)
+//   - 加 AgnesTextErrorType + AgnesTextError + classifyAgnesTextError (跟 AgnesImageErrorType 1:1)
+//   - 加 user 字段 (OpenAI 协议标准, shipin-app 透传 userId, 跟 BUG-148 deepseek user_id 1:1 镜像)
+//   - 加 stream_options.include_usage (OpenAI 协议标准, 修前流式经常拿不到 usage 块, 计费偏低)
+//   - 错误信息透传 upstream (跟 deepseek mapDeepseekError 1:1 镜像, 修前 shipin-app `Agnes API 错误 (...)` prefix 包装 upstream 错误信息)
 
 import { logger } from '../utils/logger';
 
@@ -16,11 +21,66 @@ const AGNES_API_URL = 'https://apihub.agnes-ai.com/v1/chat/completions';
 // vs 图片模型 agnes-image-2.1-flash (images/generations, 用于生图)
 const AGNES_MODEL = 'agnes-2.0-flash';
 
+/**
+ * v3.0.78 (BUG-149): text 错误类型 (跟 image/video BUG-132/137 1:1 镜像)
+ * 官方错误码 18 种: 400/401/402/403/404/405/408/409/413/415/422/429/431/499/500/502/503/504/520/522/524
+ */
+export enum AgnesTextErrorType {
+  CONTENT_POLICY = 'content_policy',
+  AUTH_ERROR = 'auth_error',         // 401 API key 错/过期
+  BALANCE_ERROR = 'balance_error',   // 402 余额不足
+  FORBIDDEN_ERROR = 'forbidden_error', // 403 权限/IP 限制
+  NOT_FOUND = 'not_found',           // 404 模型错/路径错
+  RATE_LIMIT = 'rate_limit',         // 429 RPM 限流
+  INVALID_INPUT = 'invalid_input',   // 400/422 参数错
+  PAYLOAD_TOO_LARGE = 'payload_too_large', // 413 请求体过大
+  UNSUPPORTED_MEDIA = 'unsupported_media', // 415 文件格式错
+  UPSTREAM_BUSY = 'upstream_busy',   // 503/5xx
+  TIMEOUT = 'timeout',               // 408/504/524
+  NETWORK = 'network',               // fetch failed
+  UNKNOWN = 'unknown',
+}
+
+export class AgnesTextError extends Error {
+  constructor(
+    public readonly type: AgnesTextErrorType,
+    public readonly agensStatus: number,
+    message: string,
+    public readonly agensRaw?: string,
+  ) {
+    super(message);
+    this.name = 'AgnesTextError';
+  }
+}
+
+/**
+ * v3.0.78 (BUG-149): 根据 agens 错误判断类型 (跟 agnesImageProvider classifyAgnesImageError 1:1)
+ * 官方错误码: https://wiki.agnes-ai.com/en/docs/code.md
+ */
+function classifyAgnesTextError(status: number, rawText: string): AgnesTextErrorType {
+  if (status === 401) return AgnesTextErrorType.AUTH_ERROR;
+  if (status === 402) return AgnesTextErrorType.BALANCE_ERROR;
+  if (status === 403) return AgnesTextErrorType.FORBIDDEN_ERROR;
+  if (status === 404) return AgnesTextErrorType.NOT_FOUND;
+  if (status === 413) return AgnesTextErrorType.PAYLOAD_TOO_LARGE;
+  if (status === 415) return AgnesTextErrorType.UNSUPPORTED_MEDIA;
+  if (status === 429) return AgnesTextErrorType.RATE_LIMIT;
+  if (status === 408 || status === 504 || status === 524) return AgnesTextErrorType.TIMEOUT;
+  if (status === 503 || (status >= 500 && status < 600)) return AgnesTextErrorType.UPSTREAM_BUSY;
+  if (status === 400 || status === 422) {
+    if (rawText.includes('content_policy') || rawText.includes('content_safety')) return AgnesTextErrorType.CONTENT_POLICY;
+    return AgnesTextErrorType.INVALID_INPUT;
+  }
+  return AgnesTextErrorType.UNKNOWN;
+}
+
 export interface AgnesChatOptions {
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   temperature?: number;
   maxTokens?: number;
   enableThinking?: boolean;
+  /** v3.0.78 (BUG-149): OpenAI 协议标准 user 字段, shipin-app 透传 userId 整条链 */
+  userId?: string;
 }
 
 export interface AgnesChatResult {
@@ -71,14 +131,21 @@ export class AgnesTextProvider {
       body.chat_template_kwargs = { enable_thinking: true };
     }
 
+    // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段, shipin-app 透传 userId (跟 BUG-148 deepseek user_id 1:1 镜像)
+    // Agnes 官方文档未明确列 user 字段, 但 OpenAI 兼容协议 + 多 provider 实践, Agnes 端通常默默支持 (忽略但不报错)
+    if (opts.userId) {
+      body.user = opts.userId;
+    }
+
     logger.info('AgnesTextProvider: chatCompletion', {
       messageCount: opts.messages.length,
       temperature,
       maxTokens,
       enableThinking,
+      userId: opts.userId,
     });
 
-    let lastError: Error | null = null;
+    let lastError: AgnesTextError | null = null;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -98,18 +165,37 @@ export class AgnesTextProvider {
         });
         clearTimeout(timeoutId);
 
-        if (response.status === 429) {
-          lastError = new Error('Agnes API 速率限制(429)');
-          const waitMs = 5000 + attempt * 10000;
-          logger.warn('AgnesTextProvider: rate limited', { attempt: attempt + 1, waitMs });
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-
+        // v3.0.78 (BUG-149): 错误码严格映射 (跟 BUG-148 deepseek mapDeepseekError 1:1 镜像, 跟 BUG-132/137 agnes image/video 1:1 镜像)
         if (!response.ok) {
-          const errorText = await response.text();
-          logger.error('Agnes API error', { status: response.status, errorText });
-          throw new Error(`Agnes API 错误 (${response.status}): ${errorText.slice(0, 200)}`);
+          // v3.0.69 BUG-137 实战: body 只能读一次, !ok 走 text() 读 errText
+          const errText = await response.text().catch(() => '');
+          const errorType = classifyAgnesTextError(response.status, errText);
+
+          // v3.0.78 (BUG-149): CONTENT_POLICY/INVALID_INPUT 不 retry (跟 BUG-132 image/video 1:1 镜像, retry 永远解不了)
+          if (errorType === AgnesTextErrorType.CONTENT_POLICY || errorType === AgnesTextErrorType.INVALID_INPUT) {
+            logger.error('AgnesTextProvider: non-retryable error', {
+              attempt, status: response.status, type: errorType, errorText: errText.slice(0, 100),
+            });
+            throw new AgnesTextError(errorType, response.status, `Agnes API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
+          }
+
+          // v3.0.78 (BUG-149): RATE_LIMIT/UPSTREAM_BUSY retryable (跟 BUG-132 image/video 1:1 镜像)
+          if (response.status === 429 || errorType === AgnesTextErrorType.UPSTREAM_BUSY || errorType === AgnesTextErrorType.RATE_LIMIT) {
+            lastError = new AgnesTextError(errorType, response.status, `Agnes API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
+            logger.warn('AgnesTextProvider: rate limited / upstream busy', { attempt: attempt + 1, type: errorType, status: response.status });
+            if (attempt < 2) {
+              const waitMs = 5000 + attempt * 10000;
+              await new Promise(r => setTimeout(r, waitMs));
+              continue;
+            }
+            throw lastError;
+          }
+
+          // v3.0.78 (BUG-149): 其他错误 (401/402/403/404/413/415/408/504/TIMEOUT/UNKNOWN) 透传 upstream errText (跟 deepseek mapDeepseekError 1:1)
+          logger.error('AgnesTextProvider: non-retryable classified error', {
+            attempt, status: response.status, type: errorType, errorText: errText.slice(0, 200),
+          });
+          throw new AgnesTextError(errorType, response.status, `Agnes API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
         }
 
         const data = await response.json() as {
@@ -162,19 +248,28 @@ export class AgnesTextProvider {
           },
         };
       } catch (err: any) {
-        lastError = err;
-        if (err.message?.includes('429') || err.message?.includes('速率限制')) {
+        // v3.0.78 (BUG-149): 类型化错误直接抛出不再 retry (跟 BUG-132 image/video 1:1 镜像)
+        if (err instanceof AgnesTextError) {
+          throw err;
+        }
+        // AbortError (timeout) 或网络错 → retry
+        lastError = err instanceof AgnesTextError ? err : new AgnesTextError(
+          err?.name === 'AbortError' ? AgnesTextErrorType.TIMEOUT : AgnesTextErrorType.NETWORK,
+          0,
+          err?.message || String(err),
+        );
+        if (attempt < 2) {
           const waitMs = 5000 + attempt * 10000;
-          logger.warn('AgnesTextProvider: retrying', { attempt: attempt + 1, waitMs });
+          logger.warn('AgnesTextProvider: timeout/network, will retry', { attempt: attempt + 1, type: lastError.type });
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
-        throw err;
+        throw lastError;
       }
     }
 
     logger.error('AgnesTextProvider: all retries exhausted', { lastError: lastError?.message });
-    throw lastError || new Error('Agnes 文本生成失败（已重试3次）');
+    throw lastError || new AgnesTextError(AgnesTextErrorType.UNKNOWN, 0, 'Agnes 文本生成失败（已重试3次）');
   }
 
   async *streamChatCompletion(opts: AgnesChatOptions): AsyncGenerator<AgnesStreamChunk> {
@@ -192,10 +287,18 @@ export class AgnesTextProvider {
       temperature,
       max_tokens: maxTokens,
       stream: true,
+      // v3.0.78 (BUG-149): OpenAI 协议标准 stream_options.include_usage (跟 BUG-148 deepseek 1:1 镜像)
+      // Agnes 文档未明确列, 但 OpenAI 兼容协议 + 多 provider 实践, Agnes 端通常默默支持 (流式末尾返回 usage 块)
+      stream_options: { include_usage: true },
     };
 
     if (enableThinking) {
       body.chat_template_kwargs = { enable_thinking: true };
+    }
+
+    // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段 (跟 BUG-148 deepseek user_id 1:1 镜像)
+    if (opts.userId) {
+      body.user = opts.userId;
     }
 
     logger.info('AgnesTextProvider: streamChatCompletion start', {
@@ -203,6 +306,7 @@ export class AgnesTextProvider {
       temperature,
       maxTokens,
       enableThinking,
+      userId: opts.userId,
     });
 
     // v3.0.0: 5 分钟超时 (流式可能更长)
@@ -228,19 +332,22 @@ export class AgnesTextProvider {
 
     if (response.status === 429) {
       clearTimeout(timeoutId);
-      throw new Error('Agnes API 速率限制(429)');
+      throw new AgnesTextError(AgnesTextErrorType.RATE_LIMIT, 429, `Agnes API 速率限制(429)`);
     }
 
+    // v3.0.78 (BUG-149): 错误码严格映射 (跟 chatCompletion 1:1 镜像, 跟 BUG-148 deepseek 1:1 镜像)
     if (!response.ok) {
       clearTimeout(timeoutId);
-      const errorText = await response.text();
-      logger.error('Agnes stream API error', { status: response.status, errorText });
-      throw new Error(`Agnes API 错误 (${response.status}): ${errorText.slice(0, 200)}`);
+      // v3.0.69 BUG-137 实战: body 只能读一次, !ok 走 text() 读 errText
+      const errText = await response.text().catch(() => '');
+      const errorType = classifyAgnesTextError(response.status, errText);
+      logger.error('Agnes stream API error', { status: response.status, type: errorType, errorText: errText.slice(0, 200) });
+      throw new AgnesTextError(errorType, response.status, `Agnes API 错误 (${response.status}): ${errText.slice(0, 200)}`, errText);
     }
 
     if (!response.body) {
       clearTimeout(timeoutId);
-      throw new Error('Agnes API 响应无 body');
+      throw new AgnesTextError(AgnesTextErrorType.UNKNOWN, 0, 'Agnes API 响应无 body');
     }
 
     // v3.0.0: 解析 SSE 流 (OpenAI 标准 data: {...}\n\n)

@@ -66,6 +66,9 @@ export interface AgnesVideoCreateOptions {
   mode?: 'keyframes';                   // 关键帧模式 (多图)
   negativePrompt?: string;
   seed?: number;
+  // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段 (跟 BUG-148 deepseek user_id 1:1 镜像)
+  // Agnes 文档未明确列, 但 OpenAI 兼容协议默默支持 (shipin-app 透传 shipin-app userId)
+  userId?: string;
 }
 
 export interface AgnesVideoCreateResult {
@@ -218,6 +221,9 @@ export class AgnesVideoProvider {
     if (opts.height) body.height = opts.height;
     if (opts.negativePrompt) body.negative_prompt = opts.negativePrompt;
     if (opts.seed !== undefined) body.seed = opts.seed;
+    // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段 (跟 BUG-148 deepseek user_id 1:1 镜像)
+    // Agnes 文档未明确列, 但 OpenAI 兼容协议默默支持 (shipin-app 透传 shipin-app userId)
+    if (opts.userId) body.user = opts.userId;
 
     if (opts.image) {
       // 单图: 顶层 image 字段 (string)

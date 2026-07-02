@@ -19,6 +19,9 @@ export interface ImageGenOptions {
   // 用于: 漫画生成时传入三视图作为角色一致性参考; 镜头生图时传入角色 sheet 图
   // agnes 接受字符串 image_url (单张) 或字符串数组 (多张)
   referenceImages?: string[];
+  // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段 (跟 BUG-148 deepseek user_id 1:1 镜像)
+  // Agnes 文档未明确列, 但 OpenAI 兼容协议默默支持 (shipin-app 透传 shipin-app userId, 用于内容安全 + KVCache)
+  userId?: string;
 }
 
 export interface ImageGenResult {
