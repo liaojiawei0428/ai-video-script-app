@@ -6,6 +6,10 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+// v3.0.76 (BUG-145 修): 根包 GestureHandlerRootView — gesture-handler v2 硬性要求
+//   不包的话 PinchGestureHandler / PanGestureHandler / TapGestureHandler 都不工作
+//   (跨项目通用铁律: 任何用 react-native-gesture-handler v2 的 app 根必须包)
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
@@ -197,9 +201,11 @@ function App(): React.JSX.Element {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
-      <ToastProvider>
+    // v3.0.76 (BUG-145 修): GestureHandlerRootView 包整个 app, gesture-handler v2 硬性要求
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
+        <ToastProvider>
         <NavigationContainer>
           {isAdmin ? (
             <AdminStack />
@@ -215,7 +221,8 @@ function App(): React.JSX.Element {
         <DialogHost />
         <ToastHost />
       </ToastProvider>
-    </SafeAreaProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

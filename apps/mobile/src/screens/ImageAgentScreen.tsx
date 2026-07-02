@@ -23,6 +23,8 @@ import { pickImages } from '../utils/pickImage';
 import { colors, spacing, radii, typography } from '../theme';
 import { getAuthToken } from '../api/client';
 import { ImageWithLoading, GeneratingLoader } from '../components/ui';
+// v3.0.76 (BUG-145 修): 引入 FullscreenImageViewer — 用户点击生成结果图后弹出全屏查看 + pinch/pan/double-tap
+import { FullscreenImageViewer } from '../components/ui/FullscreenImageViewer';
 import { getMobileAspectStyle } from '../utils/aspectRatio';
 import { useQueueStatus } from '../hooks/useQueueStatus';  // v3.0.52 (BUG-123): Agnes API 限流排队状态 polling (跨端铁律 4++ 镜像 web)
 import {
@@ -32,7 +34,7 @@ import {
   uploadAgentReferenceApi, type PendingRef,  // v3.0.5X (BUG-130): Agent 参考图上传 (跟 web 1:1)
 } from '../api/client';
 import { useDialog, alert } from '../hooks/useDialog';
-import { buildImageUrl, buildDownloadUrl, downloadImage } from '../utils/agentDownload';
+import { buildImageUrl, buildDownloadUrl, downloadImage, djb2Hex } from '../utils/agentDownload';
 import type { AgentMessage, AgentPart, PlanData } from '../types/agent';
 
 const SUGGESTIONS = [
@@ -153,6 +155,10 @@ export function ImageAgentScreen(): React.JSX.Element {
   const [convErrorMsg, setConvErrorMsg] = useState<string | null>(null);
   const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050: race condition
   const [pendingRefs, setPendingRefs] = useState<PendingRef[]>([]); // v3.0.5X (BUG-130): 待发送参考图 (跟 web 1:1)
+  // v3.0.76 (BUG-145 修): FullscreenImageViewer 状态 — 用户点击生成结果图后弹出全屏查看 + pinch/pan/double-tap
+  //   - 不用 src 当 dep (避免 buildImageUrl Date.now() 副作用泄漏, 跟 BUG-143 100% 同源)
+  //   - 传 part.url (server 原始 URL) 给 viewer, viewer 内部走 buildImageUrl 拼 token, 保持 src URL 稳定
+  const [fullscreenImage, setFullscreenImage] = useState<{ url: string; filename: string } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const { showAlert, showConfirm } = useDialog();
 
@@ -577,14 +583,25 @@ export function ImageAgentScreen(): React.JSX.Element {
     if (part.type === 'image') {
       const token = getAuthToken();
       const imgUrl = buildImageUrl(part.url, token);
+      // v3.0.76 (BUG-145 修): filename 用 djb2 hash 稳定 (跟 BUG-143 修法 1:1 镜像, 禁用 Date.now())
+      //   - 修前: `deep剧本-图片-${Date.now()}.${ext}` 每次 render 都变
+      //   - 修后: 同样 part.url → 同样 filename (跨项目通用铁律)
+      const ext = part.url.includes('.png') ? 'png' : part.url.includes('.webp') ? 'webp' : 'jpg';
+      const stableFilename = `deep剧本-图片-${djb2Hex(part.url)}.${ext}`;
       const isAuthPath = part.url.startsWith('/api/') || /^[a-z]+:\/\/[^\/]*ab\.maque\.uno\//i.test(part.url);
       const downloadHref = isAuthPath
-        ? buildDownloadUrl(part.url, `deep剧本-图片-${Date.now()}.${part.url.includes('.png') ? 'png' : 'jpg'}`, token)
+        ? buildDownloadUrl(part.url, stableFilename, token)
         : part.url;
       return (
         <View key={idx} style={styles.imageBox}>
           {part.role === 'reference' ? (
-            <View style={styles.refImageRow}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setFullscreenImage({ url: part.url, filename: stableFilename })}
+              style={styles.refImageRow}
+              accessibilityLabel="点击查看参考图大图"
+              accessibilityRole="imagebutton"
+            >
               <ImageWithLoading
                 src={imgUrl}
                 alt="参考图"
@@ -595,28 +612,40 @@ export function ImageAgentScreen(): React.JSX.Element {
               />
               <View style={styles.refImageMeta}>
                 <Ionicons name="document" size={12} color={colors.text.tertiary} />
-                <Text style={styles.refImageLabel}>参考图</Text>
+                <Text style={styles.refImageLabel}>参考图 · 点击放大</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ) : (
             <View>
-              <ImageWithLoading
-                src={imgUrl}
-                alt="生成结果图"
-                width={320}
-                height={320}
-                containerStyle={{ width: 320, height: 320, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg.primary }}
-                style={{ width: 320, height: 320 }}
-              />
+              {/* v3.0.76 (BUG-145 修): result image 包 TouchableOpacity, 点击打开 FullscreenImageViewer
+                  - pinch zoom (双指缩放)
+                  - pan (单指拖动, 缩放 > 1 时)
+                  - double tap toggle (1x ↔ 2x)
+                  - 单击背景关闭 */}
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setFullscreenImage({ url: part.url, filename: stableFilename })}
+                accessibilityLabel="点击查看生成图片大图, 支持双指缩放和双击放大"
+                accessibilityRole="imagebutton"
+              >
+                <ImageWithLoading
+                  src={imgUrl}
+                  alt="生成结果图"
+                  width={320}
+                  height={320}
+                  containerStyle={{ width: 320, height: 320, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg.primary }}
+                  style={{ width: 320, height: 320 }}
+                />
+              </TouchableOpacity>
               <View style={styles.imageActions}>
                 <TouchableOpacity
                   style={styles.downloadBtn}
-                  onPress={() => downloadImage(part.url, token).catch(() => {})}
+                  onPress={() => downloadImage(part.url, token, stableFilename).catch(() => {})}
                 >
                   <Ionicons name="download" size={14} color={colors.accent} />
                   <Text style={styles.downloadBtnText}>下载图片</Text>
                 </TouchableOpacity>
-                <Text style={styles.imageHint}>长按图片也可保存</Text>
+                <Text style={styles.imageHint}>点图片放大查看 · 长按也可保存</Text>
               </View>
             </View>
           )}
@@ -786,6 +815,20 @@ export function ImageAgentScreen(): React.JSX.Element {
           <Ionicons name="send" size={20} color={(loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)) ? colors.text.tertiary : '#fff'} />
         </TouchableOpacity>
       </View>
+
+      {/* v3.0.76 (BUG-145 修): FullscreenImageViewer — 用户点 result image 后弹出全屏查看
+            pinch zoom (1x~4x) + pan (单指) + double tap (1x↔2x) + 单击背景关闭
+            跟 ImageAgentScreen 用 djb2 稳定 filename (跨项目通用铁律, 跟 BUG-143 同源) */}
+      <FullscreenImageViewer
+        visible={!!fullscreenImage}
+        src={fullscreenImage ? buildImageUrl(fullscreenImage.url, getAuthToken()) : ''}
+        alt={fullscreenImage?.url || ''}
+        filename={fullscreenImage?.filename}
+        onClose={() => setFullscreenImage(null)}
+        onDownload={fullscreenImage
+          ? () => downloadImage(fullscreenImage.url, getAuthToken(), fullscreenImage.filename).catch(() => {})
+          : undefined}
+      />
 
       {/* 历史侧栏 */}
       <Modal visible={showHistory} animationType="slide" transparent onRequestClose={() => setShowHistory(false)}>

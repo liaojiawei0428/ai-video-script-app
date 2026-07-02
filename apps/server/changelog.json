@@ -3,7 +3,25 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
+  "latest_version": "3.0.76",
+  "latest_version_time": "2026-07-02",
   "entries": [
+    {
+      "version": "3.0.76",
+      "buildDate": "2026-07-02",
+      "type": "patch",
+      "summary": "BUG-145 修 mobile 端生图/视频助手生成图片后无法点击查看大图 (只能下载, 不能放大). 修法双端: (1) 新建 FullscreenImageViewer.tsx 组件, 用 react-native-gesture-handler v2.14 + RN Animated API 实现 pinch zoom (1x~4x) + pan + double-tap (1x↔2x) + 单击背景关闭 + 顶部 X + 底部下载按钮. (2) ImageAgentScreen + VideoAgentScreen 让 result image + reference image 都包 TouchableOpacity, onPress 打开 FullscreenImageViewer. (3) 顺手修 buildDownloadUrl filename 残留 Date.now() BUG-143 半修漏补. (4) App.tsx 根包 GestureHandlerRootView (gesture-handler v2 硬性要求)",
+      "highlights": [
+        "BUG-145 ✅ 修前根因 (跨项目通用铁律 #7 '图片查看器缺失' 类, 跟 BUG-079/097/100/118/130/138/140/143/144 100% 同源): mobile 端生图助手生成图片后用户只能下载, 不能放大查看. ImageAgentScreen.tsx:609-616 修前 `case 'image'` 渲染用 ImageWithLoading 包成静态图 (无 TouchableOpacity), 用户没法点击查看大图. 跟 web 端 AgentChatPanel.tsx 也缺 fullscreen image viewer (跨端铁律 4++ 漏修方向, 但用户当前只用 mobile)",
+        "BUG-145 ✅ 修法 1 (新建 FullscreenImageViewer.tsx, 340 行): (a) 用 RN Modal 全屏 + react-native-gesture-handler v2.14.0 (项目已有依赖, 0 加重). (b) 三种手势组合: PinchGestureHandler (双指缩放, 范围 [1x, 4x]) > PanGestureHandler (单指拖动, activeOffsetX/Y ±10px, 仅在 scale>1 时生效) > TapGestureHandler (双击切换 1x ↔ 2x, maxDelayMs 300ms). (c) RN Animated API (不装 reanimated, 避 NDK 编译坑 BUG-110). (d) Pressable 背景单击关闭 + 右上角 X 按钮 + 底部 '保存到相册' 下载按钮. (e) close 时重置 transform 状态 (避免下次打开残留). (f) djb2 稳定 filename (跨项目通用铁律 AGENTS.md § 6.7)",
+        "BUG-145 ✅ 修法 2 (ImageAgentScreen + VideoAgentScreen 接入 viewer, 跨端铁律 4++ 1:1 镜像): ImageAgentScreen line 603-616 把 ImageWithLoading 包在 TouchableOpacity 里 (activeOpacity=0.85, onPress → setFullscreenImage), 屏幕底部加 <FullscreenImageViewer visible={!!fullscreenImage} src={buildImageUrl(fullscreenImage.url, token)} onClose={...} onDownload={...}/>. VideoAgentScreen line 637-646 reference image 同样 1:1 镜像 (保持跨端一致性, 跟 BUG-097 mobile 漏修 web 反方向同源). hint 文案 '点图片放大查看 · 长按也可保存' (跟 web 端 1:1)",
+        "BUG-145 ✅ 修法 3 (BUG-143 半修漏补, 顺手修): apps/mobile/src/screens/ImageAgentScreen.tsx:588 修前 `Date.now()` 在 buildDownloadUrl filename 参数里, 跟 BUG-143 v3.0.74 修过 buildImageUrl 同源但漏 buildDownloadUrl. 修后改用 `djb2Hex(part.url)` 稳定 hash (跟 AGENTS.md § 6.7 mediaCache.ts hashUrl 1:1 镜像, 跨项目通用铁律 'URL → 稳定 hash 用于文件名, 禁用 Date.now()'). agentDownload.ts 加 export djb2Hex 给外部组件用 (FullscreenImageViewer + 2 个 screen)",
+        "BUG-145 ✅ 修法 4 (App.tsx 根包 GestureHandlerRootView, 跨项目通用铁律): react-native-gesture-handler v2 硬性要求 app 根包 GestureHandlerRootView (不包的话 PinchGestureHandler / PanGestureHandler / TapGestureHandler 全不工作). App.tsx:200-225 return 改 4 行加 import + 1 行开 tag + 1 行闭 tag. 真实改动 7 行 (git diff --ignore-all-space 验证). 顺手把 UTF-16 LE 编码转 UTF-8 (gradle + 工具链更兼容)",
+        "BUG-145 ✅ 选型决策 (跟 BUG-130/135 '不加重 + API 兼容性' 教训同源): (a) 不装 react-native-image-zoom-viewer 等第三方库 (BUG-135 自研教训: 国产 ROM 兼容性问题). (b) 用现有 react-native-gesture-handler v2.14.0 (已装). (c) 不装 react-native-reanimated (NDK 编译风险 BUG-110). (d) RN Animated API + gesture-handler v2 老 API (PinchGestureHandler / PanGestureHandler / TapGestureHandler) 组合, 不用 GestureDetector (那是 v2 新 API + reanimated 配套). (e) RN Modal 跟 Dialog.tsx 1:1 模式 (走 native 层 Android Dialog)",
+        "BUG-145 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/097/100/113/118/119/130/135/140/143/144 100% 同源): (1) 移动端图片查看器必走 FullscreenImageViewer 模式 (pinch + pan + double-tap), 不依赖第三方 zoom 库, 避免国产 ROM 兼容性陷阱; (2) gesture-handler v2 必包 GestureHandlerRootView, 不包等于没装 (硬性要求); (3) djb2 hash 用于 filename 必贯穿所有 URL → 文件名 映射 (buildImageUrl / buildDownloadUrl / viewer filename 全部稳定, 跟 BUG-143 100% 同源); (4) 跨端 image UI 必 1:1 镜像 (web 端 AgentChatPanel 也缺 fullscreen viewer, 待 BUG-145 web 端补做)",
+        "BUG-145 ✅ 升 v3.0.75 → v3.0.76: 8 处版本号同步 (mobile version.ts 3.0.75 → 3.0.76 + mobile build.gradle versionCode 77 → 78 + versionName 3.0.75 → 3.0.76 + web version.ts 3.0.75 → 3.0.76 + APP_VERSION_CODE 77 → 78 + APP_BUILD_DATE 2026-07-01 → 2026-07-02 + server package.json 3.0.75 → 3.0.76 + server src/index.ts fallback 3.0.75 → 3.0.76 + server ecosystem.config.js env + env_production 2 处 3.0.75 → 3.0.76 + changelog.json + changelog_remote.json + v3.0.76 entry prepend). 改动文件 5 个 (新建 FullscreenImageViewer.tsx + App.tsx + ImageAgentScreen.tsx + VideoAgentScreen.tsx + agentDownload.ts), mobile tsc 53 错 baseline 一致, 0 新错, 跨端铁律 4++ 1:1 镜像"
+      ]
+    },
     {
       "version": "3.0.75",
       "buildDate": "2026-07-02",
@@ -618,7 +636,5 @@
         "8 项版本号同步 3.0.41 → 3.0.42 (mobile version.ts + build.gradle versionCode 45→46 + server package.json + index.ts fallback + ecosystem 2 处 + web version.ts + APP_VERSION_CODE 45→46 + changelog.json + 远端 .env + 远端 systemd unit)"
       ]
     }
-  ],
-  "latest_version": "3.0.64",
-  "latest_version_time": "2026-06-30"
+  ]
 }

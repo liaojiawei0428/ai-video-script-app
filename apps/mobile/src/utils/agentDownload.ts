@@ -35,6 +35,9 @@ function djb2Hex(s: string): string {
   const reverse = hex.split('').reverse().join('');
   return `${hex}${reverse}`.padStart(16, '0');
 }
+// v3.0.76 (BUG-145 修): export djb2Hex — 外部组件 (FullscreenImageViewer 等等) 需要用稳定的 hash 算 filename
+//   跨项目通用铁律: 任何 url → filename 的映射必用稳定 hash, 禁用 Date.now() (跟 BUG-143 同源)
+export { djb2Hex };
 
 function buildImageUrl(url: string, token: string | null): string {
   // v3.0.24.4 (S60 P3 BUG-051 修): mobile 端图片统一走 server /api/download?disposition=inline proxy

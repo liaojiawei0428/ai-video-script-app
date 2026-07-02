@@ -27,12 +27,14 @@ import {
   uploadAgentReferenceApi, type PendingRef,  // v3.0.5X (BUG-130): Agent 参考图上传 (跟 web 1:1)
 } from '../api/client';
 import { useDialog, alert } from '../hooks/useDialog';
-import { buildVideoUrl, buildImageUrl, downloadVideo, downloadImage } from '../utils/agentDownload';
+import { buildVideoUrl, buildImageUrl, downloadVideo, downloadImage, djb2Hex } from '../utils/agentDownload';
 import type { AgentMessage, AgentPart, PlanData } from '../types/agent';
 import { useNovelStore } from '../store/useNovelStore';
 // BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 web AgentChatPanel 1:1 (跨端铁律 4++ 跟 AGENTS.md § 6.6.4 强约束)
 // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示, 跟 web 1:1 镜像
 import { GeneratingLoader } from '../components/ui';
+// v3.0.76 (BUG-145 修): 引入 FullscreenImageViewer — 视频端 reference image 也可点击查看大图 (跟 ImageAgentScreen 1:1 镜像)
+import { FullscreenImageViewer } from '../components/ui/FullscreenImageViewer';
 import { getMobileAspectStyle } from '../utils/aspectRatio';
 import { useQueueStatus } from '../hooks/useQueueStatus';  // v3.0.52 (BUG-123): Agnes API 限流排队状态 polling (跨端铁律 4++ 镜像 web)
 
@@ -189,6 +191,8 @@ export function VideoAgentScreen(): React.JSX.Element {
   const [convErrorMsg, setConvErrorMsg] = useState<string | null>(null);
   const [userInitiated, setUserInitiated] = useState(false); // v3.0.24.4 BUG-050 修: 用户主动新建/删除时不 auto-load 旧 conv
   const [pendingRefs, setPendingRefs] = useState<PendingRef[]>([]); // v3.0.5X (BUG-130): 待发送参考图 (跟 web 1:1)
+  // v3.0.76 (BUG-145 修): FullscreenImageViewer 状态 — 视频端 reference image 也可点击查看大图 (跟 ImageAgentScreen 1:1 镜像)
+  const [fullscreenImage, setFullscreenImage] = useState<{ url: string; filename: string } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const { showAlert, showConfirm } = useDialog();
 
@@ -633,11 +637,22 @@ export function VideoAgentScreen(): React.JSX.Element {
       // video agent 有时候也用 image part 当 reference (参考图)
       const token = getAuthToken();
       const imgUrl = buildImageUrl(part.url, token);
+      // v3.0.76 (BUG-145 修): filename 用 djb2 hash 稳定 (跟 ImageAgentScreen 1:1 镜像)
+      const ext = part.url.includes('.png') ? 'png' : part.url.includes('.webp') ? 'webp' : 'jpg';
+      const stableFilename = `deep剧本-图片-${djb2Hex(part.url)}.${ext}`;
       return (
-        <View key={idx} style={styles.refImageRow}>
+        // v3.0.76 (BUG-145 修): 包 TouchableOpacity, 点击打开 FullscreenImageViewer (跟 ImageAgentScreen 1:1 镜像)
+        <TouchableOpacity
+          key={idx}
+          activeOpacity={0.7}
+          onPress={() => setFullscreenImage({ url: part.url, filename: stableFilename })}
+          style={styles.refImageRow}
+          accessibilityLabel="点击查看参考图大图"
+          accessibilityRole="imagebutton"
+        >
           <Image source={{ uri: imgUrl }} style={styles.refImage} resizeMode="cover" />
-          <Text style={styles.refImageLabel}>参考图</Text>
-        </View>
+          <Text style={styles.refImageLabel}>参考图 · 点击放大</Text>
+        </TouchableOpacity>
       );
     }
     if (part.type === 'error') {
@@ -826,6 +841,18 @@ export function VideoAgentScreen(): React.JSX.Element {
           <Ionicons name="send" size={20} color={(loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)) ? colors.text.tertiary : '#fff'} />
         </TouchableOpacity>
       </View>
+
+      {/* v3.0.76 (BUG-145 修): FullscreenImageViewer — reference image 可点击查看大图 (跟 ImageAgentScreen 1:1 镜像) */}
+      <FullscreenImageViewer
+        visible={!!fullscreenImage}
+        src={fullscreenImage ? buildImageUrl(fullscreenImage.url, getAuthToken()) : ''}
+        alt={fullscreenImage?.url || ''}
+        filename={fullscreenImage?.filename}
+        onClose={() => setFullscreenImage(null)}
+        onDownload={fullscreenImage
+          ? () => downloadImage(fullscreenImage.url, getAuthToken(), fullscreenImage.filename).catch(() => {})
+          : undefined}
+      />
 
       <Modal visible={showHistory} animationType="slide" transparent onRequestClose={() => setShowHistory(false)}>
         <TouchableOpacity style={styles.historyBackdrop} activeOpacity={1} onPress={() => setShowHistory(false)}>
