@@ -1,0 +1,55 @@
+v3.0.79 publish: web + mobile 端版本号 bump + 公网 ab.maque.uno 发布 (跟 BUG-153-157 server-only middleware 部署配套)
+
+变更 (跨端铁律 3 APP_VERSION 改 1 处必同步 8 项, 跟 § 4.3 v3.0.36 扩展 6→8 配套):
+
+| 项 | 修前 | 修后 | 备注 |
+|---|---|---|---|
+| apps/server/package.json | 3.0.78 (v3.0.79 commit 4515b6a 已 bump) | 3.0.79 | 已 commit |
+| apps/server/src/index.ts fallback | '3.0.78' | '3.0.79' | 已 commit |
+| apps/server/.env APP_VERSION | 3.0.78 | 3.0.79 (deploy sed) | 已 deploy |
+| /etc/systemd/system/shipin-app.service Environment | 3.0.75 (历史 stale) | 3.0.79 (清 stale, deploy sed) | 已 deploy |
+| apps/server/changelog.json latest_version | 3.0.78 | 3.0.79 | 已 commit |
+| apps/server/changelog.json entries[0].version | 3.0.78 | 3.0.79 | 已 commit |
+| **apps/web/src/config/version.ts APP_VERSION** | **3.0.77** | **3.0.79** | **本次** |
+| **apps/web/src/config/version.ts APP_VERSION_CODE** | **79** | **81** (跨过 v3.0.78) | **本次** |
+| **apps/mobile/src/config/version.ts APP_VERSION** | **3.0.77** | **3.0.79** | **本次** |
+| **apps/mobile/android/app/build.gradle versionCode** | **79** | **81** | **本次** |
+| **apps/mobile/android/app/build.gradle versionName** | **3.0.77** | **3.0.79** | **本次** |
+
+补 bump 原因 (跟 BUG-131 v3.0.62 server-only hotfix 必 rebuild APK 教训 1:1):
+v3.0.79 commit `4515b6a` 是 server-only middleware 实战 (10 files src/ 改), 按规范 § 4.3 v3.0.36 扩展 6→8 必须同步 web + mobile 版本号 + 重打 APK, 避免公网呈现:
+  `version=3.0.79` (server) 但 `mobileLatestApkVersion=3.0.77` (公网 APK 旧), 客户端弹升级弹窗 → 触发 BUG-117 Status Code 16 假下载.
+
+**注意**: APP_VERSION_CODE 79 → 81 (跨过 v3.0.78 + v3.0.79, 跟 server 端历史一致: v3.0.78 + v3.0.79 + v3.0.80 三个 server-only hotfix 没动 web/mobile, 此次合并 bump). 同样 v3.0.80 (commit ab86e80 BUG-158) 是 changelog parse 修复, 跟 BUG-158 一样不升 v3.0.81, latest_version 保持 v3.0.79.
+
+发布 (公网 ab.maque.uno 11 维验证全过):
+- ✅ web build `node node_modules/vite/bin/vite.js build` 1686 modules + dist/assets/index-B9ffGcM6.js 547463 bytes + dist/assets/index-DmOgDg6F.css 44760 bytes (CSS 没变, 只 JS 变因为只 bump APP_VERSION + APP_VERSION_CODE)
+- ✅ web scp dist-v3.0.79.tar.gz → /tmp/web-dist-v3.0.79.tar.gz (165555 bytes) → 远端 untar 到 /www/wwwroot/ab.maque.uno/dist/ (nginx root 自动重读)
+- ✅ 公网 https://ab.maque.uno/assets/index-B9ffGcM6.js HTTP/2 200 547463 bytes
+- ✅ mobile `gradlew.bat clean assembleRelease --no-daemon -Dorg.gradle.daemon=false` BUILD SUCCESSFUL in 1m 19s (PS5.1 嵌套 cmd /c 中文路径导致原来 `gradle assembleRelease` 时 Process 'command 'cmd'' finished with non-zero exit value 1 报错, 改用 `--no-daemon` 重跑 OK)
+- ✅ mobile APK: app-release.apk 30336695 bytes (30336695 / 1024 / 1024 = 28.9 MB), versionCode 81 / versionName "3.0.79" (output-metadata.json 验证)
+- ✅ mobile scp DeepScript_v3.0.79.apk → 远端 /www/wwwroot/shipin-APP/public/ + sha256sum 写 DeepScript_v3.0.79.apk.sha256
+- ✅ 远端 sha256: `4e364a3f2b525555ba1b1d89b7e9e1fb589159d21912b8aa15b0fce5a122bc09` = 本机 sha256 1:1 完全一致
+- ✅ 公网 https://ab.maque.uno/app/DeepScript_v3.0.79.apk HTTP/2 200 (Content-Type: application/vnd.android.package-archive, Content-Length: 30336695)
+- ✅ 公网 https://ab.maque.uno/api/version 返回 `{version: "3.0.79", latestVersion: "3.0.79", mobileLatestApkVersion: "3.0.79", mobileLatestApkSource: "public-dir", downloadUrl: "https://ab.maque.uno/app/DeepScript_v3.0.79.apk", changelog + 10 highlights + buildDate 完整}`
+- ✅ nginx -t 配置 ok (kill 19549 failed 是 nginx 子进程已 exited, 宝塔管理 nginx, 不影响)
+- ✅ systemd shipin-app active 持续 4+ 小时 (PID 没变, v3.0.79 + BUG-158 已稳定运行)
+
+跨端铁律 4++ 公网实测 (跨端一致):
+- **version (server) === mobileLatestApkVersion (公网 APK 真实)**: 二者都是 3.0.79, 公网 downloadUrl 真的能下载 30336695 bytes APK, 跟 BUG-117 / BUG-131 教训一致
+- **latestVersion === version**: 二者都是 3.0.79, changelog 双字段一致 (跟 BUG-129 v3.0.58 + BUG-145 v3.0.76 教训一致)
+- **changelog + highlights + buildDate 真显示 v3.0.79 BUG-153-157 + BUG-158 entry**: 跟 BUG-066 / BUG-158 教训一致 (修前一直 fallback "本次更新优化性能, 修复已知问题" + highlights=[])
+
+8 项版本号同步 (跨端铁律 3 — apps/server/AGENTS.md § 4.3):
+- ✅ apps/server/package.json: 3.0.78 → 3.0.79 (commit 4515b6a)
+- ✅ apps/server/src/index.ts fallback: '3.0.78' → '3.0.79' (commit 4515b6a)
+- ✅ apps/server/changelog.json latest_version + entries[0]: 3.0.79 (commit 4515b6a + ab86e80)
+- ✅ apps/server/.env APP_VERSION: 3.0.79 (deploy sed)
+- ✅ /etc/systemd/system/shipin-app.service Environment: 3.0.79 (deploy sed)
+- ✅ apps/web/src/config/version.ts APP_VERSION + APP_VERSION_CODE: 3.0.77/79 → 3.0.79/81 (本次)
+- ✅ apps/mobile/src/config/version.ts APP_VERSION: 3.0.77 → 3.0.79 (本次)
+- ✅ apps/mobile/android/app/build.gradle versionCode + versionName: 79/3.0.77 → 81/3.0.79 (本次)
+
+下次 Android emulator/adb install 真机回归时验证 APK install + 启动正常 (跟 shipin-APP 历史 v3.0.5x/6x mobile APK 真机回归 SOP 一致).
+
+[NOTE test] 部署后 web 访问 https://ab.maque.uno 应能加载 index-B9ffGcM6.js + 解析最新 v3.0.79 changelog; mobile 用户打开 app 应能弹 v3.0.79 升级弹窗 → downloadUrl → 公网 APK sha256 跟本机 1:1 → install OK.
