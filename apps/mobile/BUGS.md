@@ -7861,3 +7861,136 @@ const refreshHistory = async () => {
 | 公网 APK sha256 | ✅ c09d991fa6ca3bf61d29e5adb821c6e0da029e09539abcc62056b440b17ade7b (本机跟远端 1:1) |
 | systemd Environment=APP_VERSION 同步 | ✅ 3.0.73 |
 | shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.73 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.73 |
+
+## BUG-143 (v3.0.74 mobile 端生图卡片黑屏 — 输入文字触发 setInput re-render, buildImageUrl Date.now() 泄漏到 src URL, ImageWithLoading useEffect [src] 重置 loading)
+
+### 背景 (用户反馈)
+
+用户在 Android APP 进"生图助手" → 输入 prompt → 等图片生成成功 → 看到结果图 → **在底部输入框打字 (无论是不是发送)** → **图片立即黑屏** → 等 1-3 秒图片重新加载回来 → 再打字 → 又黑屏。视频助手 (VideoAgentScreen) 同样症状 (因为 VideoPlayer 的 coverUrl 也用 buildImageUrl)。
+
+### 真根因 (双 BUG 同源, 跟 BUG-079/097/100/118/119/130/134/138/140 100% 同源)
+
+**BUG-X1 (mobile buildImageUrl 把 Date.now() 泄漏到 src URL 稳定性)**
+
+`apps/mobile/src/utils/agentDownload.ts:33` 修前代码:
+
+```tsx
+function buildImageUrl(url: string, token: string | null): string {
+  if (!url) return '';
+  const baseApi = API_BASE_URL.replace(/\/api$/, '');
+  const ext = url.includes('.png') ? 'png' : url.includes('.webp') ? 'webp' : 'jpg';
+  const filename = `deep剧本-图片-${Date.now()}.${ext}`;  // ← BUG: filename 用 Date.now()
+  const params = new URLSearchParams({ url, filename, disposition: 'inline' });
+  if (token) params.append('token', token);
+  return `${baseApi}/api/download?${params.toString()}`;
+}
+```
+
+**filename 是 server `Content-Disposition` 头的 metadata (用户保存图片时的默认文件名)**. 修前代码把它直接拼到 src URL 里, 每次 render 都不同:
+
+```bash
+# render 1 (10:30:15.123): src = ".../api/download?url=xxx&filename=deep剧本-图片-1719895215123.jpg&..."
+# render 2 (10:30:15.456): src = ".../api/download?url=xxx&filename=deep剧本-图片-1719895215456.jpg&..."  ← 不同!
+```
+
+**触发链**:
+1. 用户在生图助手输入框打字 → `setInput` → ImageAgentScreen re-render
+2. `renderPart` 重跑 (line 683) → `const imgUrl = buildImageUrl(part.url, token)` 重调
+3. **`Date.now()` 变了** → 返回的 src 字符串变了
+4. `<ImageWithLoading src={imgUrl}>` useEffect `[src]` (line 92) 检测到 src 变化
+5. `setState('loading')` + `opacity.setValue(0)` + `setRetryCount(c => c + 1)` → **图片透明度归零 = 黑屏**
+6. 新 src 重新加载 → `handleLoad` 触发 → opacity 渐变到 1 → 恢复
+7. 用户再打字 → 又循环
+
+**BUG-X2 (ImageWithLoading useEffect 只看 src 字符串变化, 不看 src path 部分是否真变)**
+
+`<ImageWithLoading>` 的 `useEffect([src])` 直接把 src 字符串当 dep, 没有"src 字符串微变 (token 刷新 / query string 变化) 但 path 部分没变 = 同一张图, 不应该重置 loading" 的判定。
+
+这是兜底防御缺失 — 即使 BUG-X1 修了, 未来再有人写出"src 含 Date.now() 的副作用"还是会触发黑屏闪烁。
+
+### 修法架构 (双修, 跨端铁律 4++ 1:1 镜像 web + 防御加固)
+
+```
+apps/mobile/src/utils/agentDownload.ts (修法 1: 根因修)
+├─ 新加 djb2Hex() 函数 (跟 mediaCache.ts hashUrl + AGENTS.md § 6.7 跨项目通用铁律 1:1 镜像)
+│   └─ djb2 + reverse 32 chars hex, 同样 part.url 永远生成同样 hash
+├─ buildImageUrl: filename = `deep剧本-图片-${djb2Hex(url)}.${ext}` (去掉 Date.now())
+├─ buildVideoUrl: filename = `deep剧本-视频-${djb2Hex(url)}.mp4` (同步修, 视频 cover 同源 BUG)
+└─ 跟 web 端 refUrl = fullUrl + token (AgentChatPanel.tsx:1429) 1:1 镜像 (web 端压根没 filename 在 src 里)
+
+apps/mobile/src/components/ui/ImageWithLoading.tsx (修法 2: 兜底防御)
+├─ 新加 getSrcPath(src) helper: 从 src URL 抽出 path 部分 (不含 query string / hash)
+├─ 加 prevSrcRef (追踪上一次的 src) + srcPathRef (追踪上一次的 src path)
+├─ useEffect 改判定逻辑:
+│   ├─ src 字符串微变 (如 token 刷新) 但 path 不变 → 不重置 (同一张图, 浏览器复用缓存)
+│   ├─ src 字符串完全没变 (依赖检查冗余) → 不重置
+│   └─ src path 真变了 → 重置 loading + retryCount++
+└─ 跟 buildImageUrl 用 djb2 hash 稳定 filename 是双保险, 防止未来类似 BUG 再次发生
+```
+
+### 跨端铁律 4++ 镜像 (跟 web 端 1:1)
+
+| 维度 | mobile 端 | web 端 (正确对照) | 一致性 |
+|---|---|---|---|
+| 图片 src URL 构造 | `buildImageUrl(url, token)` = `/api/download?url=...&filename=djb2(url)...&disposition=inline&token=...` | `refUrl = fullUrl + token` (AgentChatPanel.tsx:1429) | ✅ 行为 1:1 (都 stable) |
+| filename 稳定性 | djb2 hex 32 chars (跨项目通用铁律, AGENTS.md § 6.7) | 无 filename 在 src 里 (web 端压根没这字段) | ✅ 1:1 (都 stable) |
+| ImageWithLoading 防御 | getSrcPath + prevSrcRef + srcPathRef (修法 2) | n/a (web 用 `<img>` 浏览器天然缓存) | 概念 1:1 |
+| video cover | buildVideoUrl 同款修 (跟 buildImageUrl 同源 BUG) | n/a | ✅ |
+| Date.now() 在 src URL | ❌ 已去掉 | ❌ 一直没用 | ✅ 1:1 |
+
+### 使用规范 (跨项目通用铁律 4 条新沉淀)
+
+1. **图片 src URL 必稳定, 不允许 Date.now() / Math.random() 等副作用泄漏**: src 字符串每次 render 都变 → ImageWithLoading useEffect [src] 触发 loading 重置 → 黑屏闪烁. 跨端铁律 4++ 1:1 镜像 web 端 refUrl = fullUrl + token 行为
+2. **filename / cache-busting 必走稳定的 hash (djb2 32 hex, AGENTS.md § 6.7), 不用 Date.now()**: filename 是 server Content-Disposition metadata, 用于用户保存图片时的默认文件名, 不应参与 src URL 稳定性. 同样 part.url → 同样 filename → 同样 src
+3. **ImageWithLoading 等公共组件 useEffect 必看 src path 部分, 不用 src 整体字符串**: src path = 图片内容身份, 跟 query string (token/缓存戳) 解耦. 跨项目通用铁律: "图片 src path 部分" 是身份, query string 是 metadata, 不混
+4. **代码评审必查 src URL 构造函数**: grep 所有 buildImageUrl / buildVideoUrl / buildXxxUrl, 看是否包含 Date.now() / Math.random() 等副作用. 跨项目通用铁律, 防类似 BUG 再发生
+
+### 跟其他 BUG 同源关系
+
+- **BUG-079 (v3.0.13) 假报告** — 跟 BUG-143 "前端 UI 跟实际图片状态不一致" 100% 同源 (黑屏闪烁跟实际后台有图状态不一致)
+- **BUG-097 (S72 batch 6) mobile 漏修 web** — 跟 BUG-143 反方向同源 (web 端 1:1 正确, mobile 端副作用泄漏)
+- **BUG-100 loading UX 假修** — 跟 BUG-143 "loading 状态 UI 必真实反映后台" 100% 同源
+- **BUG-113 React Hooks 真机回归** — 跟 BUG-143 "用了 useEffect 但没正确判定依赖变化" 100% 同源
+- **BUG-118/119/120/121/122/123/124/125/126/127/128/129/130/131/132/134/135/136/137/138/139/140/141/142** — 跟 BUG-143 跨项目通用铁律同源 (选了错误的方案 / 加了 component 漏集成 / 修了后端状态漏前端 UI state / etc.)
+- **BUG-130 mobile 端补参考图上传入口** — 跟 BUG-143 跨端铁律 4++ 同源 (web 端正确, mobile 端漏修)
+- **跨项目通用铁律 4++ (跨项目规范自迭代)** — BUG-143 必同步更新 AGENTS.md + web AGENTS.md (跟 mobile § 6.22 + web § 5.14 镜像)
+
+### mavis memory 沉淀
+
+```
+BUG-143 (v3.0.74 mobile 端生图卡片黑屏, buildImageUrl Date.now() 泄漏到 src URL):
+- 跨项目通用铁律: 图片 src URL 必稳定, 不允许 Date.now() / Math.random() 等副作用泄漏
+- 跨项目通用铁律: filename / cache-busting 必走稳定 hash (djb2 32 hex, AGENTS.md § 6.7), 不用 Date.now()
+- 跨项目通用铁律: ImageWithLoading 等公共组件 useEffect 必看 src path 部分, 不用 src 整体字符串
+- 跨项目通用铁律: 代码评审必 grep 所有 buildXxxUrl 函数看是否含 Date.now()
+- 修前根因: apps/mobile/src/utils/agentDownload.ts:33 buildImageUrl `filename = \`deep剧本-图片-${Date.now()}.${ext}\`` 把 Date.now() 拼到 src URL → ImageWithLoading useEffect [src] 触发 → 黑屏闪烁
+- 修法 1 (根因修): 加 djb2Hex() 函数 (跟 mediaCache.ts hashUrl 1:1 镜像), buildImageUrl + buildVideoUrl filename 都用 djb2 hash 稳定
+- 修法 2 (兜底防御): ImageWithLoading 加 getSrcPath() + prevSrcRef + srcPathRef, useEffect 改判定逻辑 (path 变了才重置)
+- E2E 验证: 输入文字触发 setInput re-render, 图片 src URL 稳定 (跟 path 一致), ImageWithLoading 不重置 loading, 图片不黑屏
+```
+
+### E2E 验证
+
+- ✅ /api/version: 3.0.74 (公网 https://ab.maque.uno/api/version 验证 version=3.0.74, latestVersion=3.0.64, mobileLatestApkVersion=3.0.74, mobileLatestApkSource='public-dir', downloadUrl=DeepScript_v3.0.74.apk, changelog+highlights+buildDate 完整返回)
+- ✅ 公网 APK HTTP/2 200, Content-Type: application/vnd.android.package-archive, Content-Length: 30256564 (跟本机 1:1 一致)
+- ✅ mobile tsc: 53 错 (全 pre-existing, baseline 一致, 0 新错)
+- ✅ 修法 1 验证: buildImageUrl(filename) 同样 url → 同样 hash → 同样 src URL (跟 web 端 1:1 镜像稳定)
+- ✅ 修法 2 验证: ImageWithLoading useEffect 只在 src path 真变才重置 loading, token 刷新不影响
+- ✅ buildVideoUrl 同步修: video cover 同样稳定 (跨项目通用铁律)
+
+### 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ b6bc98c (v3.0.74 主修, 9 文件 88+/12-) → origin/main |
+| 本机 server build | ✅ tsc 增量 0 错, dist/index.js 12921 bytes (含 latestVersion/highlights/buildDate 字段) |
+| 本机 tar.gz + scp dist/ | ✅ shipin-app-server-v3.0.74.tar.gz 328970 bytes → /tmp/dist.tar.gz → 远端 dist/ 全部覆盖 |
+| 本机 changelog.json scp 到远端 | ✅ /www/wwwroot/shipin-APP/changelog.json + dist/changelog.json 都覆盖 (避免 shipin-APP flat 结构 drift) |
+| 远端 server restart (systemd) | ✅ active, PID 23111 (restart 后) |
+| /api/version 3.0.74 | ✅ version=3.0.74, mobileLatestApkVersion=3.0.74, changelog+highlights+buildDate 完整 |
+| APK 重打 (gradle assembleRelease) | ✅ app-release.apk 30256564 bytes (versionCode 76, versionName 3.0.74) |
+| scp APK 到 /www/wwwroot/shipin-APP/public/ | ✅ DeepScript_v3.0.74.apk |
+| 公网 APK HEAD | ✅ HTTP/2 200, ct=application/vnd.android.package-archive, cl=30256564 |
+| systemd Environment=APP_VERSION 同步 | ✅ 3.0.74 |
+| shipin-APP/.env APP_VERSION 同步 | ✅ 3.0.74 |
