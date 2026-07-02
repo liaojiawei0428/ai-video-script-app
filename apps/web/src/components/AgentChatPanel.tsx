@@ -16,6 +16,7 @@ import { partsToText } from '../hooks/useAgentChat';
 import { useAuthStore } from '../store/auth';
 import { uploadAgentReferenceApi } from '../lib/api';
 import { GeneratingLoader } from './ui';  // BUG-119 (v3.0.48): 流式卡片用标准动画, 跟 mobile 1:1 (跨端铁律 4++)
+import { LightboxImage, getLightboxFilename } from './ui/lightbox-image';  // v3.0.77 (BUG-145 修): 全屏图片查看器, 跟 mobile FullscreenImageViewer 跨端铁律 4++ 1:1 镜像
 import { getWebAspectStyle } from '../lib/aspectRatio';  // BUG-120 (v3.0.48): 等待动画卡片按用户选的比例显示, 跟 mobile 1:1 镜像
 import { useQueueStatus } from '../hooks/useQueueStatus';  // BUG-123 (v3.0.52): Agnes API 限流排队状态 polling (跨端铁律 4++ 镜像 mobile)
 
@@ -1410,6 +1411,11 @@ function StreamingCard({ aspectStyle, stage, kind, isUser, conversationId }: {
 }
 
 function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversationId }: { part: AgentPart; onPick: (s: string) => void; kind: 'image' | 'video'; isUser: boolean; token: string; selectedRatio: string; conversationId: string | null }) {
+  // v3.0.77 (BUG-145 修): LightboxImage viewer 状态 — 用户点击 result image / reference image 后弹出全屏查看
+  //   跟 mobile 端 FullscreenImageViewer 跨端铁律 4++ 1:1 镜像
+  //   - 不用 src 当 dep (避免 buildImageUrl Date.now() 副作用泄漏, 跟 BUG-143 100% 同源)
+  //   - 传 part.url (server 原始 URL) 给 viewer, viewer 内部走 refUrl + token 拼装, 保持 src URL 稳定
+  const [lightbox, setLightbox] = useState<{ src: string; filename: string } | null>(null);
   switch (part.type) {
     case 'text':
       return <p className="text-sm whitespace-pre-wrap leading-relaxed">{part.text}</p>;
@@ -1427,57 +1433,112 @@ function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversati
       const isAuthPath = url.startsWith('/api/agent/uploads/') ||
         /^[a-z]+:\/\/[^\/]*ab\.maque\.uno\//i.test(url);
       const refUrl = (isAuthPath && token) ? `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : fullUrl;
+      // v3.0.77 (BUG-145 修): 跟 mobile 端 1:1 镜像 — 顺手修 BUG-143 半修漏补 (Date.now() → 稳定 hash)
+      //   跨项目通用铁律: djb2 hash 用于 filename 必贯穿所有 URL → 文件名 映射, 禁用 Date.now()
+      //   跟 mobile 端 getLightboxFilename / djb2Hex 算法 1:1 镜像
+      const ext = url.includes('.png') ? 'png' : url.includes('.webp') ? 'webp' : 'jpg';
+      const stableFilename = getLightboxFilename(url, ext);
       return (
-        <div className="mt-1">
-          {part.role === 'reference' ? (
-            // v3.0.0: user 上传的参考图, 显示缩略图 (拼 origin 因为 URL 是相对路径)
-            <div className="flex items-center gap-2">
-              <img
-                src={refUrl}
-                alt="参考图"
-                className="h-20 w-20 object-cover rounded-md border border-white/20"
-              />
-              <div className="text-xs opacity-80">
-                <div className="flex items-center gap-1">
-                  <FileText size={10} /> 参考图
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <img
-                src={refUrl}
-                alt="生成结果"
-                className="rounded-lg max-w-full max-h-96 object-contain border border-white/20"
-                loading="lazy"
-              />
-              {/* v3.0.0.17: 跟视频一样加下载按钮 (之前只有"另存为") */}
-              {(() => {
-                const downloadFilename = `deep剧本-图片-${Date.now()}.${url.includes('.png') ? 'png' : 'jpg'}`;
-                // v3.0.0.18: 鉴权 URL (相对路径 /api/agent/uploads/ 或同源) 走 /api/download 加 token
-                //   ab.maque.uno/... 公网 URL 直接走 /api/download
-                const isAbUrl = /^[a-z]+:\/\/[^\/]*ab\.maque\.uno\//i.test(url);
-                const href = isHttp && !isAbUrl
-                  ? `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(downloadFilename)}&token=${encodeURIComponent(token)}&disposition=attachment`
-                  : `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
-                return (
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <a
-                      href={href}
-                      download={downloadFilename}
-                      className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500/35 text-blue-300 border border-blue-500/30 hover:border-blue-500/60 font-medium transition-colors"
-                      title="下载图片 (.png / .jpg) — 保存到本地"
-                    >
-                      <Download size={14} />
-                      下载图片
-                    </a>
-                    <span className="text-[10px] text-text-tertiary">右键图片也可"另存为"</span>
+        <>
+          <div className="mt-1">
+            {part.role === 'reference' ? (
+              // v3.0.0: user 上传的参考图, 显示缩略图 (拼 origin 因为 URL 是相对路径)
+              // v3.0.77 (BUG-145 修): 包 <button> 让用户点击参考图也能放大查看 (跟 mobile 端 1:1 镜像)
+              <button
+                type="button"
+                onClick={() => setLightbox({ src: refUrl, filename: stableFilename })}
+                className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                aria-label="点击查看参考图大图"
+                title="点击查看大图"
+              >
+                <img
+                  src={refUrl}
+                  alt="参考图"
+                  className="h-20 w-20 object-cover rounded-md border border-white/20"
+                  draggable={false}
+                />
+                <div className="text-xs opacity-80">
+                  <div className="flex items-center gap-1">
+                    <FileText size={10} /> 参考图 · 点击放大
                   </div>
-                );
-              })()}
-            </div>
-          )}
-        </div>
+                </div>
+              </button>
+            ) : (
+              <div>
+                {/* v3.0.77 (BUG-145 修): 包 <button> 让用户点击生成结果图也能放大查看 (跟 mobile 端 1:1 镜像)
+                    - 跨端铁律 4++ 1:1 镜像: 跟 mobile FullscreenImageViewer (pinch + pan + double-tap + 单击关闭) 行为一致
+                    - hint 文案: "点击图片放大查看 · 右键图片也可'另存为'" (跟 web 端 1:1) */}
+                <button
+                  type="button"
+                  onClick={() => setLightbox({ src: refUrl, filename: stableFilename })}
+                  className="block cursor-zoom-in hover:opacity-90 active:opacity-80 transition-opacity rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  aria-label="点击查看生成图片大图, 支持双指缩放和双击放大"
+                  title="点击查看大图"
+                >
+                  <img
+                    src={refUrl}
+                    alt="生成结果"
+                    className="rounded-lg max-w-full max-h-96 object-contain border border-white/20"
+                    loading="lazy"
+                    draggable={false}
+                  />
+                </button>
+                {/* v3.0.0.17: 跟视频一样加下载按钮 (之前只有"另存为") */}
+                {(() => {
+                  // v3.0.77 (BUG-145 修): 跟 mobile 端 1:1 镜像 — 用 stableFilename 替代 Date.now()
+                  const downloadFilename = stableFilename;
+                  // v3.0.0.18: 鉴权 URL (相对路径 /api/agent/uploads/ 或同源) 走 /api/download 加 token
+                  //   ab.maque.uno/... 公网 URL 直接走 /api/download
+                  const isAbUrl = /^[a-z]+:\/\/[^\/]*ab\.maque\.uno\//i.test(url);
+                  const href = isHttp && !isAbUrl
+                    ? `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(downloadFilename)}&token=${encodeURIComponent(token)}&disposition=attachment`
+                    : `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+                  return (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <a
+                        href={href}
+                        download={downloadFilename}
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500/35 text-blue-300 border border-blue-500/30 hover:border-blue-500/60 font-medium transition-colors"
+                        title="下载图片 (.png / .jpg) — 保存到本地"
+                      >
+                        <Download size={14} />
+                        下载图片
+                      </a>
+                      <span className="text-[10px] text-text-tertiary">点击图片放大 · 右键图片也可"另存为"</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+          {/* v3.0.77 (BUG-145 修): LightboxImage viewer — 跟 mobile 端 FullscreenImageViewer 跨端铁律 4++ 1:1 镜像
+              行为 1:1: pinch (wheel) + pan (drag) + double-tap (1x↔2x) + 单击背景关闭 + ESC 关闭 + 顶部 X + 底部下载 */}
+          <LightboxImage
+            visible={!!lightbox}
+            src={lightbox?.src || ''}
+            alt={url}
+            filename={lightbox?.filename}
+            onClose={() => setLightbox(null)}
+            onDownload={lightbox
+              ? () => {
+                  // v3.0.77 (BUG-145 修): 复用 PartView 已算好的 downloadHref 逻辑 (跟 inline <a download> 行为 1:1)
+                  const downloadFilename = lightbox.filename;
+                  const isAbUrl = /^[a-z]+:\/\/[^\/]*ab\.maque\.uno\//i.test(url);
+                  const href = isHttp && !isAbUrl
+                    ? `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(downloadFilename)}&token=${encodeURIComponent(token)}&disposition=attachment`
+                    : `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+                  const a = document.createElement('a');
+                  a.href = href;
+                  a.download = downloadFilename;
+                  a.target = '_blank';
+                  a.rel = 'noopener noreferrer';
+                  document.body.appendChild(a);
+                  a.click();
+                  setTimeout(() => a.remove(), 0);
+                }
+              : undefined}
+          />
+        </>
       );
     }
     case 'plan': {
