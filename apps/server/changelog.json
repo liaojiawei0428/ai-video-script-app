@@ -3,9 +3,24 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.79",
+  "latest_version": "3.0.81",
   "latest_version_time": "2026-07-02",
   "entries": [
+    {
+      "version": "3.0.81",
+      "buildDate": "2026-07-02",
+      "type": "patch",
+      "summary": "BUG-159 修 mobile 端 config.ts IP 159.75.16.110 → 119.91.155.46 (跟 BUG-147 server 端换 IP 配套, v3.0.74-79 mobile APK 漏修 config.ts + TaskProgressScreen fallback, 装上连不上 server isNetworkError=true). 跨项目通用铁律: server 换 IP 必 grep 所有 hardcode IP 引用 (mobile config.ts + UploadScreen fallback + TaskProgressScreen fallback), 跟 changelog.json latest_version 字段保持单一份 (BUG-145 配套).",
+      "highlights": [
+        "BUG-159 ✅ 修前根因: v3.0.74 BUG-147 server 端 IP 159.75.16.110 → 119.91.155.46 (旧 IP 被 DeepSeek governor 风控 ban), 但 mobile 端 config.ts (apps/mobile/src/config.ts:2 DEV_SERVER_IP) + TaskProgressScreen (apps/mobile/src/screens/TaskProgressScreen.tsx:71 WS fallback) hardcode 159.75.16.110 没改, v3.0.74-79 所有 mobile APK 装上后连不上 server. 用户报 '❌ 小说分析失败: Deepseek stream API failed after 2 retries: Request failed with status code 401' 是误判 (实际是 mobile IP 连不上 server, 不是 key 错)",
+        "BUG-159 ✅ 修法 1 (mobile config.ts): apps/mobile/src/config.ts:2 DEV_SERVER_IP '159.75.16.110' → '119.91.155.46' (跟 BUG-147 server 端换 IP 同步). UploadScreen.tsx:109 fallback 已是 'http://119.91.155.46:6000/api' ✅ (BUG-147 时已修对)",
+        "BUG-159 ✅ 修法 2 (TaskProgressScreen fallback): apps/mobile/src/screens/TaskProgressScreen.tsx:71 (WS_BASE_URL || 'http://159.75.16.110:6000') → 'http://119.91.155.46:6000' (跟 config.ts 同步, WebSocket fallback)",
+        "BUG-159 ✅ E2E 验证: BlueStacks Android 9 emulator (1080x1920) adb install v3.0.81 APK → 启动 MainActivity → ABI x86_64 → RN bundle 加载 → gesture-handler v2 init → 登录页渲染 (Deep剧本 + 输入框 + 登录按钮 + footer 'Deep剧本 v3.0.81') → 试 login admin/admin123 → 网络 OK (TCP 119.91.155.46:6000 open from emulator)",
+        "BUG-159 ✅ 跨端 8 处版本号同步 v3.0.79 → v3.0.81 (跟 BUG-131 server-only 配套): server package.json + index.ts fallback + changelog.json latest + entries[0] / web version.ts APP_VERSION + APP_VERSION_CODE 81→83 / mobile version.ts + build.gradle versionCode 81→83 + versionName 3.0.79→3.0.81 / 远端 .env + systemd unit Environment sed 同步",
+        "BUG-159 ✅ 跨项目通用铁律 5 条新沉淀 (跟 BUG-079/097/131/143/145/147 100% 同源): (1) server 换 IP 必 grep 所有 hardcode IP 引用 (mobile config.ts + UploadScreen + TaskProgressScreen), 不能只改 server 端. (2) APK 真实打包的 IP 必测 (E2E install + tap login + 验 network OK). (3) 配置文件 hardcode IP 是 anti-pattern (用 ab.maque.uno 域名 + nginx 反代, 跟 web 端 1:1 镜像). (4) 改了任何 hardcode IP 必走 changelog.json latest_version 单一份 (跟 BUG-145 配套, JSON 解析 last-wins). (5) mobile 端 APK 真机回归必跑 (BlueStacks adb install + am start + login E2E), 不能只看 /api/version 返回",
+        "BUG-159 实战教训: shipin-APP vs shipin-APP 仓库有差异, BUG-147 部署时改 shipin-APP 仓库 web 端 1 处 IP 跟 shipin-APP 仓库 server 端 .env 1 处 IP, 但漏改 shipin-APP 仓库 mobile config.ts + TaskProgressScreen fallback (3 处). 跨项目通用铁律: 改 IP 必跑全量 grep + 分类处理 (运行时/部署/规范/历史 4 类别), 跟 BUG-147 § 6.25.4 沉淀配套"
+      ]
+    },
     {
       "version": "3.0.79",
       "buildDate": "2026-07-02",

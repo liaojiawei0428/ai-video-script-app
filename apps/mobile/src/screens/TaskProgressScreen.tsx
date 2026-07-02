@@ -68,7 +68,7 @@ export function TaskProgressScreen(): React.JSX.Element {
     const connectWs = () => {
       if (wsRef.current) return;
       try {
-        const baseUrl = (WS_BASE_URL || 'http://159.75.16.110:6000').replace('http', 'ws');
+        const baseUrl = (WS_BASE_URL || 'http://119.91.155.46:6000').replace('http', 'ws');
         const ws = new WebSocket(baseUrl + '/ws');
         wsRef.current = ws;
 

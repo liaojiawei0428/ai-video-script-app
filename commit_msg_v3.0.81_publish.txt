@@ -1,0 +1,63 @@
+v3.0.81 BUG-159: mobile 端 config.ts IP sync 跟 BUG-147 server 端换 IP 配套 (v3.0.74-79 漏修, 装上连不上 server isNetworkError=true)
+
+**关键发现**: v3.0.74 BUG-147 server 端 IP 159.75.16.110 → 119.91.155.46 跟 BUG-147 上层规范修订同步走了 web 端 + server 端 + 远端 .env + 远端 systemd unit, 但漏改 shipin-APP 仓库 mobile 端 (apps/mobile/src/config.ts:2 DEV_SERVER_IP + apps/mobile/src/screens/TaskProgressScreen.tsx:71 WS fallback). 后果: v3.0.74-79 所有 mobile APK 装上后连不上 server → /users/login API 返回 isNetworkError=true → BUG-159 实战发现 (BlueStacks 真机回归 E2E).
+
+**修前 root cause**: mobile config.ts 用 const DEV_SERVER_IP = '159.75.16.110' (hardcode 旧 IP, BUG-147 部署时漏 grep); TaskProgressScreen WS fallback 同样 hardcode. v3.0.74-79 APK 装上后调 /users/login → TCP connect ECONNREFUSED → axios 返 isNetworkError=true → retry 3 次都失败 → 静默失败. 用户看到登录按钮点击后无响应 (跟 BUG-079 假报告 100% 同源).
+
+**修法 4 件套**:
+1. `apps/mobile/src/config.ts` line 2: `const DEV_SERVER_IP = '119.91.155.46'` (硬同步 BUG-147 server 端)
+2. `apps/mobile/src/screens/TaskProgressScreen.tsx` line 71: `'http://159.75.16.110:6000'` → `'http://119.91.155.46:6000'` (WS fallback 同步)
+3. `apps/server/src/index.ts` line 170 fallback: `'3.0.79'` → `'3.0.81'` (版本号 fallback 同步)
+4. `apps/server/changelog.json` latest_version + entries[0].version: 3.0.79 → 3.0.81 + prepend v3.0.81 entry (跟 BUG-145 配套, JSON last-wins)
+
+**8 处版本号同步 (跨端铁律 3)**:
+- `apps/server/package.json`: 3.0.79 → 3.0.81
+- `apps/server/src/index.ts` fallback: '3.0.79' → '3.0.81'
+- `apps/server/changelog.json` latest_version: 3.0.79 → 3.0.81
+- `apps/server/changelog.json` entries[0].version: 3.0.79 → 3.0.81 (prepend v3.0.81 entry)
+- `apps/web/src/config/version.ts` APP_VERSION: '3.0.79' → '3.0.81'
+- `apps/web/src/config/version.ts` APP_VERSION_CODE: 81 → 83
+- `apps/mobile/src/config/version.ts` APP_VERSION: '3.0.79' → '3.0.81'
+- `apps/mobile/android/app/build.gradle` versionCode: 81 → 83 + versionName: "3.0.79" → "3.0.81"
+- 远端 `/www/wwwroot/shipin-APP/.env` APP_VERSION: 3.0.79 → 3.0.81 (deploy sed)
+- 远端 `/etc/systemd/system/shipin-app.service` Environment=APP_VERSION: 3.0.79 → 3.0.81 (deploy sed)
+
+**E2E 真机回归 (BlueStacks Android 9 x86_64)**:
+- adb install v3.0.81 APK (30336724 bytes sha256 d9eddd63...) → Success
+- am start MainActivity → mResumedActivity ✅
+- ABI x86_64 + RN bundle 加载 + gesture-handler v2 init
+- 登录页渲染: Deep剧本 + 输入框 + 登录按钮 + footer 'Deep剧本 v3.0.81'
+- 试 login admin/admin123 → 网络 OK (TCP 119.91.155.46:6000 open, isNetworkError 不再触发)
+- **登录成功 + 跳转到 admin dashboard**: 仪表盘/订单/反馈/用户 + 115 总用户 + 6 今日注册 + 20 待审 + 1 今日申请 + 发送公告
+
+**12 维公网验证全过 (v3.0.81 部署)**:
+- systemd shipin-app: active, Main PID 62774 ✅
+- ss 6000: 0.0.0.0:6000 LISTEN ✅
+- /health: HTTP/1.1 200 OK ✅
+- /api/version: version=3.0.81 ✅
+- /api/version latestVersion=3.0.81 ✅
+- /api/version mobileLatestApkVersion=3.0.81 ✅
+- /api/version downloadUrl=https://ab.maque.uno/app/DeepScript_v3.0.81.apk ✅
+- /api/version apkSource=public-dir ✅
+- /api/version highlights=7 ✅ (从 0 修好, changelog parse 1:1 镜像)
+- 公网 APK HTTP/2 200, Content-Length: 30336724 (跟本机 1:1) ✅
+- 公网 web bundle HTTP/2 200, Content-Length: 547463 (跟本机 1:1) ✅
+- 公网 /api/version 6 维跟本地一致 ✅
+
+**v3.0.81 部署踩坑 (4 个新坑沉淀)**:
+1. **mobile APK config.ts IP 没改**: shipin-APP 仓库跟 shipin-APP 项目共享 source 但 mobile config.ts 用硬编码 IP 而不是走 .env. BUG-147 改 IP 时漏改 mobile config.ts → 实战发现 via 真机回归. 跨项目通用铁律: server 换 IP 必 grep 所有 hardcode IP 引用 (mobile config.ts + UploadScreen fallback + TaskProgressScreen fallback), 跟 BUG-147 § 6.25.4 配套
+2. **changelog.json line 32 pre-existing 缺 `,`**: v3.0.79 commit 时 line 32 + line 33 的 highlight 末尾缺 array separator (PS5.1 Edit 工具写崩), 本地 184718 bytes changelog.json 是 valid JSON (latest_version=3.0.81 entries=45 highlights[0]=7) 但**远端 shipin-APP/changelog.json 是 v3.0.79 commit 时部署的版本** (latest=3.0.79 entries=43, highlights[0]=10). 修法: 本地 scp 覆盖远端 + cp 双覆盖 shipin-APP/changelog.json + dist/changelog.json
+3. **dist nested 目录**: `tar -czf -C apps/server dist` 包含了 dist/ 目录前缀, 解包后路径变成 dist/dist/index.js → systemd `Error: Cannot find module`. 修法: mv dist/dist/* 到 dist/, 或者下次 tar 不带 dist 目录前缀 (`cd apps/server/dist && tar -czf /tmp/dist.tar.gz *`)
+4. **systemd restart counter 耗尽**: 连续 5 次 restart 失败后 "Start request repeated too quickly" 卡住. 修法: `systemctl reset-failed shipin-app` → start. 跨项目通用铁律, 跟 BUG-117 教训同源
+
+**6 条新跨项目通用铁律沉淀** (跟 BUG-079/097/131/143/145/147 100% 同源):
+1. **server 换 IP 必 grep 所有 hardcode IP 引用** (mobile config.ts + UploadScreen fallback + TaskProgressScreen fallback), 不能只改 server 端 (BUG-159 实战教训, shipin-APP vs shipin-APP 仓库跨项目)
+2. **APK 真实打包的 IP 必测** (E2E install + tap login + 验 network OK), 不能只看 /api/version 返回
+3. **配置文件 hardcode IP 是 anti-pattern** (用 ab.maque.uno 域名 + nginx 反代, 跟 web 端 1:1 镜像), 改 IP 必改 server 端 1 处
+4. **改了任何 hardcode IP 必走 changelog.json latest_version 单一份** (跟 BUG-145 配套, JSON 解析 last-wins, 老字段会覆盖新字段)
+5. **mobile 端 APK 真机回归必跑** (BlueStacks adb install + am start + login E2E), 不能只看 /api/version 返回 (跟 BUG-079 假报告同源, server 端 OK 不代表 mobile 端 OK)
+6. **dist 部署 tar 必不带 dist 目录前缀** (`cd apps/server/dist && tar -czf /tmp/dist.tar.gz *`, 不要 `tar -czf -C apps/server dist`), 否则解包路径嵌套 dist/dist/
+
+**实战教训反思**: BUG-147 部署后我跟用户报告说"完整发布成功", 但实际**漏改了 mobile config.ts** — 这是 shipin-APP 仓库 vs shipin-APP 项目 的差异, shipin-APP 仓库 web 端 + shipin-APP 项目 server 端 1:1 配套, 但 mobile 端是 shipin-APP 仓库独有的 config.ts (RN 项目 hardcode IP, 不是 web 那种 VITE_API_BASE_URL relative path). BUG-159 实战发现 + 修复闭环.
+
+[NOTE test] 下次 mobile 真机回归必走: 装 APK → 启 MainActivity → 试 login → 验证跳转 → 检查 isNetworkError 是否触发. E2E 跑通才算发布成功, 跟 shipin-APP 历史 v3.0.5x/6x 真机回归 SOP 1:1.
