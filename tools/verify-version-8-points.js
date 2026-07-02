@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 
 const NEW_VERSION = process.argv[2] || '3.0.33';
 const SSH_KEY = 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\shipin_app_key';
-const REMOTE = 'root@159.75.16.110';
+const REMOTE = 'root@119.91.155.46';
 
 console.log('=== build.gradle 验证 ===');
 const s = fs.readFileSync('apps/mobile/android/app/build.gradle', 'utf8');
@@ -54,7 +54,7 @@ if (latest === NEW_VERSION) {
 console.log('\n=== 7-8 处远程版本号同步自检 (🆕 v3.0.33 S71 BUG-082 P3) ===');
 if (!fs.existsSync(SSH_KEY)) {
   console.log('  ⚠ SSH key 不存在 (' + SSH_KEY + '), 跳过远程 7-8 处检查');
-  console.log('    手动: ssh root@159.75.16.110 "grep APP_VERSION /www/wwwroot/shipin-APP/.env && grep APP_VERSION /etc/systemd/system/shipin-app.service"');
+  console.log('    手动: ssh root@119.91.155.46 "grep APP_VERSION /www/wwwroot/shipin-APP/.env && grep APP_VERSION /etc/systemd/system/shipin-app.service"');
   process.exit(allOK ? 0 : 1);
 }
 try {

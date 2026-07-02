@@ -12,7 +12,7 @@
 #   - 必跑清 69 卡死任务 SQL (verify-bug100.sh § 4)
 #
 # 用法:
-#   ssh root@159.75.16.110 "bash /tmp/deploy-bug100.sh"
+#   ssh root@119.91.155.46 "bash /tmp/deploy-bug100.sh"
 #   或本地 (用 scp):  bash deploy-bug100.sh
 #
 # 部署时间: 2026-06-26 (S72 batch 8 后置), 作者: mavis
@@ -20,7 +20,7 @@
 set -e
 
 # ───── 配置 ─────
-SERVER="root@159.75.16.110"
+SERVER="root@119.91.155.46"
 REMOTE_DEPLOY="/www/wwwroot/shipin-APP"
 LOCAL_DIST="$(dirname $(dirname $(realpath $0)))/dist"
 LOCAL_CHANGELOG="$(dirname $(dirname $(realpath $0)))/changelog.json"

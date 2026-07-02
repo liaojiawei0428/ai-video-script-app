@@ -16,7 +16,7 @@ import os
 import time
 
 SSH_KEY = r'C:\Users\Administrator\.ssh\test2'
-SERVER = 'root@159.75.16.110'
+SERVER = 'root@119.91.155.46'
 DIST_DIR = r'F:\QiTa\banmu\APP\ai-video-script-app\apps\server'
 PUBLIC_DIR = r'F:\QiTa\banmu\APP\ai-video-script-app\apps\mobile\android\app\build\outputs\apk\release'
 

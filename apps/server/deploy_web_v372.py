@@ -6,7 +6,7 @@ import subprocess
 import os
 
 SSH_KEY = r'C:\Users\Administrator\.ssh\test2'
-SERVER = 'root@159.75.16.110'
+SERVER = 'root@119.91.155.46'
 WEB_DIR = '/www/wwwroot/ab.maque.uno'  # 修正: 跟 nginx vhost `root /www/wwwroot/ab.maque.uno/dist` 对齐
 LOCAL_DIST = r'F:\QiTa\banmu\APP\ai-video-script-app\apps\web\dist'
 LOCAL_TGZ = r'F:\QiTa\banmu\APP\ai-video-script-app\dist-web.tgz'

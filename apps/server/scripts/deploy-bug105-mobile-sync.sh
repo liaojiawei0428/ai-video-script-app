@@ -7,8 +7,8 @@
 # + 6 处版本号同步 3.0.40 → 3.0.41
 #
 # 用法:
-#   scp deploy-bug105-mobile-sync.sh root@159.75.16.110:/tmp/
-#   ssh root@159.75.16.110 "bash /tmp/deploy-bug105-mobile-sync.sh"
+#   scp deploy-bug105-mobile-sync.sh root@119.91.155.46:/tmp/
+#   ssh root@119.91.155.46 "bash /tmp/deploy-bug105-mobile-sync.sh"
 #
 # 部署时间: 2026-06-26 (S72 batch 7 后置, BUG-105 mobile sync), 作者 mavis
 

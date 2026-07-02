@@ -1,3 +1,9 @@
+<!-- BUG-147 (2026-07-02) 鏈嶅姟鍣ㄥ叕缃?IP 鍙樻洿: 159.75.16.110 -> 119.91.155.46 (鑵捐浜?VM 鎹?EIP)
+   瑙﹀彂鏍瑰洜: DeepSeek 骞冲彴 governor 椋庢帶 ban 浜?159.75.16.110 (璺?BUG-146 鍚屾簮)
+   鏈枃浠跺巻鍙叉淇濈暀鏃?IP 浣滀负鏃堕棿绾挎。妗? 鏂伴儴缃茶蛋 119.91.155.46
+   璇﹁ AGENTS.md 搂 6.25 / BUG-147 / mavis memory
+-->
+
 # docs/BAOTA_NODE_PROJECT_DEPLOY.md — shipin-APP 部署到宝塔 panel "项目" 列表的标准 SOP (S70 v1.0, BUG-077 修法)
 
 > **目的**: 让任何 AI 接手 shipin-APP 部署时, **走宝塔 panel "项目" 列表路径** (不是 PM2 路径), 部署完自动在宝塔 panel 显示 "已启动", 跟其他服务端 (banmu_server / smartlink-iot) 一致.

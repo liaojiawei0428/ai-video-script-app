@@ -4,7 +4,7 @@ import subprocess
 import os
 
 SSH_KEY = r'C:\Users\Administrator\.ssh\test2'
-SERVER = 'root@159.75.16.110'
+SERVER = 'root@119.91.155.46'
 LOCAL_APK = r'F:\QiTa\banmu\APP\ai-video-script-app\apps\mobile\android\app\build\outputs\apk\release\app-release.apk'
 
 

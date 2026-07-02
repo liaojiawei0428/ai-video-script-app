@@ -15,7 +15,7 @@
 ## 项目速览 (1 行版)
 
 shipin-APP (AI 短剧剧本生成) — Node + Express + MySQL + systemd unit + RN + React,
-部署服务器 `159.75.16.110:6000`, 公网域名 `https://ab.maque.uno`。
+部署服务器 `119.91.155.46:6000`, 公网域名 `https://ab.maque.uno`。
 **走 systemd unit 部署** (S70 起, 不再 PM2, BUG-077 修法)。
 
 ## 改代码前 3 步 / 改完代码后 5 步

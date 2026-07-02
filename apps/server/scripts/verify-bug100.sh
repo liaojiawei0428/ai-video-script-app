@@ -9,13 +9,13 @@
 #   4. video_generations 状态分布 (无 17 天前 queued)
 #   5. server 端到端 /api/version + /health
 #
-# 用法: ssh root@159.75.16.110 "bash /tmp/verify-bug100.sh"
+# 用法: ssh root@119.91.155.46 "bash /tmp/verify-bug100.sh"
 # 作者: mavis, 2026-06-26
 
 set -e
 set +e  # 容忍 grep miss 走完整 set (跟 verify-deploy 维度 22 容忍 set -e 同源, BUG-099 教训)
 
-SERVER="root@159.75.16.110"
+SERVER="root@119.91.155.46"
 REMOTE_DEPLOY="/www/wwwroot/shipin-APP"
 SSH_KEY="C:\\Users\\Administrator\\.ssh\\test2"
 SSH_KEY_UNIX="/c/Users/Administrator/.ssh/test2"

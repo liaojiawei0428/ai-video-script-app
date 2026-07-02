@@ -1,7 +1,7 @@
 """v3.0.46 BUG-117 deploy.py v3.0 - 通用版本号路径 + scp 4 件套 + 公网 HEAD 验证"""
 import os, sys, subprocess, tarfile, shutil, hashlib, urllib.request
 
-REMOTE = "root@159.75.16.110"
+REMOTE = "root@119.91.155.46"
 SSH_KEY = r"C:\Users\Administrator\.ssh\test2"
 
 # 通用路径, 不写死版本号

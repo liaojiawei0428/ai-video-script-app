@@ -106,7 +106,7 @@ export function UploadScreen(): React.JSX.Element {
       }, 2000);
 
       const result = await new Promise<any>((resolve, reject) => {
-        const url = (API_BASE_URL || 'http://159.75.16.110:6000/api') + '/novels/upload';
+        const url = (API_BASE_URL || 'http://119.91.155.46:6000/api') + '/novels/upload';
         xhr.open('POST', url);
         const token = getAuthToken();
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);

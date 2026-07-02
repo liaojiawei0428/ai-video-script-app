@@ -25,7 +25,7 @@
 ### 0.1 目标服务器
 | 项 | 值 |
 |---|---|
-| 服务器地址 | `159.75.16.110` |
+| 服务器地址 | `119.91.155.46` |
 | 操作系统 | Ubuntu (VM-4-11-ubuntu, kernel 6.8.0-101) |
 | 部署根目录 | `/www/wwwroot/shipin-APP` (单层 Express, NOT monorepo) |
 | Node 版本 | v22.22.2 (`/www/server/nodejs/v22.22.2`) |
@@ -142,14 +142,14 @@ $keyPath = "C:\Users\Administrator\AppData\Local\Temp\deploy_key_YYYYMMDD.pem"
 # 锁权限
 icacls $keyPath /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
 # 上传
-scp -i $keyPath -o StrictHostKeyChecking=accept-new $tgz root@159.75.16.110:/tmp/
+scp -i $keyPath -o StrictHostKeyChecking=accept-new $tgz root@119.91.155.46:/tmp/
 ```
 
 **SSH 认证**:
 - 用户提供 SSH 私钥 (or password)
 - 私钥**持久化保存**到 `~/.ssh/id_ed25519` (用户 2026-06-13 明确要求, 覆盖之前"用完 trash"规则)
 - 写入后用 `ssh-keygen -y -f ~/.ssh/id_ed25519` 验证能提取公钥 (防 OpenSSH 9.5p2 末尾 \n 缺失 bug)
-- 测 `ssh root@159.75.16.110 "echo OK"` 免密登录 OK 才算完成
+- 测 `ssh root@119.91.155.46 "echo OK"` 免密登录 OK 才算完成
 - 私钥保存到 `%TEMP%` 路径 (mavis 部署工具用), 临时用完 trash; **持久 key 在 `~/.ssh/id_ed25519`** 保留不动
 
 #### 节点 5: 服务器 build
@@ -293,7 +293,7 @@ curl -s -m 5 -o /dev/null -w "%{http_code}\n" http://localhost:6000/api/novels
   ```
   # Staging Manifest — session mvs_xxx, 2026-06-15
 
-  ## 远端 shipin-APP (159.75.16.110)
+  ## 远端 shipin-APP (119.91.155.46)
   | 时间 | 路径 | 用途 | 状态 |
   |---|---|---|---|
   | 09:21 | /www/wwwroot/shipin-APP-build/ | server build staging | 09:31 删 |
@@ -313,7 +313,7 @@ curl -s -m 5 -o /dev/null -w "%{http_code}\n" http://localhost:6000/api/novels
 # 服务器 (按 manifest 逐条删)
 pm2 save  # 持久化进程列表
 # 先 ssh 查 manifest 里所有路径, 然后逐条删
-ssh root@159.75.16.110 'rm -rf /www/wwwroot/shipin-APP-build /tmp/s56-* /tmp/s57-* /tmp/s58-*'
+ssh root@119.91.155.46 'rm -rf /www/wwwroot/shipin-APP-build /tmp/s56-* /tmp/s57-* /tmp/s58-*'
 # 保留 dist.bak.* / package.json.bak.* 至少 7 天
 # 保留 /www/backup/release/<version>/*.sql 永久
 
@@ -332,7 +332,7 @@ mavis-trash <manifest 里的本地路径>
 ## 3. 部署后用户在宝塔面板操作
 
 ### 3.1 查看进程
-1. 登录宝塔面板: `https://159.75.16.110:888`
+1. 登录宝塔面板: `https://119.91.155.46:888`
 2. 左侧菜单 → **软件商店** → 找到 **PM2 管理器** (宝塔版) → 点击 **设置**
 3. 在 PM2 管理器界面:
    - **进程列表** → 应该看到 `ai-script-server`, status = `online`

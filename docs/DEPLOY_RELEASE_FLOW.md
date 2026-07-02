@@ -1,3 +1,9 @@
+<!-- BUG-147 (2026-07-02) 鏈嶅姟鍣ㄥ叕缃?IP 鍙樻洿: 159.75.16.110 -> 119.91.155.46 (鑵捐浜?VM 鎹?EIP)
+   瑙﹀彂鏍瑰洜: DeepSeek 骞冲彴 governor 椋庢帶 ban 浜?159.75.16.110 (璺?BUG-146 鍚屾簮)
+   鏈枃浠跺巻鍙叉淇濈暀鏃?IP 浣滀负鏃堕棿绾挎。妗? 鏂伴儴缃茶蛋 119.91.155.46
+   璇﹁ AGENTS.md 搂 6.25 / BUG-147 / mavis memory
+-->
+
 # DeepScript 跨端部署 + 发布流程 (Deployment & Release Flow)
 
 > **本文件**: shipin-APP 全栈 (server + web + mobile) 部署 + 发布的**主入口 SOP**。
