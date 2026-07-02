@@ -43,6 +43,29 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+// v3.0.78 (BUG-152): axios 拦截器错误码严格映射 + retry + 401 细分 (跟 BUG-148/149/150 deepseek/agnes/jwt 修法 1:1 镜像)
+// 跨项目通用铁律: 客户端 axios 拦截器跟 server 端 jwt verify 1:1 镜像, 错误码 5 子类 (跟 BUG-150 jwt 1:1)
+// 401 细分: TOKEN_EXPIRED → 跳 refresh / TOKEN_INVALID_SIGNATURE → 重新登录 / TOKEN_AUDIENCE_INVALID → 重新登录 + 报警
+// 5xx / 429 触发 retry: 1s, 2s, 4s exponential backoff, 上限 3 次
+// 网络错 (error.request 存在但 error.response 不存在) → 触发 retry
+
+// v3.0.78 (BUG-152): retry helper (跟 BUG-118/132 agnes retry 1:1 镜像)
+const MAX_RETRIES = 3;
+const RETRY_BACKOFF_MS = [1000, 2000, 4000];
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504, 522, 524]);
+
+function shouldRetry(status: number | undefined, isNetworkError: boolean): boolean {
+  if (isNetworkError) return true;
+  if (status !== undefined && RETRYABLE_STATUS.has(status)) return true;
+  return false;
+}
+
+async function retryRequest(originalConfig: any, attempt: number): Promise<any> {
+  await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)]));
+  return apiClient(originalConfig);
+}
+
+// 响应拦截器: 处理 ETag/304 + 401 细分 + retry 5xx/429/网络错
 apiClient.interceptors.response.use(
   async (r) => {
     // 🆕 BUG-116 B.5: 200 响应自动存 ETag + body 到 IndexedDB cache_meta
@@ -79,9 +102,36 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // v3.0.78 (BUG-152): 401 细分 (跟 BUG-150 jwt 5 子类 1:1 镜像)
     if (err?.response?.status === 401) {
+      const code = err?.response?.data?.error?.code;
+      if (code === 'TOKEN_EXPIRED') {
+        console.warn('[apiClient] 401 TOKEN_EXPIRED, please refresh');
+      } else if (code === 'TOKEN_AUDIENCE_INVALID' || code === 'TOKEN_ISSUER_INVALID') {
+        console.warn('[apiClient] 401 ' + code + ', server config mismatch');
+      } else {
+        console.warn('[apiClient] 401 ' + (code || 'TOKEN_INVALID'));
+      }
       useAuthStore.getState().logout();
     }
+
+    // v3.0.78 (BUG-152): retry 5xx/429/网络错 (跟 BUG-118/132 agnes retry 1:1 镜像)
+    const config = err?.config;
+    if (config && !config.__retried) {
+      const status = err?.response?.status;
+      const isNetworkError = !err?.response && !!err?.request;
+      if (shouldRetry(status, isNetworkError) && (config.__retryCount || 0) < MAX_RETRIES) {
+        config.__retryCount = (config.__retryCount || 0) + 1;
+        config.__retried = true;
+        console.warn('[apiClient] retrying', { url: config.url, attempt: config.__retryCount, status, isNetworkError });
+        try {
+          return await retryRequest(config, config.__retryCount - 1);
+        } catch (retryErr) {
+          return Promise.reject(retryErr);
+        }
+      }
+    }
+
     return Promise.reject(err);
   },
 );

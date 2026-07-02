@@ -1,8 +1,80 @@
+// apps/server/src/models/db.ts
+// v3.0.0: 首次 shipin-app 端 MySQL 集成
+// v3.0.62 (BUG-131): ALTER TABLE 错误处理从静默 catch 改 logger.warn
+// v3.0.78 (BUG-151): MySQL 池配置 + 错误码严格对齐官方文档 (跟 BUG-148/149/150 deepseek/agnes/jwt 修法 1:1 镜像)
+//   - 加 5 必填 options: timezone / dateStrings / decimalNumbers / maxIdle / idleTimeout (官方文档必查 12 维度)
+//   - 加 mapMysqlError(err) 严格透传 14 种错误码 (跟 deepseek mapDeepseekError / agnes classifyAgnesTextError 1:1)
+//   - 错误信息 prefix 不包装 mysql server 真实 message (跟 jwt upstream errMessage 透传 1:1 镜像)
+// 官方文档: https://github.com/sidorares/node-mysql2#readme
+//          https://sidorares.github.io/node-mysql2/docs/api-and-configuration (decimalNumbers 必加, 跟 shipin-app SUM/AVG 数字比较实战 100% 匹配)
+// 错误码: https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html
+
 import mysql, { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 
 let pool: Pool | null = null;
+
+/**
+ * v3.0.78 (BUG-151): mapMysqlError 严格透传 mysql server 错误码 (跟 deepseek mapDeepseekError / agnes classifyAgnesTextError 1:1 镜像)
+ * 官方 14 种必查错误码:
+ *   - 1040 ER_CON_COUNT_ERROR        Too many connections
+ *   - 1042 ER_BAD_HOST_ERROR         Can't get hostname for your address
+ *   - 1045 ER_ACCESS_DENIED_ERROR    Access denied for user
+ *   - 1062 ER_DUP_ENTRY              Duplicate entry (unique constraint)
+ *   - 1129 ER_HOST_IS_BLOCKED        Host blocked because of many connection errors
+ *   - 1158 ER_NET_READ_ERROR         Got an error reading communication packets
+ *   - 1159 ER_NET_READ_INTERRUPTED   Got timeout reading communication packets
+ *   - 1160 ER_NET_WRITE_ERROR        Got an error writing communication packets
+ *   - 1161 ER_NET_WRITE_INTERRUPTED  Got timeout writing communication packets
+ *   - 1205 ER_LOCK_WAIT_TIMEOUT      Lock wait timeout exceeded (retryable)
+ *   - 1213 ER_LOCK_DEADLOCK          Deadlock found (retryable)
+ *   - 2002 ECONNREFUSED              Can't connect to local MySQL server
+ *   - 2003 ECONNREFUSED              Can't connect to MySQL server
+ *   - 2006 ER_SERVER_GONE_ERROR       MySQL server has gone away
+ *   - 2013 ER_SERVER_LOST            Lost connection to MySQL server during query
+ */
+export class MysqlError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly mysqlErrno: number,
+    public readonly mysqlState: string | undefined,
+    message: string,
+    public readonly mysqlMessage?: string,
+  ) {
+    super(message);
+    this.name = 'MysqlError';
+  }
+}
+
+export function mapMysqlError(err: any): MysqlError {
+  const errno = err?.errno || 0;
+  const sqlState = err?.sqlState;
+  const mysqlMsg = err?.sqlMessage || err?.message;
+
+  // 14 种官方错误码严格映射 (跟 deepseek / agnes / jwt 1:1 镜像, 不包装 upstream)
+  if (errno === 1040) return new MysqlError('MYSQL_TOO_MANY_CONNECTIONS', errno, sqlState, `MySQL 连接数过多 (1040)`, mysqlMsg);
+  if (errno === 1042) return new MysqlError('MYSQL_BAD_HOST', errno, sqlState, `MySQL 主机名解析失败 (1042)`, mysqlMsg);
+  if (errno === 1045) return new MysqlError('MYSQL_ACCESS_DENIED', errno, sqlState, `MySQL 访问被拒 (1045)`, mysqlMsg);
+  if (errno === 1062) return new MysqlError('MYSQL_DUP_ENTRY', errno, sqlState, `MySQL 唯一约束冲突 (1062)`, mysqlMsg);
+  if (errno === 1129) return new MysqlError('MYSQL_HOST_BLOCKED', errno, sqlState, `MySQL 主机被封 (1129)`, mysqlMsg);
+  if (errno === 1158 || errno === 1159 || errno === 1160 || errno === 1161) {
+    return new MysqlError('MYSQL_NETWORK_PACKET', errno, sqlState, `MySQL 网络包错 (${errno})`, mysqlMsg);
+  }
+  if (errno === 1205) return new MysqlError('MYSQL_LOCK_WAIT_TIMEOUT', errno, sqlState, `MySQL 锁等待超时 (1205)`, mysqlMsg);
+  if (errno === 1213) return new MysqlError('MYSQL_DEADLOCK', errno, sqlState, `MySQL 死锁 (1213)`, mysqlMsg);
+  if (errno === 2002) return new MysqlError('MYSQL_CONNECTION_REFUSED', errno, sqlState, `MySQL 连接被拒 (2002)`, mysqlMsg);
+  if (errno === 2003) return new MysqlError('MYSQL_CONNECTION_FAILED', errno, sqlState, `MySQL 连接失败 (2003)`, mysqlMsg);
+  if (errno === 2006) return new MysqlError('MYSQL_SERVER_GONE', errno, sqlState, `MySQL server gone away (2006)`, mysqlMsg);
+  if (errno === 2013) return new MysqlError('MYSQL_SERVER_LOST', errno, sqlState, `MySQL 连接丢失 (2013)`, mysqlMsg);
+
+  // 非 mysql 特定错误 (driver / network / unknown)
+  if (err?.code === 'ECONNREFUSED') return new MysqlError('NETWORK_CONNECTION_REFUSED', errno, sqlState, `网络连接被拒 (ECONNREFUSED)`, mysqlMsg);
+  if (err?.code === 'ETIMEDOUT') return new MysqlError('NETWORK_TIMEOUT', errno, sqlState, `网络超时 (ETIMEDOUT)`, mysqlMsg);
+  if (err?.code === 'ENOTFOUND') return new MysqlError('NETWORK_HOST_NOT_FOUND', errno, sqlState, `主机名未找到 (ENOTFOUND)`, mysqlMsg);
+
+  return new MysqlError('MYSQL_UNKNOWN', errno, sqlState, `MySQL 未知错误 (${errno})`, mysqlMsg);
+}
 
 export async function getDb(): Promise<Pool> {
   if (pool) return pool;
@@ -20,6 +92,13 @@ export async function getDb(): Promise<Pool> {
     connectTimeout: 10000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
+    // v3.0.78 (BUG-151): mysql2 官方文档 12 维度必查补 5 必填 options
+    timezone: 'Z',                    // 显式 UTC, 跨时区 timestamp 错位 (修前默认 'local')
+    dateStrings: false,               // DATE 字段返 Date 对象 (不是 string)
+    decimalNumbers: true,             // DECIMAL 返 number, 数字比较类型错位 (官方强烈建议, 跟 shipin-app SUM/AVG 实战 100% 匹配)
+    maxIdle: 10,                      // 最多 10 个空闲连接, 长期不用自动关闭 (修前 default = connectionLimit = 25, 资源浪费)
+    idleTimeout: 60000,               // 60s 空闲超时
+    trace: false,                     // 生产关闭 stack trace (调试时打开)
   });
 
   // 测试连接
@@ -30,7 +109,10 @@ export async function getDb(): Promise<Pool> {
     logger.info('MySQL connected successfully');
   } catch (err) {
     logger.error('MySQL connection failed', { error: err });
-    throw err;
+    // v3.0.78 (BUG-151): 透传 mysql 真实错误 (跟 jwt upstream errMessage 1:1 镜像)
+    const mapped = mapMysqlError(err);
+    logger.error('MySQL connection mapped', { code: mapped.code, errno: mapped.mysqlErrno, sqlState: mapped.mysqlState, message: mapped.message, upstream: mapped.mysqlMessage });
+    throw mapped;
   }
 
   await initTables();
@@ -591,27 +673,44 @@ async function initTables(): Promise<void> {
 // 辅助函数：执行 SQL 并返回单行
 export async function queryOne<T = RowDataPacket>(sql: string, params: any[] = []): Promise<T | undefined> {
   const p = await getDb();
-  const [rows] = await p.execute(sql, params);
-  return (rows as any[])[0] as T | undefined;
+  try {
+    const [rows] = await p.execute(sql, params);
+    return (rows as any[])[0] as T | undefined;
+  } catch (err) {
+    // v3.0.78 (BUG-151): 透传 mysql 真实错误 (跟 deepseek / agnes / jwt 1:1 镜像)
+    throw mapMysqlError(err);
+  }
 }
 
 // 辅助函数：执行 SQL 并返回多行
 export async function queryAll<T = RowDataPacket>(sql: string, params: any[] = []): Promise<T[]> {
   const p = await getDb();
-  const [rows] = await p.execute(sql, params);
-  return rows as unknown as T[];
+  try {
+    const [rows] = await p.execute(sql, params);
+    return rows as unknown as T[];
+  } catch (err) {
+    throw mapMysqlError(err);
+  }
 }
 
 // 辅助函数：执行写操作（INSERT/UPDATE/DELETE）
 export async function execute(sql: string, params: any[] = []): Promise<ResultSetHeader> {
   const p = await getDb();
-  const [result] = await p.execute<ResultSetHeader>(sql, params);
-  return result;
+  try {
+    const [result] = await p.execute<ResultSetHeader>(sql, params);
+    return result;
+  } catch (err) {
+    throw mapMysqlError(err);
+  }
 }
 
 // 使用 pool.query 替代 execute（解决 ENUM 列参数化查询兼容问题）
 export async function poolQuery<T = RowDataPacket>(sql: string, params: any[] = []): Promise<T[]> {
   const p = await getDb();
-  const [rows] = await p.query(sql, params);
-  return rows as T[];
+  try {
+    const [rows] = await p.query(sql, params);
+    return rows as T[];
+  } catch (err) {
+    throw mapMysqlError(err);
+  }
 }
