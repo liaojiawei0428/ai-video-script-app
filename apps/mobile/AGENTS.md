@@ -2511,6 +2511,99 @@ BUG-149 (v3.0.78 Agnes API 调用规范严格对齐官方文档, 跟 BUG-148 dee
 - 沉淀 changelog v3.0.78 entry 合并 BUG-148 + 149
 ```
 
-> **最后更新**: 2026-07-02 (v3.0.78 BUG-149, 加 § 6.27 Agnes API 调用规范对齐官方文档, 5 条新跨项目通用铁律 + 12 维度对照官方 + E2E 4 项全过 + 跨项目通用铁律 "修一个 provider 必 grep 所有 provider", 跟根 AGENTS.md 同步)
-> **下次 review**: 新 AI provider 接入 (OpenAI/Claude/Gemini) / Agnes 模型再升级 (v3) / BUG-149 实战后再发现新坑时
+## § 6.28 v3.0.78 续: JWT 鉴权调用规范严格对齐官方文档 (BUG-150, 2026-07-02, 跟 BUG-148/149 1:1 镜像)
+
+> **背景 2026-07-02 (v3.0.78 BUG-150, 续 BUG-148/149 深挖审查 4 实战)**: BUG-148 修完 deepseek, BUG-149 修完 agnes 3 provider, 立刻审查 shipin-app 端 JWT 鉴权 (jsonwebtoken 官方库), 发现 4 个 100% 同源问题 (跟 BUG-148/149 修法 1:1 镜像). 修法跟 deepseek mapDeepseekError / agnes classifyAgnesTextError 1:1 镜像, 同时沉淀 4 条跨项目通用铁律. 顺便清理 config.ts 死代码 (Epay 码支付 0 引用).
+
+### § 6.28.1 深挖审查 4 发现 (跟 BUG-148/149 100% 同源)
+
+| 维度 | BUG-148 deepseek 修法 | BUG-150 jwt 修前根因 | BUG-150 jwt 修后 |
+|---|---|---|---|
+| 错误码严格映射 | mapDeepseekError() 7 类型 | authMiddleware catch 块统一 TOKEN_INVALID 一锅端, 修前前端看到 '登录已过期' 但实际 expired / aud / iss 细分不清 | 5 子类 TOKEN_EXPIRED / TOKEN_NOT_ACTIVE / TOKEN_AUDIENCE_INVALID / TOKEN_ISSUER_INVALID / TOKEN_INVALID_SIGNATURE / TOKEN_INVALID_ALGORITHM + 透传 upstream errMessage |
+| 必填 options 官方文档 | deepseek axios response.data | jwt.verify(token, JWT_SECRET) 不传 options, 默认支持多种 algorithm, **algorithm confusion attack 风险** (攻击者用 RS256 公钥伪造 HS256 token) | JWT_VERIFY_OPTIONS 必填 4 字段: algorithms: ['HS256'] + audience: 'shipin-app-users' + issuer: 'shipin-APP' + clockTolerance: 30 |
+| 跨服务隔离 | user_id 透传 | jwt 不传 audience/issuer, 跨服务 token 复用风险 | audience + issuer 必填, 走 process.env.JWT_AUDIENCE / JWT_ISSUER 可配 |
+| 静默吞错 | 不适用 (deepseek fetch 没静默) | optionalAuth catch { /* token 无效, 忽略 */ } 静默吞错, 生产安全视角漏异常 | logger.warn('optionalAuth: token invalid, ignored', { errName, errMessage, requestId }) + 透传 errMessage |
+
+### § 6.28.2 5 子类错误码对照 jsonwebtoken 官方文档 (https://github.com/auth0/node-jsonwebtoken)
+
+| 错误名 | err.message | shipin-app code | 前端处理 |
+|---|---|---|---|
+| TokenExpiredError | 'jwt expired' | TOKEN_EXPIRED | 跳 refresh token 流程, 不需重新登录 |
+| NotBeforeError | 'jwt not active' | TOKEN_NOT_ACTIVE | 提示 'token 尚未生效, 请稍后重试' |
+| JsonWebTokenError (含 'audience') | 'jwt audience invalid. expected: ...' | TOKEN_AUDIENCE_INVALID | 跨服务错配, 后端配置错 |
+| JsonWebTokenError (含 'issuer') | 'jwt issuer invalid. expected: ...' | TOKEN_ISSUER_INVALID | 跨服务错配, 后端配置错 |
+| JsonWebTokenError (含 'signature') | 'invalid signature' | TOKEN_INVALID_SIGNATURE | 伪造 token, 拒绝 + 报警 |
+| JsonWebTokenError (含 'algorithm') | 'invalid algorithm' | TOKEN_INVALID_ALGORITHM | alg confusion attack, 拒绝 + 报警 |
+| JsonWebTokenError (其他) | 'jwt malformed' / 'invalid token' | TOKEN_INVALID | 格式错, 请重新登录 |
+
+### § 6.28.3 4 条新跨项目通用铁律 (跟 BUG-148/149 1:1 镜像, 沉淀 mavis memory)
+
+1. **JWT verify 必填 algorithms (防 algorithm confusion attack)**: jwt.verify(token, secret) 不传 options 默认支持多种 algorithm, 攻击者拿到 RS256 公钥可伪造 token. 必加 algorithms: ['HS256'] 显式限制. shipin-app 实战 HS256
+2. **JWT verify 必填 audience + issuer (跨服务 token 隔离)**: 不传 audience/issuer, 跨服务 token 复用风险. 必加 audience: 'shipin-app-users' (走 process.env.JWT_AUDIENCE) + issuer: 'shipin-APP' (走 process.env.JWT_ISSUER)
+3. **JWT verify 必填 clockTolerance (30s 时钟差容忍)**: 不传, 边缘过期用户体验差. 必加 clockTolerance: 30
+4. **JWT 错误码 1:1 严格分类 (3 类型 5 子类)**: 修前 catch 块统一 TOKEN_INVALID 一锅端 → 修后 5 子类 (跟 deepseek mapDeepseekError / agnes classifyAgnesTextError 1:1 镜像), 透传 upstream errMessage 让前端调试可见
+
+### § 6.28.4 E2E 5 项全过 (远端跑, 用 shipin-app 真 JWT_SECRET 签 token)
+
+[1] wrong audience → TOKEN_AUDIENCE_INVALID + upstream 'jwt audience invalid. expected: shipin-app-users' ✅
+[2] wrong issuer → TOKEN_ISSUER_INVALID + upstream 'jwt issuer invalid. expected: shipin-APP' ✅
+[3] expired (iat backdate 7200s + expiresIn 1m) → TOKEN_EXPIRED + upstream 'jwt expired' ✅
+[4] wrong algorithm HS512 → TOKEN_INVALID_ALGORITHM + upstream 'invalid algorithm' ✅
+[5] wrong signature (用错 secret 签) → TOKEN_INVALID_SIGNATURE + upstream 'invalid signature' ✅
+
+E2E 调试实战:
+- shipin-app systemd 启动的 process.env.JWT_SECRET = `e92f2754eef06889e0123e9f6901d6e2cd6f646b23fa5c11989dd9d78b6e135e` (生产 64 字符 hex), 跟 dev fallback 'ai-script-jwt-secret-dev' 不同
+- E2E 签 token 必用 shipin-app 启动时的真 secret, 否则 signature 永远对不上, 测试不出来
+- 远端 systemd process.env 跟外部 bash 不同, 必先 grep /www/wwwroot/shipin-APP/.env 拿真 secret
+
+### § 6.28.5 清理 shipin-app config.ts 死代码 (深挖审查 4 实战沉淀)
+
+| 字段 | 修前 | 修后 |
+|---|---|---|
+| payPid | `process.env.PAY_PID \|\| ''` | **删** (0 引用) |
+| payKey | `process.env.PAY_KEY \|\| ''` | **删** (0 引用) |
+| paySubmitUrl | `process.env.PAY_SUBMIT_URL \|\| 'https://xapi1.swu.cc/xpay/epay/submit.php'` | **删** (0 引用) |
+| payNotifyBase | `process.env.PAY_NOTIFY_BASE \|\| 'https://maque.uno'` | **删** (0 引用) |
+
+**教训**: BUG-147 改 PAY_NOTIFY_BASE IP 159.75.16.110 → 119.91.155.46 是**无用功** (没人读这个配置, shipin-app 早改人工审核支付模式). 死代码必清, 防止后续维护误读 '这个配置有效, 改了生效了'. 跨项目通用铁律: 改配置前必先 grep 看 0 引用.
+
+### § 6.28.6 部署 6 维全过
+
+1. systemctl shipin-app: active ✅
+2. ss 6000: 0.0.0.0:6000 ✅
+3. /health: HTTP/1.1 200 OK ✅
+4. /api/version: version=3.0.78, latestVersion=3.0.78 ✅
+5. 公网 https://ab.maque.uno/api/version: version=3.0.78, latestVersion=3.0.78 ✅
+6. APK HTTP/2 200: ✅
+
+auth.js 远端 sha256 跟本机 1:1 一致. 3 个 agnes provider + auth middleware + config 5 文件 BUG-148 + 149 + 150 全部部署.
+
+### § 6.28.7 跟其他 BUG 关系 (跟 BUG-148/149 1:1 镜像)
+
+- **BUG-148 (v3.0.78) deepseek 修法** — BUG-150 是 BUG-148 实战后的**跨 SDK 审查**, 修法 1:1 镜像 (5 件套)
+- **BUG-149 (v3.0.78) agnes 修法** — BUG-150 跟 BUG-149 同样深挖审查 3+4 实战, 同样 4 问题 100% 同源 (3 类型: AI provider / 第三方 SDK / 内部中间件)
+- **§ 3.10 (选型必调研依赖内部路径, BUG-135)** — BUG-150 跟 § 3.10 互补 (前者是 API/SDK 集成, 后者是依赖选型, 都是"实战前必做功课")
+- **跨项目通用铁律: 修一个 provider 必 grep 所有 provider 同样模式** — BUG-150 是这条铁律的扩展 (修完 deepseek/agnes 必看 jwt, 同样 4 问题 100% 同源)
+- **跨项目通用铁律: 死代码必清** — BUG-150 实战沉淀 (BUG-147 改 PAY_NOTIFY_BASE IP 是无用功, 死代码必清防止后续维护误读)
+
+### § 6.28.8 mavis memory 沉淀
+
+```
+BUG-150 (v3.0.78 JWT 鉴权调用规范严格对齐官方文档, 跟 BUG-148/149 1:1 镜像):
+- 跨项目通用铁律: JWT verify 必填 algorithms (防 algorithm confusion attack, shipin-app 实战 HS256)
+- 跨项目通用铁律: JWT verify 必填 audience + issuer (跨服务 token 隔离, 走 env 可配)
+- 跨项目通用铁律: JWT verify 必填 clockTolerance (30s 时钟差容忍)
+- 跨项目通用铁律: JWT 错误码 1:1 严格分类 (5 子类, 透传 upstream)
+- 修法 4 件套 1:1 镜像 BUG-148/149: JWT_VERIFY_OPTIONS 4 字段 / 5 错误码子类 / JWT_SIGN_OPTIONS export 复用 / optionalAuth logger.warn
+- E2E 5 项全过 (远端跑, 用 shipin-app 真 JWT_SECRET 签 token 实战 5 错误码 1:1 映射)
+- 清理 shipin-app config.ts 死代码 (4 个 Epay 配置 0 引用, BUG-147 改 PAY_NOTIFY_BASE IP 是无用功实战教训)
+- 跨项目通用铁律: 修一个 provider 必 grep 所有 provider 同样模式 (deepseek → agnes → jwt, 同样 4 问题 100% 同源)
+- 跨项目通用铁律: 死代码必清, 防止后续维护误读 '配置有效改了生效了'
+- 跨项目工具链: shipin-app systemd process.env 跟外部 bash 不同, E2E 必先 grep 真 secret
+- 跨项目工具链: node -e 在 shipin-app 目录 (cd /www/wwwroot/shipin-APP) 跑才找得到 jsonwebtoken
+- 沉淀 changelog v3.0.78 entry 合并 BUG-148 + 149 + 150
+```
+
+> **最后更新**: 2026-07-02 (v3.0.78 BUG-150, 加 § 6.28 JWT 鉴权调用规范对齐官方文档, 4 条新跨项目通用铁律 + 5 子类错误码对照 + E2E 5 项全过 + 清理死代码, 跟根 AGENTS.md 同步)
+> **下次 review**: 新第三方 SDK 接入 (新支付 / 新存储) / JWT 库升级 (v10+) / BUG-150 实战后再发现新坑时
 
