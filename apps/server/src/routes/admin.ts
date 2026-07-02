@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { adminAuth } from '../middleware/adminAuth';
+// v3.0.78 (BUG-150): 复用 JWT_SIGN_OPTIONS (跟 verify JWT_VERIFY_OPTIONS 对齐, 跟 BUG-148/149 1:1 镜像)
+import { JWT_SIGN_OPTIONS } from '../middleware/auth';
 import { userModel } from '../models/user';
 import { rechargeRequestModel } from '../models/rechargeRequest';
 import { billingService } from '../services/billingService';
@@ -27,7 +29,7 @@ router.post('/login', async (req: Request, res: Response) => {
     if (!valid) {
       return res.status(401).json({ success: false, error: { code: 'AUTH_FAILED', message: '用户名或密码错误' } });
     }
-    const token = jwt.sign({ userId: user.id, role: 'admin' }, JWT_SECRET, { expiresIn: '365d' });
+    const token = jwt.sign({ userId: user.id, role: 'admin' }, JWT_SECRET, { ...JWT_SIGN_OPTIONS, expiresIn: '365d' });
     res.json({
       success: true,
       data: {

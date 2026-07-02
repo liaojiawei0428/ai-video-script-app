@@ -8,6 +8,8 @@ import { execute } from '../models/db';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { lookupIp } from '../services/ipService';
+// v3.0.78 (BUG-150): 复用 JWT_SIGN_OPTIONS (跟 verify JWT_VERIFY_OPTIONS 对齐, 跟 BUG-148/149 1:1 镜像)
+import { JWT_SIGN_OPTIONS } from '../middleware/auth';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-script-jwt-secret-dev';
 const JWT_EXPIRES = '365d';
@@ -88,7 +90,7 @@ export const userController = {
 
       await userModel.create(user);
 
-      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { ...JWT_SIGN_OPTIONS, expiresIn: JWT_EXPIRES });
 
       logger.info('User registered', { userId: user.id, username });
 
@@ -177,7 +179,7 @@ export const userController = {
         });
       }
 
-      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+      const token = jwt.sign({ userId: user.id, role: user.role || 'user' }, JWT_SECRET, { ...JWT_SIGN_OPTIONS, expiresIn: JWT_EXPIRES });
 
       const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
       lookupIp(clientIp).then(loc => userModel.updateIpLocation(user.id, clientIp, loc)).catch(() => {});

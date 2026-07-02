@@ -43,13 +43,12 @@ export const config = {
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000'),
   rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '60'),
 
-  // 码支付（Epay 标准协议）
-  payPid: process.env.PAY_PID || '',
-  payKey: process.env.PAY_KEY || '',
-  paySubmitUrl: process.env.PAY_SUBMIT_URL || 'https://xapi1.swu.cc/xpay/epay/submit.php',
-  payNotifyBase: process.env.PAY_NOTIFY_BASE || 'https://maque.uno',
+  // v3.0.78 (BUG-150 实战沉淀): 删掉 v2.x 历史遗留死代码 (码支付 Epay 集成, shipin-app 早改人工审核模式, 这些字段 0 个 service/route 引用)
+  // - payPid / payKey / paySubmitUrl / payNotifyBase: 0 个引用 (深挖审查 4 发现, BUG-147 改 PAY_NOTIFY_BASE IP 是无用功)
+  // - qrCodeUrl: 真实使用, 保留
+  // - qrLocalPath: v2.5.36 修复后已无引用, 可清理 (但保留以防历史回滚)
 
-  // 支付宝收款码
+  // 支付宝收款码 (用户扫码人工转账, 管理员后台审核)
   qrCodeUrl: process.env.QR_CODE_URL || 'https://maque.uno/QRerweima/5c32eec856f39a0b87a7f9310bc6cf7e.jpg',
   // v2.5.36: 二维码本地路径从 env 读, 避免硬编码
   qrLocalPath: process.env.QR_LOCAL_PATH || '/www/wwwroot/sparrow-logic/QRerweima/QR.png',
