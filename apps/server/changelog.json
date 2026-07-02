@@ -3,9 +3,22 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.81",
-  "latest_version_time": "2026-07-02",
+  "latest_version": "3.0.82",
+  "latest_version_time": "2026-07-03",
   "entries": [
+    {
+      "version": "3.0.82",
+      "buildDate": "2026-07-03",
+      "type": "patch",
+      "summary": "BUG-160 修 mobile 端 ProfileScreen 12 菜单 0 个通知入口 → 加 '通知' + 'AI 助手' 菜单 (跟 web 端 NotificationBell + AI Assistant 1:1 镜像, 跨端铁律 4++). 跨项目通用铁律: web 端实现的入口 mobile 必同步 (跟 BUG-097 mobile 漏修 web 反方向同源). admin 发公告端点 /api/notifications/admin/announcement 已存在 (B70 adminAuth), 但 mobile 端没菜单 → 收不到通知. 修法: ProfileScreen.tsx serviceMenu 加 2 菜单 (Notifications + AIAssistant), App.tsx 路由已注册 0 改.",
+      "highlights": [
+        "BUG-160 ✅ mobile 端 ProfileScreen 12 菜单加 2 入口: '通知' (notifications-outline + Notifications 路由, 跟 web 端 NotificationBell 1:1 镜像) + 'AI 助手' (chatbubbles-outline + AIAssistant 路由, 跟 web 端 AI Assistant 1:1 镜像)",
+        "Notifications 端点实战: GET /api/notifications (unreadCount) + GET /api/notifications/unread-count + POST /api/notifications/:id/read + POST /api/notifications/read-all + POST /api/notifications/admin/announcement (adminAuth) — 全部 1:1 镜像 web 端 store/notifications.ts useNotificationStore",
+        "实测 E2E: admin POST /api/notifications/admin/announcement {title:'v3.0.82 公告测试', content:'v3.0.82 admin 发公告 E2E 测试', target:'all'} → 200 '公告已发送给 118 位用户' + testuser_v3081 收到 type=announcement 通知 (unreadCount 1 → 2)",
+        "8 处版本号同步 v3.0.82: mobile version.ts (APP_VERSION='3.0.82') + build.gradle (versionCode 84 + versionName 3.0.82) + web version.ts (APP_VERSION='3.0.82' + APP_VERSION_CODE=84) + server package.json (version 3.0.82) + server src/index.ts (fallback 3.0.82) + server ecosystem.config.js (2 处 3.0.77→3.0.82 顺手修历史遗留) + 远端 .env APP_VERSION + systemd unit Environment=APP_VERSION",
+        "跨项目通用铁律沉淀: mobile 加菜单入口前必 grep RootStackParamList (避免 'Argument of type X is not assignable' 错) + 跨端 web+mobile 1:1 镜像菜单 (跨端铁律 4++) + 路由已注册但无入口 (跟 BUG-079 假能力 100% 同源, 必 grep App.tsx 排查)"
+      ]
+    },
     {
       "version": "3.0.81",
       "buildDate": "2026-07-02",

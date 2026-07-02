@@ -126,8 +126,10 @@ export function ProfileScreen(): React.JSX.Element {
   const vipExpiresAt = (userInfo as any)?.vipExpiresAt as number | undefined;
   const balance = userInfo?.balance ?? 0;
 
-  // 菜单 - 我的服务
+  // 菜单 - 我的服务 (跟 web 端 1:1 镜像, v3.0.82 BUG-145 加通知 + AI 助手入口)
   const serviceMenu: MenuItem[] = [
+    { icon: 'notifications-outline', label: '通知', desc: '系统消息 · 余额变动 · 公告', to: 'Notifications' },
+    { icon: 'chatbubbles-outline', label: 'AI 助手', desc: '智能对话 · 解答疑问', to: 'AIAssistant' },
     { icon: 'receipt-outline', label: '账单明细', desc: '充值 / 消费记录', to: 'Billing' },
     { icon: 'pricetag-outline', label: '收费标准', desc: '透明计费公式', to: 'Pricing' },
     { icon: 'diamond-outline', label: 'VIP 中心', desc: '升级享优惠费率', to: 'VipCenter', vipOnly: false },
