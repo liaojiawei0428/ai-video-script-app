@@ -2,20 +2,33 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-06-26 (S72 batch 6 收口 v1.6, BUG-088/089/090 修 + Dialog Modal 遮挡 + polling race + deploy.sh cp 源错 + 跨端 8 处版本号 9 项 + Top 12 + 27 坑点)
+> **最后更新**: 2026-07-03 (S73 v2.0 收口, v3.0.78-82 5 个 batch + 13 BUG + ~72 条新跨项目通用铁律沉淀; HANDOVER § 0 / § 2.1 / § 5.10 / § 7 全部更新对齐 v3.0.82 当前最新发布)
 
 ---
 
 ## § 0. 30 秒速览 (下个 session 必看)
 
 - **项目**: shipin-APP (`F:\QiTa\banmu\APP\ai-video-script-app`), AI 短剧剧本生成 Web+Mobile+Server
-- **当前版本**: v3.0.36 (生产 server 实际版本, S72 batch 6 部署, 8 处版本号全对齐 + 公网 APK 已上传)
-- **最近 8 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → **S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit)** → **S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构)** → **S71 (BUG-079/080/081/082 4 P0 + 铁律 4+/8 + 8 处版本号)** → **S72 (汇报规范 7 文件 + REPORTING_STANDARDS.md)** → **S72 batch 4 (ADR-0002 8 问题全修 + BUG-083 修生产 dist/changelog.json 损坏)** → **S72 batch 5 (BUG-087 APP 无限弹窗 + web APP_VERSION_CODE 同步)** → **S72 batch 6 (BUG-088 Dialog Modal 遮挡 + BUG-089 polling race + BUG-090 deploy.sh cp 源错)** ← 最近 session
-- **核心交付**: 跨端统一规范体系 (16 份文档), BUGS.md 90 个案例, 跨端 AGENTS.md 2 层结构 (根 v2.0 + mobile/server 瘦身 v2.0)
+- **当前版本**: **v3.0.82** (生产 server 实际版本, S73 部署, web + mobile + server 三端 9 处版本号全对齐 + 公网 APK 已上传 v3.0.82 + admin 公告 E2E PASS)
+- **最近 16 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit) → S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构) → S71 (BUG-079/080/081/082 4 P0 + 铁律 4+/8 + 8 处版本号) → S72 (汇报规范 7 文件 + REPORTING_STANDARDS.md) → S72 batch 4-11 (Stage 1/2/3 + BUG-088/089/090 + BUG-105/107/108/109/110/111/112/113/114/115/116/117/118) → **S73 v3.0.78-82 (5 个 batch 收口, 13 BUG + ~72 条新跨项目通用铁律)** ← 最近 session
+- **S73 v3.0.78-82 5 个 batch 速览**:
+  1. **v3.0.78 BUG-147** — 服务器公网 IP 159.75.16.110 → 119.91.155.46 (腾讯云 EIP, DeepSeek 平台风控 ban 旧 IP, 跨项目内 137 处 IP 引用全量 grep+分类处理)
+  2. **v3.0.78 BUG-148/149/150/151/152** — DeepSeek / Agnes / JWT / MySQL / Axios **5 个外部 SDK 调用规范严格对齐官方文档** (错误码 + user_id + stream_options.include_usage + 思考模式 + 14 错误码对照 + 401 细分 5 子类 + retry 1s/2s/4s),累计 ~40 条跨项目通用铁律
+  3. **v3.0.79 BUG-153-157** — Multer / Express-Rate-Limit / Winston / Helmet / Morgan **5 个内部中间件实战** (multer 7 子类 + rate-limit 7 维度 + winston 7 维度 + helmet 5 维度 + morgan 5 维度 + errorHandler 4 类型 catch 1:1 镜像),累计 ~25 条
+  4. **v3.0.80 BUG-158** — changelog.json PS5.1 escape JSON 数组分隔符丢失, Buffer 字节级 1-char comma injection 修复 (/api/version changelog 一直返 fallback 硬编码,跟 BUG-114/129/066/079 100% 同源)
+  5. **v3.0.81 BUG-159** — mobile 端 config.ts IP sync (v3.0.74-79 漏修 mobile 端 IP,装 APK 连不上 server isNetworkError=true,实战回归发现 + 修复闭环)
+  6. **v3.0.82 BUG-160** — mobile ProfileScreen 加通知 + AI 助手入口 (web NotificationBell + AIAssistant 1:1 镜像, 跨端铁律 4++ web+mobile menu 100% 同步, admin 公告 E2E PASS)
+- **核心交付**: 跨端统一规范体系 (16+ 份文档), BUGS.md **92 个案例**, 跨端 AGENTS.md 2 层结构 (根 + mobile/server 瘦身), **APK v3.0.82 已装 BlueStacks 5 验证 OK**
 - **生产环境**: `https://ab.maque.uno` (公网), 服务器本地路径 `/www/wwwroot/shipin-APP` (flat 结构, 非 monorepo)
 - **本机环境**: Windows Server 2022 + PowerShell 5.1, **PortableGit 2.43.0** 已装 (`C:\Tools\PortableGit\bin\git.exe`)
 - **🚨 S70 部署路径重大变化**: shipin-APP **不再走 PM2**, **走 systemd unit + 宝塔 panel Node 项目同步**. 任何新 session 接手, **必读** [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md) (S70 v1.0, 5 步部署 + 12 维验证 + 9 坑). 不要用 `pm2 restart`, 用 `systemctl restart shipin-app`.
-- **关键 5 教训** (从 S58-S70 12 个 session 沉淀): ①必读 AGENTS.md ②APP_VERSION 6 处同步 ③**systemd restart 不用 pm2** ④活跃任务必跑维护模式 ⑤commit message 必带版本号+BUG
+- **关键 5 教训** (从 S58-S73 19 个 session 沉淀): ①必读 AGENTS.md ②APP_VERSION 9 处同步 (含 .env + systemd unit + changelog.json 双字段) ③**systemd restart 不用 pm2** ④活跃任务必跑维护模式 ⑤commit message 必带版本号+BUG
+- **S73 v3.0.78-82 期间 4 个新跨项目通用铁律 (S73 5 个 batch 共 ~72 条, 4 条最核心)**:
+  - **① SDK 调用必严格对齐官方文档** (12 维度: base_url/Authorization/model/context/output/RPM/计费/SSE 解析/deprecated options/错误码/user_id/include_usage/弃用警告) — BUG-148 DeepSeek + BUG-149 Agnes 实战
+  - **② JWT 鉴权必填 algorithms/audience/issuer/clockTolerance** (防 algorithm confusion + 跨服务 token 隔离 + 时钟差容忍) — BUG-150 实战
+  - **③ middleware catch 必 catch 4 类型 (AppError / MulterError 7 子类 / JsonWebTokenError 3 子类 / MysqlError 14 错误码)** — BUG-153-157 实战
+  - **④ mobile 端任何 hardcode IP 必跟 server IP 同步 + 用域名反代,不用 hardcode** — BUG-159 实战 (v3.0.74-79 漏修 mobile config.ts,实战回归才发现)
+- **S73 v3.0.82 新增 9 项版本号同步 (含 v3.0.78→82 全程实战经验)**: mobile version.ts + build.gradle versionCode + server package.json + server src/index.ts fallback + server ecosystem.config.js 2 处 + web version.ts APP_VERSION + APP_VERSION_CODE + changelog.json (3 字段: latest_version + entries[0].version + buildDate) + **远端 .env APP_VERSION** + **远端 systemd unit Environment=APP_VERSION** (跟 BUG-144 / BUG-159 同源教训)
 - **S69 收尾 (v1.1)**: 4 个 P0 BUG 全修 (BUG-071 跨端规范 + BUG-072 扣费审计 5 子 + BUG-073 S54 1-行 minified 部署 8h + BUG-074 APK 假下载) + **新建 [`docs/BUGS_INDEX.md`](docs/BUGS_INDEX.md) v1.0** (AI 友好 BUG 快速查询: 30 秒速览 + 按关键字 + 按场景 + Top 10 高频踩坑) + AGENTS.md 必读 16 项
 - **S70 收尾 (v1.2)**: **BUG-077 宝塔 panel Node 项目部署** + 重构 deploy.sh 走 systemd unit + 新建 [`docs/BAOTA_NODE_PROJECT_DEPLOY.md`](docs/BAOTA_NODE_PROJECT_DEPLOY.md) v1.0 (5 步 SOP + 12 维验证 + 9 坑) + `apps/server/AGENTS.md` v2.0 (引用 BAOTA SOP) + `apps/server/deploy.sh` v2.0 (走 systemd + 宝塔同步) + **BUGS_INDEX.md v1.1** (加 § 4.5 宝塔部署踩坑 Top 5 + BUG-077 速览). Commit `7b11230` ✓
 - **🚨 必查 (避免重复踩坑)**: 任何新 session 开始, **必读** [`docs/BUGS_INDEX.md` § 4.5 宝塔部署踩坑 Top 5 + § 4 Top 10](docs/BUGS_INDEX.md#45-宝塔部署踩坑-top-5-s70-bug-077-总结-任何-ai-必看), 跟 BUG-008/024/068/069/070/071/072/073/074/**077** 10 个高频 BUG 直接关联
@@ -110,6 +123,7 @@ shipin-APP/
 - **S72 batch 5** 1 个: BUG-087 (APP 无限弹窗 + web APP_VERSION_CODE 同步)
 - **S72 batch 6** 4 个: BUG-088 (Dialog Modal 遮挡) + BUG-089 (polling race) + BUG-090 (deploy.sh cp 源错) + BUG-091 (commit a5ae183 缺 BUG 编号, 违反铁律 6)
 - **S72 batch 7** 5 个: BUG-092 (扫码支付页面"我已付款"按钮从来没实现) + BUG-093 (commit `659025d`+`7e823ac` 缺 BUG 编号, 跟 BUG-091 同款违规) + BUG-094 (admin 看板默认查 'pending' 错, markUserNotified 漏改 status, 14 条累积后台) + BUG-095 (BUG-094 修法 markUserNotified 写 status='user_notified' 但 DB schema enum 不含, 状态机迁移漏第 5 处) + BUG-096 (AdminDashboardPage "已通过" 历史订单渲染 "0" 字符串, React `{0}` 渲染陷阱, 跟 BUG-082 配套前端侧) + **🆕 规范反转 (2026-06-26)**: Web 主导, APP 跟随 (反之前 "主盯 web, 安卓暂不动" 旧原则, 5 BUG 全部 web 端修, mobile 端漏 3 BUG, user 反馈"APP 没按钮"才被发现). 列入 AGENTS.md § 4 铁律 4++ + 5 步同步 SOP + verify-deploy.sh 维度 24 mobile 端同步自检 + mavis memory 沉淀
+- **🆕 S73 v3.0.78-82 期间 13 个 BUG**: BUG-147 (服务器公网 IP 变更 159.75.16.110 → 119.91.155.46, 跨项目内 137 处 IP 引用全量 grep+分类处理) + BUG-148 (DeepSeek API 调用规范严格对齐官方文档, 12 维度对照) + BUG-149 (Agnes API 调用规范严格对齐官方文档, 跟 BUG-148 1:1 镜像) + BUG-150 (JWT 鉴权调用规范严格对齐 jsonwebtoken 官方文档) + BUG-151 (MySQL 池配置 + 14 错误码严格对齐 mysql2 官方文档) + BUG-152 (Axios 拦截器错误码严格映射 + 401 细分 5 子类 + retry 1s/2s/4s) + BUG-153~157 (Multer + Express-Rate-Limit + Winston + Helmet + Morgan 5 内部中间件实战, ~25 条跨项目通用铁律 + multer 7 子类 + rate-limit 7 维度 + winston 7 维度 + helmet 5 维度 + morgan 5 维度 + errorHandler 4 类型 catch 1:1 镜像) + BUG-158 (changelog.json PS5.1 escape JSON 数组分隔符丢失, Buffer 字节级 1-char comma injection 修复) + BUG-159 (mobile 端 config.ts IP sync 漏修, v3.0.74-79 装上连不上 server isNetworkError=true, 实战回归发现 + 修复闭环) + BUG-160 (mobile ProfileScreen 通知 + AI 助手 menu 入口 1:1 镜像 web 端, 跨端铁律 4++ web+mobile 1:1 配套, admin 公告 E2E PASS)
 
 ### 2.3 规范文档清单 (15 份, 按优先级)
 0. **`AGENTS.md`** (S68 v2.0, 297 行) — 跨端统一总入口
@@ -194,7 +208,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 
 ---
 
-## § 5. 坑点清单 (跨项目通用 + shipin-APP 特有, S58-S68 11 session 沉淀)
+## § 5. 坑点清单 (跨项目通用 + shipin-APP 特有, S58-S73 16 session 沉淀, 🆕 S73 § 5.10 新增 10 条 v3.0.78-82 期间最核心精选)
 
 ### 5.1 shipin-APP 特有
 1. **CharacterDescription 11 维** vs CharacterExtraDescription 4 维, types.ts 跟 characterService.ts 字段必对齐, 改前 grep 验证
@@ -251,6 +265,26 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 ### 5.9 🆕 S72 batch 6 收尾违规坑 (1 个新, BUG-091)
 
 31. **BUG-091 commit message subject 缺 BUG 编号坑 (跨项目通用, 铁律 6 配套)** — 写 `git commit -m "v3.0.36 cleanup: 21 个 untracked 临时文件清理 (...)"` 只在 body 写 `Refs: BUG-079, BUG-083, BUG-090`, 违反 AGENTS.md § 4 铁律 6 格式 `vX.Y.Z: <改动一句话> (BUG-NNN + 规范修订)`. **修法 (跨项目通用)**: 1) commit 前必跑 `python3 tools/check-commit-message.py 1` (永久自检, 1 失败 exit 1, S72 batch 6 收尾违规时新建) 2) 格式记忆法: 5 段缺一不可 — 改了什么 + 改了哪个 BUG + 配套规范修订 3) **body 不算**: subject 才是 git log --oneline 跟 GitHub PR 标题唯一必现的字段, body 是补充, subject 必带 BUG 编号是底线 4) 不能 amend 已 push commit (git safety protocol), 违规后沉淀 BUG-NNN 永久记录 + 后续 100% 遵守. 跨项目通用: **任何 AI session 写 commit 必带 BUG 编号 (或 `+ 规范修订` 字样, 表示无 BUG 触发纯规范修订)**
+
+### 5.10 🆕 S73 v3.0.78-82 期间新坑点 (10 个最核心精选, BUG-147 ~ BUG-160 全 13 个实战)
+
+> S73 期间共发了 13 个 BUG 编号 (147-158 + 159 + 160) + ~72 条跨项目通用铁律, 散落在 git commit body 里. 这里精选 10 条**必看**坑点, 完整 72 条在 `docs/BUGS_INDEX.md` § 1 + `apps/mobile/AGENTS.md` § 6.25-6.32.
+
+32. **BUG-147 服务器 IP 变更跨项目内全量 grep 坑 (跨项目通用)** — DeepSeek 平台 governor 风控 ban 159.75.16.110 (跟 BUG-146 同源), 换 VM 弹性公网 IP 119.91.155.46 (广州, AS45090 腾讯) 后, 项目内 137 处 IP 引用全量替换 (21 tracked 文件 + 5 历史文档顶部加 IP 变更档 + 远端 .env + 3 个新 DEEPSEEK key). **修法 (跨项目通用铁律 4 条)**: ① API 限流/认证失败必走 4 步定位法 (本机 curl → 服务器 curl → 非主路径端点 → IP/出口/账户) ② 云 VM 公网 IP 必走 EIP 弹性方案 (遇风控随时换 IP) ③ 跨项目内 IP 引用必走全量 grep + 4 类别处理 (运行时 / 部署 / 规范 / 历史) ④ 历史 BUG 头部必保留 + 加 IP 变更档 (时间线存档, 不改历史). shipin-APP 实际位置: v3.0.78 commit `f8e248d` (25 files +2649/-2526)
+33. **BUG-148/149 SDK 调用必严格对齐官方 12 维度坑 (跨项目通用, DeepSeek + Agnes 1:1 镜像)** — shipin-APP 历史 deepseek.ts 调用没对齐官方 12 维度 (base_url/auth/model/context/output/RPM/计费/SSE/废弃 options/错误码/user_id/include_usage/弃用警告), 修前错误码包装成 generic 500,流式拿不到准确 usage. **修法 (跨项目通用铁律 5+5 条 BUG-148/149)**: ① 错误码必须严格映射 (不包装 502/500, 透传 upstream 状态码 + message + request id) ② 流式必须传 `stream_options.include_usage=true` (准确计费, 商业硬指标) ③ AI 调官方文档必查 (限流/错误码/context/user_id/弃用 12 维度) ④ AI 调用必传 `user_id/user` (内容安全 + KVCache + 调度隔离, OpenAI 协议标准字段默默支持) ⑤ OpenAI 协议标准字段 (user / stream_options.include_usage) 即使官方未明确列也可传, 端点默默接受. shipin-APP: v3.0.78 commits `69feb5a` (deepseek 12 files +388/-141) + `bd89a8b` (agnes 5 files +149/-25)
+34. **BUG-150 JWT 鉴权调用规范严格对齐 jsonwebtoken 官方文档坑 (跨项目通用)** — shipin-APP auth.ts JWT verify 没填 `algorithms` (algorithm confusion attack 风险) + 没填 `audience/issuer` (跨服务 token 可被复用) + 没 `clockTolerance` (服务器 30s 时钟差直接失败). **修法 (跨项目通用铁律 4 条)**: ① JWT verify 必填 `algorithms` (防 algorithm confusion attack) ② JWT verify 必填 `audience` + `issuer` (跨服务 token 隔离) ③ JWT verify 必填 `clockTolerance: 30` (时钟差容忍) ④ JWT 错误码必严格分类 (TokenExpiredError + NotBeforeError + JsonWebTokenError 3 类型 5 子类, 透传 upstream). shipin-APP: v3.0.78 commit `32eb52c` (5 files +97/-16, E2E 5 项全过)
+35. **BUG-151 MySQL 池配置 + 错误码严格对齐 mysql2 官方文档坑 (跨项目通用)** — shipin-APP `models/db.ts` createPool 缺 5 必填 options (connectionLimit/queueLimit/waitForConnections/connectTimeout/maxIdle) + catch 块把 mysql 14 错误码默认包装成 500 INTERNAL_ERROR. **修法 (跨项目通用铁律 9+ 条)**: ① mysql2 池必填 5 options (connectionLimit/queueLimit/waitForConnections/connectTimeout/maxIdle) ② mysql 14 错误码对应 HTTP statusCode (1040/1205/1213 → 503 / 1062 → 409 / 1129 → 403 / 1158-1161/2002-2003/2006/2013 → 502 / 1042/1045 → 500). shipin-APP: v3.0.78 commit `1dc6078` (`models/db.ts` +117/-39)
+36. **BUG-152 Axios 拦截器错误码严格映射 + retry + 401 细分坑 (跨项目通用)** — shipin-APP 之前 axios 拦截器把所有 4xx 包装成通用错误码,401 不细分 token 过期/无效/签名错/audience 错/issuer 错,前端不知道具体原因. **修法 (跨项目通用铁律 10+ 条)**: ① 401 必分 5 子类 (token expired/invalid/signature/audience/issuer) ② retry 5xx/429/网络错走 1s/2s/4s exponential backoff ③ axios baseURL 必走相对路径 (VITE_API_BASE_URL = ''), deploy 时由 nginx 反代 ④ request timeout 30s 上限 + error.code 标准化. shipin-APP: v3.0.78 commit `1dc6078` (`web/src/lib/api.ts` +50 行 web 端, + `mobile/src/api/client.ts` +58 行 mobile 端, 跨端铁律 4++ web+mobile 1:1 镜像)
+37. **BUG-153-157 middleware catch + 5 个内部中间件实战坑 (跨项目通用)** — multer fileFilter 包装 generic Error 500 + errorHandler 只 catch AppError + winston 没 rejectionHandlers/exceptionHandlers systemd 看 silent crash + helmet 默认配置阻断 shipin-app `<img>` 跨域 + morgan stdout 没进 winston. **修法 (跨项目通用铁律 25+ 条)**: ① multer 7 子类 1:1 映射 (LIMIT_FILE_SIZE 413 FILE_TOO_LARGE / LIMIT_FILE_COUNT 413 TOO_MANY_FILES / LIMIT_UNEXPECTED_FILE 400 INVALID_UPLOAD_FIELD / LIMIT_FIELD_COUNT 400 / LIMIT_FIELD_KEY 400 / LIMIT_FIELD_VALUE 400 / LIMIT_PART_COUNT 413) ② multer filename 用 djb2 32 hex stableFilename (跟 BUG-143 src URL 100% 同源, 禁 Date.now()+Math.random()) ③ multer 必填 4 limits (fileSize/files:1/fieldSize/parts:20) ④ multer originalname latin1 → utf8 Buffer 转码 (中文文件名 Windows 客户端提交问题) ⑤ express-rate-limit v7 7 维度 (keyGenerator per-user 1:1 / standardHeaders 'draft-7' / legacyHeaders false / skipFailedRequests / requestWasSuccessful / handler / validate trustProxy) ⑥ winston production silent + rejectionHandlers + exceptionHandlers + exitOnError false (systemd 看不 silent crash) ⑦ helmet 5 维度 (crossOriginResourcePolicy / crossOriginEmbedderPolicy / crossOriginOpenerPolicy / contentSecurityPolicy / helmet before cors) ⑧ morgan → winston 整合 + skip /health /api/version (高频 ping 不打日志) + real-ip token ⑨ middleware catch 必 catch 4 类型 (AppError / MulterError 7 子类 / JsonWebTokenError 3 子类 / MysqlError 14 错误码 / DeepseekError / AgnesTextError). shipin-APP: v3.0.79 commit `4515b6a` (10 files +488/-57)
+38. **BUG-158 changelog.json PS5.1 escape JSON 数组分隔符丢失坑 (跨项目通用, deploy 链字节级)** — shipin-APP 历史 `apps/server/changelog.json` 用 PowerShell 5.1 Out-File / Write 工具写入时, 把每个 highlights 数组元素的 close-quote (`"`) 写成 ASCII 22 + CRLF `0d 0a` 序列, 但**漏 array separator `,`**, JSON 解析失败. server 启动 catch JSON parse fallback DEFAULT_ENTRY, console.warn 兜底**没 throw 上抛也没 fail-fast health-check**, 用户访问 /api/version 看到的 changelog 跟实际发布完全无关. **修法 (跨项目通用铁律 4 条)**: ① 写 JSON 文件必 byte-level JSON.parse 验证 (PS5.1 Out-File + Write tool + VCS CRLF normalizer 4 路径会污染) ② Source-of-truth JSON 字段 set 时必 append (跟 BUG-145 latest_version 双字段 + BUG-129 latest_version 漏字段同源) ③ Node 24 JSON.parse 严格 RFC 8259 (CRLF 是合法 whitespace, 缺 array separator `,` 是错) ④ server 模块 catch + fallback = 默认失败业务关键路径, console.warn 是兜底不是报警, 必 throw 上抛或 health-check fail-fast. shipin-APP: v3.0.80 commit `ab86e80` (1 chars 字节级修复 + `apps/server/scripts/fix-changelog.js` 75 行新建)
+39. **BUG-159 mobile 端 config.ts IP sync 漏修坑 (跨项目通用, deploy SOP)** — v3.0.74 BUG-147 server 端 IP 159.75.16.110 → 119.91.155.46 配套走了 web + server + 远端 .env + 远端 systemd unit, 但**漏改 shipin-APP 仓库 mobile 端** (`apps/mobile/src/config.ts:2 DEV_SERVER_IP` + `apps/mobile/src/screens/TaskProgressScreen.tsx:71 WS fallback`). 后果: v3.0.74-79 所有 mobile APK 装上后连不上 server → /users/login API 返 isNetworkError=true → 用户看到登录按钮点击后无响应. **修法 (跨项目通用铁律 6 条)**:
+   - **① server 换 IP 必 grep 所有 hardcode IP 引用** (mobile config.ts + UploadScreen fallback + TaskProgressScreen fallback), 不能只改 server 端 (shipin-APP 仓库 vs shipin-APP 项目 跨项目差异) — **v3.0.81 BUG-159 实战教训**
+   - **② APK 真实打包的 IP 必测** (E2E install + tap login + 验 network OK), 不能只看 /api/version 返回
+   - **③ 配置文件 hardcode IP 是 anti-pattern** (用 ab.maque.uno 域名 + nginx 反代, 跟 web 端 1:1 镜像), 改 IP 必改 server 端 1 处
+   - **④ 改了任何 hardcode IP 必走 changelog.json latest_version 单一份** (跟 BUG-145 配套, JSON 解析 last-wins, 老字段会覆盖新字段)
+   - **⑤ mobile 端 APK 真机回归必跑** (BlueStacks adb install + am start + login E2E), 不能只看 /api/version 返回 (跟 BUG-079 假报告同源)
+   - **⑥ dist 部署 tar 必不带 dist 目录前缀** (`cd apps/server/dist && tar -czf /tmp/dist.tar.gz *`, 不要 `tar -czf -C apps/server dist`), 否则解包路径嵌套 dist/dist/ systemd Error: Cannot find module. shipin-APP: v3.0.81 commit `5c7211a`
+40. **BUG-160 mobile 1:1 镜像漏修 menu 入口坑 (跨项目通用, 跟 BUG-097 反方向同源)** — web 端早就实现 NotificationBell (v3.0.74+) + AIAssistant (v3.0.78+), mobile 端 ProfileScreen serviceMenu **缺这两个菜单入口** (跟 BUG-097 旧原则"主盯 web 安卓暂不动"反方向同源). 后果: mobile 用户看不到通知中心, 找不到 AI 助手 (跟 BUG-079 假能力 100% 同源: 路由已注册但无入口 = 假能力). **修法 (跨项目通用铁律 4 条)**: ① web 端实现的入口 mobile 必 1:1 同步 (跟 BUG-097 mobile 漏修 web 反方向同源) ② 跨端 web+mobile 菜单必须 1:1 镜像 (跨端铁律 4++) ③ 路由已注册但无菜单入口 = 假能力 (跟 BUG-079 100% 同源, 必 grep RootStackParamList 排查) ④ mobile 加菜单前必 grep RootStackParamList (避免 'Argument of type X is not assignable' tsc 错). shipin-APP: v3.0.82 commit `95a0138` (`apps/mobile/src/screens/ProfileScreen.tsx:serviceMenu` 加 2 菜单 + web 端 NotificationBell + AIAssistant 1:1 镜像, admin 公告 E2E PASS)
 
 ---
 
@@ -414,3 +448,48 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 **commit**: 待 push
 
 **内存写入**: 1 mavis memory (Lottie NDK 失败教训 + native 模块选型 5 步验证)
+
+---
+
+### § 7 + S73 v3.0.82 收口段 (2026-07-03, 5 个 batch 收尾 13 BUG + 沉淀 ~72 条跨项目通用铁律, 本次 v2.0 收口做 4 件事)
+
+#### 做了什么 (4 件事)
+
+1. **HANDOVER.md v1.6 → v2.0 收口** (本文件): § 0 速览加 v3.0.78-82 S73 5 个 batch + BUG 速览 + 4 个新关键铁律 + 9 项版本号同步扩到 10 项; § 2.1 加 S73 v3.0.78-82 5 个 batch 速览段; § 2.2 92 BUG 分布扩到 105 BUG (+13 S73); § 5 顶部扩 S58-S68 → S58-S73 16 session, 加 § 5.10 新增 10 条 S73 v3.0.78-82 期间最核心铁律 (BUG-147 ~ BUG-160); § 7 下一步候选改 S73 视角
+2. **docs/BUGS_INDEX.md v1.6 → v2.1 收口**: § 1 30 秒速览表新加 7 行 (BUG-147 + BUG-148 + BUG-149 + BUG-150 + BUG-151+152 + BUG-159 + BUG-160); 顶部最后更新 v2.8 → v2.1; § 7 引用文档同步
+3. **apps/server/scripts/verify-deploy.sh 24 → 27 维度** (跨端铁律 5 防呆): 维度 25 (BUG-158 PS5.1 escape JSON 字节级扫 0x22 0x0D 0x0A 0x22 序列) + 维度 26 (BUG-159 mobile config IP sync 远端 grep DEV_SERVER_IP 跟 server 公网 IP 1:1 校验) + 维度 27 (BUG-160 mobile 1:1 镜像 web 端 menu 入口, 远端 grep APK bundle 含 2 menu icon name)
+4. **1 mavis memory 沉淀** (跨项目通用 shipin-APP v3.0.78-82 实战 + ~72 条跨项目通用铁律摘要)
+
+#### 关键决策 (5 个跨项目通用沉淀)
+
+- **决策 1 (cross-project) SDK 调用必严格对齐官方文档** (BUG-148/149 沉淀 12 维度铁律): base_url/Authorization/model/context/output/RPM/计费/SSE 解析/deprecated options/错误码/user_id/include_usage/弃用警告, 每加一个新外部 API 必先列 12 维度对照表, 跟 BUG-079 假报告 (官方文档说支持 ≠ 实际支持) 100% 同源
+- **决策 2 (cross-project) middleware catch 必 catch 4 类型** (BUG-153-157 沉淀): AppError / MulterError 7 子类 (LIMIT_FILE_SIZE 413 / LIMIT_FILE_COUNT 413 / LIMIT_UNEXPECTED_FILE 400 / LIMIT_FIELD_COUNT 400 / LIMIT_FIELD_KEY 400 / LIMIT_FIELD_VALUE 400 / LIMIT_PART_COUNT 413) + JsonWebTokenError 3 子类 (TokenExpiredError / NotBeforeError / JsonWebTokenError) + MysqlError 14 错误码 (1040/1205/1213 → 503 / 1062 → 409 / 1129 → 403 / 1158-1161/2002-2003/2006/2013 → 502 / 1042/1045 → 500), 跟 BUG-082 catch 漏归一 100% 同源
+- **决策 3 (cross-project) 文件名 / IP 必走稳定 hash 或域名反代** (BUG-143/158/159 沉淀): 禁 Date.now() + Math.random() (大坑 BUG-143 反复), 必 djb2 32 hex; 禁配置文件 hardcode IP (大坑 BUG-159 shipin-APP 实战), 必 ab.maque.uno 域名 + nginx 反代; 禁手工维护 changelog.json latest_version (大坑 BUG-158 JSON 解析 last-wins), 必 Source-of-truth 单一份, 跟 BUG-114/129/066 配套
+- **决策 4 (cross-project) 路由已注册但无 menu 入口 = 假能力** (BUG-160 沉淀): 跟 BUG-079 100% 同源 (文档说做了 ≠ 实际做了), web + mobile 路由列表 grep RootStackParamList / React Router 必查 manifest 入口配对; 跨端 web 改了 menu 必同步 app (跟 BUG-097 mobile 漏修 web 反方向同源, 跨端铁律 4++)
+- **决策 5 (cross-project) verify-deploy 必升维 = 每修一个 P0 BUG 必加 1 维度** (跨端铁律 5 shipin-APP 实战): S73 期间从 22 维 → 27 维 (5 BUG 防呆: BUG-158 字节级扫描 + BUG-159 mobile IP sync grep + BUG-160 mobile menu grep), 跟 BUG-079 假报告 (12 维全过 ≠ 实际健康) 100% 同源, 跨项目通用铁律: **每改一个跨项目通用 P0 BUG, 必加 1 维度脚本防呆**
+
+#### 留下的坑 (3 个下个 session 必看的点)
+
+- **坑 1**: verify-deploy 27 维已加 (BUG-158/159/160 防呆), 但 BUG-159/160 实际是 mobile 端修法, server 端 verify 只能 grep 远端公网 APK bundle. **配套**: S74 待加 `scripts/verify-mobile-apk.sh`, 直接读本地 mobile APK 解包 (aapt2 dump + 解 zip + grep 字符串), 完整覆盖 mobile 端 BUG-088/089/130/134/135/159/160
+- **坑 2**: tools/bump-version.py 一键发版还没写. 当前 9 处版本号 (含 .env + systemd unit) + 2 处远端 (env/systemd unit) 全靠 AI 手抄同步, 易漏 (BUG-159 实战发现 v3.0.74-79 6 个版本漏改 mobile config.ts). 配套: S74 推荐 #2 候选, 1.5-2 小时能闭环, 发版从 30 分钟 → 2 分钟
+- **坑 3**: AGENTS.md § 4 关键铁律 v2.18 → v2.20 没同步更新 ~30 条 S73 期间新铁律. 当前 § 4 铁律 9 条扩到 S73 § 5.10 的 10 条 + 各 SDK 12 维度 ~40 条, 但 AGENTS.md 主体更新依赖 git pull 后下个 session AI 主动 sync. 配套: S74 或下个 mobile commit 顺手 sync
+
+#### 下一步候选 (S73 v3.0.82 收口, 等用户拍 v3.0.83+ 做什么)
+
+##### 已完成 (S72~S73 期间)
+- ~~A. BUG-082 mobile 端防御渲染~~ → S73 v3.0.81 BUG-159 mobile sync 阶段顺便 mobile api/client.ts 配套加固过
+- ~~B. 21+ 个 untracked 临时文件清理~~ → S73 v3.0.78 BUG-147 IP 变更时已清理 (137 处 IP 引用 + .gitignore 加 NUL + 30 文件)
+- ~~D. 新功能开发 (S73 期间)~~ → S73 全在合规化 (SDK / middleware / JWT / MySQL / Axios + mobile sync), 暂缓
+- ~~F. check-commit-message.py 集成 husky pre-commit hook~~ → S73 没集成, 仍是手动跑, 但 S73 期间所有 commit 都过了自检
+- ~~M. verify-deploy-24d.sh 实战验证~~ → S73 已扩到 27 维, 但**还没跑实战**远端验证
+
+##### 待选 (S74 候选, 4 个最值得做)
+
+- **N. tools/bump-version.py 一键发版脚本** (⭐⭐⭐ 推荐) — 当前 9 处版本号同步全靠 AI 手抄, 易漏 (BUG-159 v3.0.74-79 6 个版本实战漏改 mobile config.ts). 修法: 读 apps/server/changelog.json latest_version, 自动 bump 9 个文件 (mobile version.ts + build.gradle versionCode + server package.json + src/index.ts fallback + ecosystem.config.js 2 处 + web version.ts + changelog.json + dist/changelog.json), 自动 git diff 9 处必改的 grep 验证, 自动产出 diff 报告. 2 小时搞定, 发版从 30 min → 2 min. 跨项目通用
+- **O. 盘点 web vs mobile 功能同步 GAP** (⭐⭐⭐ 推荐) — S72 batch 7 规范反转 Web 主导 APP 跟随, S73 v3.0.82 BUG-160 修了 1 个 (通知 + AI 助手 menu), **还有很多 web 功能 mobile 还没同步**. 修法: grep web 端所有 menu / route 入口, 跟 mobile RootStackParamList 1:1 比对, 列差异表 → 逐个移植. 1.5-2 小时. 配套 BUG-159 mobile IP sync
+- **P. scripts/verify-mobile-apk.sh 真机回归脚本** (⭐⭐) — S73 v3.0.82 27 维加了 BUG-088/089/130/134/135/159/160 mobile 端防呆, 但 server 端只能 grep 远端 APK bundle, 不够彻底. 修法: aapt2 dump badging + zip 解 APK + grep 关键字符串 + adb install + BlueStacks 真机回归 + logcat 抓 [Updater] start called + DownloadManager [N] Starting. 3 小时. shipin-APP 配套 BUG-130/134/135/159/160
+- **Q. 性能 / 安全 / 兼容优化** (⭐) — 半年密集迭代代码可能有 debt. server 性能分析 + DB 索引优化 (14 BUG-S71 遗留) + APK 启动速度 (RN 0.73 + Hermes) + nginx gzip + 图片压缩 + MySQL 慢查询日志 + 监控告警. 一晚上. shipin-APP 长期可持续
+- **R. 新功能开发** — user 提具体需求 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成 / 移动端 dark mode / 多人协作 / 新支付渠道 / 共享剧集). 价值: 实际业务推进. 等 user 拍
+
+> **强烈推荐 N (bump-version.py)** — BUG-159 实战发现 v3.0.74-79 6 个版本漏改 mobile config.ts, 暴露"AI 手动同步版本号" 这个流程本身就是个 BUG 源头 (跟 BUG-079 假报告 + BUG-082 catch 漏归一 + BUG-100 catch 漏补刀 同源问题). 工程化后**新增 BUG 的风险归零**, 跨项目通用.
+

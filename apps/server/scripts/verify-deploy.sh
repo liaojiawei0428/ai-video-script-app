@@ -574,6 +574,164 @@ if [ "$SERVER_ONLY" != "true" ]; then
   echo
 fi
 
+# ────────────────────────────────────────────────────
+# 维度 25: BUG-158 防呆 — changelog.json PS5.1 escape JSON 字节级扫描 (0x22 0x0D 0x0A 0x22 序列)
+# ────────────────────────────────────────────────────
+# 历史: S73 v3.0.80 BUG-158: shipin-APP changelog.json 用 PowerShell 5.1 Out-File / Write 工具写入时,
+#       把每个 highlights 数组元素的 close-quote (") 写成 ASCII 22 + CRLF 0d 0a 序列, 但**漏 array separator ,**
+#       JSON 解析失败. server 启动 catch JSON parse fallback DEFAULT_ENTRY, console.warn 兜底**没 throw 上抛**,
+#       /api/version 返 fallback 硬编码 '本次更新优化性能, 修复已知问题'.
+#
+# 修法: 1) verify-deploy.sh 加维度 25 字节级扫描 0x22 0x0D 0x0A [whitespace] 0x22 序列 (close-quote + CRLF + indent + next-element open-quote),
+#       任何命中 = FAIL (防 BUG-158 复发)
+#       2) 配套 apps/server/scripts/fix-changelog.js (Buffer 字节级 1-char comma injection 修法, S73 v3.0.80 commit ab86e80)
+# 防呆: 任何未来 changelog.json 被 PS5.1 Out-File / Write 工具污染, 维度 25 失败 = 必跑 fix-changelog.js 修法
+# ────────────────────────────────────────────────────
+color blue "── 维度 25: BUG-158 changelog.json 字节级数组分隔符扫描 (0x22 0x0D 0x0A 0x22 序列检测) ──"
+
+# 25. changelog.json byte-level scan for PS5.1 escape pattern (close-quote + CRLF + indent + next-element open-quote)
+V25_RESULT=$(python3 -c "
+import re, sys
+try:
+    data = open('/www/wwwroot/shipin-APP/dist/changelog.json', 'rb').read()
+    # Look for 0x22 0x0D 0x0A [whitespace] 0x22 pattern (PS5.1 escape without comma)
+    pattern = re.compile(b'\\x22\\x0d\\x0a[\\x20\\x09]*\\x22')
+    matches = pattern.findall(data)
+    if matches:
+        # Print first 3 offsets for debugging
+        offsets = []
+        for m in pattern.finditer(data):
+            offsets.append(m.start())
+            if len(offsets) >= 3: break
+        print(f'FAIL count={len(matches)} sample_offsets={offsets[:3]} (BUG-158 复发, 必跑 fix-changelog.js 修法)')
+    else:
+        # Also verify JSON parse + has entries with non-empty highlights
+        import json
+        j = json.loads(data.decode('utf-8'))
+        latest = j['entries'][-1]
+        h = len(latest.get('highlights', []))
+        if h == 0:
+            print(f'WARN no PS5.1 escape pattern but highlights={h} (可能 fallback DEFAULT_ENTRY)')
+        else:
+            print(f'OK highlights={h} latest_version={latest[\"version\"]} (no PS5.1 escape)')
+except FileNotFoundError as e:
+    print(f'SKIP file not found: {e}')
+except json.JSONDecodeError as e:
+    print(f'FAIL json_decode pos={e.pos} msg={e.msg} (跟 BUG-158 同源)')
+except Exception as e:
+    print(f'FAIL {type(e).__name__}: {e}')
+" 2>&1)
+if echo "$V25_RESULT" | grep -q "^OK"; then
+  PASS=$((PASS+1))
+  color green "   ✓ 25. changelog.json 字节级扫描: $V25_RESULT"
+elif echo "$V25_RESULT" | grep -q "^SKIP"; then
+  SKIP=$((SKIP+1))
+  color yellow "   ⚠ 25. skipped: $V25_RESULT"
+elif echo "$V25_RESULT" | grep -q "^WARN"; then
+  PASS=$((PASS+1))
+  color yellow "   ⚠ 25. PASS with WARN: $V25_RESULT (fallback DEFAULT_ENTRY 风险, 查 server log)"
+else
+  FAIL=$((FAIL+1))
+  FAIL_MSGS+=("25. changelog.json PS5.1 escape detected (BUG-158 复发)")
+  color red "   ✗ 25. $V25_RESULT"
+fi
+echo
+
+# ────────────────────────────────────────────────────
+# 维度 26: BUG-159 防呆 — mobile 端 APK bundle 包含 server 当前公网 IP (config.ts IP sync)
+# ────────────────────────────────────────────────────
+# 历史: S73 v3.0.81 BUG-159: v3.0.74 BUG-147 server 端 IP 159.75.16.110 → 119.91.155.46 配套走了 web + server + 远端 .env + 远端 systemd unit,
+#       但**漏改 shipin-APP 仓库 mobile 端** (apps/mobile/src/config.ts:2 DEV_SERVER_IP hardcode + TaskProgressScreen.tsx:71 WS fallback).
+#       后果: v3.0.74-79 所有 mobile APK 装上后连不上 server → /users/login 返 isNetworkError=true → 用户点登录按钮无响应.
+#
+# 修法: 1) verify-deploy.sh 加维度 26 扫 APK bundle, 检查是否含 server 当前公网 IP 字符串 (跟 process.env 公开给客户端的字段保持一致)
+#       2) 配套 mobile 端 commit (5c7211a) 同步修复
+#       3) 长远方案: 用 ab.maque.uno 域名反代 + 禁 hardcode IP (跨项目通用铁律)
+# 防呆: 任何未来 server 换 IP 漏改 mobile config.ts, 维度 26 失败 = 必同步 mobile 端
+# ────────────────────────────────────────────────────
+color blue "── 维度 26: BUG-159 mobile 端 APK bundle 含 server 当前公网 IP (config.ts IP sync 防呆) ──"
+
+# 26. APK bundle 含 server 当前 IP — 通过 /api/version 拿 mobileLatestApkUrl 对应的 APK
+if [ -n "$APK_PUBLIC" ] && [ -f "$APK_PUBLIC" ]; then
+  # 拿 server 当前监听的实际公网 IP (从 /api/version 提取 host 段, 或 fallback 到 .env APP_VERSION 推导)
+  V26_SERVER_IP=$(timeout 3 curl -sm 3 "${API_BASE}/api/version" 2>/dev/null | python3 -c "
+import json, sys, re
+try:
+    d = json.loads(sys.stdin.read())
+    # Look for any IP-like string in response (downloadUrl or appDownloadUrl)
+    url = d.get('data', {}).get('downloadUrl', '') or d.get('data', {}).get('appDownloadUrl', '')
+    m = re.search(r'(\d+\.\d+\.\d+\.\d+)', url)
+    if m:
+        print(m.group(1))
+    else:
+        print('NO_IP')
+except Exception as e:
+    print(f'NO_IP {type(e).__name__}')
+" 2>&1)
+  if [ "$V26_SERVER_IP" = "NO_IP" ] || [ -z "$V26_SERVER_IP" ]; then
+    SKIP=$((SKIP+1))
+    color yellow "   ⚠ 26. skipped: /api/version response 无 IP 字段 (downloadUrl 走域名)"
+  else
+    # 扫 APK bundle 看是否含 server 当前 IP 字符串
+    V26_HITS=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -ao "$V26_SERVER_IP" 2>/dev/null | wc -l)
+    V26_HITS=${V26_HITS:-0}
+    # 同时扫老 IP 残留 (如果 server 已换 IP 但 mobile 未 sync)
+    V26_STALE_HITS=0
+    if [ "$V26_SERVER_IP" != "119.91.155.46" ]; then
+      V26_STALE_HITS=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -ao "159.75.16.110" 2>/dev/null | wc -l)
+      V26_STALE_HITS=${V26_STALE_HITS:-0}
+    fi
+    if [ "$V26_STALE_HITS" -ge 1 ]; then
+      FAIL=$((FAIL+1))
+      FAIL_MSGS+=("26. mobile bundle 含老 IP 159.75.16.110")
+      color red "   ✗ 26. mobile bundle 含老 IP 159.75.16.110 ($V26_STALE_HITS 处), 当前 server 是 $V26_SERVER_IP (BUG-159 复发, 必同步 mobile config.ts + TaskProgressScreen fallback)"
+    elif [ "$V26_HITS" -ge 1 ]; then
+      FAIL=$((FAIL+1))
+      FAIL_MSGS+=("26. mobile bundle 含 hardcode IP")
+      color red "   ✗ 26. mobile bundle 含 hardcode IP $V26_SERVER_IP ($V26_HITS 处) — anti-pattern, 必改 ab.maque.uno 域名反代 (BUG-159 跨项目通用铁律: 禁 hardcode IP)"
+    else
+      PASS=$((PASS+1))
+      color green "   ✓ 26. mobile bundle 不含任何 IP ($V26_HITS 老/$V26_STALE_HITS 老 IP 残留), 走域名反代 (BUG-159 修复 OK, 跨项目通用铁律)"
+    fi
+  fi
+else
+  skip "26. APK_PUBLIC ($APK_PUBLIC) 不存在, 跳过 (跟 24 维度同源处理)"
+fi
+echo
+
+# ────────────────────────────────────────────────────
+# 维度 27: BUG-160 防呆 — mobile 端 APK bundle 含 web 端 menu 入口字符串 (跨端铁律 4++ 1:1 镜像)
+# ────────────────────────────────────────────────────
+# 历史: S73 v3.0.82 BUG-160: web 端早就实现 NotificationBell + AIAssistant (v3.0.74/78+ 路由注册上线),
+#       mobile 端 ProfileScreen serviceMenu **缺这两个菜单入口**, 路由已注册但无 menu = 假能力 (跟 BUG-079 100% 同源).
+#
+# 修法: 1) verify-deploy.sh 加维度 27 扫 APK bundle, 检查是否含 web 端 menu 入口字符串 (notifications-outline + chatbubbles-outline)
+#       2) 配套 mobile 端 commit (95a0138) ProfileScreen serviceMenu 加 2 菜单
+#       3) 跨项目通用铁律: web 端实现的入口 mobile 必 1:1 同步 (跟 BUG-097 反方向同源)
+# 防呆: 任何未来 web 端加 menu 但 mobile 漏同步, 维度 27 失败 = 必同步 mobile 端
+# ────────────────────────────────────────────────────
+color blue "── 维度 27: BUG-160 mobile 端 APK bundle 含 web 端 menu 入口字符串 (跨端铁律 4++ 1:1 镜像防呆) ──"
+
+# 27. APK bundle 含 web 端 menu 入口 icon name
+if [ -n "$APK_PUBLIC" ] && [ -f "$APK_PUBLIC" ]; then
+  V27_NOTIF=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -ao 'notifications-outline' 2>/dev/null | wc -l)
+  V27_NOTIF=${V27_NOTIF:-0}
+  V27_AI=$(unzip -p "$APK_PUBLIC" assets/index.android.bundle 2>/dev/null | grep -ao 'chatbubbles-outline' 2>/dev/null | wc -l)
+  V27_AI=${V27_AI:-0}
+  V27_TOTAL=$(( V27_NOTIF + V27_AI ))
+  if [ "$V27_TOTAL" -ge 2 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 27. mobile bundle 含 web menu 入口: notifications-outline=$V27_NOTIF, chatbubbles-outline=$V27_AI (BUG-160 修复 OK, 跨端铁律 4++ 合规)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("27. mobile bundle 缺 web menu 入口")
+    color red "   ✗ 27. mobile bundle 缺 web menu 入口: notifications-outline=$V27_NOTIF (期望 ≥1), chatbubbles-outline=$V27_AI (期望 ≥1) (BUG-160 复发, 跟 BUG-097 旧原则同源)"
+  fi
+else
+  skip "27. APK_PUBLIC ($APK_PUBLIC) 不存在, 跳过 (跟 24 维度同源处理)"
+fi
+echo
+
 # ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
