@@ -24,6 +24,10 @@
 
 set -euo pipefail
 
+# S76 #2 实战 (2026-07-03): PowerShell 调 git bash 时, bash 子进程看不到 py.exe/java
+# git bash 用 /mnt/c/... (WSL 风格) 不是 /c/...
+export PATH="/mnt/c/Users/Administrator/AppData/Local/Microsoft/WindowsApps:/mnt/c/Program Files/Microsoft/jdk-17.0.19.10-hotspot/bin:/mnt/d/Android/platform-tools:/mnt/d/Android/build-tools/33.0.1:/c/Android/platform-tools:$PATH"
+
 # ---------- 默认配置 ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -54,30 +58,79 @@ done
 
 # ---------- 工具检测 ----------
 find_tool() {
+  # S76 #2 实战 (2026-07-03): find_tool 返回工具路径走 stdout, 失败返回 1
+  #   - 不用 $(... 2>&1) 命令替换 (会吞函数内 >&2 stderr, AAPT2 取到 stderr 行)
+  #   - 用 ls $pattern 取首个匹配 (兼容 PowerShell 调 bash, /dev/null 改走 2>&1)
+  #   - 子命令用 2>&1 隔离错误输出
+  #   - apksigner 优先返回 apksigner.jar (跨平台兼容, 走 java -jar)
   local tool="$1"
-  local paths=(
-    "$ANDROID_HOME/build-tools/*/$tool"
-    "$ANDROID_SDK_ROOT/build-tools/*/$tool"
-    "/opt/android-sdk/build-tools/*/$tool"
-    "/usr/local/lib/android/sdk/build-tools/*/$tool"
-    "$HOME/Android/Sdk/build-tools/*/$tool"
-    "$HOME/Library/Android/sdk/build-tools/*/$tool"
-    "C:/Users/*/AppData/Local/Android/Sdk/build-tools/*/$tool.exe"
-    "C:/Android/Sdk/build-tools/*/$tool.exe"
+  local tool_exe="$tool"
+  case "$tool" in
+    aapt2|apksigner|adb) tool_exe="${tool}.exe" ;;
+  esac
+
+  # 优先: apksigner.jar (跨平台, 走 java -jar 比 .bat 稳)
+  if [[ "$tool" == "apksigner" ]]; then
+    local jar_patterns=(
+      "${ANDROID_HOME:-/nonexistent}/build-tools/*/lib/apksigner.jar"
+      "${ANDROID_SDK_ROOT:-/nonexistent}/build-tools/*/lib/apksigner.jar"
+      "/opt/android-sdk/build-tools/*/lib/apksigner.jar"
+      "/usr/local/lib/android/sdk/build-tools/*/lib/apksigner.jar"
+      "$HOME/Android/Sdk/build-tools/*/lib/apksigner.jar"
+      "$HOME/Library/Android/sdk/build-tools/*/lib/apksigner.jar"
+      "/mnt/d/Android/build-tools/*/lib/apksigner.jar"
+      "/d/Android/build-tools/*/lib/apksigner.jar"
+      "/mnt/c/Users/Administrator/AppData/Local/Android/Sdk/build-tools/*/lib/apksigner.jar"
+    )
+    for jar_pattern in "${jar_patterns[@]}"; do
+      local jar_first=$(ls $jar_pattern 2>&1 | head -1)
+      if [[ -n "$jar_first" && -f "$jar_first" ]]; then
+        echo "$jar_first"
+        return 0
+      fi
+    done
+  fi
+
+  # 一般: 找 $tool_exe / $tool.bat
+  local patterns=(
+    "${ANDROID_HOME:-/nonexistent}/build-tools/*/$tool_exe"
+    "${ANDROID_SDK_ROOT:-/nonexistent}/build-tools/*/$tool_exe"
+    "/opt/android-sdk/build-tools/*/$tool_exe"
+    "/usr/local/lib/android/sdk/build-tools/*/$tool_exe"
+    "$HOME/Android/Sdk/build-tools/*/$tool_exe"
+    "$HOME/Library/Android/sdk/build-tools/*/$tool_exe"
+    "/mnt/d/Android/build-tools/*/$tool_exe"
+    "/mnt/d/Android/build-tools/*/$tool.bat"
+    "/mnt/d/Android/platform-tools/$tool_exe"
+    "/d/Android/build-tools/*/$tool_exe"
+    "/d/Android/build-tools/*/$tool.bat"
+    "/d/Android/platform-tools/$tool_exe"
+    "C:/Users/*/AppData/Local/Android/Sdk/build-tools/*/$tool_exe"
+    "C:/Android/Sdk/build-tools/*/$tool_exe"
+    "C:/Android/platform-tools/$tool_exe"
+    "/c/Users/Administrator/AppData/Local/Android/Sdk/build-tools/*/$tool_exe"
   )
-  for p in "${paths[@]}"; do
-    if ls $p 2>/dev/null | head -1 > /dev/null; then
-      ls $p 2>/dev/null | head -1
+  for pattern in "${patterns[@]}"; do
+    # 子命令用 2>&1 隔离错误, 不用 /dev/null (PS 调 bash 会吞)
+    local first=$(ls $pattern 2>&1 | head -1)
+    if [[ -n "$first" && -f "$first" ]]; then
+      echo "$first"
       return 0
     fi
   done
-  command -v "$tool" 2>/dev/null && return 0
+
+  # Fallback: PATH 里直接找
+  local onpath=$(command -v "$tool" 2>&1 | head -1)
+  if [[ -n "$onpath" ]]; then
+    echo "$onpath"
+    return 0
+  fi
   return 1
 }
 
-AAPT2=$(find_tool aapt2 2>/dev/null | head -1) || AAPT2=""
-APKSIGNER=$(find_tool apksigner 2>/dev/null | head -1) || APKSIGNER=""
-ADB=$(find_tool adb 2>/dev/null | head -1) || ADB=""
+AAPT2=$(find_tool aapt2 | head -1) || AAPT2=""
+APKSIGNER=$(find_tool apksigner | head -1) || APKSIGNER=""
+ADB=$(find_tool adb | head -1) || ADB=""
 
 # ---------- 输出函数 ----------
 pass() { echo "[PASS] $1"; }
@@ -165,18 +218,60 @@ fi
 echo ""
 echo "8-9. apksigner verify (签名 + 证书 DN)"
 if [[ -n "$APKSIGNER" ]]; then
-  if "$APKSIGNER" verify "$APK_PATH" > /dev/null 2>&1; then
+  # S76 #2 实战 (2026-07-03):
+  #   - apksigner.jar 走 verify-mobile-apk-helper.py (PowerShell 调 git bash 不能直接调 java + cmd.exe /c 会卡)
+  #   - WARNING 多 (META-INF 没 v2 签名), 输出走文件避免卡 stdout
+  #   - cert DN 是 "Signer #1 certificate DN: CN=..." 格式, 不是 Subject
+  SIGN_TMP=/tmp/_apkverify_$$.log
+  CERT_TMP=/tmp/_apkcert_$$.log
+  HELPER="$SCRIPT_DIR/verify-mobile-apk-helper.py"
+  # APK 转 Windows 路径给 helper (PowerShell 不识别 /mnt/d/)
+  # S76 #2 实战 (2026-07-03): sed 不能直转 /mnt/f/ → F:\, 否则变 \mnt\f\
+  # 用 bash parameter expansion: / → \, 跳过前 5 个字节 (/mnt), drive 字母 caps
+  to_wsl_to_win() {
+    local p="$1"
+    if [[ "$p" == /mnt/* ]]; then
+      local drive=$(echo "$p" | cut -c6 | tr '[:lower:]' '[:upper:]')
+      local rest="${p#/mnt/?/}"
+      rest="${rest//\//\\}"
+      echo "${drive}:\\${rest}"
+    else
+      echo "${p//\//\\}"
+    fi
+  }
+  APK_WIN=$(to_wsl_to_win "$APK_PATH")
+  HELPER_WIN=$(to_wsl_to_win "$HELPER")
+
+  if [[ "$APKSIGNER" == *.jar ]]; then
+    py.exe "$HELPER_WIN" verify "$APK_WIN" > "$SIGN_TMP" 2>&1
+  elif [[ "$APKSIGNER" == *.bat ]]; then
+    "$APKSIGNER" verify "$APK_PATH" > "$SIGN_TMP" 2>&1
+  else
+    "$APKSIGNER" verify "$APK_PATH" > "$SIGN_TMP" 2>&1
+  fi
+  SIGN_RC=$?
+  if [[ $SIGN_RC -eq 0 ]]; then
     pass "APK 签名: OK"
   else
     fail "APK 签名: FAIL (修了 keystore? BUG-023)"
+    tail -3 "$SIGN_TMP" | sed 's/^/       /'
   fi
 
-  CERT_DN=$("$APKSIGNER" verify --print-certs "$APK_PATH" 2>/dev/null | grep -oE "Subject:.*" | head -1 | sed 's/Subject: //' || echo "")
+  if [[ "$APKSIGNER" == *.jar ]]; then
+    py.exe "$HELPER_WIN" verify-print-certs "$APK_WIN" > "$CERT_TMP" 2>&1
+  elif [[ "$APKSIGNER" == *.bat ]]; then
+    "$APKSIGNER" verify --print-certs "$APK_PATH" > "$CERT_TMP" 2>&1
+  else
+    "$APKSIGNER" verify --print-certs "$APK_PATH" > "$CERT_TMP" 2>&1
+  fi
+  # apksigner.jar (跟 JDK keytool 一致) 输出 "Signer #1 certificate DN: CN=...", 不是 Subject
+  CERT_DN=$(grep -oE "Signer #[0-9]+ certificate DN: .*" "$CERT_TMP" | head -1 | sed 's/^Signer #[0-9]\+ certificate DN: //' || echo "")
   if echo "$CERT_DN" | grep -q "DeepScript"; then
     pass "证书 DN: $CERT_DN (跟 release.keystore 一致)"
   else
     fail "证书 DN: $CERT_DN (期望包含 'DeepScript' = release.keystore)"
   fi
+  rm -f "$SIGN_TMP" "$CERT_TMP"
 else
   fail "apksigner 不可用"
   SKIP_COUNT=$((SKIP_COUNT+2))

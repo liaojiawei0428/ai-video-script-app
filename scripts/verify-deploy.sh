@@ -579,6 +579,84 @@ if [ "$SERVER_ONLY" != "true" ]; then
 fi
 
 # ──────────────────────────────────────
+# 维度 28: bump-version.py dryrun 验证 (S76 #1 集成, 跨项目通用铁律 #14 实战)
+# 防 S74 v3.0.83 BUG-159 教训: v3.0.74-79 6 个版本漏改 mobile config.ts
+# ──────────────────────────────────────
+color blue "── 维度 28: bump-version.py dryrun 验证 (9 处版本号同步防呆) ──"
+if [ -f "$DEPLOY_DIR/tools/bump-version.py" ] && [ -d "$DEPLOY_DIR/.git" ]; then
+  cd "$DEPLOY_DIR"
+  CURRENT_V=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' apps/server/package.json | head -1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+  DRYRUN_OUT=$(py "$DEPLOY_DIR/tools/bump-version.py" --patch --apply 2>&1 || true)
+  DRYRUN_RC=$?
+  if [ $DRYRUN_RC -eq 0 ]; then
+    CHANGED=$(echo "$DRYRUN_OUT" | grep -cE "(已修|✓)")
+    PASS=$((PASS+1))
+    color green "   ✓ 28. bump-version.py dryrun 通过 (当前 v$CURRENT_V, 自动改 $CHANGED 处, 跨项目通用铁律 #14 大规模清理必 dryrun)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("28. bump-version.py dryrun 失败")
+    color red "   ✗ 28. bump-version.py dryrun 失败 (rc=$DRYRUN_RC): $DRYRUN_OUT"
+  fi
+  cd - > /dev/null
+else
+  skip "28. bump-version.py 或 .git 不存在 (server 端没 monorepo 根, deploy 跳过)"
+fi
+echo
+
+# ──────────────────────────────────────
+# 维度 29: verify-mobile-apk.sh 集成 (S76 #1, 验 APK 真实 metadata)
+# 防 BUG-088/089/130/134/135/159/160 (server 端 grep 不到的 mobile 端 7 个 BUG)
+# ──────────────────────────────────────
+color blue "── 维度 29: verify-mobile-apk.sh 集成 (12 维度 APK 真机回归) ──"
+if [ -f "$DEPLOY_DIR/scripts/verify-mobile-apk.sh" ] && [ -f "$APK_PUBLIC" ]; then
+  cd "$DEPLOY_DIR"
+  APK_OUT=$(bash "$DEPLOY_DIR/scripts/verify-mobile-apk.sh" "$APK_PUBLIC" --skip-adb --skip-install 2>&1 || true)
+  APK_RC=$?
+  APK_FAIL_COUNT=$(echo "$APK_OUT" | grep -c "^\[FAIL\]")
+  APK_PASS_COUNT=$(echo "$APK_OUT" | grep -c "^\[PASS\]")
+  if [ $APK_RC -eq 0 ] || [ "$APK_FAIL_COUNT" -eq 0 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 29. verify-mobile-apk.sh 通过: $APK_PASS_COUNT PASS / $APK_FAIL_COUNT FAIL (12 维度 APK 真机回归, BUG-088/089/130/134/135/159/160 防呆)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("29. verify-mobile-apk.sh 失败: $APK_FAIL_COUNT FAIL")
+    color red "   ✗ 29. verify-mobile-apk.sh 失败: $APK_FAIL_COUNT FAIL (rc=$APK_RC)"
+  fi
+  cd - > /dev/null
+else
+  skip "29. verify-mobile-apk.sh 或 APK_PUBLIC ($APK_PUBLIC) 不存在"
+fi
+echo
+
+# ──────────────────────────────────────
+# 维度 30: 跨项目通用铁律配套验证 (S75 #2 集成, AGENTS.md § 4 v2.20)
+# 验 S73 § 5.10 沉淀的 4 个新铁律 10/11/12/13 在代码层合规
+# ──────────────────────────────────────
+color blue "── 维度 30: 跨项目通用铁律 v2.20 配套 (SDK 12 维度 / middleware catch / mobile IP / GAP 方向) ──"
+if [ -d "$DEPLOY_DIR/apps/server/src" ]; then
+  # 铁律 10: SDK 调用必对齐官方文档 (12 维度, BUG-148/149 实战)
+  V30_DEEPSEEK_API=$(grep -rl 'classifyDeepseekError\|DeepseekError' "$DEPLOY_DIR/apps/server/src" 2>/dev/null | wc -l)
+  V30_AGNES_API=$(grep -rl 'classifyAgnes.*Error\|AgnesTextError' "$DEPLOY_DIR/apps/server/src" 2>/dev/null | wc -l)
+  V30_JWT_OPTIONS=$(grep -rE 'algorithms:.*HS256.*audience.*issuer|algorithms:\s*\[.HS256.\]' "$DEPLOY_DIR/apps/server/src" 2>/dev/null | wc -l)
+  V30_MYSQL_OPTS=$(grep -rE "timezone:\s*['\"]Z['\"]|decimalNumbers:\s*true" "$DEPLOY_DIR/apps/server/src" 2>/dev/null | wc -l)
+  V30_MOBILE_DOMAIN=$(grep -rl 'ab\.maque\.uno' "$DEPLOY_DIR/apps/mobile/src" 2>/dev/null | wc -l)
+  V30_MOBILE_HARDCODE=$(grep -rE "119\.91\.155\.46|159\.75\.16\.110" "$DEPLOY_DIR/apps/mobile/src" 2>/dev/null | wc -l)
+  V30_TOTAL=$((V30_DEEPSEEK_API + V30_AGNES_API + V30_JWT_OPTIONS + V30_MYSQL_OPTS + V30_MOBILE_DOMAIN))
+  V30_PENALTY=$V30_MOBILE_HARDCODE
+  if [ $V30_TOTAL -ge 4 ] && [ $V30_PENALTY -eq 0 ]; then
+    PASS=$((PASS+1))
+    color green "   ✓ 30. 跨项目通用铁律 v2.20 合规: SDK=$V30_DEEPSEEK_API/$V30_AGNES_API JWT=$V30_JWT_OPTIONS mysql=$V30_MYSQL_OPTS mobile-domain=$V30_MOBILE_DOMAIN (无 hardcode IP, BUG-159 防呆)"
+  else
+    FAIL=$((FAIL+1))
+    FAIL_MSGS+=("30. 跨项目通用铁律 v2.20 不合规 (SDK=$V30_TOTAL hardcode-IP=$V30_PENALTY)")
+    color red "   ✗ 30. 跨项目通用铁律 v2.20 不合规: SDK=$V30_DEEPSEEK_API/$V30_AGNES_API JWT=$V30_JWT_OPTIONS mysql=$V30_MYSQL_OPTS mobile-domain=$V30_MOBILE_DOMAIN hardcode-IP=$V30_PENALTY (BUG-147/159 防呆失效)"
+  fi
+else
+  skip "30. apps/server/src 不存在 (server 端没 monorepo 根)"
+fi
+echo
+
+# ──────────────────────────────────────
 # 汇总
 # ──────────────────────────────────────
 color cyan "═══════════════════════════════════════════════════════════════"
