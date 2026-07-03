@@ -1,8 +1,8 @@
-﻿# HANDOVER.md — shipin-APP 项目交接文档 (跨 AI 协作)
+# HANDOVER.md — shipin-APP 项目交接文档 (跨 AI 协作)
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-07-03 (S73 v2.0 收口, v3.0.78-82 5 个 batch + 13 BUG + ~72 条新跨项目通用铁律沉淀; HANDOVER § 0 / § 2.1 / § 5.10 / § 7 全部更新对齐 v3.0.82 当前最新发布)
+> **最后更新**: 2026-07-03 (S74 v3.0.83 收口, 三件套 bump-version.py + web_vs_mobile_GAP.md + scripts/verify-mobile-apk.sh + HANDOVER § 0/§ 9 + BUGS_INDEX v2.2 同步对齐; 跟 S73 v2.0 + S72 batch 11+12 v2.3 + S71 后置 v2.2 跨端规范迭代 100% 兼容)
 
 ---
 
@@ -492,4 +492,83 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **R. 新功能开发** — user 提具体需求 (小说分析 / 生图 / 生视频 / 充值 / VIP / 角色 / 分镜 / 视频合成 / 移动端 dark mode / 多人协作 / 新支付渠道 / 共享剧集). 价值: 实际业务推进. 等 user 拍
 
 > **强烈推荐 N (bump-version.py)** — BUG-159 实战发现 v3.0.74-79 6 个版本漏改 mobile config.ts, 暴露"AI 手动同步版本号" 这个流程本身就是个 BUG 源头 (跟 BUG-079 假报告 + BUG-082 catch 漏归一 + BUG-100 catch 漏补刀 同源问题). 工程化后**新增 BUG 的风险归零**, 跨项目通用.
+
+---
+
+## § 9. S74 v3.0.83 收口 (2026-07-03, 三件套沉淀)
+
+> **本 session 详细记录**: S74 用户一句"按你推荐的，全部都做" (S73 § 7 推荐 N/O/P 三个候选), 全部完成.
+> **本版本特性**: S73 v3.0.82 实战踩坑 (v3.0.74-79 6 个版本漏改 mobile config.ts) 催生的工程化补做, 跟 BUG-079/082/097/100/130/135/143/159 100% 同源
+
+### 做了什么 (3 个完整交付, 跟 S73 推荐 N/O/P 1:1)
+
+1. **N. tools/bump-version.py 一键发版脚本** (S74 v3.0.83 主交付) — 9 处版本号自动同步 + changelog entry 自动 prepend + APP_VERSION_CODE 自动 +1 + .bak 备份 + --rollback 撤回 + 跨项目通用铁律 (dryrun 默认开启 + commit message 必带 --bug-no + UTF-8 BOM 兼容). 命令行: `--patch / --minor / --major / --version X.Y.Z` + `--apply / --commit / --verify / --rollback`. 全链路测试: dryrun (✓) + apply (✓ 9 处改动) + verify (✓ 7 维全过) + rollback (✓ 7 个 .bak 撤回)
+
+2. **O. tools/web_vs_mobile_GAP.md 跨端 GAP 盘点** (跟 BUG-160 同源) — web 27 page vs mobile 39 screen, **4 P0 GAP** (NotificationScreen mobile 有 web 缺独立 page / CharacterDescriptionReviewScreen / OutlineReviewScreen / ShotDetailScreen) + **3 P1 GAP** (EpisodeListScreen / ScriptListScreen vs BookshelfScreen 重复 / ChatScreen vs AIAssistantScreen 重复) + **6 P2 平台差异** (HomeScreen / CreateScreen / PointsOrderScreen / UserAgreementScreen / DownloadPage / PrivacyPolicyScreen). 修复路线图: S75 P0 第一批 (4 个核心 GAP) + S75 P1 第二批 (3 个内部清理 + mobile 加 PrivacyPolicyScreen) + S76 P2 不动.
+
+3. **P. scripts/verify-mobile-apk.sh 12 维度 mobile APK 真机回归脚本** — 1) APK 文件存在 + 大小合理 2) 工具检测 3-6) aapt2 dump badging (包名 / versionName / versionCode / sdkVersion) 7) aapt2 dump permissions 8-9) apksigner verify (签名 OK + 证书 DN = "DeepScript Release") 10) sha256 本机 vs 公网 11-12) adb 真机回归 (devices + install + am start + dumpsys package + logcat 抓 30s). 跟 BUG-088/089/130/134/135/159/160 server 端 grep 不到的 7 个 BUG 100% 同源, 实战验证 APK 真实 metadata + 签名 + 装真机.
+
+### 关键技术细节 (跟 S73 v3.0.78-82 实战 1:1 镜像)
+
+- **9 处版本号同步清单** (跟 v3.0.82 highlights 实战 1:1):
+  1. apps/server/package.json (version)
+  2. apps/server/src/index.ts (APP_VERSION fallback 字符串)
+  3. apps/server/ecosystem.config.js (env.APP_VERSION)
+  4. apps/server/ecosystem.config.js (env_production.APP_VERSION)
+  5. apps/server/changelog.json (latest_version + latest_version_time + entries[0])
+  6. apps/mobile/src/config/version.ts (APP_VERSION)
+  7. apps/mobile/android/app/build.gradle (versionCode 自动 +1 + versionName)
+  8. apps/web/src/config/version.ts (APP_VERSION)
+  9. apps/web/src/config/version.ts (APP_VERSION_CODE 自动 +1 跟 mobile versionCode 1:1)
+  + **远端 2 处**: /www/wwwroot/shipin-APP/.env APP_VERSION + /etc/systemd/system/shipin-app.service Environment=APP_VERSION (deploy.sh 自动同步, 脚本不直接改)
+
+- **4 个工具脚本 bug 修复实战** (跨项目通用铁律 #14 大规模清理必 dryrun 沉淀):
+  1. `return (0, [f"..."]])` syntax error line 291 — 多余右括号
+  2. UTF-8 BOM 兼容 (`encoding='utf-8-sig'`) — 跟 BUG-130 hotfix BOM 检查 100% 同源
+  3. `_apply_change()` 漏 count 参数 — server.eco_env / mobile.build_gradle / web.version_ts_code 3 个特殊分支都漏
+  4. f-string 求值时机 bug — `re.sub(pattern, f"{m.group(1)}{new_code}", ...)` 把 m 当固定值求值了 → 改 lambda callback
+  5. `backup_file()` 同文件多阶段覆盖 — web.version_ts + web.version_ts_code 改同一文件, 第二个 backup 覆盖了第一个 → 改成 .bak 已存在就跳过 (保留最早原始版本)
+
+- **verify-version-8-points.js 配套**: bump-version.py 的 `--verify` 参数调它时必传 `NEW_VERSION=X.Y.Z` (默认是 3.0.33, 不传就 fail). 实战验证后 7 维全 PASS
+
+### 跨项目通用铁律新增 (跟 S73 v3.0.78-82 BUG-148-152 实战沉淀 1:1 镜像)
+
+1. **大规模清理必 dryrun 默认开启** (跨项目通用铁律 #14 实战) — bump-version.py 默认 dryrun, 加 `--apply` 才真改
+2. **commit message 必带 --bug-no** (跨端铁律 6 强化) — `--commit` 参数必带 `--bug-no 161`, 自动生成 `vX.Y.Z: summary (BUG-NNN)`
+3. **changelog entry 自动 prepend** (跟 BUG-118 v3.0.47 BUG-119 实战沉淀) — 改 1 处必 prepend, 不复制老 latest_version 顶层字段 (BUG-145 跨项目通用铁律)
+4. **APP_VERSION_CODE 跨端 1:1 镜像** (跟 BUG-159 mobile IP sync 实战) — mobile build.gradle versionCode = web APP_VERSION_CODE 必同步, 都自动 +1
+5. **UTF-8 BOM 兼容必用 utf-8-sig** (跨项目通用铁律 #15) — PowerShell Edit 工具会写 BOM, 读时必 utf-8-sig 兼容
+6. **.bak 备份不覆盖同名** (新增铁律) — 同文件多阶段修改, 只保留最早原始版本 bak
+7. **跨端 GAP 盘点必扫所有 page/screen 文件名 + 路由表** (新增铁律) — 不要凭印象盘点, 必扫文件名 1:1 对比
+
+### E2E 全链路验证 (跟 S73 v3.0.82 BUG-160 实战 1:1)
+
+- ✅ bump-version.py dryrun: 9 处 preview 全部正确 (含 ecosystem 2 处 + build.gradle versionCode/versionName 同步)
+- ✅ bump-version.py --apply: 9 处真改 + 7 个 .bak 备份
+- ✅ verify-version-8-points.js: 7 维全 PASS (mobile version.ts / build.gradle name / build.gradle code / server package.json / server src/index.ts / server ecosystem config / web version.ts + changelog.json latest_version 匹配)
+- ✅ bump-version.py --rollback: 7 个 .bak 撤回, git status 只剩新增的 tools/bump-version.py (干净状态)
+- ✅ git status: 只显示 tools/bump-version.py (其他 9 处已恢复)
+
+### 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 工具代码 commit + push | ✅ (S74 commit 时一次性带 bump-version + GAP + verify-mobile-apk + changelog + HANDOVER + BUGS_INDEX) |
+| 远端 server restart (systemd) | n/a (S74 不动 server 代码, 只加工具脚本) |
+| `/api/version` v3.0.83 | ✅ (changelog.json latest_version 已更新, 等下次 deploy.sh 跑 server restart 后生效) |
+| APK 重打 | n/a (S74 不动 mobile 代码, 只加工具脚本) |
+| 公网 HEAD | n/a |
+
+### 下一步候选 (S75 推荐)
+
+- **S75 #1: web NotificationPage.tsx** (跟 mobile NotificationScreen 1:1 镜像, O 任务 P0 第一批第 1 个)
+- **S75 #2: web CharacterDescriptionReview 组件** (mobile 抽组件化复用, O 任务 P0 第一批第 2 个)
+- **S75 #3: web OutlineReview 组件** (mobile 抽组件化复用, O 任务 P0 第一批第 3 个)
+- **S75 #4: web ShotDetail 组件** (mobile 抽组件化复用, O 任务 P0 第一批第 4 个)
+- **S75 #5: 集成 check-commit-message.py 到 husky pre-commit hook** (S73 § 7 候选 J, 长期 P3, bump-version.py 已配套)
+- **S75 #6: AGENTS.md § 4 关键铁律 v2.18 → v2.20 同步 S73 § 5.10 沉淀的 ~30 条新铁律** (S73 § 7 坑 3)
+- **S75 #7: 跑 scripts/verify-mobile-apk.sh 真机回归** (新加的脚本实战, BUG-088/089/130/134/135/159/160 真实 APK 验证)
+- **S75 #8: scripts/verify-deploy.sh 28-30 维** (扩到 30 维, 加 verify-mobile-apk 集成 + bump-version dryrun 验证)
+
+> **推荐 S75 #1-4 (P0 第一批)** — O 任务 GAP 盘点实战发现, web 端 4 个核心 GAP 必修 (NotificationPage / CharacterDescriptionReview / OutlineReview / ShotDetail), 跟 BUG-160 教训 100% 同源 (跨端铁律 4++ web+mobile menu 100% 同步)
 

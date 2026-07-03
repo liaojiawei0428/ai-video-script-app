@@ -43,6 +43,8 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+# S74 bump-version.py 自动备份文件 (跟 S73 v3.0.82 BUG-159 教训, 防误 commit)
+*.bak
 
 # Uploaded files (any level)
 **/uploads/*
