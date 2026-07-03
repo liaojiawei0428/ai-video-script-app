@@ -2,15 +2,15 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-07-03 (S75 v3.0.84 收口, 修文档方向 [Web 为主体, APP 跟随 Web] (2026-07-03 user 明确纠正 S74 错误方向) + S75 #1-#3 实战 (husky commit-msg hook 集成 + AGENTS.md v2.20 + verify-mobile-apk.sh 修 4 个 bug); 跟 S74 v3.0.83 + S73 v3.0.78-82 + S72 batch 7 规范反转 100% 兼容)
+> **最后更新**: 2026-07-03 (S76 v3.0.84 APK 真机回归实战收口, 加 BUG-163 + 跨项目通用铁律 #18 (8 子铁律) + scripts/verify-mobile-apk-helper.py 跨进程 IPC + verify-deploy.sh 升 30 维 (维度 28 bump-version dryrun + 维度 29 verify-mobile-apk 集成 + 维度 30 跨项目铁律 v2.20); 跟 S75 v3.0.84 + S74 v3.0.83 + S73 v3.0.78-82 + S72 batch 7 规范反转 100% 兼容)
 
 ---
 
 ## § 0. 30 秒速览 (下个 session 必看)
 
 - **项目**: shipin-APP (`F:\QiTa\banmu\APP\ai-video-script-app`), AI 短剧剧本生成 Web+Mobile+Server
-- **当前版本**: **v3.0.82** (生产 server 实际版本, S73 部署, web + mobile + server 三端 9 处版本号全对齐 + 公网 APK 已上传 v3.0.82 + admin 公告 E2E PASS)
-- **最近 16 session**: S64 (跨端版本管理) → S65 (STANDARDS_EVOLUTION + ADR) → S66 (后端部署规范 P0+P1) → S67 (server 端 AI 部署入口 + 活跃任务专项) → S68 (AGENTS.md 跨端收口 v2.0) → S69 (BUG-071/072/073/074/075 + BUGS_INDEX + systemd unit) → S70 (BUG-077 宝塔 panel Node 项目部署 + 路径重构) → S71 (BUG-079/080/081/082 4 P0 + 铁律 4+/8 + 8 处版本号) → S72 (汇报规范 7 文件 + REPORTING_STANDARDS.md) → S72 batch 4-11 (Stage 1/2/3 + BUG-088/089/090 + BUG-105/107/108/109/110/111/112/113/114/115/116/117/118) → **S73 v3.0.78-82 (5 个 batch 收口, 13 BUG + ~72 条新跨项目通用铁律)** ← 最近 session
+- **当前版本**: **v3.0.84** (生产 server 实际版本, S75 部署, web + mobile + server 三端 9 处版本号全对齐 + 公网 APK 已上传 v3.0.84 + verify-mobile-apk 12 维度 10 PASS / 0 FAIL / 2 SKIP, APK 可发布)
+- **最近 session**: S64 → ... → S75 (修方向 + husky + AGENTS v2.20) → **S76 v3.0.84 APK 真机实战收口** (6 处 PowerShell 工具链撞坑 + BUG-163 + 8 子铁律 + verify-deploy.sh 加维度 28/29/30 + helper.py 跨进程 IPC) ← 最近 session
 - **S73 v3.0.78-82 5 个 batch 速览**:
   1. **v3.0.78 BUG-147** — 服务器公网 IP 159.75.16.110 → 119.91.155.46 (腾讯云 EIP, DeepSeek 平台风控 ban 旧 IP, 跨项目内 137 处 IP 引用全量 grep+分类处理)
   2. **v3.0.78 BUG-148/149/150/151/152** — DeepSeek / Agnes / JWT / MySQL / Axios **5 个外部 SDK 调用规范严格对齐官方文档** (错误码 + user_id + stream_options.include_usage + 思考模式 + 14 错误码对照 + 401 细分 5 子类 + retry 1s/2s/4s),累计 ~40 条跨项目通用铁律
@@ -643,4 +643,82 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **S76 #2: 跑 scripts/verify-mobile-apk.sh 真机回归** (有 Android SDK + APK + 蓝叠模拟器) — 等发版时跑
 - **S76 #3: web 端 27 page 各 page 内部子功能 1:1 镜像 mobile** — 等用户提具体需求时再做
 - **S76 #4: grep ChatScreen / ScriptListScreen 是否跟 mobile 端其他 screen 重复** — 重复就合并 (P3 长期)
+
+---
+
+## § 11. S76 v3.0.84 实战收口 (2026-07-03, APK 真机回归脚本撞 6 处工具链坑)
+
+> **本 session 详细记录**: S76 #1 把 verify-deploy.sh 升到 30 维 (集成 verify-mobile-apk + bump-version dryrun), S76 #2 真机跑 verify-mobile-apk.sh 撞 6 处 PowerShell 调 git bash 时工具链坑, 写 BUG-163 沉淀 8 子铁律, S76 #4 grep ChatScreen/ScriptListScreen 重复摸底.
+> **本版本特性**: S76 实战升级 12 维度 APK 真机回归到 production-ready (10 PASS / 0 FAIL / 2 SKIP), APK 公网 scp sha256 校验一致 ✓ 可发布
+
+### 做了什么 (S76 #1-#4)
+
+#### S76 #1: verify-deploy.sh 27 → 30 维 (跨项目通用铁律 #14/铁律 v2.20 配套)
+
+1. **维度 28: bump-version.py dryrun 验证** — 自动跑 `py tools/bump-version.py --patch --apply --verify` 看 9 处版本号同步是否一致 (apps/server/package.json + index.ts fallback + ecosystem.config.js env+env_production 2 处 + apps/mobile/src/config/version.ts + apps/mobile/android/app/build.gradle versionCode+versionName + apps/web/src/config/version.ts APP_VERSION + APP_VERSION_CODE + apps/server/changelog.json latest_version/entries[0]). 教训沉淀 (跟 BUG-159 一致): shipin-APP v3.0.74-79 6 个版本漏改 mobile config.ts, dryrun 防呆.
+2. **维度 29: verify-mobile-apk.sh 集成** — 部署后 bash 调 `scripts/verify-mobile-apk.sh $APK_PUBLIC --skip-adb --skip-install`, 验 APK metadata (包名/versionName/versionCode/minSdk/签名/DN/sha256).
+3. **维度 30: 跨项目通用铁律 v2.20 配套** — grep 5 个 pattern (classifyDeepseekError + classifyAgnesTextError + algorithms HS256 + mysql timezone/decimalNumbers + mobile 'ab.maque.uno' 域名), 验证 ≥4 个命中 + 0 个 hardcode IP (119.91.155.46/159.75.16.110) 才能 PASS, 沉淀 BUG-147/159 防呆.
+
+#### S76 #2: verify-mobile-apk.sh 真机实战 (8 子铁律新增) — **本 session 主要成果**
+
+- **撞坑 1: `find_tool()` 用 `[[ -f $glob ]]` 不展开 glob** (git bash 跟 POSIX 不一致) → 改用 `ls $pattern 2>&1 | head -1` + `[[ -n "$first" && -f "$first" ]]` 检测首个匹配.
+- **撞坑 2: `$(find_tool 2>&1 | head -1)` 函数内 `>&2` 被外层 2>&1 吞掉**, AAPT2 实际取到的是 stderr 第一行 (tracestate) 而不是路径 → **移掉命令替换外层的 2>&1**, 函数内部 stderr 走自然管道.
+- **撞坑 3: `set -u` + 未设 `ANDROID_HOME`** 触发 unbound variable 退出 → 改 `${ANDROID_HOME:-/nonexistent}` 兼容.
+- **撞坑 4: `apksigner.bat` 是 Windows batch, git bash 不能直接调** + `cmd.exe /c` 在 git bash 子进程 pipe 死锁 → **apksigner 优先返回 `apksigner.jar` 走 `java -jar`** (跨平台稳), **新增 `scripts/verify-mobile-apk-helper.py` Python 脚本**专门跨 PowerShell 调 git bash 跑 `subprocess.run(['cmd.exe', '/c', ...])` (Python subprocess 跨进程 IPC 干净).
+- **撞坑 5: 证书 DN 匹配模式错用 `Subject:`**, apksigner.jar 输出是 `Signer #1 certificate DN: CN=...` 格式 (跟 JDK keytool 不同) → 改 `grep -oE "Signer #[0-9]+ certificate DN: .*"`.
+- **撞坑 6: `py.exe` 在 PowerShell 调 git bash 时 PATH 找不到** (git bash 看不到 Microsoft Store apps) → 头部 `export PATH="/mnt/c/Users/Administrator/AppData/Local/Microsoft/WindowsApps:/mnt/c/Program Files/Microsoft/jdk-17.0.19.10-hotspot/bin:..."`.
+
+**撞坑 7: APK 公网 scp + 公网 nginx** — 公网 APK URL `https://ab.maque.uno/app/DeepScript_v3.0.84.apk` 走 nginx extension `/app/` location → `alias /www/wwwroot/shipin-APP/public/;`. **scp 上传到 `/www/wwwroot/shipin-APP/public/DeepScript_v3.0.84.apk`** (30336627 bytes), sha256 = `a7445ed74c18968b27f285fefcfc17213c2ed7276c390967711e11d4c86974b9` 与本机一致 ✓.
+
+**撞坑 8: SSH 端口** — 起初试 port 6000 是 HTTP 反代不能 SSH, 实际 SSH 是 port 22 + banmu_key 0444 权限 → `cp $KEY /tmp/banmu_key_2 + chmod 600`.
+
+**实战结果**:
+- 12 维度 APK 真机回归脚本 10 PASS / 0 FAIL / 2 SKIP (`--skip-install --skip-adb`, 真机 adb 维度后续发版时跑)
+- APK sha256 = `a7445ed74c18968b27f285fefcfc17213c2ed7276c390967711e11d4c86974b9`
+- 公网 `https://ab.maque.uno/app/DeepScript_v3.0.84.apk` HTTP 200 + size 30336627 + sha256 一致 ✓ **APK 可发布**
+
+**8 子铁律配套沉淀** (跟 BUG-148/149/150 SDK 12 维度 + BUG-151/152 mysql/axios 18 子错误码 + BUG-150 JWT 4 子 + BUG-082 catch 漏归一 配套, shipin-APP "工具链撞坑" 系列铁律):
+1. **写 bash 工具脚本必须在调用方同环境实战跑过** (S75 #3 写脚本时只在 Linux bash 测, Windows 本机一跑全坏)
+2. **`[[ -f $glob ]]` 在 git bash 不能展开 glob** (必须 ls 取首个匹配)
+3. **命令替换 `$(cmd 2>&1 | head)` 会吞函数内 stderr** (AAPT2 取到 stderr 而不是路径)
+4. **`set -u` 读未设置 env var 必 `${VAR:-default}` 兼容**
+5. **apksigner.bat 必走 cmd.exe 或 java -jar, git bash 直接调 .bat 会"不是 cmdlet"**
+6. **apksigner.jar (跟 JDK keytool 不一样) 输出 `Signer #1 certificate DN:`, 不是 `Subject:`**, 跨 SDK grep 模式必先看实际输出
+7. **Python subprocess.run(['cmd.exe', '/c', ...]) 跑 java 比 bash 内调 cmd.exe 稳定** (PowerShell 调 git bash 子进程 pipe 死锁, Python subprocess IPC 干净)
+8. **git bash 调 py.exe 必 export PATH 加 `/mnt/c/Users/Administrator/AppData/Local/Microsoft/WindowsApps`** (默认 bash PATH 看不到 Store apps)
+
+#### S76 #4: grep ChatScreen / ScriptListScreen 重复摸底
+
+- `apps/mobile/src/screens/ChatScreen.tsx` (1058 行) vs `AIAssistantScreen.tsx` (177 行) — 待细查功能重复
+- `ScriptListScreen.tsx` (127 行) vs `BookshelfScreen.tsx` (396 行) — 看着冗余, 待决定合并
+
+#### 提交记录
+
+| commit | 内容 |
+|---|---|
+| `3fb8a48` | **S76 #2 BUG-163 verify-mobile-apk.sh 真机实战 fix** (scripts/verify-mobile-apk.sh + verify-mobile-apk-helper.py + scripts/verify-deploy.sh 加维度 28/29/30) |
+| `9b9d242` | **S76 #2 BUG-163 docs: BUGS_INDEX 追加 + 跨项目通用铁律 #18** (8 子铁律) |
+
+#### APK 发布清单 (v3.0.84)
+
+| 项 | 状态 | 详情 |
+|---|---|---|
+| 本机 APK 大小 / sha256 | ✅ | 30336627 bytes / a7445ed74c18968b27f285fefcfc17213c2ed7276c390967711e11d4c86974b9 |
+| 本机 APK signature | ✅ | apksigner.jar verify rc=0 + DN = CN=DeepScript Release, O=shipin-APP |
+| 公网 APK (server scp) | ✅ | https://ab.maque.uno/app/DeepScript_v3.0.84.apk HTTP 200 + size 30336627 + sha256 一致 |
+| 12 维度 mobile APK 回归 | ✅ | 10 PASS / 0 FAIL / 2 SKIP (--skip-install --skip-adb, 真机 adb 后续跑) |
+| bump-version.py dryrun 9 处同步 | ✅ | 维度 28 PASS (server pkg + index fallback + eco env×2 + mobile version.ts + mobile build.gradle vc/vn + web version.ts APP_VERSION + APP_VERSION_CODE + changelog latest_version/entries[0]) |
+| 跨项目通用铁律 v2.20 | ✅ | 维度 30 PASS (SDK 12 维 / JWT options / mysql opts / mobile 'ab.maque.uno' 域名 5 项命中, hardcode IP 0 命中) |
+| 代码 commit + push | ✅ | 3fb8a48 + 9b9d242 |
+| 远端 server restart | n/a | S76 实战是 mobile APK 流程, server 代码没动 |
+| `/api/version` v3.0.84 | (S75 已部署) | S76 不动 server |
+| 公网 APK 包名 + minSdk | ✅ | com.aiscriptmobile + minSdk 21 + targetSdk 34 |
+
+### 下一步候选 (S77 推荐)
+
+- **S77 #1: 跑真机 adb install + tap login + 验 network OK** (按 S76 #2 实战结果, 12 维度已 PASS 10, adb 部分因无连接设备跳过, S77 应该装蓝叠/插真机后跑 `--skip-install --skip-adb` 移除, 完整 12 维度拿全 PASS)
+- **S77 #2: AGENTS.md § 4 加跨项目通用铁律 #18** (写时环境 ≠ 跑时环境 + 8 子铁律) — 当前只沉淀到 BUGS_INDEX, AGENTS.md 入口没聚合
+- **S77 #3: 合并 ScriptListScreen + BookshelfScreen** (S76 #4 grep 摸底发现功能冗余)
+- **S77 #4: 部署 v3.0.84 server 重启 systemd unit** (按 BUG-159 教训, deploy.sh + ssh + systemctl restart shipin-app)
+- **S77 #5: v3.0.85 patch 升级演练** (用 bump-version.py --patch --apply --commit --rollback 全链路演练)
 
