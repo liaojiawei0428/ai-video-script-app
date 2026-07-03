@@ -40,5 +40,5 @@ if [ -f "$COMMIT_MSG_FILE" ]; then
     echo "   3) 或修 .husky/commit-msg 加你的 Python 路径"
     exit 1
   fi
-  $PY_CMD tools/check-commit-message.py 1 unstaged <<< "$MSG" || exit 1
+  echo "$MSG" | $PY_CMD tools/check-commit-message.py 1 unstaged || exit 1
 fi

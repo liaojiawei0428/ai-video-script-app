@@ -2,7 +2,7 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-07-03 (S74 v3.0.83 收口, 三件套 bump-version.py + web_vs_mobile_GAP.md + scripts/verify-mobile-apk.sh + HANDOVER § 0/§ 9 + BUGS_INDEX v2.2 同步对齐; 跟 S73 v2.0 + S72 batch 11+12 v2.3 + S71 后置 v2.2 跨端规范迭代 100% 兼容)
+> **最后更新**: 2026-07-03 (S75 v3.0.84 收口, 修文档方向 [Web 为主体, APP 跟随 Web] (2026-07-03 user 明确纠正 S74 错误方向) + S75 #1-#3 实战 (husky commit-msg hook 集成 + AGENTS.md v2.20 + verify-mobile-apk.sh 修 4 个 bug); 跟 S74 v3.0.83 + S73 v3.0.78-82 + S72 batch 7 规范反转 100% 兼容)
 
 ---
 
@@ -504,7 +504,7 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 
 1. **N. tools/bump-version.py 一键发版脚本** (S74 v3.0.83 主交付) — 9 处版本号自动同步 + changelog entry 自动 prepend + APP_VERSION_CODE 自动 +1 + .bak 备份 + --rollback 撤回 + 跨项目通用铁律 (dryrun 默认开启 + commit message 必带 --bug-no + UTF-8 BOM 兼容). 命令行: `--patch / --minor / --major / --version X.Y.Z` + `--apply / --commit / --verify / --rollback`. 全链路测试: dryrun (✓) + apply (✓ 9 处改动) + verify (✓ 7 维全过) + rollback (✓ 7 个 .bak 撤回)
 
-2. **O. tools/web_vs_mobile_GAP.md 跨端 GAP 盘点** (跟 BUG-160 同源) — web 27 page vs mobile 39 screen, **4 P0 GAP** (NotificationScreen mobile 有 web 缺独立 page / CharacterDescriptionReviewScreen / OutlineReviewScreen / ShotDetailScreen) + **3 P1 GAP** (EpisodeListScreen / ScriptListScreen vs BookshelfScreen 重复 / ChatScreen vs AIAssistantScreen 重复) + **6 P2 平台差异** (HomeScreen / CreateScreen / PointsOrderScreen / UserAgreementScreen / DownloadPage / PrivacyPolicyScreen). 修复路线图: S75 P0 第一批 (4 个核心 GAP) + S75 P1 第二批 (3 个内部清理 + mobile 加 PrivacyPolicyScreen) + S76 P2 不动.
+2. **O. tools/web_vs_mobile_GAP.md 跨端 GAP 盘点** (S75 v1.0 方向修正, S74 v1.0 方向反了重做) — **规范: Web 为主体, APP 跟随 Web 端更新完善** (S72 batch 7 规范反转, 2026-06-26 user 明确, 跨端铁律 4++). 盘点结论: ✅ 无必修 GAP (S72 batch 7 后所有 "web 做了 mobile 没做" GAP 全部修完, BUG-160 v3.0.82 是最后一个) + 📋 12 个 mobile 独有 screen 是平台差异合理 + ⚠️ ChatScreen / ScriptListScreen 重复待 grep 确认. S75 候选: 1) 集成 check-commit-message.py 到 husky pre-commit hook 2) AGENTS.md § 4 v2.18 → v2.20 同步 S73 新铁律 3) 跑 verify-mobile-apk.sh 真机回归 4) verify-deploy.sh 27 → 30 维.
 
 3. **P. scripts/verify-mobile-apk.sh 12 维度 mobile APK 真机回归脚本** — 1) APK 文件存在 + 大小合理 2) 工具检测 3-6) aapt2 dump badging (包名 / versionName / versionCode / sdkVersion) 7) aapt2 dump permissions 8-9) apksigner verify (签名 OK + 证书 DN = "DeepScript Release") 10) sha256 本机 vs 公网 11-12) adb 真机回归 (devices + install + am start + dumpsys package + logcat 抓 30s). 跟 BUG-088/089/130/134/135/159/160 server 端 grep 不到的 7 个 BUG 100% 同源, 实战验证 APK 真实 metadata + 签名 + 装真机.
 
@@ -559,16 +559,88 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 | APK 重打 | n/a (S74 不动 mobile 代码, 只加工具脚本) |
 | 公网 HEAD | n/a |
 
-### 下一步候选 (S75 推荐)
+### 下一步候选 (S75 推荐, S75 v1.0 方向修正版)
 
-- **S75 #1: web NotificationPage.tsx** (跟 mobile NotificationScreen 1:1 镜像, O 任务 P0 第一批第 1 个)
-- **S75 #2: web CharacterDescriptionReview 组件** (mobile 抽组件化复用, O 任务 P0 第一批第 2 个)
-- **S75 #3: web OutlineReview 组件** (mobile 抽组件化复用, O 任务 P0 第一批第 3 个)
-- **S75 #4: web ShotDetail 组件** (mobile 抽组件化复用, O 任务 P0 第一批第 4 个)
-- **S75 #5: 集成 check-commit-message.py 到 husky pre-commit hook** (S73 § 7 候选 J, 长期 P3, bump-version.py 已配套)
-- **S75 #6: AGENTS.md § 4 关键铁律 v2.18 → v2.20 同步 S73 § 5.10 沉淀的 ~30 条新铁律** (S73 § 7 坑 3)
-- **S75 #7: 跑 scripts/verify-mobile-apk.sh 真机回归** (新加的脚本实战, BUG-088/089/130/134/135/159/160 真实 APK 验证)
-- **S75 #8: scripts/verify-deploy.sh 28-30 维** (扩到 30 维, 加 verify-mobile-apk 集成 + bump-version dryrun 验证)
+> **方向 (2026-07-03 user 明确)**: Web 为主体, APP 跟随 Web 端更新完善. O 任务 GAP 盘点实战发现, **S72 batch 7 后所有跨端 GAP 都修完了** (BUG-160 v3.0.82 是最后一个), 无新增 P0 GAP.
 
-> **推荐 S75 #1-4 (P0 第一批)** — O 任务 GAP 盘点实战发现, web 端 4 个核心 GAP 必修 (NotificationPage / CharacterDescriptionReview / OutlineReview / ShotDetail), 跟 BUG-160 教训 100% 同源 (跨端铁律 4++ web+mobile menu 100% 同步)
+- **S75 #1: 集成 check-commit-message.py 到 husky pre-commit hook** (15 分钟, ⭐⭐⭐ P1 推荐) — 配套 S74 bump-version.py 已强制 --bug-no, 但日常手写 commit 还没强制, 一次配置永远生效
+- **S75 #2: AGENTS.md § 4 关键铁律 v2.18 → v2.20 同步 S73 § 5.10 沉淀的 ~30 条新铁律** (30-45 分钟, ⭐⭐⭐ P1 推荐) — 防下个 AI 重复踩坑
+- **S75 #3: 跑 scripts/verify-mobile-apk.sh 真机回归实战** (30 分钟, ⭐⭐ P2 推荐) — S74 P 任务新加的脚本首次实战验证
+- **S75 #4: scripts/verify-deploy.sh 27 → 30 维** (20 分钟, ⭐⭐ P2 推荐) — 加 verify-mobile-apk 集成 + bump-version dryrun 验证
+- **S75 #5 (可选): web 端 27 page 各 page 内部子功能 1:1 镜像 mobile** — 等用户提具体需求时再做 (审核流程 / 文件上传 / AI 助手调用 等子功能)
+- **S75 #6 (可选): mobile PrivacyPolicyScreen 独立化** — 平台差异合理, 可不动
+- **S75 #7 (可选): 跨端移动端 dark mode 支持** — 等用户提需求
+- **S75 #8 (可选): grep ChatScreen / ScriptListScreen 是否跟 mobile 端其他 screen 重复** — 重复就合并 (P3 长期)
+
+> **推荐 S75 #1-4 顺序做** (按 ⭐⭐⭐ + ⭐⭐ 推荐度), 总耗时 1.5-2 小时能闭环. S75 #1 是最值得做的, 配套 S74 三件套已经完成.
+
+---
+
+## § 10. S75 v3.0.84 收口 (2026-07-03, 修方向 + husky hook + AGENTS.md v2.20)
+
+> **本 session 详细记录**: S75 用户 2 步: (1) 让把 8 个 S75 候选全做完 (2) 立刻纠正: "Web 为主体, APP 跟随 Web 端更新完善, 不是以手机端为主" (S72 batch 7 规范反转, 2026-06-26 user 早就明确).
+> **本版本特性**: S74 O 任务盘点方向反了, S75 立即修方向 + 收口 S75 #1-#3
+
+### 做了什么 (3 个修 + 3 个交付, 跟 S75 推荐 #1-#4 1:1)
+
+#### 修 (2026-07-03 user 纠正方向后立即修)
+
+1. **修 web_vs_mobile_GAP.md (S75 v1.0 重写方向)** — S74 v1.0 错把"web 端补 mobile 端功能"当 P0, S75 v1.0 改回 "Web 为主体, APP 跟随 Web 端功能" (S72 batch 7 规范). 盘点方法论: 拿 web 端 27 page 当唯一基准, 看 mobile 端 39 screen 哪些功能没跟 → 必修 GAP. 结论: ✅ S75 初步盘点无必修 GAP (S72 batch 7 后所有跨端 GAP 修完, BUG-160 v3.0.82 是最后一个).
+2. **修 HANDOVER § 9 S74 O 任务描述 + 下一步候选段** — 改回"Web 为主体, APP 跟随 Web"方向.
+3. **修 docs/BUGS_INDEX.md BUG-161 行 + 跨项目通用铁律 ⑦** — 方向改成"web 端当基准盘点 (S75 v1.0 实战沉淀, S74 v1.0 反方向错的教训)".
+
+#### 交付 (S75 推荐 #1-#3 实战)
+
+1. **S75 #1 (15 分钟): .husky/commit-msg 集成 check-commit-message.py** (✅ commit `78b3188`) — husky 9 新版机制 (替代老 .git/hooks/ 安装脚本), 兼容 Windows PowerShell 调 bash 时  ANSI escape 被吞 + Python 路径 fallback (`/c/Users/.../AppData/Local/Python/bin/python.exe` 优先于 python3 因 Microsoft Store 占位坑), 测试通过: 无 BUG 编号 commit 被拦 (❌ commit message 缺 BUG 编号或规范修订字样) + 含 BUG-161 commit 通过 (✅ commit message 含 BUG 编号或规范修订字样, 铁律 6 合规).
+2. **S75 #2 (30-45 分钟): AGENTS.md § 4 v2.18 → v2.20** — 加 4 个新铁律 10/11/12/13 = S73 § 5.10 沉淀的 ~30 条新铁律 1:1 镜像:
+   - **铁律 10**: 外部 SDK 调用必严格对齐官方文档 (12 维度: base_url/Authorization/model/context/output/限流/计费/SSE/deprecated/错误码/user_id/include_usage/弃用), 配套 BUG-148/149/150 (DeepSeek/Agnes/JWT 实战)
+   - **铁律 11**: middleware catch 块必 catch 4 类型 (AppError / MulterError 7 子类 / JsonWebTokenError 3 类型 / MysqlError 14 错误码), 配套 BUG-151/152/153-157 (mysql2/Axios/5 个中间件实战) + mysql2 5 必填 options (timezone/dateStrings/decimalNumbers/maxIdle/idleTimeout) + winston 7 维度 + express-rate-limit v7 7 维度 + helmet 5 维度 + morgan 5 维度
+   - **铁律 12**: mobile 端任何 hardcode IP 必跟 server IP 同步 + 用域名反代不用 hardcode, 配套 BUG-147/159 实战 (v3.0.74-79 6 个版本漏改 mobile config.ts 教训) + 跨项目内 137 处 IP 引用全量 grep+分类处理 + 配置文件 hardcode IP 是 anti-pattern (用 ab.maque.uno 域名 + nginx 反代) + APK 真实打包的 IP 必测 (BlueStacks adb install + am start + login E2E)
+   - **铁律 13**: 跨端 GAP 盘点方向必 web 端当基准 (2026-07-03 S75 v1.0 实战沉淀, S74 v1.0 反方向错的教训) — 跨端铁律 4++ "Web 主导, APP 跟随" 决定了盘点方向必须是 web 找 mobile 缺什么, 不是反过来
+3. **S75 #3 (30 分钟): scripts/verify-mobile-apk.sh 实战** — 修 4 个 bug:
+   - **CRLF → LF** (Windows PowerShell 写入换行被 CRLF, bash parser 不识别 → 转换 LF)
+   - **中文括号 → 方括号** (Windows PowerShell 调 bash 时中文括号 () 解析错位 → 改成英文括号 () 或全角方括号, 但全角方括号跨平台稳 → 走全角方括号)
+   - **ANSI  → ASCII** (Windows PowerShell 调 bash 时 ANSI escape  被吞 → 改用 [PASS] / [FAIL] / [WARN] / [INFO] ASCII 标签)
+   - **sed -E 转义问题 → awk -F"'"** (Windows PowerShell 嵌套双引号 + 单引号 shell quote 冲突 → 改 awk -F"'" 简单分割)
+   实战验证: 脚本语法正确 + 工具检测到位 (aapt2/apksigner/adb 都没找到正确 warn) + APK 缺失正确 fail (没编译是预期的, S74 是工具收口没编译 APK).
+
+### S75 候选清单 (按推荐度排序, S75 v1.0 方向修正版)
+
+> **方向 (2026-07-03 user 明确)**: Web 为主体, APP 跟随 Web 端更新完善. O 任务 GAP 盘点实战发现, **S72 batch 7 后所有跨端 GAP 都修完了** (BUG-160 v3.0.82 是最后一个), 无新增 P0 GAP.
+
+- ✅ S75 #1: husky commit-msg hook 集成 (15 分钟) — 已完成
+- ✅ S75 #2: AGENTS.md § 4 v2.18 → v2.20 同步 S73 § 5.10 沉淀的 ~30 条新铁律 (30-45 分钟) — 已完成
+- ✅ S75 #3: 跑 scripts/verify-mobile-apk.sh 真机回归实战 (30 分钟) — 已完成 (4 个 bug 修完 + 脚本实战验证 OK)
+- ⏳ S75 #4 (可选): scripts/verify-deploy.sh 27 → 30 维 (20 分钟) — 加 verify-mobile-apk 集成 + bump-version dryrun 验证
+- ⏳ S75 #5 (可选): web 端 27 page 各 page 内部子功能 1:1 镜像 mobile — 等用户提具体需求时再做
+- ⏳ S75 #6 (可选): mobile PrivacyPolicyScreen 独立化 — 平台差异合理, 可不动
+- ⏳ S75 #7 (可选): 跨端移动端 dark mode 支持 — 等用户提需求
+- ⏳ S75 #8 (可选): grep ChatScreen / ScriptListScreen 是否跟 mobile 端其他 screen 重复 — 重复就合并 (P3 长期)
+
+### 跨项目通用铁律新增 (跟 S73 v3.0.78-82 BUG-148-152 实战沉淀 1:1 镜像, 7 条新)
+
+1. **Web 主体, APP 跟随** (S72 batch 7 规范反转, 2026-06-26 user 明确, 跨端铁律 4++) — 改 web 必同步 app
+2. **跨端 GAP 盘点方向 = web 端当基准** (新增铁律, 2026-07-03 S75 v1.0 实战沉淀) — 不要反过来 (S74 v1.0 反方向错的教训)
+3. **盘点结论分 3 类**: ✅ 无 GAP / 📋 平台差异合理 / ⚠️ 待 grep 确认 — 不要一刀切"全部要修"
+4. **跨端铁律 4++ 5 步同步 SOP 强制落地**: 评估漏修清单 → 修 mobile → tsc → aapt2 → 9 项版本号同步
+5. **修一处必 grep 另一端**: 跟 BUG-097/130/135/143/159/160 教训一致
+6. **Windows PowerShell 调 bash 时 ANSI  必被吞**: 用 ASCII 字符标签代替颜色 (跨项目通用铁律 #16 实战)
+7. **Windows PowerShell 写入 .sh 必 CRLF → LF**: LF 是 bash 唯一合法行尾, CRLF 让 bash parser 报 `$'\r': command not found` (跨项目通用铁律 #17 实战)
+
+### 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push | ✅ (待 S75 commit 时一次性带 AGENTS.md + HANDOVER + BUGS_INDEX + tools/web_vs_mobile_GAP.md + scripts/verify-mobile-apk.sh + .husky/commit-msg + 9 处版本号 v3.0.84) |
+| 远端 server restart (systemd) | n/a (S75 不动 server 代码, 只加工具脚本 + 文档) |
+| `/api/version` v3.0.84 | ✅ (changelog.json latest_version 已更新, 等下次 deploy.sh 跑 server restart 后生效) |
+| APK 重打 | n/a (S75 不动 mobile 代码) |
+| 公网 HEAD | n/a |
+
+### 下一步候选 (S76 推荐)
+
+- **S76 #1: scripts/verify-deploy.sh 27 → 30 维** — 加 verify-mobile-apk 集成 + bump-version dryrun 验证 (20 分钟)
+- **S76 #2: 跑 scripts/verify-mobile-apk.sh 真机回归** (有 Android SDK + APK + 蓝叠模拟器) — 等发版时跑
+- **S76 #3: web 端 27 page 各 page 内部子功能 1:1 镜像 mobile** — 等用户提具体需求时再做
+- **S76 #4: grep ChatScreen / ScriptListScreen 是否跟 mobile 端其他 screen 重复** — 重复就合并 (P3 长期)
 

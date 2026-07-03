@@ -254,6 +254,146 @@
 - **真实案例 (S72 batch 4 收口)**: user profile "full D 模式" 跨端统一成铁律 9, 5 场景全覆盖, 副作用是字数膨胀由 AI 主动控制 (重复 stdout 截断 / 短任务简报 / 紧急简化)
 - **违反代价**: silent 执行 → user 无法介入 → 跑偏 5-10 步才发现 → 浪费 30+ min → 比多打 100 字成本高 10 倍
 
+### 铁律 10: 🔧 外部 SDK 调用必严格对齐官方文档 (S73 BUG-148/149/150/151/152, 2026-07-02, 跨项目通用)
+
+> **背景**: S73 v3.0.78 期间对 shipin-APP 用的所有外部 SDK (DeepSeek / Agnes / JWT / MySQL / Axios) 做官方文档 12 维度对照审查, 发现 ~40 个不规范调用 (错误码包装 / 缺 user_id / 缺 stream_options.include_usage / thinking 模式错 / 错误码细分缺失 等), 实战修法 5 件套 1:1 镜像.
+
+- **12 维度必查** (任何外部 API / SDK 接入):
+  1. **base_url** — 文档规定的 API endpoint (避免用老版本/测试环境)
+  2. **Authorization** — Bearer Token / API Key 格式严格按文档 (1-char 错就 401)
+  3. **model 列表 + 弃用计划** — 必读 "deprecation" 段, 提前 30+ 天发 changelog 警告
+  4. **context 上限** (input tokens) + **output 上限** (max_tokens) — 不超官方限制
+  5. **并发限流** (TPM/RPM/QPS) — 客户端 必设上限, 不依赖 API 端容错
+  6. **计费 / token 换算** (1 中文字符 ≈ 0.6 token, 流式必传 `stream_options.include_usage`)
+  7. **SSE 流式格式** (data:[DONE] 收尾 / heartbeat / retry-after)
+  8. **deprecated 参数** (frequency_penalty / presence_penalty 等, 传了不报错但不生效)
+  9. **错误码语义** (401/402/429/5xx 各自含义 + 重试策略)
+  10. **user_id / user 字段** — 内容安全 + KVCache + 调度隔离 (官方强烈建议)
+  11. **stream_options.include_usage** — 流式计费准确 (商业硬指标, 不传 = 计费偏低 5-15%)
+  12. **弃用警告 + 兼容名** — 提前迁移, 别等 API 升严格校验翻车
+
+- **错误码必严格映射** (不包装 502/500):
+  - ❌ 错: throw new Error("API 错误") 把所有 upstream 错误都包成 500
+  - ✅ 对: 按 upstream 状态码 1:1 映射到自己的 error code (401 → TOKEN_INVALID / 402 → BALANCE_LOW / 429 → RATE_LIMITED / 5xx → UPSTREAM_ERROR)
+  - 透传 upstream error message + request id 字段 (前端调试可见)
+  - 真实案例: BUG-148 deepseek.ts 修前所有错误包成 502, 修后 7 子类 enum 1:1 映射 upstream 状态码
+
+- **JWT 必填 4 选项** (算法 + audience + issuer + clockTolerance, BUG-150 实战):
+  - `algorithms: ['HS256']` 显式限制, 防 algorithm confusion attack (攻击者用 RS256 公钥伪造 HS256 token)
+  - `audience: 'shipin-app'` 跨服务 token 隔离 (走 env 可配)
+  - `issuer: 'shipin-APP'` 同上
+  - `clockTolerance: 30` 时钟差容忍 (边缘过期用户体验)
+  - 错误码 5 子类 (TokenExpiredError / NotBeforeError / JsonWebTokenError aud/iss/sig/alg)
+
+- **跨项目通用铁律沉淀** (跟 S73 BUG-148-152 1:1 镜像):
+  - AI API 调用必传 user_id (内容安全 + KVCache + 调度隔离)
+  - 错误码必严格映射 (不包装 502/500, 透传 upstream 状态码 + message + request id)
+  - 流式必传 stream_options.include_usage (准确计费, 商业硬指标)
+  - AI 调官方文档必查 (12 维度 + 错误码 + user_id/弃用 12 维度)
+  - 修一个 provider 必 grep 所有 provider 同样模式 (deepseek → agnes → jwt → mysql → axios, 5 BUG 1 次挖深)
+
+### 铁律 11: 🛠️ middleware catch 块必 catch 4 类型 (AppError / MulterError / JsonWebTokenError / MysqlError, S73 BUG-153-157 实战, 跨项目通用)
+
+> **背景**: shipin-APP errorHandler 修前 catch 块统一把任何错误包装成 500 INTERNAL_ERROR, 用户看不到真实错误类型 (是文件超限? token 过期? 数据库死锁? 一概不知道). S73 v3.0.79 BUG-153-157 实战: multer fileFilter 7 子类 + rate-limit 7 维度 + winston 7 维度 + helmet 5 维度 + morgan 5 维度, errorHandler catch 块 1:1 镜像 4 类型.
+
+- **4 类型必 catch**:
+  - **AppError** (自定义业务错误) — 透传 code + message + statusCode
+  - **MulterError 7 子类** (文件上传): LIMIT_FILE_SIZE 413 / LIMIT_FILE_COUNT 413 / LIMIT_UNEXPECTED_FILE 400 / LIMIT_FIELD_COUNT 400 / LIMIT_FIELD_KEY 400 / LIMIT_FIELD_VALUE 400 / LIMIT_PART_COUNT 413
+  - **JsonWebTokenError 3 类型** (JWT 鉴权, 铁律 10 配套): TokenExpiredError / NotBeforeError / JsonWebTokenError
+  - **MysqlError 14 错误码** (数据库): 1040 TOO_MANY_CONNECTIONS 503 / 1042 BAD_HOST 500 / 1045 ACCESS_DENIED 500 / 1062 DUPLICATE_ENTRY 409 / 1129 HOST_BLOCKED 403 / 1158-1161/2002-2003/2006/2013 网络错 502 / 1205 LOCK_WAIT_TIMEOUT 503 / 1213 DEADLOCK 503
+
+- **5 维度必填 options** (mysql2 池配置, BUG-151 实战):
+  - `timezone: 'Z'` 跨时区 (UTC)
+  - `dateStrings: false` DATETIME/TIMESTAMP 返 Date 对象
+  - `decimalNumbers: true` DECIMAL 类型返 number (修前 0.1+0.2 字符串拼接出错)
+  - `maxIdle: 10` 资源回收 (修前 25 个连接长期 idle)
+  - `idleTimeout: 60000` 60s 自动 release
+
+- **winston logger 7 维度** (S73 BUG-155 实战):
+  - production 配 Console silent: true (CI 无 TTY 不刷日志)
+  - rejectionHandlers + exceptionHandlers (unhandledRejection/uncaughtException 接住不神秘挂)
+  - exitOnError: false
+  - defaultMeta { service, env }
+  - level info
+
+- **express-rate-limit v7 7 维度** (S73 BUG-154 实战):
+  - keyGenerator (`u:userId` / `ip:${ipKeyGenerator(req.ip)}` 修 IPv6 实战)
+  - standardHeaders 'draft-7' (v7 spec)
+  - legacyHeaders false (deprecate X-RateLimit-*)
+  - skipFailedRequests true
+  - requestWasSuccessful `(req, res) => res.statusCode < 400`
+  - handler 返 429 RATE_LIMIT_EXCEEDED
+  - validate { trustProxy: true, xForwardedForHeader: true }
+
+- **helmet 5 维度** (S73 BUG-156 实战):
+  - crossOriginResourcePolicy 'cross-origin' (shipin-app `<img>` 跨域不挡)
+  - crossOriginEmbedderPolicy false
+  - crossOriginOpenerPolicy 'same-origin-allow-popups'
+  - contentSecurityPolicy (default-src self / img-src self+https+data / script-src self+unsafe-inline / style-src self+unsafe-inline / font-src self+https+data / connect-src self+https)
+  - helmet 必 before cors
+
+- **morgan 5 维度** (S73 BUG-157 实战):
+  - stream { write: msg => logger.info(msg.trim()) } 接 winston (跟铁律 8 日志聚合一)
+  - skip /health /api/version (高频 ping 淹没日志)
+  - morgan.token('real-ip') 接 X-Real-IP (nginx 反代 1:1)
+  - 'combined' format
+  - immediate: false 默认
+
+- **跨项目通用铁律沉淀** (跟 BUG-148-152 1:1 镜像):
+  - 修一个 SDK error 必 grep 所有 SDK error 在 errorHandler catch (跨项目通用 #6)
+  - middleware catch 块必先 classify 错误类型再决定 HTTP statusCode (跟 BUG-079 假报告 100% 同源)
+  - fileFilter 必用 `cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', fieldname))` 7 子类 1:1 映射
+
+### 铁律 12: 🌐 mobile 端任何 hardcode IP 必跟 server IP 同步 + 用域名反代不用 hardcode (S73 BUG-147/159, 2026-07-02, 跨项目通用)
+
+> **背景**: S73 v3.0.78 BUG-147 server 端换公网 IP 159.75.16.110 → 119.91.155.46 (腾讯云 EIP, DeepSeek 风控 ban 老 IP), 配套走了 web + server + 远端 .env + 远端 systemd unit, **但漏改 mobile 端 hardcode IP** (`apps/mobile/src/config.ts:2 DEV_SERVER_IP` + `apps/mobile/src/screens/TaskProgressScreen.tsx:71` WS fallback). 后果: v3.0.74-79 6 个版本所有 mobile APK 装上后连不上 server `/users/login` API → isNetworkError=true → 用户看到登录按钮点击后无响应. S73 v3.0.81 BUG-159 实战回归发现 + 修复闭环.
+
+- **任何 IP 改动必全项目 grep**:
+  - 跨项目内 137+ 处 IP 引用, 4 类别分类处理:
+    - **运行时** (mobile UploadScreen fallback URL / server .env PAY_NOTIFY_BASE) → ✅ 必改
+    - **部署脚本** (deploy_*.py / check_*.py / ssh_*.py / tools/verify-version-8-points.js) → ✅ 必改
+    - **规范文档** (CLAUDE.md / AGENTS.md / docs/DEPLOY.md 顶部 IP) → ✅ 必改
+    - **历史 BUG 段** (BUGS.md / DEV_PROGRESS.md / 历史 docs) → ⚠️ 保留 + 加 IP 变更注
+  - 远端 grep 验证: `ssh root@119.91.155.46 "grep -r '159.75.16.110' /www/server/panel /etc/nginx /etc/systemd /www/wwwroot/shipin-APP/dist 2>&1"`
+
+- **配置文件 hardcode IP 是 anti-pattern**:
+  - ❌ 错: `apps/mobile/src/config.ts:2 DEV_SERVER_IP = '119.91.155.46'` 硬同步
+  - ✅ 对: 用 `ab.maque.uno` 域名 + nginx 反代 (跟 web 端 1:1 镜像), DNS 自动解析到新 IP
+  - 真实案例: BUG-147 BUG-159 修法 1 server .env `PAY_NOTIFY_BASE = 'https://ab.maque.uno'` 替代硬 IP
+
+- **APK 真实打包的 IP 必测** (不是只看 /api/version):
+  - E2E install + tap login + 验 network OK (BlueStacks adb install + am start + login E2E)
+  - mobile 端 APK 真实打包的 IP 跟 server 端必一致, 必真机回归
+  - 不只看 `/api/version` 返回 (那个走的是 hostname, 不一定暴露 hardcode IP)
+
+- **跨项目通用铁律沉淀** (跟 BUG-147/159 100% 同源):
+  - 改任何 hardcode IP 必走 changelog.json latest_version 单一字段 (跟 BUG-145 配套, JSON 解析 last-wins)
+  - mobile 端 APK 真机回归必跑 (BlueStacks adb install + am start + login E2E), 不能只看 /api/version 返回
+  - 腾讯云/阿里云 VM 公网 IP 必走 EIP 弹性方案 (遇风控随时换 IP)
+
+### 铁律 13: 🔍 **跨端 GAP 盘点方向必 web 端当基准** (S75 v1.0, 2026-07-03, 跨项目通用铁律, 跟 S72 batch 7 规范反转 + 铁律 4++ 配套)
+
+> **背景**: S74 O 任务盘点方向反了, 把 "web 端补 mobile 端已有功能" 当 P0, 实际应该是 "mobile 端跟 web 端已有功能" (S72 batch 7 规范反转 2026-06-26 user 明确: Web 主导, APP 跟随). 2026-07-03 user 再次纠正, S75 v1.0 重做盘点方向.
+
+- **跨端铁律 4++ 决定盘点方向**:
+  - ✅ 对方向: 拿 web 端 27 page 当唯一基准, 看 mobile 端 39 screen 哪些功能没跟 → 必修 GAP
+  - ❌ 反方向: 拿 mobile 39 screen 当基准找 web 缺什么 → 违反规范
+  - 盘点结论分 3 类: ✅ 无 GAP / 📋 平台差异合理 / ⚠️ 待 grep 确认
+
+- **跨端铁律 4++ 5 步同步 SOP 强制落地**:
+  1. 评估 mobile 端漏修清单 (grep diff web vs mobile)
+  2. 修 mobile 端代码 (跟 web 1:1)
+  3. `npx tsc --noEmit` 0 错
+  4. `aapt2 dump badging` 验证 versionName
+  5. scp APK 到公网 + bump server 9 项版本号
+
+- **真实案例**: S72 batch 7 后所有 "web 做了 mobile 没做" GAP 全部修完 (BUG-160 v3.0.82 是最后一个). S75 v1.0 实战盘点: ✅ 无必修 GAP, 仅 📋 12 个 mobile 独有 screen 是平台差异合理 (HomeScreen / CreateScreen / PointsOrderScreen / UserAgreementScreen / DownloadPage / PrivacyPolicyScreen 等) + ⚠️ ChatScreen / ScriptListScreen 重复待 grep 确认
+
+- **跨项目通用铁律沉淀** (跟 S72 batch 7 + 铁律 4++ 配套):
+  - 跨端 GAP 盘点方向 = web 端当基准, 不是反过来 (S74 v1.0 反方向错的教训)
+  - 盘点结论分 3 类, 不要一刀切"全部要修"
+  - 修一处必 grep 另一端 (跟 BUG-097/130/135/143/159/160 教训一致)
+
 ---
 
 ## § 5. Development Progress Tracker (跨端统一工作流)
@@ -408,7 +548,7 @@
 ---
 
 > **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参与 shipin-APP 项目时必须遵守.
-> **最后更新**: 2026-06-26 (S72 batch 7 v2.11, 跨端铁律 4++ 新增 (Web 主导, APP 跟随, 必同步) + 删 3 处 "主盯 web, 安卓暂不动" 旧原则, 配套 verify-deploy.sh 升 23 维 + 新增维度 24 mobile 端同步自检, 联动更新 BUGS_INDEX v2.1)
+> **最后更新**: 2026-07-03 (v2.20, 加 § 4 铁律 10/11/12/13 = S73 BUG-148-152 外部 SDK 12 维度对照 + middleware catch 4 类型 + mobile 端 hardcode IP 必跟 server IP 同步 + 跨端 GAP 盘点方向必 web 端当基准 (S75 v1.0 实战沉淀), 跟 S73 § 5.10 沉淀的 ~30 条新铁律 1:1 镜像, 配套 husky commit-msg hook S75 #1 集成)
 > **下次 review**: 跨端规范有结构性变化 / 新增 app 子项目 (比如 iOS) 时
 > **本文档为强制执行规范** (跨端统一). 所有 AI 助手在参考 shipin-APP 项目时必须遵守.
 > **最后更新**: 2026-06-30 (v2.17, 加 § 4 铁律 10 选型阶段必调研依赖内部路径 + 反思 v3.0.60→v3.0.66→v3.0.67 反复掉坑, 跟 mobile § 6.16 + server § 3.10 同步)

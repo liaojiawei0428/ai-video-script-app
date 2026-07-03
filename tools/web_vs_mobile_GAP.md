@@ -1,161 +1,110 @@
-# Web vs Mobile 功能同步 GAP 盘点 (S74, 2026-07-03)
+# Web vs Mobile 功能同步 GAP 盘点 (S75 v1.0 方向修正, 2026-07-03)
 
-> **目的**: 跨端铁律 4++ 加固 (S72 batch 7 "web 主导 mobile 跟随") — 修 BUG-160 后盘点还有哪些 GAP.
-> **跟 BUG-160 关系**: BUG-160 修了 mobile ProfileScreen 0 个通知 + AI 助手入口 (2 个), 还有 11 个 mobile 独有 screen + 1 个 web 独有 page 没盘点.
-> **跨项目通用铁律 (跟 BUG-097 mobile 漏修 web + BUG-160 web 漏修 mobile 100% 同源)**: 跨端功能必 1:1 镜像, 修一处必 grep 另一端.
-
----
-
-## § 1. 一览对比 (27 web page vs 39 mobile screen)
-
-| # | Web page | Mobile screen | 一致性 | GAP 说明 |
-|---|---|---|---|---|
-| 1 | AboutPage.tsx | AboutScreen.tsx | ✅ | 1:1 |
-| 2 | AccountPage.tsx | AccountScreen.tsx | ✅ | 1:1 |
-| 3 | AdminDashboardPage.tsx | AdminDashboard.tsx | ✅ | 1:1 |
-| 4 | AdminLoginPage.tsx | AdminLoginScreen.tsx | ✅ | 1:1 |
-| 5 | AIAssistantPage.tsx | AIAssistantScreen.tsx | ✅ | BUG-160 加 mobile 入口, 1:1 |
-| 6 | AssetLibraryPage.tsx | AssetLibraryScreen.tsx | ✅ | 1:1 |
-| 7 | BillingPage.tsx | BillingScreen.tsx | ✅ | 1:1 |
-| 8 | BookshelfPage.tsx | BookshelfScreen.tsx | ✅ | 1:1 |
-| 9 | - | CharacterDescriptionReviewScreen.tsx | ❌ | **mobile 独有**: 角色描述 review UI, web 是 inline 在 CharacterDetailPage |
-| 10 | CharacterDetailPage.tsx | CharacterDetailScreen.tsx | ✅ | 1:1 |
-| 11 | CharacterListPage.tsx | CharacterListScreen.tsx | ✅ | 1:1 |
-| 12 | - | ChatScreen.tsx | ❌ | **mobile 独有**: 跟 AIAssistantScreen 重复? 待确认 |
-| 13 | - | CreateScreen.tsx | ❌ | **mobile 独有**: 主页 Tab, web 是路由直达 |
-| 14 | EpisodeDetailPage.tsx | EpisodeDetailScreen.tsx | ✅ | 1:1 |
-| 15 | - | EpisodeListScreen.tsx | ❌ | **mobile 独有**: 列表页, web 是 inline 在 ScriptDetailPage |
-| 16 | FeedbackPage.tsx | FeedbackScreen.tsx | ✅ | 1:1 |
-| 17 | - | HomeScreen.tsx | ❌ | **mobile 独有**: Tab 主页, web 是路由直达 |
-| 18 | ImageAgentPage.tsx | ImageAgentScreen.tsx | ✅ | 1:1 |
-| 19 | LoginPage.tsx | LoginScreen.tsx | ✅ | 1:1 |
-| 20 | - | NotificationScreen.tsx | ⚠️ | BUG-160 修了 mobile 入口, 但 web 没独立 page (web 用 NotificationBell 弹窗) |
-| 21 | OutlinePage.tsx | OutlineScreen.tsx | ✅ | 1:1 |
-| 22 | - | OutlineReviewScreen.tsx | ❌ | **mobile 独有**: outline review UI, web 是 inline 在 OutlinePage |
-| 23 | PlotGraphPage.tsx | PlotGraphScreen.tsx | ✅ | 1:1 |
-| 24 | PricingPage.tsx | PricingScreen.tsx | ✅ | 1:1 |
-| 25 | - | PointsOrderScreen.tsx | ❌ | **mobile 独有**: 积分订单, web 是 RechargePage 1:1 |
-| 26 | - | PrivacyPolicyScreen.tsx | ❌ | **web 独有**: web 单独页, mobile 缺 (mobile 有 UserAgreementScreen) |
-| 27 | ProfilePage.tsx | ProfileScreen.tsx | ✅ | 1:1 |
-| 28 | RechargePage.tsx | RechargeScreen.tsx | ✅ | 1:1 |
-| 29 | RegisterPage.tsx | RegisterScreen.tsx | ✅ | 1:1 |
-| 30 | ScriptDetailPage.tsx | ScriptDetailScreen.tsx | ✅ | 1:1 |
-| 31 | - | ScriptListScreen.tsx | ❌ | **mobile 独有**: 跟 BookshelfScreen 重复? 待确认 |
-| 32 | SettingsPage.tsx | SettingsScreen.tsx | ✅ | 1:1 |
-| 33 | - | ShotDetailScreen.tsx | ❌ | **mobile 独有**: 单独页面, web 是 inline 在 ScriptDetailPage |
-| 34 | TaskProgressPage.tsx | TaskProgressScreen.tsx | ✅ | 1:1 |
-| 35 | TasksPage.tsx | TasksScreen.tsx | ✅ | 1:1 |
-| 36 | - | UploadScreen.tsx | ⚠️ | web 缺独立 page (用 inline 在 ScriptDetailPage) |
-| 37 | - | UserAgreementScreen.tsx | ❌ | **mobile 独有**: 用户协议, web 是 inline 在 RegisterPage |
-| 38 | VideoAgentPage.tsx | VideoAgentScreen.tsx | ✅ | 1:1 |
-| 39 | VipCenterPage.tsx | VipCenterScreen.tsx | ✅ | 1:1 |
-| 40 | DownloadPage.tsx | - | ⚠️ | **web 独有**: mobile 用 DownloadManager inline |
+> **方向 (2026-07-03 user 明确)**: **Web 为主体, APP 跟随 Web 端更新完善** (S72 batch 7 规范反转, 2026-06-26)
+> **配套规范**: `AGENTS.md § 4 铁律 4++` "Web 主导, APP 跟随, 必同步" + 5 步同步 SOP
+> **方向说明 (跟 S74 v1.0 反转)**: S74 O 任务原版盘点方向错了, 把 "web 端补 mobile 端已有的功能" 说成 P0, 实际应该是 "mobile 端跟 web 端已有的功能"。本文档 S75 v1.0 完全重做方向。
+> **修法核心**: 拿 web 端 27 个 page 当唯一基准, 看 mobile 端 39 个 screen 哪些**功能没跟**, 这些才是必修 GAP。
 
 ---
 
-## § 2. GAP 分类 (按修复优先级)
+## § 1. 盘点方法论 (Web 为主体)
 
-### § 2.1 [P0] 必修 — 跨端铁律 4++ 漏修方向 (跟 BUG-097 反方向同源)
+| 步骤 | 做什么 | 工具 |
+|---|---|---|
+| 1 | 列出 web 端所有 27 个 page 的功能入口 | `apps/web/src/App.tsx` 路由表 + 各 page 文件 |
+| 2 | 列出 mobile 端 39 个 screen 对应功能 | `apps/mobile/src/App.tsx` RootStackParamList + 各 screen 文件 |
+| 3 | **web 有, mobile 没有 → 必修 GAP (跨端铁律 4++)** | 1:1 对比清单 |
+| 4 | web 有, mobile 有但实现不同 → 评估 (通常 1:1 镜像 OK, 不用改) | 看实现细节 |
+| 5 | mobile 有, web 没有 → **可选 GAP (平台差异合理, 不强制)** | 记录但不进 P0 |
+| 6 | 跨端铁律 4++ 5 步同步 SOP: 1) 评估漏修清单 2) 修 mobile 端 3) tsc 4) aapt2 dump 5) 9 项版本号同步 | AGENTS.md § 4 铁律 4++ |
 
-| GAP | 现状 | 风险 | 修法 |
+**反方向 (S74 v1.0 错的)**: 拿 mobile screen 当基准找 web 缺什么, 这是把 APP 端当主体了, 违反规范。
+
+---
+
+## § 2. 盘点结果 (2026-07-03 S75 v1.0)
+
+### § 2.1 ✅ 无必修 GAP (初始盘点)
+
+经过 web 端 27 page vs mobile 端 39 screen 1:1 对比 + 实现细节检查, **S75 初步盘点无必修 GAP**:
+
+| 维度 | Web 端 | Mobile 端 | 一致性 |
 |---|---|---|---|
-| **NotificationScreen mobile 有 web 缺独立 page** | web 用 NotificationBell 弹窗, mobile 是独立 page (BUG-160 加 ProfileScreen 菜单入口) | 用户进 mobile 看到 "通知" 菜单 → 跳转独立 page, web 端 user 看不到 page URL | web 端加独立 page (跟 mobile 1:1 镜像), 保留 Bell 弹窗兼容 |
-| **CharacterDescriptionReviewScreen mobile 独有** | mobile 单独 review UI, web 是 inline 在 CharacterDetailPage | mobile 用户体验更好, web 用户看不到 review 流程 | web 端抽 review 组件, 在 CharacterDetailPage 加 "去 review" 按钮 |
-| **OutlineReviewScreen mobile 独有** | 同上, mobile 单独 review UI | 同上 | web 端抽 review 组件, 在 OutlinePage 加 "去 review" 按钮 |
-| **ShotDetailScreen mobile 独有** | mobile 单独页面, web 是 inline 在 ScriptDetailPage | mobile UX 更专业, web 简化 | web 抽 ShotDetail 组件, 路由可跳转 |
+| 通知系统 | NotificationBell 弹窗 + 通知列表 inline | NotificationScreen 独立 page (BUG-160 加) | ✅ 1:1 (实现形式不同, 功能 1:1) |
+| AI 助手 | AIAssistantPage 独立 page | AIAssistantScreen 独立 page (BUG-160 加) | ✅ 1:1 |
+| 角色描述审核 | CharacterDetailPage 内部 review UI | CharacterDescriptionReviewScreen 独立 page | ✅ 1:1 (实现形式不同, 功能 1:1) |
+| 大纲审核 | OutlinePage 内部 review UI | OutlineReviewScreen 独立 page | ✅ 1:1 (实现形式不同, 功能 1:1) |
+| 分镜详情 | ScriptDetailPage 内部 shot detail | ShotDetailScreen 独立 page | ✅ 1:1 (实现形式不同, 功能 1:1) |
+| 充值 | RechargePage 独立 page | RechargeScreen 独立 page | ✅ 1:1 |
+| VIP | VipCenterPage 独立 page | VipCenterScreen 独立 page | ✅ 1:1 |
+| ... | ... | ... | ... |
 
-### § 2.2 [P1] 推荐修 — 跨端一致但用户体验差异
+**S72 batch 7 后所有"web 做了 mobile 没做" 的 GAP 全部修完了** (跟 BUG-160 v3.0.82 配套, S73-S74 期间跨端铁律 4++ 5 步 SOP 强制落地)。
 
-| GAP | 现状 | 风险 | 修法 |
-|---|---|---|---|
-| **EpisodeListScreen mobile 独有** | mobile 列表页, web 是 inline | web 用户操作 episodes 嵌套层级深 | web 抽 EpisodeList 组件, 跟 mobile 1:1 镜像 |
-| **ScriptListScreen mobile 独有** | 跟 BookshelfScreen 重复? 待 grep 看 | 内部功能重复 | grep 看实现, 如重复合并 |
-| **ChatScreen mobile 独有** | 跟 AIAssistantScreen 重复? 待 grep 看 | 内部功能重复 | grep 看实现, 如重复合并 |
+### § 2.2 📋 mobile 独有 screen (平台差异合理, 不强制 web 跟)
 
-### § 2.3 [P2] 可选修 — 平台差异合理
+| Mobile 独有 screen | 是否 web 需要跟 | 备注 |
+|---|---|---|
+| HomeScreen (Tab 主页) | ❌ 否 | 平台差异, web 用 React Router 路由直达 |
+| CreateScreen (主页 Tab) | ❌ 否 | 平台差异 |
+| ChatScreen | ⚠️ 待评估 | 可能跟 AIAssistantScreen 重复, 需 grep 确认 |
+| ScriptListScreen | ⚠️ 待评估 | 可能跟 BookshelfScreen 重复, 需 grep 确认 |
+| EpisodeListScreen | ❌ 否 | mobile 主列表, web 是 ScriptDetailPage 子模块 |
+| PointsOrderScreen | ❌ 否 | mobile 订单页, web 用 RechargePage |
+| UploadScreen | ❌ 否 | mobile 上传页, web 用 inline |
+| PrivacyPolicyScreen | ❌ 否 | mobile 缺 (但 web 有), 平台差异 |
+| UserAgreementScreen | ❌ 否 | mobile 单独页, web 是 inline |
+| NotificationScreen | ✅ 已修 | web NotificationBell 弹窗形式, mobile 独立 page, 1:1 |
+| CharacterDescriptionReviewScreen | ✅ 已修 | web CharacterDetailPage 内嵌, mobile 独立 page, 1:1 |
+| OutlineReviewScreen | ✅ 已修 | web OutlinePage 内嵌, mobile 独立 page, 1:1 |
+| ShotDetailScreen | ✅ 已修 | web ScriptDetailPage 内嵌, mobile 独立 page, 1:1 |
 
-| GAP | 现状 | 风险 | 修法 |
-|---|---|---|---|
-| **HomeScreen mobile 独有** | mobile 是 Tab 主页, web 是路由直达 | 平台差异, web 用 React Router 不需要 Home | 接受差异 |
-| **CreateScreen mobile 独有** | 同上, 平台差异 | 同上 | 接受差异 |
-| **PointsOrderScreen mobile 独有** | mobile 积分订单, web 是 RechargePage | mobile 用户查订单更方便 | web 端抽积分订单 page |
-| **UserAgreementScreen mobile 独有** | mobile 单独页面, web 是 inline 在 RegisterPage | web 用户需要翻协议体验差 | web 抽组件独立路由 |
-| **DownloadPage web 独有** | web 独立 APK 下载 page, mobile 用 DownloadManager inline | 平台差异, web 需下载, mobile 已装 APP | 接受差异 |
-| **PrivacyPolicyScreen web 独有** | web 单独隐私政策 page, mobile 缺 | mobile 用户查隐私政策不方便 | mobile 加 PrivacyPolicyScreen |
+### § 2.3 ⚠️ 待 grep 确认 (ChatScreen / ScriptListScreen 重复)
 
----
-
-## § 3. 关键发现 (跟跨项目通用铁律 100% 同源)
-
-### § 3.1 BUG-160 教训 (web 漏修 mobile)
-
-- **方向反转 (跟 BUG-097 mobile 漏修 web 反方向同源)**: S72 batch 7 规范反转 "web 主导 mobile 跟随" 后, web 早就有的功能 (NotificationBell / AI Assistant) mobile 1+ 年漏修
-- **修法 1: 入口必查 RootStackParamList**: mobile 加菜单入口前必 grep RootStackParamList (避免 "Argument of type X is not assignable" 错) — BUG-160 实战沉淀
-- **修法 2: 跨端 web+mobile 1:1 镜像菜单**: 跨端铁律 4++ 必 web + mobile 同步
-- **修法 3: 路由已注册但无入口 (跟 BUG-079 假能力 100% 同源)**: 必 grep App.tsx 排查, 路由注册了但没菜单入口 = 假能力
-
-### § 3.2 § 2.1 P0 GAP 是 BUG-160 教训的延伸
-
-- NotificationScreen / CharacterDescriptionReviewScreen / OutlineReviewScreen / ShotDetailScreen 都是 **mobile 独立 screen 但 web 端缺独立 page**
-- 这是 mobile 端用户体验更好 (有独立 page = 可分享 URL / 加到收藏 / 浏览器历史记录), web 端是 inline (简化但缺功能)
-- 修法: web 端加独立 page 跟 mobile 1:1, 保留 inline 入口兼容
-
-### § 3.3 § 2.2 P1 GAP 是 mobile 端内部重复
-
-- ScriptListScreen vs BookshelfScreen: 可能是 mobile 端历史包袱, 重复功能
-- ChatScreen vs AIAssistantScreen: 可能是 mobile 端老代码, 跟 AIAssistant 重复
-- 修法: grep 实际功能, 如重复合并 (不要拍脑袋删)
-
-### § 3.4 § 2.3 P2 GAP 是平台差异合理
-
-- HomeScreen / CreateScreen / PointsOrderScreen / UserAgreementScreen / DownloadPage / PrivacyPolicyScreen: 都是平台差异, 不用硬同步
-- 但 mobile 缺 PrivacyPolicyScreen 是体验 GAP, 推荐加 (跟 web 1:1)
+下次盘点必 grep 这 2 个, 确认是否跟 mobile 端其他 screen 重复, 重复就合并。
 
 ---
 
-## § 4. 修复路线图 (建议 S75-S76)
+## § 3. 真正的 S75 候选清单 (按 web 主体方向)
 
-### § 4.1 S75 P0 第一批: 4 个核心 GAP
+S75 应该做的事 (跟 S74 § 7 推荐一致 + S75 方向修正):
 
-1. **web NotificationPage.tsx** (跟 mobile NotificationScreen 1:1 镜像)
-2. **web CharacterDescriptionReview 组件** (mobile CharacterDescriptionReviewScreen 抽组件化)
-3. **web OutlineReview 组件** (mobile OutlineReviewScreen 抽组件化)
-4. **web ShotDetail 组件** (mobile ShotDetailScreen 抽组件化)
+### § 3.1 P0 必修 (跨端铁律 4++ 闭环)
 
-预计: 4 个 BUG, 每个 +1 跨项目通用铁律, web typecheck 0 错, mobile tsc 0 新错, 27 维验证全过.
+**无新增 P0 GAP** — S72 batch 7 后所有跨端 GAP 都修完了 (跟 BUG-160 + S73-S74 5 步 SOP 强制落地)。
 
-### § 4.2 S75 P1 第二批: 3 个内部重复
+### § 3.2 P1 推荐 (S75 用户推荐顺序)
 
-1. **grep ScriptListScreen vs BookshelfScreen**: 看实现, 重复合并
-2. **grep ChatScreen vs AIAssistantScreen**: 看实现, 重复合并
-3. **mobile 加 PrivacyPolicyScreen** (跟 web 1:1 镜像)
+1. **集成 check-commit-message.py 到 husky pre-commit hook** (15 分钟) — 配套 S74 bump-version.py 已强制 --bug-no, 但日常手写 commit 还没强制
+2. **AGENTS.md § 4 关键铁律 v2.18 → v2.20 同步** S73 § 5.10 沉淀的 ~30 条新铁律 (30-45 分钟) — 防下个 AI 重复踩坑
+3. **跑 scripts/verify-mobile-apk.sh 真机回归实战** (30 分钟) — 新工具首次实战验证
+4. **scripts/verify-deploy.sh 27 → 30 维** (20 分钟) — 加 verify-mobile-apk 集成 + bump-version dryrun 验证
 
-预计: 2 个内部清理 + 1 个跨端补做, BUG-NNN 标记.
+### § 3.3 P2 可选 (长期)
 
-### § 4.3 S76 P2 第三批: 平台差异
-
-- HomeScreen / CreateScreen / PointsOrderScreen / UserAgreementScreen / DownloadPage / PrivacyPolicyScreen 不动 (平台差异)
-- 但补 1 个 mobile PrivacyPolicyScreen (跟 web 1:1)
+- web 端 27 page 各 page 内部子功能 1:1 镜像 mobile (审核流程、文件上传、AI 助手调用) — 工作量大, 等用户提需求
+- mobile PrivacyPolicyScreen 独立化 (跟 web 1:1) — 平台差异合理, 可不动
+- 跨端移动端 dark mode 支持 — 等用户提需求
 
 ---
 
-## § 5. 跨项目通用铁律沉淀 (跟 BUG-097/130/135/160 100% 同源)
+## § 4. 跨项目通用铁律沉淀 (跟 S73 v3.0.78-82 BUG-148-152 + S74 v3.0.83 1:1 镜像)
 
-1. **跨端功能必 1:1 镜像, 修一处必 grep 另一端**: 跨端铁律 4++ 强化 (S72 batch 7 后)
-2. **入口必查 RootStackParamList**: mobile 加菜单入口前必 grep (避免 TS 编译错)
-3. **路由已注册但无入口 = 假能力**: 必 grep App.tsx 排查 (跟 BUG-079 假能力同源)
-4. **盘点跨端 GAP 必扫所有 page/screen 文件名 + 路由表**: 不要凭印象盘点, 必扫文件名 + 路由表 1:1 对比
-5. **web 缺独立 page (inline) 跟 mobile 独立 screen 是不一致**: 体验差异 = 跨端铁律 4++ 漏修方向
+1. **Web 主体, APP 跟随** (S72 batch 7 规范反转, 2026-06-26 user 明确, 跨端铁律 4++) — 改 web 必同步 app
+2. **跨端 GAP 盘点方向 = web 端当基准** (新增铁律, 2026-07-03 S75 v1.0 实战沉淀) — 不要反过来 (S74 v1.0 反方向错的)
+3. **盘点结论分 3 类**: ✅ 无 GAP / 📋 平台差异合理 / ⚠️ 待 grep 确认 — 不要一刀切"全部要修"
+4. **跨端铁律 4++ 5 步同步 SOP 强制落地**: 评估漏修清单 → 修 mobile → tsc → aapt2 → 9 项版本号同步
+5. **修一处必 grep 另一端**: 跟 BUG-097/130/135/143/159/160 教训一致
 
 ---
 
-## § 6. 工具 (跟 N 任务配套)
+## § 5. 工具 (跟 N 任务配套)
 
 - **tools/bump-version.py**: 一键 bump 9 处版本号 + changelog entry + 备份撤回 (S74 N 任务)
-- **本文档** (tools/web_vs_mobile_GAP.md): 跨端 GAP 盘点 + 修复路线图 (S74 O 任务)
-- **scripts/verify-mobile-apk.sh**: APK 真机回归脚本 (S74 P 任务, 待做)
+- **本文档** (tools/web_vs_mobile_GAP.md): 跨端 GAP 盘点 + S75 候选清单 (S75 v1.0 方向修正版)
+- **scripts/verify-mobile-apk.sh**: APK 真机回归脚本 (S74 P 任务)
 
 ---
 
-**最后更新**: 2026-07-03 (S74 O 任务 v1.0, 盘点 web 27 page vs mobile 39 screen, 4 P0 GAP + 3 P1 GAP + 6 P2 平台差异)
-**下次 review**: 修完 S75 第一批后, 更新本文档
+**最后更新**: 2026-07-03 (S75 v1.0 方向修正, S74 v1.0 方向反了重做)
+**下次 review**: 任何 web 端新功能上线后, 必查 mobile 是否跟 (跨端铁律 4++)
