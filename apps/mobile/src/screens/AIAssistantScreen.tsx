@@ -30,7 +30,14 @@ const SUGGESTIONS = [
 export function AIAssistantScreen(): React.JSX.Element {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
-  const params = route.params as RouteParams;
+  // v3.0.85 (BUG-161): React Navigation v6 `route.params` 默认是 undefined (v5 以前是 {})
+  //   ProfileScreen 调 navigate('AIAssistant') 不传 params → params 是 undefined
+  //   修前 `route.params as RouteParams` 直接 cast, 然后 line 38 `params.contextTitle` 触发
+  //     undefined.contextTitle → TypeError → app crash 白屏
+  //   修法: (route.params ?? {}) 兜底空对象, 让 props.contextTitle 等字段全部走可选链
+  //   跨项目通用铁律 (跟 BUG-079 / BUG-134 同源): screen 入口必给 route.params 加 ?? {} 兜底
+  //     防止调用方遗漏 params 时崩溃 (调用方经常 to: 'RouteName' 不带 params, navigation v6 默认 undefined)
+  const params = (route.params ?? {}) as RouteParams;
   const scrollRef = useRef<ScrollView>(null);
 
   const [messages, setMessages] = useState<Message[]>([{

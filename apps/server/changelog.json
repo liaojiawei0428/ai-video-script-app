@@ -3,9 +3,22 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.84",
-  "latest_version_time": "2026-07-03",
+  "latest_version": "3.0.85",
+  "latest_version_time": "2026-07-04",
   "entries": [
+    {
+      "version": "3.0.85",
+      "buildDate": "2026-07-04",
+      "type": "patch",
+      "summary": "BUG-161 修 mobile 端 AIAssistantScreen 跳转崩 (v3.0.82 BUG-160 加 AI 助手菜单后引入的回归 BUG). 修法: AIAssistantScreen.tsx:33 `route.params as RouteParams` 加 `(route.params ?? {})` 兜底空对象, 防止 React Navigation v6 不传 params 时 `params.contextTitle` 触发 undefined.contextTitle → TypeError → app crash 白屏.",
+      "highlights": [
+        "BUG-161 ✅ 修前根因: React Navigation v6 `route.params` 默认是 undefined (v5 以前是 {} 空对象). ProfileScreen.tsx:227 `navigation.navigate(item.to as any)` 调用菜单项不传 params → `route.params` 是 undefined. AIAssistantScreen.tsx:33 cast undefined 成 RouteParams, 然后 line 38 `params.contextTitle` 触发 TypeError: Cannot read property 'contextTitle' of undefined → app crash 白屏. ScriptDetailScreen.tsx:224 调用传了 { novelId, contextTitle: novelTitle } 走正常路径 OK",
+        "BUG-161 ✅ 修法 1 (mobile AIAssistantScreen): line 33 `const params = (route.params ?? {}) as RouteParams` 兜底空对象, params.contextTitle 等可选字段全走可选链逻辑. 修后 ProfileScreen + ScriptDetailScreen 两路都正常. types/navigation.ts 0 改 (line 37 `AIAssistant: undefined` 合法不强约束传参)",
+        "BUG-161 ✅ E2E 验证: mobile tsc 53 baseline 1:1 一致 + 0 新错 + gradle assembleRelease 重打 APK + verify-mobile-apk.sh 12 维度全过 + 公网 APK HTTP/2 200",
+        "跨项目通用铁律 4 条新沉淀 (跟 BUG-079/134/140/143 100% 同源): ① React Navigation v6 起 `route.params` 默认是 undefined (v5 之前是 {}) — 升 RN6 后 screen 入口必加 (route.params ?? {}) 兜底 (跟 RN6 升级时必 grep 一样) ② 菜单路由 navigate(item.to as any) 不传 params 是常见模式 (跨项目必查), screen 入口必按 params 是 undefined 处理 ③ screen props 引用 .field 前必加 (params ?? {}) 兜底或可选链 ?., 防止调用方漏 params 时 crash ④ 类型签名 `Screen: undefined` 不强约束传参时, screen 端必防御性读 params",
+        "跨项目内 8 处版本号同步 v3.0.84 → v3.0.85: mobile version.ts (APP_VERSION='3.0.85') + build.gradle (versionCode 87 + versionName 3.0.85) + web version.ts (APP_VERSION='3.0.85' + APP_VERSION_CODE=87) + server package.json (version 3.0.85) + server src/index.ts (fallback '3.0.85') + server ecosystem.config.js (env + env_production 2 处都 3.0.84→3.0.85) + changelog.json latest_version (3.0.84→3.0.85) + 远端 shipin-APP/.env APP_VERSION + systemd unit Environment=APP_VERSION (deploy.sh 自动 sed 同步)"
+      ]
+    },
     {
       "version": "3.0.84",
       "buildDate": "2026-07-03",
