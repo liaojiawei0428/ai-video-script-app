@@ -3,9 +3,20 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.85",
-  "latest_version_time": "2026-07-04",
+  "latest_version": "3.0.86",
+  "latest_version_time": "2026-07-05",
   "entries": [
+    {
+      "version": "3.0.86",
+      "buildDate": "2026-07-05",
+      "type": "patch",
+      "summary": "BUG-162 cross-end defensive read route.params: 8 screens add (route.params ?? {}) guard",
+      "highlights": [
+        "BUG-162: screen entrance must add ?? {} guard for route.params",
+        "cross-project rule: RN v6 route.params is undefined by default",
+        "grep all screens using route.params for similar risk"
+      ]
+    },
     {
       "version": "3.0.85",
       "buildDate": "2026-07-04",

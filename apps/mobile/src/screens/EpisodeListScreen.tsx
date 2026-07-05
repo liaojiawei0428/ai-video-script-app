@@ -5,14 +5,18 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import { getEpisodes, generateEpisodes, getTaskProgress, generateShots, getNovelAnalysis } from '../api/client';
 import { useNovelStore } from '../store/useNovelStore';
 import { saveEpisodes } from '../db/sqlite';
-import type { NavigationProp, EpisodeListRouteProp } from '../types/navigation';
+import type { NavigationProp } from '../types/navigation';
 import { Episode, Scene, PlotPoint } from '@ai-script/shared-types';
 import { colors } from '../theme';
 
 export function EpisodeListScreen(): React.JSX.Element {
-  const route = useRoute<EpisodeListRouteProp>();
+  const route = useRoute<any>();
   const navigation = useNavigation<NavigationProp>();
-  const { novelId, novelTitle } = route.params;
+  // v3.0.86 (BUG-162 跨项目通用铁律): React Navigation v6 route.params 默认 undefined
+  //   修前直接解构, 调用方不传 params → undefined.novelId 崩
+  //   修法: (route.params ?? {}) 兜底空对象 (跟 BUG-161 AIAssistantScreen 同源修法)
+  //   (历史: EpisodeListScreen 是孤儿代码, navigation.ts 没注册 EpisodeListRouteProp, 用弱类型 any 兜底)
+  const { novelId = '', novelTitle = '' } = (route.params ?? {}) as { novelId?: string; novelTitle?: string };
   const { episodes, setEpisodes, addActiveTask, updateTaskProgress } = useNovelStore();
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);

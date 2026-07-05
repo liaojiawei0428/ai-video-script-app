@@ -33,7 +33,10 @@ type RouteParams = { novelId: string };
 export function CharacterListScreen(): React.JSX.Element {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
-  const { novelId } = route.params as RouteParams;
+  // v3.0.86 (BUG-162 跨项目通用铁律): React Navigation v6 route.params 默认 undefined
+  //   修前 `route.params as RouteParams` 直接 cast, 调用方不传 params → undefined.novelId 崩
+  //   修法: (route.params ?? {}) 兜底空对象 (跟 BUG-161 AIAssistantScreen 同源修法)
+  const { novelId } = (route.params ?? {}) as RouteParams;
 
   const [characters, setCharacters] = useState<Character[]>([]);
   const [stylePresets, setStylePresets] = useState<StylePreset[]>([]);

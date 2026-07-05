@@ -827,7 +827,7 @@ export function ChatScreen(): React.JSX.Element {
           {route.params?.novelId && (
             <TouchableOpacity
               style={styles.charactersBtn}
-              onPress={() => navigation.navigate('CharacterList', { novelId: route.params.novelId })}
+              onPress={() => navigation.navigate('CharacterList', { novelId: route.params!.novelId })}
               activeOpacity={0.7}
             >
               <Ionicons name="people" size={16} color={colors.primary} />

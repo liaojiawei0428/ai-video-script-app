@@ -14,7 +14,10 @@ import type { NavigationProp, ScriptDetailRouteProp } from '../types/navigation'
 export function ScriptDetailScreen(): React.JSX.Element {
   const route = useRoute<ScriptDetailRouteProp>();
   const navigation = useNavigation<NavigationProp>();
-  const { novelId, novelTitle } = route.params;
+  // v3.0.86 (BUG-162 跨项目通用铁律): React Navigation v6 route.params 默认 undefined
+  //   修前直接解构 `const { novelId, novelTitle } = route.params;` 调用方不传 params 崩
+  //   修法: (route.params ?? {}) 兜底空对象 (跟 BUG-161 AIAssistantScreen 同源修法)
+  const { novelId, novelTitle } = (route.params ?? {}) as ScriptDetailRouteProp['params'];
   const [loading, setLoading] = useState(true);
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [analysis, setAnalysis] = useState<any>(null);
