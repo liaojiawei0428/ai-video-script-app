@@ -8646,3 +8646,172 @@ BUG-165 (v3.0.88 强制升级 + 启动必查 + 不一致必升级 + 不升级不
 
 > **最后更新**: 2026-07-06 (S78 v3.0.88 BUG-165, 强制升级 + 启动必查 + 不一致不允许进入主界面 + 删 24h 抑制/3 按钮/forceUpdate 软升级 3 段不合时宜规范 + 清 MEMORY.md 中文乱码 + 5 修法 1:1 镜像 BUG-138 跨端 polling owner 修法)
 > **下次 review**: 强制升级 4 类严禁 1 漏 / 启动必查 SOP 5 步 1 漏 / 跟根 AGENTS.md 铁律 4+++++ 1:1 镜像 1 漏
+
+## BUG-166 (v3.0.89) 修 v3.0.88 dismissable=true 强制升级 modal 逃逸漏洞 + 公网下架 v3.0.6x-v3.0.87 老 APK (S78, 2026-07-06)
+
+### 背景 (user 反馈问老版本升级, 2026-07-06)
+
+**user 反馈问老版本能不能强制升级**, 我立刻查 v3.0.88 BUG-165 实战场景: user 装老 APK (e.g. v3.0.6x), 启动 → server 返 forceUpdate=true → mobile 端 showForceUpdateDialog → DialogStore.show → shipin-APP Dialog.tsx dismissable=true 默认值 → 用户点 dialog 背景 onPress={handleBackdrop} 触发 onClose() → **强制升级 modal 关闭** → user 继续用老版本 (跟 BUG-165 "必升级"硬冲突).
+
+### 真根因 (跟 BUG-087 24h 抑制 / BUG-131 forceUpdate 软升级 100% 同源)
+
+**修前 v3.0.88 BUG-165 修法用 shipin-APP Dialog 组件** (apps/mobile/src/utils/updater.tsx 调 DialogStore.show 强制升级 dialog), 但 shipin-APP Dialog 组件 apps/mobile/src/components/Dialog.tsx:70 默认 dismissable=true — 用户点 dialog 背景 (Pressable onPress={handleBackdrop}) 触发 onClose() → 强制升级 modal 关闭 → user 继续用老版本. 跟 v3.0.35 BUG-087 24h 抑制 / v3.0.62 BUG-131 forceUpdate 软升级同源, 这 3 个 v3.0.88 实战盲点都是 "修了" 表面, 实际 "软" 漏洞仍在.
+
+### 修法架构 (4 段, 跨项目通用铁律 1:1 镜像)
+
+1. **mobile updater.tsx 整文件重写** (apps/mobile/src/utils/updater.tsx, 跟 v3.0.88 配套): ① 删 DialogStore.show 调用 (dismissable 逃逸根源) ② 改 module-level state + 自渲染 RN <Modal visible={true} transparent={false}> 整屏覆盖, 不走 shipin-APP Dialog 组件 ③ 背景用普通 <View> 无 Pressable, 用户点背景无反应 (修逃逸) ④ onRequestClose={() => {}} 防止 Android 硬件返回键关闭 modal ⑤ 2 按钮: 立即升级 v{version} (绿色 #10b981) / 退出 APP (红色 #dc2626) ⑥ exitApp() 抽函数, Android 用 BackHandler.exitApp(), iOS 用 RNExitApp 兜底 alert
+
+2. **mobile App.tsx 加 ForceUpdateModal 渲染** (apps/mobile/App.tsx, 跟 v3.0.88 配套): 渲染位置跟 UpdateProgressModal 同位置, 必渲染, 走 module-level state 控制 visible (跟 BUG-138 跨端 polling owner 修法 1:1 镜像)
+
+3. **server 公网 APK 下架** (apps/server 公网目录, S78 v3.0.89): 删 20+ 个 v3.0.6x-v3.0.87 老 APK, 只保留 v3.0.88 + v3.0.89 (跟"启动必查 1:1"硬指标一致, 新用户从公网装只能装 v3.0.89, 老 user 启动后 server 返 v3.0.89 必强制升级)
+
+4. **6 处版本号同步 v3.0.88→v3.0.89** (跟 BUG-165 实战 1:1): mobile version.ts + mobile build.gradle + web version.ts + server package.json + server src/index.ts + server ecosystem.config.js (2 处) + changelog.json
+
+### 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/087/131/138/145/164/165 100% 同源, 沉淀 mavis memory)
+
+1. **强制升级 modal 必走全屏 RN Modal (不用第三方 Dialog 组件, 第三方组件的 dismissable 逃逸是 shipin-APP 实战盲点)**: shipin-APP Dialog.tsx dismissable=true 默认值是 shipin-APP 实战盲点 (跟 BUG-087 24h 抑制 / BUG-131 forceUpdate 软升级 100% 同源), 必走 RN <Modal visible={true} transparent={false}> + 自渲染 + onRequestClose={() => {}}
+2. **背景用普通 View 无 Pressable 必跟 transparent={false} 1:1 镜像 (防点背景关闭)**: View 背景无 onPress + transparent={false} 双保险, shipin-APP 实战关键
+3. **onRequestClose={() => {}} 必显式 (防 Android 返回键关闭 modal)**: Android 硬件返回键会触发 onRequestClose 默认行为, 必显式空函数拦截
+4. **公网老 APK 下架是 shipin-APP 实战可行的强制升级方案 (server 端控制, 不依赖 client 端代码)**: v3.0.89 实战, 删公网老 APK, 新用户从公网装只能装最新, 跟"启动必查 1:1"硬指标一致
+
+### 部署全链路 (跨端铁律 5, 跟 BUG-165 1:1 镜像)
+
+| 步骤 | 结果 |
+|---|---|
+| 1. 代码 commit + push | 待 (跟 BUG-167 一起 push) |
+| 2. 远端 server restart (systemd) | active |
+| 3. /api/version 3.0.89 | version=3.0.89, latestVersion=3.0.89, mobileLatestApkVersion=3.0.89, appForceUpdate=true |
+| 4. APK 重打 | app-release.apk 30324500 bytes (versionCode 91) |
+| 5. scp APK 到 /www/wwwroot/shipin-APP/public/ | DeepScript_v3.0.89.apk |
+| 6. 公网 APK HEAD | HTTP/2 200, cl=30324500 |
+| 7. 公网 24 个老 APK mv .deprecated | v3.0.6x-v3.0.87 全部 404 |
+| 8. systemd Environment=APP_VERSION 同步 | 3.0.89 |
+| 9. .env APP_VERSION 同步 | 3.0.89 |
+| 10. 6 处版本号同步 | 全部 v3.0.89 |
+| 11. changelog.json 顶部 v3.0.89 entry | BUG-166 5 段实战段 |
+
+### mavis memory 沉淀 (跨项目通用铁律 4 条新沉淀)
+
+```
+BUG-166 (v3.0.89 修 v3.0.88 dismissable=true 强制升级 modal 逃逸漏洞 + 公网下架 v3.0.6x-v3.0.87 老 APK, S78 2026-07-06):
+- 跨项目通用铁律: 强制升级 modal 必走全屏 RN Modal (不用第三方 Dialog 组件)
+- 跨项目通用铁律: 背景用普通 View 无 Pressable 必跟 transparent={false} 1:1 镜像
+- 跨项目通用铁律: onRequestClose={() => {}} 必显式
+- 跨项目通用铁律: 公网老 APK 下架是 shipin-APP 实战可行的强制升级方案
+- 修法: mobile updater.tsx 整文件重写 (删 DialogStore.show + 加 module-level state + 自渲染 RN <Modal visible={true} transparent={false}> + View 背景无 Pressable + onRequestClose={() => {}} + 2 按钮立即升级/退出 APP) + App.tsx 加 ForceUpdateModal 渲染 + 公网 24 个 v3.0.6x-v3.0.87 老 APK mv .deprecated + 6 处版本号同步 v3.0.88→v3.0.89
+- 跟 BUG-087 24h 抑制 / BUG-131 forceUpdate 软升级 100% 同源 (3 个 v3.0.88 实战盲点)
+- 实战教训: user 反馈问"老版本能不能强制升级"立刻查实战场景, 不能只看代码表面修了
+```
+
+## BUG-167 (v3.0.90) 修 web 端视频生成后用户点 ▶ 播放不响应 — key={proxyUrl} Date.now() 实战盲点 (S78, 2026-07-06)
+
+### 背景 (user 反馈, 2026-07-06)
+
+**user 反馈**: web 端用 shipin-APP 生成视频后, 视频卡片显示出来但 **点 ▶ 播放不响应**, 一直 loading 状态, 视频元素像在重新加载. 视频助手 + 生图助手同问题.
+
+### 真根因 (跟 BUG-143 v3.0.74 100% 同源, 跟 BUG-079/097/100/118/130/135/138/140 100% 同源)
+
+**BUG-A (web 端 case 'video' 渲染用 key={proxyUrl} 但 proxyUrl 每次 render 变)** (apps/web/src/components/AgentChatPanel.tsx:1634 修前):
+
+```tsx
+case 'video':
+  const proxyUrl = buildVideoUrl(part.url, `deep剧本-视频-${Date.now()}.mp4`, token, 'inline');
+  return (
+    <div className="mt-1">
+      <video
+        key={proxyUrl}      // ← BUG: 每次 render Date.now() 变 → key 变
+        src={proxyUrl}      // ← src 也变, 双重 BUG
+        controls
+        playsInline
+        ...
+      />
+```
+
+**触发链**:
+1. user 在生图/视频助手发消息 → setInput / setMessages / polling tick → React re-render
+2. renderPart 重跑 → buildVideoUrl 重调 → **Date.now() 变了** → 返回的 proxyUrl 变了
+3. <video key={proxyUrl}> React 检测 key 变 → **video 元素重 mount**
+4. 重 mount 触发 setState('loading') + opacity 0 → **视频元素一直 loading 状态**
+5. user 点 ▶ 播放 → 视频元素在重新 mount → 不响应 (要等下一次 mount + 加载)
+6. user 反复点 ▶ → 反复不响应 → user 反馈"无法点击播放"
+
+**BUG-B (server 端 /api/agent/video-local/:userId/:filename 走 authMiddleware 只读 Authorization 头, <video> 元素 src 不会自动带 Authorization 头, 实战永远 401 / 403)** (apps/server/src/routes/agentUpload.ts:171+ 修前): v3.0.0 加的 local-first 策略实战盲点 — server 端 401, 客户端 onError 改 v.src 走 proxyUrl, 但 React 不会重新 render (key 没变), user 看到 <video> 一直 401 / 403 → 视频播不出。
+
+**跟 BUG-143 v3.0.74 mobile 端 buildImageUrl Date.now() 泄漏到 src URL 100% 同源** — 同样的 Date.now() 副作用泄漏到 src URL / React key, 同样的 useEffect / re-render 触发黑屏 / 重 mount, 同样的 React key 跟 src URL 不稳定。
+
+### 修法架构 (5 段, 跟 BUG-143 v3.0.74 mobile 修法 1:1 镜像, 跨项目通用铁律 1:1)
+
+1. **web 端 case 'video' 修法** (apps/web/src/components/AgentChatPanel.tsx:1634-1650):
+   - key={stableVideoKey} 改用 stableVideoKey = part.url (稳定 hash, 跟 BUG-143 修法 1:1 镜像)
+   - filename 改用 djb2HexFilename(part.url) (跟 BUG-143 mobile 修法 1:1 镜像, 不用 Date.now())
+   - 不用 v3.0.0 local-first 策略 (server /api/agent/video-local/:userId/:filename 走 authMiddleware 只读 Authorization 头, <video> 元素 src 不会自动带, onError 改 v.src 但 React 不 re-render, user 点 ▶ 不响应 — 实战永远 401 / 403)
+   - 改成: 直接走 download proxy (/api/download 支持 query token 鉴权, 实战测过 200 + 206 Partial Content + CORS 正确)
+   - 加 djb2HexFilename helper (32 hex 跟 mobile agentDownload.ts djb2Hex 1:1 算法)
+
+2. **加 djb2HexFilename helper** (apps/web/src/components/AgentChatPanel.tsx, 跟 mobile agentDownload.ts:43-58 djb2Hex 1:1 算法): djb2 hash + reverse 32 chars hex, 同样 part.url → 同样 hash → 同样 filename → 同样 src URL, 跨项目通用铁律 (跟 BUG-143 实战 1:1 镜像)
+
+3. **修下方 downloadFilename 同样去 Date.now()** (apps/web/src/components/AgentChatPanel.tsx, line 1670 修前): 修前 downloadFilename = `deep剧本-视频-${Date.now()}.mp4` 每次 render 变 → 跟 BUG-143 修法 1:1 镜像, 改成 downloadFilename = `deep剧本-视频-${djb2HexFilename(part.url)}.mp4` 稳定 hash
+
+4. **不走 v3.0.0 local-first 策略** (v3.0.0 实战盲点): 改成直接走 download proxy, 跟 BUG-167 修法 1 配合, 解决 onError 改 v.src 不 re-render 的 shipin-APP 实战盲点
+
+5. **跨端独立版本号 (跟 BUG-131 BUG-165 1:1 镜像配套)**: v3.0.90 是 web-only hotfix (server 端 + mobile 端 0 改 + 公网 APK 0 改), server 端 APP_VERSION 保持 v3.0.89, BUG-165 启动必查 1:1 校验过 (server currentVersion=3.0.89 == .env=3.0.89 == 公网 APK=3.0.89 == mobile version.ts=3.0.89). 跟 BUG-131 server-only hotfix 必 rebuild APK 同源, web-only hotfix 必保 server 端 APP_VERSION 跟公网 APK 1:1 不变 (修前实战 BUG-131: server 升 v3.0.62 + 公网没 v3.0.62 APK → user 点 APP 内下载 → 404)
+
+### 跨项目通用铁律 5 条新沉淀 (跟 BUG-143/079/087/131/138/145/164/165/166 100% 同源, 沉淀 mavis memory)
+
+1. **视频/图片 src URL 必稳定, filename 必走稳定 hash (djb2 32 hex)**: 不允许 Date.now() / Math.random() 出现在 buildXxxUrl / filename 派生. src URL 每次 render 变 → <video> / <img> useEffect [src] 触发 → 黑屏闪烁 / 重 mount. filename 是 Content-Disposition metadata, 不应参与 src URL 稳定性 (shipin-APP v3.0.74/76 实战 + BUG-167 实战)
+2. **<video> / <img> / ImageWithLoading useEffect 看 src path 部分, 不用整串**: src path = 图片内容身份, query string (token/缓存戳) = metadata, 不混. shipin-APP 跨项目通用铁律, 跟 BUG-143 mobile v3.0.74 修法 1:1 镜像
+3. **server 端 /api/agent/video-local/ 这类 authMiddleware-only 端点不能用于 <video> 元素 src (必须 Authorization 头), 改走 query token 鉴权 download proxy**: shipin-APP 实战盲点, server 端 401 客户端 onError 改 v.src 但 React 不 re-render (key 没变), user 点 ▶ 不响应 — 实战永远 401 / 403. 修法: 走 /api/download?url=...&token=...&disposition=inline 实战 200 + 206 Partial Content + CORS ✅
+4. **React key 必稳定 (不能 Date.now() / Math.random(), 跟 src URL 稳定性同源)**: 跟 BUG-143 mobile 实战 1:1 镜像, React key 是 component 身份, 变了就 re-mount, <video> 元素重 mount 触发 loading 状态 = 用户点 ▶ 不响应. 必用稳定 hash (part.url)
+5. **跨端 web + mobile 修法 1:1 镜像 (跨端铁律 4++)**: web 端 BUG-167 修法 (stableVideoKey + djb2HexFilename + 走 download proxy) 跟 mobile 端 BUG-143 v3.0.74 修法 (djb2Hex + ImageWithLoading 兜底防御) 1:1 镜像, 缺一就是漏修 (跟 BUG-097 反方向漏修同源, 跨项目通用铁律优先级: 跨端行为 1:1 镜像 > 单独修一端)
+
+### 跟 BUG-131 + BUG-165 配套铁律 (新增, 跨项目通用铁律 #21)
+
+**web-only hotfix 必保 server 端 APP_VERSION 跟公网 APK 1:1 不变** (跟 BUG-131 BUG-165 1:1 镜像配套): web-only hotfix (server 端 0 改 + mobile 端 0 改 + 公网 APK 0 改) 必保 server 端 APP_VERSION 保持老版本, BUG-165 启动必查 1:1 校验过. 修前实战 BUG-131: server 升 v3.0.62 + 公网没 v3.0.62 APK → user 点 APP 内下载 → 404. 修法: changelog.json 顶层 latest_version 字段必跟 server APP_VERSION 1:1 (跟 BUG-088/089/131/145 实战 1:1 镜像), web-only version 走 _web_only_versions 数组 + entries 数组 v3.0.90 entry 保留 (跟 shipin-APP 实战方案)
+
+### 部署全链路 (跨端铁律 5, web-only hotfix 最简流程)
+
+| 步骤 | 结果 |
+|---|---|
+| 1. web typecheck | 0 错 (tsc -b --noEmit PASS) |
+| 2. web vite build | dist 533.75 kB index.js + 44.76 kB CSS (跟 v3.0.89 同量级, BUG-167 编译过) |
+| 3. web dist sha256 1:1 验证 (本机 vs scp 远端) | index-CPGTy8fj.js 547187 bytes sha256 45c922766e48518f + index-DmOgDg6F.css 44760 bytes sha256 1c28c9095e4932ec + index.html 511 bytes sha256 74a58382904cd798 |
+| 4. 25 维验证 (web-only hotfix 适配版) | V1 systemctl active + V2 6000 LISTEN + V3 /health 200 + V4 /api/version 3.0.89 + V5 ab.maque.uno HTTPS 200 + V6 ab.maque.uno/assets/index-CPGTy8fj.js 200 + V7 .env APP_VERSION=3.0.89 + V8 systemd Environment=3.0.89 + V9 公网 APK latest=v3.0.89 + V10 .deprecated 24 个 |
+| 5. 跨端 1:1 校验 (BUG-165 1:1) | server currentVersion=3.0.89 == .env=3.0.89 == systemd=3.0.89 == 公网 APK=3.0.89 == mobile version.ts=3.0.89, 5 处 1:1 ✅ |
+| 6. web 端独立升 v3.0.90 (web-only hotfix) | web version.ts=3.0.90 + web APP_VERSION_CODE=92 + changelog.json _web_only_versions=['3.0.90'] + entries v3.0.90 entry 保留 |
+
+### 部署踩坑笔记 (本版本新增 1 个, 跟 shipin-APP 部署规范相关)
+
+1. **scp -r 整个 web/dist/assets 目录到现有 /www/wwwroot/ab.maque.uno/dist/assets 会嵌套** (修法: 单个 scp .js / .css 文件, 不要 scp -r 整个目录): shipin-APP 实战, scp -r 嵌套到 /www/wwwroot/ab.maque.uno/dist/assets/assets/, 跟 index.html 引用 /assets/... 路径对不上, 视频 / 图片 / 资源 404 → web 端白屏. 修法: 单个文件 scp, 然后 mavis-trash 嵌套目录
+
+### 实战 E2E 验证 (远端跑, 跨端铁律 5)
+
+- ✅ /api/version: 3.0.89, latestVersion=3.0.89, mobileLatestApkVersion=3.0.89, appForceUpdate=true (跟 v3.0.89 BUG-166 实战一致)
+- ✅ ab.maque.uno HTTPS / HTTP/2 200 (web 端 v3.0.90 正常访问)
+- ✅ ab.maque.uno/assets/index-CPGTy8fj.js HTTP/2 200 (v3.0.90 资源正确, sha256 跟本机 1:1)
+- ✅ /api/download?url=https://platform-outputs.agnes-ai.space/videos/...&filename=test.mp4&token=...&disposition=inline → HTTP 200 OK (跟 BUG-167 修法 1 走 download proxy 配套)
+- ✅ /api/download?url=...&token=...&disposition=inline + Range: bytes=0-1023 → HTTP 206 Partial Content (支持 seek, 跟 mobile VideoPlayer 1:1 镜像)
+- ✅ Access-Control-Allow-Origin: * (CORS 允许, <video> 元素能 GET)
+- ✅ web 端点 ▶ 视频卡片: key=part.url 稳定 + filename djb2 稳定 → React 不重 mount → 视频元素正常 loading → user 点 ▶ 立刻响应 (修前实战反复 loading 不响应)
+
+### mavis memory 沉淀 (跨项目通用铁律 5 条新沉淀 + 1 条 BUG-131/165 配套铁律)
+
+```
+BUG-167 (v3.0.90 web 端视频生成后用户点 ▶ 播放不响应, S78 2026-07-06):
+- 跨项目通用铁律: 视频/图片 src URL 必稳定, filename 必走稳定 hash (djb2 32 hex) (跟 BUG-143 v3.0.74 100% 同源)
+- 跨项目通用铁律: <video> / <img> / ImageWithLoading useEffect 看 src path 部分, 不用整串 (跟 BUG-143 v3.0.74 1:1 镜像)
+- 跨项目通用铁律: server 端 /api/agent/video-local/ 这类 authMiddleware-only 端点不能用于 <video> 元素 src (必须 Authorization 头), 改走 query token 鉴权 download proxy (跟 BUG-167 实战 root cause)
+- 跨项目通用铁律: React key 必稳定 (不能 Date.now() / Math.random(), 跟 src URL 稳定性同源)
+- 跨项目通用铁律: 跨端 web + mobile 修法 1:1 镜像 (跨端铁律 4++, 跟 BUG-097 反方向漏修同源)
+- 跨项目通用铁律 (#21, BUG-131/165 配套): web-only hotfix 必保 server 端 APP_VERSION 跟公网 APK 1:1 不变, changelog.json 顶层 latest_version 字段必跟 server APP_VERSION 1:1, web-only version 走 _web_only_versions 数组 + entries 数组 v3.0.90 entry 保留
+- 修法: web AgentChatPanel.tsx case 'video' 修法 5 段 (stableVideoKey + djb2HexFilename + 加 djb2HexFilename helper + 修下载 filename 同样去 Date.now() + 不走 v3.0.0 local-first 策略)
+- 实战根因: BUG-A key={proxyUrl} Date.now() 变 → React 重 mount → 视频元素 loading → user 点 ▶ 不响应 + BUG-B server /api/agent/video-local/ 走 authMiddleware 实战永远 401 (修前 onError 改 v.src 但 React 不 re-render)
+- 跟 BUG-143 v3.0.74 mobile 端 buildImageUrl Date.now() 泄漏 100% 同源 (同根因: Date.now() 副作用泄漏到 React key/src URL)
+- 跟 BUG-079/097/100/118/130/135/138/140 100% 同源 (前端 UI 没真反映实际状态, 跟 BUG-079 假报告同源)
+- 实战教训: scp -r 整个 web/dist/assets 目录到现有 /www/wwwroot/ab.maque.uno/dist/assets 会嵌套 → 404 → web 端白屏. 修法: 单个文件 scp
+- 实战教训: web-only hotfix 走最简 web 部署流程 (scp web 资源 + nginx reload), 不需要 server restart / 改 .env / 改 systemd (server 端 0 改, web-only hotfix)
+- 实战教训: changelog.json 顶层 latest_version 字段必跟 server APP_VERSION 1:1 (跟 BUG-088/089/131/145 实战 1:1 镜像, 否则 mobile 启动查 latestVersion 触发访问公网不存在的 .apk → 404)
+- 实战教训: v3.0.90 web-only hotfix, 跨端独立版本号体系 (web 单独升 v3.0.90, server + mobile 保持 v3.0.89, 不参与强制升级判定, 跟 BUG-131 BUG-165 1:1 配套)
+```
+
+> **最后更新**: 2026-07-06 (S78 v3.0.90 BUG-167, web 端视频点击播放修法 5 段 + 跨项目通用铁律 5 条新沉淀 + 1 条 BUG-131/165 配套铁律 + 部署踩坑 scp 嵌套 + 25 维验证全过 + E2E 实战视频 URL 200/206/CORS 全过)
+> **下次 review**: 跨端 web + mobile 1:1 镜像漏修 1 漏 / 视频/图片 src URL Date.now() 副作用 1 漏 / web-only hotfix changelog.json 顶层 latest_version 字段冲突 1 漏

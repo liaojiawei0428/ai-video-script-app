@@ -3,9 +3,38 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.88",
+  "latest_version": "3.0.89",
   "latest_version_time": "2026-07-06",
+  "_web_only_versions": ["3.0.90"],
+  "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.90",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "BUG-167 web-only hotfix 修视频生成后用户点 ▶ 播放不响应实战盲点 (修 key={proxyUrl} Date.now() 变 → video 元素重 mount → loading 一直 + 跟 BUG-143 v3.0.74 100% 同源, 走 djb2 32 hex stable filename + key=part.url 稳定 React key)",
+      "highlights": [
+        "BUG-167 ✅ 修前实战盲点: web 端 apps/web/src/components/AgentChatPanel.tsx case 'video' 渲染 `<video key={proxyUrl} src={proxyUrl} ...>`, proxyUrl = buildVideoUrl(part.url, `deep剧本-视频-${Date.now()}.mp4`, token, 'inline'), 每次 React re-render (polling tick / message list update / 切 tab 等) → Date.now() 变 → proxyUrl 变 → React key 变 → video 元素重 mount → 用户看到 video 一直在重新加载 (loading 状态) → 点 ▶ 播放 不响应 (要等下一次 mount + 加载) ❌。 跟 BUG-143 v3.0.74 buildImageUrl Date.now() 泄漏 100% 同源",
+        "BUG-167 ✅ 修法 web 端 (apps/web/src/components/AgentChatPanel.tsx): ① key={stableVideoKey} 改用 stableVideoKey = part.url (稳定 hash, 跟 BUG-143 修法 1:1 镜像) ② filename 改用 djb2HexFilename(part.url) (跟 BUG-143 mobile 修法 1:1 镜像, 不用 Date.now()) ③ 不用 v3.0.0.1 local-first 策略 (server /api/agent/video-local/:userId/:filename 走 authMiddleware 只读 Authorization 头, <video> 元素 src 不会自动带 Authorization 头, onError 改 v.src 但 React 不 re-render (key 没变), 用户点 ▶ 不响应 — 实战永远 401 / 403) ④ 改成: 直接走 download proxy (/api/download 支持 query token 鉴权, 实战测过 200 + 206 Partial Content + CORS 正确) ⑤ 加 djb2HexFilename helper (32 hex 跟 mobile agentDownload.ts 1:1 算法)",
+        "BUG-167 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-143/079/087/131/138/145/164/165/166 100% 同源): ① 视频/图片 src URL 必稳定, filename 必走稳定 hash (djb2 32 hex) ② <video> / ImageWithLoading useEffect 看 src path 部分, 不用整串 ③ server 端 /api/agent/video-local/ 这类 authMiddleware-only 端点不能用于 <video> 元素 src (必须 Authorization 头), 改走 query token 鉴权 download proxy ④ React key 必稳定 (不能 Date.now() / Math.random(), 跟 src URL 稳定性同源) ⑤ 跨端 web + mobile 修法 1:1 镜像 (跨端铁律 4++)",
+        "BUG-167 ✅ 跨端独立版本号 (跟 BUG-131 同源, 跟 BUG-165 1:1 校验配合): v3.0.90 是 web-only hotfix (server 0 改 + mobile 0 改 + 公网 APK 0 改), server 端 + mobile 端保持 v3.0.89, BUG-165 启动必查 1:1 校验过 (server 端 APP_VERSION=3.0.89 == 公网 APK v3.0.89, 跟 BUG-131 教训一致: server 端 /api/version 返 v3.0.90 + 公网没 v3.0.90 APK → mobile 启动失败, web-only hotfix 必保 server 端 APP_VERSION 跟公网 APK 1:1 不变)"
+      ]
+    },
+    {
+    {
+      "version": "3.0.89",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "BUG-166 修 v3.0.88 dismissable=true 强制升级 modal 逃逸漏洞 (全屏 RN Modal 替代 DialogStore) + 公网下架 v3.0.6x-3.0.87 老 APK (新用户只能装 v3.0.89, 老 user 走强制升级路径)",
+      "highlights": [
+        "BUG-166 ✅ 修前实战盲点: v3.0.88 BUG-165 修法用 showForceUpdateDialog 走 DialogStore.show → shipin-APP Dialog.tsx dismissable=true 默认值 → 用户点 dialog 背景 onPress={handleBackdrop} 触发 onClose() → 强制升级 modal 关闭 → 用户能继续用老版本 ❌。 user 反馈问老版本能不能强制升级后查实, 修 v3.0.88 也有这漏洞, 必须 v3.0.89 紧急修",
+        "BUG-166 ✅ 修法 mobile 端 (apps/mobile/src/utils/updater.tsx 整文件重写 + 加 ForceUpdateModal 组件): ① 删 DialogStore.show 调用 (dismissable 逃逸根源) ② 改 module-level state + 自渲染 RN <Modal visible={true} transparent={false}> 整屏覆盖, 不用 shipin-APP Dialog 组件 ③ 背景用普通 <View> 无 Pressable, 用户点背景无反应 (修逃逸) ④ onRequestClose={() => {}} 防止 Android 硬件返回键关闭 modal ⑤ 2 按钮: 立即升级 v{version} (绿色 #10b981) / 退出 APP (红色 #dc2626) ⑥ exitApp() 抽函数, Android 用 BackHandler.exitApp(), iOS 用 RNExitApp 兜底 alert ⑦ 强制 modal 跟 App.tsx startup gate 1:1 集成 (跟 BUG-138 跨端 polling owner 修法 1:1 镜像)",
+        "BUG-166 ✅ 修法 mobile 端 (apps/mobile/App.tsx): 加 ForceUpdateModal 渲染 (跟 UpdateProgressModal 同位置, 必渲染, 走 module-level state 控制 visible)",
+        "BUG-166 ✅ 修法 server 端 (公网 APK 下架): 公网 /www/wwwroot/shipin-APP/public/ 删 v3.0.6x-v3.0.87 老 APK (20+ 个老版本), 只保留 v3.0.88 + v3.0.89 (跟'启动必查 1:1'硬指标一致, 新用户从公网装只能装 v3.0.89, 老 user 启动必升级)。 user 已经装的老 APK 在本地仍在, 但启动后 server 返 v3.0.89 必强制升级",
+        "BUG-166 ✅ 跨项目通用铁律 4 条新沉淀 (跟 BUG-079/087/131/138/145/164/165 100% 同源): ① 强制升级 modal 必走全屏 RN Modal (不用第三方 Dialog 组件, 第三方组件的 dismissable 逃逸是 shipin-APP 实战盲点) ② 背景用普通 View 无 Pressable 必跟 transparent={false} 1:1 镜像 (防点背景关闭) ③ onRequestClose={() => {}} 必显式 (防 Android 返回键关闭) ④ 公网老 APK 下架是 shipin-APP 实战可行的强制升级方案 (server 端控制, 不依赖 client 端代码)",
+        "跨项目通用铁律 4 条新沉淀 (跟 BUG-165 100% 同源, 升级版): ① 启动必查版本号 (跟'必查'硬指标一致) ② 不一致必升级, 不允许跳过 (商业 APP 硬指标) ③ 24h 抑制 + 软升级跟'强制升级'硬冲突, 必删 (v3.0.88 已删) ④ server 端 .env APP_VERSION 必跟公网 APK 1:1 验证 (deploy 完必查)"
+      ]
+    },
     {
       "version": "3.0.88",
       "buildDate": "2026-07-06",

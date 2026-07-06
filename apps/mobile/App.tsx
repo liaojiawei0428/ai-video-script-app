@@ -151,6 +151,9 @@ import { colors, spacing } from './src/theme';
 // v3.0.88 (BUG-165): checkForUpdate 加重试 (1s/2s/4s) + showForceUpdateDialog 强制 modal
 //   旧 showUpdateDialog 仍 export 作为 alias (兼容外部引用), 但内部已转 showForceUpdateDialog
 import { UpdateProgressModal } from './src/utils/updater';
+// v3.0.89 (S78 BUG-166): 强制升级全屏 modal (修 v3.0.88 dismissable=true 逃逸)
+//   跟 UpdateProgressModal 同位置渲染, 但走全屏 RN Modal 不是 shipin-APP Dialog
+import { ForceUpdateModal } from './src/utils/updater';
 import type { TabParamList, RootStackParamList } from './src/types/navigation';
 
 // v2.0 向量图标映射 (v3.0.0: 加生图 + 视频)
@@ -359,6 +362,8 @@ function App(): React.JSX.Element {
         </NavigationContainer>
         {/* v3.0.5 (S58 P6 BUG-010): 在线升级进度条 Modal — 替换 S58 P4 的 Alert 弹窗 */}
         <UpdateProgressModal />
+        {/* v3.0.89 (BUG-166): 强制升级全屏 modal — 必渲染, 走 module-level state 控制 visible */}
+        <ForceUpdateModal />
         {/* v3.0.24 (S60 P1): 全局 Dialog + Toast 组件 - 替代 React Native Modal + Alert.alert */}
         <DialogHost />
         <ToastHost />
