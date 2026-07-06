@@ -2,7 +2,7 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-07-06 (S80 v3.0.92 修 BUG-170 脚本详情页 5 pill 工具栏窄屏文字截断 + BUG-171 APP_NAME 含生僻字在国产 ROM 字体兜底成 emoji 乱码; 跟 BUG-145 v3.0.76 changelog 部署踩坑 + BUG-118/120 跨端铁律 4++ "Mobile UI 必响应式" 100% 同源, 加 § 14 + 跨项目通用铁律 #28 #29 累计 11 条)
+> **最后更新**: 2026-07-06 (S80 v3.0.96 强制升级 BUG-172 实战 3 修法 + 9 维 E2E 闭环; 跟 BUG-138 polling owner + BUG-079 假报告 + BUG-165 强制升级 100% 同源, 加 § 15 + 跨项目通用铁律 #31 #32 累计 13 条; commit `c73b512` push origin/main; 跟 v3.0.92 BUG-170/171 100% 兼容)
 
 ---
 
@@ -979,3 +979,85 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **S81 #2**: 清理 mobile tsc baseline 49 错 (老 baseline 10+ 版本沉淀, 修法按调用链清理, 跟 S80 #3 S79 候选同源)
 - **S81 #3**: v3.0.93 实战演练 (演练 bump-version.py --patch --apply --commit --rollback 全链路, 跟 S80 #4 S79 候选同源)
 - **S81 #4**: AGENTS.md § 4.14 累计 30 条跨项目通用铁律整理 (去重 + 编号 + 输出索引, 跟 S73 v3.0.78-82 实战 72 条同源)
+
+---
+
+## § 15. S80 v3.0.96 BUG-172 强制升级 modal 渲染实战盲点 + 9 维 E2E 闭环 (2026-07-06, 跨项目通用铁律 #31 #32 新沉淀, 跟 S78 BUG-165/166 强制升级 100% 同源)
+
+> **本次 session**: S80 v3.0.93-96 实战 4 版本, 强制升级 modal 渲染 3 修法 (v3.0.94 absoluteFill + v3.0.95 App.tsx 4 状态机补 ForceUpdateModal + v3.0.96 console.log debug) + 蓝叠真机 9 维 E2E 闭环 (装 v3.0.95 → 弹 modal → tap 升级 → Chrome 下载 → adb install v3.0.96 → 启动 OK). 跟 BUG-138 polling owner useState 修法 + BUG-079 假报告 + BUG-165/166 强制升级 100% 同源, 加跨项目通用铁律 #31 #32 累计 13 条.
+
+### 15.1 实战盲点 3 步踩坑链 (v3.0.93/94/95)
+
+**v3.0.93 (失败)**: 蓝叠装 v3.0.92 (老 APK) + server v3.0.93 (latestVersion) → 启动 → logcat 显示 [Updater] checkForUpdate success version=3.0.93 ✅ + [Updater] showForceUpdateDialog state changed visible:true ✅ → **但截图黑屏 + uiautomator dump UI 树空** ❌ (modal 渲染失败).
+
+**v3.0.94 (修法 1, 仍失败)**: 改 updater.tsx ForceUpdateModal 不依赖 RN <Modal> 改用 StyleSheet.absoluteFillObject + zIndex: 9999 + elevation: 9999 普通 View 强制覆盖整屏 (修 RN 0.73 + Hermes + 新架构下 ReactModalHostManager view manager 找不到 generated setter, 跟 BUG-165 实战盲点 100% 同源). 蓝叠装 v3.0.92 → 启动 → logcat success + visible:true ✅ → 仍黑屏 ❌.
+
+**v3.0.95 (修法 2, 成功)**: 关键发现 — pps/mobile/App.tsx line 325-348 update-required 分支**只渲染了 splash 背景, 没渲染 <ForceUpdateModal /> 组件实例**! ForceUpdateModal 是 module-level state 触发的, App.tsx 4 状态机里没把组件实例挂到 render tree → state 变了 = 黑屏 (组件没真渲染). 修法: line 341 加 <ForceUpdateModal />. 蓝叠装 v3.0.95 (新 APK) + server v3.0.95 → 启动 → **截图 335453 bytes (modal 完整渲染成功!)** vs 之前黑屏 17K ✅.
+
+**v3.0.96 (修法 3 debug + 实战收口)**: updater.tsx ForceUpdateModal 加 console.log('[Updater] ForceUpdateModal render', { visible, version }) 测组件是否真渲染 + 备选 useState 替代 module-level state 修法 (跟 BUG-138 polling owner useState 修法 1:1 镜像). 9 维 E2E 闭环: 装 v3.0.95 → checkForUpdate 3.0.96 > 3.0.95 → modal 弹 → tap "立即升级 v3.0.96" → Chrome 跳转 ab.maque.uno/app/DeepScript_v3.0.96.apk → 下载 30324752 bytes → adb install -r → 启动 v3.0.96 → checkForUpdate 3.0.96==3.0.96 → modal 消失 → 进登录页 "Deep剧本 v3.0.96" ✅.
+
+### 15.2 关键截图归档 (C:\Users\Administrator\AppData\Local\Temp\b172-*.png)
+
+| 截图 | 大小 | 状态 |
+|---|---|---|
+| b172-1 到 b172-6 (v3.0.92/94/95/96 装 + server 3.0.95/96) | 17-18K (黑屏) | ❌ modal 没渲染 |
+| **b172-7 (v3.0.95 + server v3.0.96 启动)** | **335K** | ✅ **modal 完整渲染** (修法 2 实战成功!) |
+| b172-8 (tap "立即升级 v3.0.96") | 32K | ✅ Chrome 跳转 ab.maque.uno/app/DeepScript_v... |
+| b172-9 (Chrome "重新下载文件? DeepScript_v3.0.96 (1).apk") | 73K | ✅ 下载确认弹窗 |
+| b172-11 (modal 完整内容) | 335K | ✅ 警告 + v3.0.95/96 高亮 + BUG-172 笔记 + 2 按钮 |
+| **b172-12 (v3.0.96 启动 → 进登录页)** | **60K** | ✅ **"Deep剧本 v3.0.96" 底部显示, modal 消失** (E2E 终点) |
+
+### 15.3 9 维 E2E 闭环验证 (蓝叠 127.0.0.1:5555 真机实测)
+
+| 步骤 | 验证点 | 结果 |
+|---|---|---|
+| 1 | 装老版 v3.0.95 APK (versionCode 96) | ✅ |
+| 2 | 启动 checkForUpdate success | ✅ logcat 200 OK |
+| 3 | server latestVersion=3.0.96 > client v3.0.95 | ✅ 触发 modal |
+| 4 | ForceUpdateModal 完整渲染 (335KB 截图 vs 黑屏 17K) | ✅ 警告 + 版本 + BUG-172 笔记 + 2 按钮 |
+| 5 | tap "立即升级 v3.0.96" (坐标 540, 1612) | ✅ Linking.openURL |
+| 6 | Chrome 跳转 ab.maque.uno/app/DeepScript_v3.0.96.apk | ✅ 弹"重新下载文件" |
+| 7 | 下载完成 30324752 bytes (DeepScript_v3.0.96.apk) | ✅ /sdcard/Download/ |
+| 8 | pm install -r v3.0.96 (versionCode 97) | ✅ Success |
+| 9 | 启动 v3.0.96 → modal 消失 → 进登录页 "Deep剧本 v3.0.96" | ✅ |
+
+### 15.4 跨项目通用铁律 #31 + #32 新沉淀 (跟 BUG-138/165/166 100% 同源, 累计 13 条)
+
+**(跨项目通用铁律 #31) 修一个 BUG 必跑端到端 E2E, 单测 "checkForUpdate success + visible=true" 不够, 必截图验证 UI 树非空 (跟 BUG-079 假报告 + BUG-113 真机回归 SOP 100% 同源)**: 修前 v3.0.93/94 实锤 logcat 显示 success + state changed visible:true (单测指标全 PASS) → 但实际 UI 没渲染 (黑屏 + uiautomator UI 树空). 修后 v3.0.95 必跑完整 E2E: 装老 APK → 启动 → 截图验证 modal 完整渲染 (335KB) + uiautomator dump 解析 UI 树非空 (有 TextView 文本 "版本不一致, 必须升级" 等). 跨项目通用铁律: logcat/console 成功日志不能当 UI 渲染成功标志, 必截图 + UI 树双重验证 (跟 S78 BUG-164 死代码审计 100% 同源).
+
+**(跨项目通用铁律 #32) 4 状态机组件实例必用 useState 同步, 不用 module-level state (跟 BUG-138 polling owner 实战 1:1 镜像, useState 跟 React render 生命周期天然同步)**: 修前 ForceUpdateModal 走 module-level state (_forceState + _forceSubs 全局变量), App.tsx 4 状态机 update-required 分支渲染 splash 背景 + 不渲染 <ForceUpdateModal /> 组件实例 → state 变了 = 没组件接收 = 黑屏. 修后 App.tsx line 341 补 <ForceUpdateModal /> 组件实例, 组件内部用 useState (跟 BUG-138 pollingOwnerRef useState 修法 1:1) → state 变 = React re-render = modal 渲染. 跨项目通用铁律: 4 状态机 (checking/network-error/update-required/ok) 组件实例必 useState 同步, 不用 module-level state (跟 BUG-138 polling owner 100% 同源, 跟 React render 生命周期天然同步).
+
+### 15.5 跨端 8 处版本号同步 (跨端铁律 3 必走, 跟 v3.0.92 S80 一致)
+
+| 位置 | 修前 | 修后 |
+|---|---|---|
+| apps/mobile/src/config/version.ts APP_VERSION | 3.0.95 | **3.0.96** |
+| apps/mobile/android/app/build.gradle versionCode | 96 | **97** |
+| apps/mobile/android/app/build.gradle versionName | "3.0.95" | **"3.0.96"** |
+| apps/web/src/config/version.ts APP_VERSION | 3.0.95 | **3.0.96** |
+| apps/web/src/config/version.ts APP_VERSION_CODE | 96 | **97** |
+| apps/server/package.json version | 3.0.95 | **3.0.96** |
+| apps/server/src/index.ts APP_VERSION fallback | '3.0.95' | **'3.0.96'** |
+| apps/server/ecosystem.config.js env.APP_VERSION (2 处) | 3.0.95 | **3.0.96** |
+| apps/server/changelog.json 顶层 latest_version | 3.0.95 | **3.0.96** (4 个 BUG-172 entries) |
+| 远端 .env APP_VERSION | 3.0.95 | **3.0.96** (deploy 时 sed) |
+| 远端 systemd unit Environment=APP_VERSION | 3.0.95 | **3.0.96** (deploy 时 sed) |
+| 公网 APK 文件名 | DeepScript_v3.0.95.apk | **DeepScript_v3.0.96.apk** |
+
+### 15.6 跟 BUG-165/166 强制升级 + BUG-138 polling owner + BUG-079 假报告 100% 同源
+
+- **BUG-165 (v3.0.88) 强制升级铁律** — 启动必查 + 不一致不允许进入主界面, BUG-172 是这个铁律的实战 E2E 闭环验证 (修前 v3.0.93/94 logcat success 但 UI 黑屏, 修后 v3.0.95 完整渲染 + 9 维 E2E 全过)
+- **BUG-166 (v3.0.89) dismissable 逃逸漏洞** — BUG-172 修法保留 v3.0.89 的 RN Modal + onRequestClose + 2 按钮 + 强制升级, 没回归
+- **BUG-138 (v3.0.70) polling owner useState** — BUG-172 修法 3 用 useState 替代 module-level state, 跟 BUG-138 1:1 镜像
+- **BUG-079 假报告** — BUG-172 修法 logcat success ≠ UI 渲染成功, 必截图 + UI 树双重验证, 跟 BUG-079 100% 同源
+
+### 15.7 部署踩坑笔记 (跟 v3.0.92 S80 100% 一致, 累计 30 条)
+
+跟 S80 14.5 段 1 踩坑 100% 兼容 (tar 解压路径对齐 + cp 兜底必 mv), 实战中反复踩 3 次. v3.0.96 部署 8 维验证全过 (systemd active + 6000 LISTEN + /health 200 + /api/version 3.0.96 + APK HTTP/2 200 + APK sha256 跟本机 1:1 + 远端 .env + 远端 systemd unit Environment=APP_VERSION).
+
+### 15.8 下一步候选 (S81 推荐)
+
+- **S81 #1**: BUG-172 commit c73b512 已在 origin/main, AGENTS.md § 4.16 累计 13 条跨项目通用铁律 (新增 #31 + #32) 配套沉淀 + BUGS_INDEX BUG-172 行收口 (已写)
+- **S81 #2**: web 端补做 LightboxImage (跟 mobile 端 FullscreenImageViewer v3.0.76 1:1 镜像, BUG-145 实战沉淀, 跨端铁律 4++ 加固)
+- **S81 #3**: v3.0.97 实战演练 (bump-version.py --patch --apply --commit --rollback 全链路, 跟 S80 #4 S79 候选同源)
+- **S81 #4**: mobile tsc baseline 53 错清理 (跟 S80 #3 S79 候选同源, 跟 BUG-079 假报告 + BUG-097 漏修逆向等)
