@@ -827,3 +827,60 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **S79 #4: deploy.sh tarball `--strip-components=1` 加固** (踩坑 1 实战, 顶层有 dist 子目录时也能解压正确, 防止下次又有 dist/dist/ 嵌套) - 修法: `tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist --strip-components=1` 或者改 deploy-wrapped 打包脚本强制扁平输出
 - **S79 #5: systemd restart 撞顶 reset-failed wrapper 加 deploy.sh** (踩坑 3 实战, 自动 `systemctl reset-failed shipin-app` 在 pkill -f 后, 防 restart counter 撞 5 触发 "Start request repeated too quickly")
 
+
+---
+
+## § 13. S79 v3.0.91 部署踩坑加固 + ABCD 全闭环实战 (2026-07-06, 接续 S78)
+
+> **本版本特点**: S78 v3.0.91 BUG-168 应急修的实战踩坑 3 个 (tarball 嵌套 / changelog JSON / systemd restart 撞顶) 在 S79 系统加固, 同时公网 APK 清理到只剩 v3.0.91 + 蓝叠真机 E2E 回归 100% 通过. 跟 S78 v3.0.91 应急修 100% 配套, 不变 version 号 (= 0.0.0 子版本加固, 不走 bump-version.py 9 处).
+
+### 做了什麽 (S79 ABCD 4 件事)
+
+**A. 公网 APK 清理**: 清理 57 个老 APK 到 1 个 v3.0.91, 包括 v1.x 历史 + v3.0.0-v3.0.6x 老 + v3.0.7x-v3.0.59 历史 + v3.0.88 + v3.0.89 (都有 BUG-166 dismissable / BUG-168 iOS crash). 实战意义: 强制升级铁律源头 = 公网 1:1 APK, 多版本 = 弱强制.
+
+**C. deploy.sh 双加固** (apps/server/deploy.sh):
+- **(C-1) `--strip-components=1` 加固 line 181-182**: tarball 解压自动剥离顶层 1 层目录, 即使将来 tar 包带 dist/ 嵌套也能正确解压到 dist/index.js.
+- **(C-2) `systemctl reset-failed` wrapper 加固 line 263-265**: 重启 systemd 前先 reset-failed 清空 restart counter, 防止 pkill 后 counter 撞 5 触发 "Start request repeated too quickly".
+- syntax 验证: `bash -n` OK.
+
+**D1. mobile tsc baseline 验证 0 新错**: tsc -b --noEmit 跑后 74 行错误, 跟 v3.0.89 baseline 74 行一致 (= 0 新错).
+
+**B+D2. 蓝叠真机 E2E 全链路验证**:
+- 设备: localhost:5555 (Xiaomi Mi 11 Lite 5G NE 模拟器, Android 9 / SDK 28)
+- 卸载 v3.0.89 (有 BUG-168 crash bug) + 安装 v3.0.91: Streamed Install Success
+- 启动 app: Status ok + TotalTime 4222ms + MainActivity 前台 + 无 BUG-168 crash signature
+- UI 验证: 走到 Login 页面 (deep剧本 v3.0.91 标题 + 用户名 + 密码 + 登录按钮全可见)
+- Login E2E: tap 用户名 + input testuser + tap 密码 + input test123 + tap 登录 → App 显示 "用户名或密码错误" → **完整 Round-trip 成功** (= network 通到 ab.maque.uno/api/users/login, server 401 错误码穿透)
+- 截图归档: verify-screenshots/20-v3.0.91-BUG168-fix-login-e2e.png 61630 bytes
+- logcat 验证: 无 FATAL / 无 Requiring unknown module / 无 useDialog 兜底 silent fail
+
+### 跨项目通用铁律 3 条新沉淀 (S79 v3.0.91 部署踩坑加固)
+
+**(跨项目通用铁律 #25) deploy tarball 必带 --strip-components=1 双保险**: 打包扁平 (tar -czf -C dist .) 是首选, 但 deploy.sh 必加 --strip-components=1 做双保险, 即使将来 tar 包意外有 dist/ 嵌套也能解压到正确路径.
+
+**(跨项目通用铁律 #26) systemctl restart 必先 reset-failed**: pkill 进程后 systemd restart counter 累加, 撞 5 触发 "Start request repeated too quickly" → unit failed. deploy.sh 必先 `systemctl reset-failed shipin-app` 再 `systemctl restart shipin-app`.
+
+**(跨项目通用铁律 #27) 公网 APK 必唯一, 强制升级源头 = 公网 1:1**: 同时只能挂 1 个最新 APK, 老 APK 全删 (包括历史版本 + pre-release + pre-xxx 等). 多版本 = user 能选降级 = 强制 modal 失效.
+
+### 部署全链路 (S79 加固 + v3.0.91)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push (v3.0.91) | ✅ 288d201 → origin/main
+| 公网 server 重启 (systemd) | ✅ active, PID 14012
+| /api/version 3.0.91 | ✅ version + latestVersion + mobileLatestApkVersion 全部 3.0.91 一致
+| 公网 APK 清理 (S79 A) | ✅ 57 → 1 (只剩 v3.0.91), HEAD 验证 200 + 老版本 404
+| APK 公网 HEAD | ✅ HTTP/2 200, sha256 80DDD3E8... 跟本机 1:1
+| web bundle 公网 HEAD | ✅ index-BdFx-kT6.js (BUG-167 修法已下发)
+| mobile 真机 E2E (S79 B+D2) | ✅ install + start + login E2E 全通
+| 9 处版本同步 (v3.0.91) | ✅ server × 3 + mobile × 2 + web × 2 + changelog + 双覆盖
+| deploy.sh 加固 (S79 C) | ✅ --strip-components=1 + reset-failed wrapper, syntax OK
+| mobile tsc baseline (S79 D1) | ✅ 0 新错 (74 行 baseline = 74 行 post-bug168)
+| 跨项目通用铁律 v2.21 | ✅ #19-#24 (S78) + #25-#27 (S79) 累计 9 条新沉淀
+
+### 下一步候选 (S80 推荐)
+
+- **S80 #1**: 跑 v3.0.91 mobile 完整 E2E (注册新账号 → 登录成功 → 选剧本 → 生成图 → 看 ~30s loading → 看完成图, 验证 BUG-167 video 修法 + BUG-168 iOS 修法都生效)
+- **S80 #2**: HANDOVER § 0 速览加 v3.0.91 链接 + 跨端铁律 v3.0.88-91 (跟 BUG-087 BUG-131 BUG-165 BUG-166 等同源)
+- **S80 #3**: mobile tsc baseline 53 错清理 (跟 BUG-079 假报告 + BUG-097 漏修逆向等, 老 baseline 已沉淀 ~10+ 版本, 修法是按调用链清理)
+- **S80 #4**: v3.0.92 实战演练 (演练 bump-version.py --patch --apply --commit --rollback 全链路)

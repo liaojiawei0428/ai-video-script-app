@@ -178,8 +178,12 @@ rm -rf ${DIST_DIR}/dist
 # S72 v3.0.33 batch 4 修复: tar 解压到 dist/ 子目录 (systemd unit mount namespacing 期望 /www/wwwroot/shipin-APP/dist)
 # 之前解压到 ${DIST_DIR}/ 根, systemd unit 找不到 dist/index.js → 226/NAMESPACE failed
 mkdir -p ${DIST_DIR}/dist
-tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist
-echo "    ✓ 解压完成到 ${DIST_DIR}/dist"
+# 🆕 v3.0.91 (S78 BUG-168 部署实战): --strip-components=1 加固 (踩坑 1 修法)
+# 修前: `tar -czf shipin-app-server-v3.0.91.tar.gz dist` 让 tar 包顶层带 `dist/` 子目录
+# 修后 `tar -C apps/server/dist + tar -czf .` 让 tar 包顶层是 `./index.js` 等文件
+# 加固: 双保险, --strip-components=1 自动剥离顶层 1 层目录 (无论打包方式, deploy.sh 都能正确解压)
+tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist --strip-components=1
+echo "    ✓ 解压完成到 ${DIST_DIR}/dist (--strip-components=1 加固)"
 
 # S72 v3.0.33 batch 4 修复: cp changelog.json dist/changelog.json (S64 起必加, tsc 不复制 json)
 # 之前漏加, shipin-app 读 dist/changelog.json (readChangelog 优先级, S72 修) 找不到, fallback 到根 changelog.json (老版本)
@@ -254,6 +258,11 @@ fi
 # ==================== 4. 重启 systemd + 宝塔同步 ====================
 echo ">>> [7/9] 重启 systemd unit (走 systemd, 不是 PM2)..."
 systemctl daemon-reload
+# 🆕 v3.0.91 (S78 BUG-168 部署实战): systemctl reset-failed wrapper 加固 (踩坑 3 修法)
+# 修前: pkill 老的 dist/index.js 后, shipin-app restart counter 撞 5 触发 "Start request repeated too quickly"
+#   → unit 进入 failed 状态 → 后续 systemctl restart 一直失败
+# 修后: restart 前先 reset-failed 清空 restart counter, 然后再 start, shipin-app 一定能起来
+systemctl reset-failed $SERVICE_NAME 2>/dev/null || true
 systemctl restart $SERVICE_NAME
 sleep 3
 if ! systemctl is-active $SERVICE_NAME > /dev/null; then
