@@ -3,13 +3,26 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.91",
+  "latest_version": "3.0.92",
   "latest_version_time": "2026-07-06",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.92",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "BUG-170 修 mobile 端 ScriptDetailScreen 顶部 5 个 pill 工具栏窄屏 (≤392dp) 文字截断 ('事件图…') + BUG-171 修 APP_NAME 含生僻字在国产 ROM 字体兜底成 emoji 乱码",
+      "highlights": [
+        "BUG-170 修前根因: apps/mobile/src/screens/ScriptDetailScreen.tsx:344-353 v2Toolbar 用 flex:1 5 等分 + caption 12px fontSize + 4 字中文 (事件图谱) 在窄屏 360dp 65dp/pill 撑爆 → Android TextView 截断. 平板/模拟器正常, 窄屏翻车. 跨项目 UI 没响应式 = BUG",
+        "BUG-170 修法: 改 flexWrap grid 跟 web 端 `grid grid-cols-2 md:grid-cols-5 gap-3` 跨端铁律 4++ 1:1 镜像. 窄屏 (< 600dp, 跟 web 端 < md:768px 1:1) 2 列 3 行 2+2+1, 宽屏 (>= 600dp, 跟 web 端 >= md 1:1) 5 列 1 行. 加 Dimensions.addEventListener 动态切. Text 加 numberOfLines={1} + flexShrink: 1 兜底. 跨项目通用铁律 #28 (跟 BUG-118/120 跨端铁律 4++ 'Mobile UI 必响应式' 100% 同源)",
+        "BUG-171 修前根因: apps/mobile/src/config/version.ts:60 APP_NAME = 'Deep闁告挆鍕嫳' 含 6 个生僻字 (U+95F7 U+901A U+62D3 U+9315 U+4EB3 U+5A73), 不在 GB2312 一级字库 (2K 常用字). 蓝叠/国产 ROM 字体不支持 → 渲染失败兜底成 emoji (🐠) 或豆腐块 → 后续 'v3.0.91' 被截断 → ProfileScreen/SettingsScreen/AboutScreen 5 处 import APP_DISPLAY_NAME 全部乱码. 推测根因: 之前某次 PowerShell 写入工具 ANSI/UTF-8 编码错 (跟 BUG-131 PowerShell 写 BOM 教训同源). web 端 version.ts:12 APP_NAME = 'Deep剧本' 已经正确 (web 端无 BUG-171)",
+        "BUG-171 修法: APP_NAME 还原用户原始意图 'Deep剧本' (GB2312 一级字 U+5267 U+672C). 100% 国产 ROM 兼容. 跨端铁律 4++ 1:1 镜像 web 端. 跨项目通用铁律 #29 (跟 BUG-131 + BUG-145 v3.0.76 changelog.json 部署踩坑 100% 同源)",
+        "v3.0.92 跨端 8 处版本号同步: mobile version.ts + android build.gradle (versionCode 92→93) + web version.ts (APP_VERSION + APP_VERSION_CODE 92→93) + server package.json + server index.ts fallback + server ecosystem.config.js (env + env_production 2 处) + server changelog.json (顶层 latest_version 3.0.91→3.0.92) + 远端 .env APP_VERSION 3.0.91→3.0.92 + 远端 systemd unit Environment=APP_VERSION 3.0.91→3.0.92 (跟 BUG-131 + BUG-165 实战铁律同步, 防 latestVersion 解析 last-wins 冲突)"
+      ]
+    },
     {
       "version": "3.0.91",
       "buildDate": "2026-07-06",

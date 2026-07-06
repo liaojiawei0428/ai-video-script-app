@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, Dimensions,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -10,6 +10,11 @@ import { GlassCard, Tag, SkeletonLoader } from '../components';
 import { GeneratingLoader } from '../components/ui';
 import { colors, spacing, radii, typography } from '../theme';
 import type { NavigationProp, ScriptDetailRouteProp } from '../types/navigation';
+
+// v3.0.92 BUG-170 修: 跨端铁律 4++ 1:1 镜像 web 端 `grid grid-cols-2 md:grid-cols-5` 响应式断点.
+//   窄屏 (< 600dp, 跟 web 端 < md:768px 1:1) → 2 列, 宽屏 (>= 600dp, 跟 web 端 >= md 1:1) → 5 列.
+//   修前 flex:1 5 等分在 ≤392dp 屏 65dp/pill 撑爆 4 字中文, 修后 grid 响应式不溢出.
+const WIDE_BREAKPOINT = 600;
 
 export function ScriptDetailScreen(): React.JSX.Element {
   const route = useRoute<ScriptDetailRouteProp>();
@@ -33,6 +38,15 @@ export function ScriptDetailScreen(): React.JSX.Element {
   const [editChars, setEditChars] = useState<any[]>([]);
   const [charText, setCharText] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // v3.0.92 BUG-170 修: 跟 web 端 md: 断点 1:1, 宽屏 5 列 / 窄屏 2 列响应式切换.
+  const [isWide, setIsWide] = useState(() => Dimensions.get('window').width >= WIDE_BREAKPOINT);
+  useEffect(() => {
+    const sub = Dimensions.addEventListener('change', ({ window }) => {
+      setIsWide(window.width >= WIDE_BREAKPOINT);
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (!novelId) return;
@@ -188,47 +202,50 @@ export function ScriptDetailScreen(): React.JSX.Element {
               </View>
             )}
 
-            {/* v2.0.0 工具栏 */}
+            {/* v3.0.92 BUG-170 修: 工具栏改 grid 响应式布局, 跟 web 端 grid-cols-2 md:grid-cols-5 跨端 1:1 镜像.
+                修前 flex:1 5 等分在窄屏 (≤392dp) 撑爆每 pill 文字 (4 字中文 "事件图谱" 截断成 "事件图…"), 平板/模拟器正常.
+                修后 flexWrap + flexBasis 跟 web 端响应式断点 1:1: 窄屏 2 列 (3 行 2+2+1), 宽屏 (≥600dp) 5 列 (1 行).
+                跨项目通用铁律 #28 (跟 BUG-118/120 跨端铁律 4++ "Mobile UI 必响应式" 1:1 同源). */}
             <View style={styles.v2Toolbar}>
               <TouchableOpacity
-                style={styles.v2Btn}
+                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
                 onPress={() => navigation.navigate('CharacterList' as any, { novelId })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="people" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText}>角色库</Text>
+                <Text style={styles.v2BtnText} numberOfLines={1}>角色库</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.v2Btn}
+                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
                 onPress={() => navigation.navigate('OutlineReview' as any, { novelId })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="list" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText}>分集大纲</Text>
+                <Text style={styles.v2BtnText} numberOfLines={1}>分集大纲</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.v2Btn}
+                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
                 onPress={() => navigation.navigate('PlotGraph' as any, { novelId })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="git-network" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText}>事件图谱</Text>
+                <Text style={styles.v2BtnText} numberOfLines={1}>事件图谱</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.v2Btn}
+                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
                 onPress={() => navigation.navigate('AssetLibrary' as any, { novelId })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="images" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText}>资产库</Text>
+                <Text style={styles.v2BtnText} numberOfLines={1}>资产库</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.v2Btn}
+                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
                 onPress={() => navigation.navigate('AIAssistant' as any, { novelId, contextTitle: novelTitle })}
                 activeOpacity={0.7}
               >
                 <Ionicons name="sparkles" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText}>AI助手</Text>
+                <Text style={styles.v2BtnText} numberOfLines={1}>AI助手</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -341,16 +358,21 @@ const styles = StyleSheet.create({
   episodeHeader: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   episodeHeaderTitle: { ...typography.h2, color: colors.text.primary },
   episodeHeaderMeta: { ...typography.caption, marginTop: spacing.xs },
+  // v3.0.92 BUG-170 修: 改 flexWrap grid 跟 web 端 `grid grid-cols-2 md:grid-cols-5 gap-3` 跨端 1:1 镜像.
+  //   修前: flexDirection: 'row' + flex: 1 5 等分, ≤392dp 屏 65dp/pill 撑爆 4 字中文 → "事件图…"
+  //   修后: flexWrap: 'wrap' + flexBasis 动态 (窄屏 48% = 2 列, 宽屏 18% = 5 列) + numberOfLines={1}
   v2Toolbar: {
-    flexDirection: 'row', gap: spacing.sm,
+    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm,
     paddingHorizontal: spacing.md, marginBottom: spacing.md,
   },
   v2Btn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     paddingVertical: spacing.sm, borderRadius: radii.md,
     backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.primary,
   },
-  v2BtnText: { ...typography.caption, color: colors.primary, fontWeight: '700', marginLeft: 4 },
+  v2BtnNarrow2: { flexBasis: '48%', minWidth: '48%' }, // 窄屏 2 列 (跟 web 端 grid-cols-2 1:1)
+  v2BtnWide5: { flexBasis: '18%', minWidth: '18%', flexGrow: 1 }, // 宽屏 5 列 (跟 web 端 md:grid-cols-5 1:1)
+  v2BtnText: { ...typography.caption, color: colors.primary, fontWeight: '700', marginLeft: 4, flexShrink: 1 },
   episodeCard: {
     flexDirection: 'row',
     alignItems: 'center',

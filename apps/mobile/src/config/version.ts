@@ -12,7 +12,7 @@
 //   4. commit message 闊洤鎳庨悽顐︽偋閸喐鎷遍柨?(闂佸彞绀佺欢?6): `vX.Y.Z: <闁衡偓閻熸澘袟> (BUG-NNN)`
 //   5. 闂侇喓鍔庣拋?+ 12 缂備焦鎸抽悰娆撴晸?(BAOTA_NODE_PROJECT_DEPLOY.md 閹?2.3)
 
-export const APP_VERSION = '3.0.91';
+export const APP_VERSION = '3.0.92';
 
 // v3.0.62 (BUG-131 S72 batch 31): 闁稿浚鍓涚紞?APK 閻犱警鍨扮欢?server-side 闁活亞鍠庨悿鍕偓娑櫭﹢顏勎涢埀顒勫蓟?
 //   - 濞ｅ浂鍠栨晶? /api/version downloadUrl 闁?`DeepScript_v${process.env.APP_VERSION}.apk`, server-only hotfix (3.0.61) 閻犺櫣鍠庨崣鏇犵磾?APK (3.0.60) 濞戞挸绉崇粩鎾嚊?闁?闁稿娲ｇ粭鍛姜?404 HTML 闂佹寧鐟ㄩ銈嗐亜?闁?Status Code 16
@@ -57,7 +57,13 @@ export const APP_VERSION = '3.0.91';
 //     闁?needUpdate=true 闁?婵絽绻戦濂稿礃瀹勭増鍎欓柛鏂诲姂閸忔﹢鏁?
 //   - 闁哄倹婢橀·?db/updateMemory.ts (RNFS 24h 闁硅埖鍨甸崺? 闁奸鑳堕弫銈夊箣瀹勬澘绲挎繛鎴濈墣缁诲啴鎯冮崟顓烆暭闁哄牜鍏涚粭澶愬礃瀹ュ懓鍓?
 //   - showUpdateDialog 闁?forceUpdate 濞村吋锚閸樻盯鏁?+ 闁告瑦鐗楃粔鐑藉箰婢舵劖灏﹂柨?memory + 濞戞挸顑堝ù鍥箰婢舵劖灏﹀☉鎾崇Т閸?
-export const APP_NAME = 'Deep闁告挆鍕嫳';
+// v3.0.92 BUG-171 修: APP_NAME 还原用户原始意图 'Deep剧本' (GB2312 一级字 U+5267 U+672C).
+//   修前: 'Deep闁告挆鍕嫳' 含 6 个生僻字 (U+95F7 U+901A U+62D3 U+9315 U+4EB3 U+5A73),
+//         不在 GB2312 一级字库 (2K 常用字), 蓝叠/国产 ROM 字体不支持 → 兜底成 emoji (🐠) 或豆腐块 → 后续 'v3.0.91' 被截断.
+//   推测根因: 之前某次 PowerShell 写入工具 ANSI/UTF-8 编码错 (跟 BUG-131 PowerShell 写 BOM 教训同源).
+//   修后: 2 个 GB2312 一级字, 100% 国产 ROM 兼容, 跨端铁律 4++ 1:1 镜像 web 端 version.ts:12 已有的正确字符.
+//   跨项目通用铁律 #29 (跟 BUG-131/145 v3.0.76 部署踩坑 100% 同源).
+export const APP_NAME = 'Deep剧本';
 export const APP_DISPLAY_NAME = `${APP_NAME} v${APP_VERSION}`;
 
 

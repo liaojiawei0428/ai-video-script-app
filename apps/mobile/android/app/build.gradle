@@ -66,8 +66,8 @@ android {
         applicationId "com.aiscriptmobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 92
-        versionName "3.0.91"
+        versionCode 93
+        versionName "3.0.92"
     }
     signingConfigs {
         debug {

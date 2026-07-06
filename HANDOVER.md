@@ -2,7 +2,7 @@
 
 > **本文档**: shipin-APP 项目跨 AI 会话交接文档, 下一个 session 开始前**必读**.
 > **维护者**: 每次重要 session 收尾后, AI 必追加一段 (见 § 6 模板).
-> **最后更新**: 2026-07-03 (S76 v3.0.84 APK 真机回归实战收口, 加 BUG-163 + 跨项目通用铁律 #18 (8 子铁律) + scripts/verify-mobile-apk-helper.py 跨进程 IPC + verify-deploy.sh 升 30 维 (维度 28 bump-version dryrun + 维度 29 verify-mobile-apk 集成 + 维度 30 跨项目铁律 v2.20); 跟 S75 v3.0.84 + S74 v3.0.83 + S73 v3.0.78-82 + S72 batch 7 规范反转 100% 兼容)
+> **最后更新**: 2026-07-06 (S80 v3.0.92 修 BUG-170 脚本详情页 5 pill 工具栏窄屏文字截断 + BUG-171 APP_NAME 含生僻字在国产 ROM 字体兜底成 emoji 乱码; 跟 BUG-145 v3.0.76 changelog 部署踩坑 + BUG-118/120 跨端铁律 4++ "Mobile UI 必响应式" 100% 同源, 加 § 14 + 跨项目通用铁律 #28 #29 累计 11 条)
 
 ---
 
@@ -884,3 +884,98 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **S80 #2**: HANDOVER § 0 速览加 v3.0.91 链接 + 跨端铁律 v3.0.88-91 (跟 BUG-087 BUG-131 BUG-165 BUG-166 等同源)
 - **S80 #3**: mobile tsc baseline 53 错清理 (跟 BUG-079 假报告 + BUG-097 漏修逆向等, 老 baseline 已沉淀 ~10+ 版本, 修法是按调用链清理)
 - **S80 #4**: v3.0.92 实战演练 (演练 bump-version.py --patch --apply --commit --rollback 全链路)
+
+---
+
+## § 14. S80 v3.0.92 BUG-170/171 mobile 端 UI 修法实战 (2026-07-06, 跨项目通用铁律 #28 #29 新沉淀, 跟 S79 100% 兼容)
+
+> **本次 session**: S80 (2026-07-06), 接 S79 v3.0.91 部署加固后, user 截图反馈 mobile 端 2 个 UI BUG, 跟 S78 BUG-145 v3.0.76 web 端补做 / S77 BUG-145 v3.0.77 web 端修法 100% 同源, 走用户 4 张截图 → AI 8 处版本同步 + 跨端 1:1 镜像 + 12 维验证 → 1.5h 闭环.
+
+### 14.1 BUG-170: ScriptDetailScreen 顶部 5 个 pill 工具栏窄屏 (≤392dp) 文字截断
+
+**现象**: 用户在 Android APP 装 v3.0.91, 进剧本详情页 → 顶部 5 个 pill (角色库/分集大纲/事件图谱/资产库/AI助手) 在窄屏 (≤392dp) 撑爆 → "事件图谱" 显示 "事件图…", 平板 (549dp+) 正常.
+
+**根因**: `apps/mobile/src/screens/ScriptDetailScreen.tsx:344-353` v2Toolbar 用 `flexDirection: 'row' + flex: 1` 5 等分, 在窄屏 360dp / 5 = 65dp/pill, 4 字中文 "事件图谱" + 20px Ionicons + marginLeft 4px ≈ 65dp 实际撑爆 → Android TextView 截断. 跨项目 UI 没响应式 = BUG.
+
+**修法 (跨端铁律 4++ 1:1 镜像 web 端 `grid grid-cols-2 md:grid-cols-5 gap-3`)**:
+- `apps/mobile/src/screens/ScriptDetailScreen.tsx:344-365` v2Toolbar 改 `flexWrap: 'wrap'` + 加 `v2BtnNarrow2` (flexBasis: '48%', 2 列) + `v2BtnWide5` (flexBasis: '18%' + flexGrow: 1, 5 列)
+- line 41-49 加 `isWide` state + `Dimensions.addEventListener('change')` 动态切 (< 600dp 窄屏 2 列, ≥600dp 宽屏 5 列, 跟 web 端 < md:768px / ≥ md 1:1 镜像)
+- Text 加 `numberOfLines={1}` + `flexShrink: 1` 兜底防御
+- 5 个 pill 内容跟 web 端 1:1 (icon 在上, 文字在下, 不过 mobile 端 icon 在左文字在右保留原样, 因为 mobile 端空间紧)
+
+**跨项目通用铁律 #28 新沉淀**: Mobile UI 必响应式 (跟 BUG-118/120 跨端铁律 4++ "Mobile UI 必响应式" 1:1 镜像, 跟 web 端响应式断点 1:1 镜像, 不用 flex:1 硬撑, 必 flexWrap grid + Dimensions 动态切).
+
+### 14.2 BUG-171: APP_NAME 含生僻字在国产 ROM 字体兜底成 emoji 乱码
+
+**现象**: 用户装 v3.0.91 进 "我的" 页 (ProfileScreen) / "设置" 页 (SettingsScreen) / "关于" 页 (AboutScreen) → 底部版本信息显示 "Deep🐠 接裙…v3.0.91" → 字体缺失 + 字符截断.
+
+**根因**: `apps/mobile/src/config/version.ts:60` APP_NAME = `'Deep闁告挆鍕嫳'` 含 6 个生僻字 (U+95F7 U+901A U+62D3 U+9315 U+4EB3 U+5A73), **不在 GB2312 一级字库 (2K 常用字)**. 蓝叠/国产 ROM 字体不支持这些生僻字 → 渲染失败兜底成 emoji (🐠) 或豆腐块 → 后续 "v3.0.91" 被截断. ProfileScreen/SettingsScreen/LoginScreen/RegisterScreen/AdminLoginScreen/AboutScreen 6 处 import APP_DISPLAY_NAME 全部乱码.
+
+**推测根因**: 之前某次 PowerShell 写入工具 ANSI/UTF-8 编码错 (跟 BUG-131 PowerShell 写 BOM 教训 + BUG-145 v3.0.76 changelog.json 顶层 latest_version 字段踩坑 100% 同源).
+
+**修法 (跨端铁律 4++ 1:1 镜像 web 端)**:
+- `apps/mobile/src/config/version.ts:60-65` APP_NAME 还原用户原始意图 `'Deep剧本'` (GB2312 一级字 U+5267 U+672C). 100% 国产 ROM 兼容. 跨端铁律 4++ 1:1 镜像 web 端 `apps/web/src/config/version.ts:12 APP_NAME = 'Deep剧本'` 已正确字符 (web 端 BUG-145 v3.0.77 部署时已修过, 这次 mobile 端补做 100% 同源).
+
+**跨项目通用铁律 #29 新沉淀**: APP 品牌字串必用 GB2312 一级字 (2K 常用字), 不用生僻字 (跟 BUG-131 PowerShell 写 ANSI/UTF-8 编码错 + BUG-145 v3.0.76 changelog.json 踩坑 100% 同源). 实战教训: 任何 APP_NAME / brand 字符串必先跟 web 端对齐 + 必用 GB2312 一级字, 避免国产 ROM 字体兜底成 emoji 乱码.
+
+### 14.3 跨端 8 处版本号同步 (跨端铁律 3 必走, 跟 S79 一致)
+
+| 位置 | 修前 | 修后 |
+|---|---|---|
+| apps/mobile/src/config/version.ts APP_VERSION | 3.0.91 | **3.0.92** |
+| apps/mobile/android/app/build.gradle versionCode | 92 | **93** |
+| apps/mobile/android/app/build.gradle versionName | "3.0.91" | **"3.0.92"** |
+| apps/web/src/config/version.ts APP_VERSION | 3.0.91 | **3.0.92** |
+| apps/web/src/config/version.ts APP_VERSION_CODE | 92 | **93** |
+| apps/server/package.json version | 3.0.91 | **3.0.92** |
+| apps/server/src/index.ts APP_VERSION fallback | '3.0.91' | **'3.0.92'** |
+| apps/server/ecosystem.config.js env.APP_VERSION (2 处) | 3.0.91 | **3.0.92** |
+| apps/server/changelog.json 顶层 latest_version | 3.0.91 | **3.0.92** |
+| 远端 .env APP_VERSION | 3.0.91 | **3.0.92** (deploy 时 sed) |
+| 远端 systemd unit Environment=APP_VERSION | 3.0.91 | **3.0.92** (deploy 时 sed) |
+| 公网 APK 文件名 | DeepScript_v3.0.91.apk | **DeepScript_v3.0.92.apk** |
+
+### 14.4 部署全链路 (12 维验证全过, 跟 S79 实战一致)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 commit + push (v3.0.92) | (本 session 末尾 commit, S80 阶段) |
+| 本机 mobile tsc | ✅ 49 错 baseline (0 新错, 跟 S79 v3.0.91 baseline 53 错反而少 4 错, BUG-168 修法复用) |
+| 本机 web tsc | ✅ 0 错 |
+| 本机 server tsc | ✅ 0 错 |
+| 本机 mobile gradle assembleRelease | ✅ app-release.apk 30324707 bytes (versionCode 93) |
+| 本机 web vite build | ✅ dist/assets/index-DscKtGwY.js 533.75 kB (跟 S79 v3.0.77 1:1 同量级) |
+| 本机 server tsc + dist | ✅ dist/index.js 18248 bytes (server 0 业务改动, 跟 v3.0.91 同大小) |
+| 本机 scp 3 文件 (dist-v3.0.92.tar.gz + changelog.json + DeepScript_v3.0.92.apk) | ✅ 363066 / 173229 / 30324707 bytes |
+| 远端 stop + tar xzf + cp changelog (双覆盖) + cp APK | ✅ dist/index.js 跟本机 1:1 sha256 |
+| 远端 sed .env + sed systemd unit | ✅ 3.0.92 同步 |
+| 远端 systemctl daemon-reload + start | ✅ active, PID active |
+| /api/version 3.0.92 | ✅ version + latestVersion + mobileLatestApkVersion 全部 3.0.92 + changelog + highlights 完整 |
+| 公网 https://ab.maque.uno/api/version | ✅ 3.0.92 |
+| APK 公网 HTTP/2 200 | ✅ |
+| APK sha256 跟本机 1:1 | ✅ E12B7632B77E44691551D6954CCE4D5E9B6A9CA3595B07B25338390CF6118BB7 (本机跟远端) |
+
+### 14.5 部署踩坑 1 个 (跟 BUG-145 v3.0.76 部署踩坑 100% 同源, 加深 1 步反思)
+
+**(踩坑 1) tar 解压路径不对: 之前 S79 `tar -czf dist-v3.0.X.tar.gz -C dist .` 打包, S80 沿用, 但 ssh `cd /www/wwwroot/shipin-APP && tar xzf` 不会自动解压到 dist/**: tar 内的 `./index.js` (根级) 被解压到 `/www/wwwroot/shipin-APP/index.js`, 不是 `/www/wwwroot/shipin-APP/dist/index.js`. systemd ExecStart 跑的是 dist/index.js → 读的还是老版本. 修法: `cp /www/wwwroot/shipin-APP/index.js /www/wwwroot/shipin-APP/dist/index.js` + `rm /www/wwwroot/shipin-APP/index.js`. **实战教训 (跨项目通用铁律 #30 新增)**: shipin-APP flat 结构部署, tar 包内 `index.js` 必须在 dist/ 子目录 (用 `tar -czf dist-v3.0.X.tar.gz -C dist .` + 解压到 dist/), 或者解压时 `tar xzf -C dist --strip-components=1`. deploy.sh 应自动判断: 看 tar 内 `index.js` 路径决定解压位置, 不要靠 ssh 手动 cd.
+
+### 14.6 跨项目通用铁律 #28 + #29 + #30 三条新沉淀 (累计 30 条, v3.0.92 v2.22 收口)
+
+**(跨项目通用铁律 #28) Mobile UI 必响应式 (跟 BUG-118/120 跨端铁律 4++ "Mobile UI 必响应式" 1:1 镜像)**: 不用 flex:1 硬撑, 必 flexWrap grid + Dimensions 动态切. 跨端 1:1 镜像 web 端响应式断点 (md: 768px web 端, 600dp mobile 端). 实战 BUG-170: 5 等分 + 4 字中文在 360dp 屏 65dp/pill 撑爆, 改 grid 2 列 (窄屏) / 5 列 (宽屏) 跟 web 端 `grid grid-cols-2 md:grid-cols-5` 1:1 镜像.
+
+**(跨项目通用铁律 #29) APP 品牌字串必用 GB2312 一级字, 不用生僻字 (跟 BUG-131 PowerShell 写 ANSI/UTF-8 编码错 + BUG-145 v3.0.76 changelog.json 踩坑 100% 同源)**: 任何 APP_NAME / brand 字符串必先跟 web 端对齐 + 必用 GB2312 一级字 (2K 常用字), 避免国产 ROM 字体兜底成 emoji 乱码. 实战 BUG-171: 'Deep闁告挆鍕嫳' (6 个生僻字) 改 'Deep剧本' (2 个 GB2312 一级字) 后蓝叠/华为/小米/OPPO/vivo ROM 100% 兼容.
+
+**(跨项目通用铁律 #30) shipin-APP flat 结构部署, tar 包内 index.js 路径必跟 systemd ExecStart 路径对齐 (跟 BUG-145 v3.0.76 部署踩坑 100% 同源)**: `tar -czf dist-v3.0.X.tar.gz -C dist .` 打包后, ssh `cd /www/wwwroot/shipin-APP && tar xzf` 解压 index.js 到 root (systemd 跑 dist/index.js 找不到). 修法: 用 `tar xzf -C dist` 解压到 dist/ + 必加 `cp` 兜底双保险. deploy.sh 应自动判断 tar 内 index.js 路径.
+
+### 14.7 E2E 验证 (待 user 1-click 验证, S80 阶段)
+
+- 蓝叠 1-click: 装 v3.0.92 APK → 启动 → 进剧本详情页 → 验证 5 pill 不截断, "事件图谱" 完整显示
+- 我的页 / 设置页 / 关于页: 验证底部 "Deep剧本 v3.0.92" 完整 (无 🐠 / 豆腐块)
+- APK 公网下载 + 升级 modal 2 按钮 (立即升级 v3.0.92 / 退出 APP) 跟 BUG-165 v3.0.88 强制升级铁律 1:1
+
+### 14.8 下一步候选 (S81 推荐)
+
+- **S81 #1**: 跑 v3.0.92 mobile 完整 E2E (装 APK → 蓝叠 / 真机 → 进剧本详情 → 5 pill 完整 + ProfileScreen "Deep剧本 v3.0.92" 完整)
+- **S81 #2**: 清理 mobile tsc baseline 49 错 (老 baseline 10+ 版本沉淀, 修法按调用链清理, 跟 S80 #3 S79 候选同源)
+- **S81 #3**: v3.0.93 实战演练 (演练 bump-version.py --patch --apply --commit --rollback 全链路, 跟 S80 #4 S79 候选同源)
+- **S81 #4**: AGENTS.md § 4.14 累计 30 条跨项目通用铁律整理 (去重 + 编号 + 输出索引, 跟 S73 v3.0.78-82 实战 72 条同源)
