@@ -193,6 +193,27 @@
   - mavis memory: `server-only hotfix 必 rebuild APK (跨项目通用, /api/version 跟公网 APK 1:1)` (S72 batch 31 BUG-131 沉淀)
 - **跨项目通用**: 任何 client 跟 server 版本分离的 mobile/web 项目 (RN APK + server, iOS IPA + server, 小程序 + server), server 端代码改动必 rebuild client 并部署. 常见踩坑: 改 server 没 rebuild client / rebuild client 没 push 公网 / 修了 client 没改 server downloadUrl / 修了 server downloadUrl 没 rebuild client 兜底. **任意一环漏 = 假下载 / Status Code 16 / 用户撞 BUG**
 
+### 铁律 4+++++: 🎯 Tab 默认入口必用最新版页面 + 修后必走 UI tree 1-click 验证 + 删死代码前必审计 (S78 BUG-164 强约束, 跨项目通用 UX 原则)
+- **🛑 严禁 3 类漏修** (S78 BUG-164 实战教训):
+  1. **Tab 默认入口跟最新版页面解耦**: Tab navigator 的 `tabBarComponent: HomeScreen` (老菜单 8 项) 跟 Stack.Screen `ProfileScreen` (新菜单 5 项) 路由分开, 默认入口还在老页面 → 用户从 Tab 进入永远看不到新功能 (要 2-click 才能进). 修法 100% 要把 Tab 默认入口指向最新版页面 (跟 web 端 1:1 镜像)
+  2. **删死代码前不审计独占功能**: `git grep -n` + 全项目 grep + App.tsx auth gate 检查, 3 维全通过才能 `mavis-trash`. 漏审计 = 死代码被引用撞 BUG
+  3. **修后不跑 UI tree 1-click 验证**: 装 APK → 启动 → Tab 点击 → 是否看到目标页面 → 是否 ≤ 2-click 可达, 不验证 = BUG 漏过 (跟 BUG-163 web bundle 漏 build+deploy 假报告同源)
+- **✅ 必做 5 步** (mobile Tab/Stack 路由改动):
+  1. **跨端 1:1 镜像审计**: web 端 `ProfilePage` 跟 mobile 端 `ProfileScreen` 5 项服务菜单 (通知+AI助手+账单明细+收费标准+VIP中心) 必 1:1, `diff <(grep -rn 'serviceMenu' apps/web/src) <(grep -rn 'serviceMenu' apps/mobile/src)` 必 0 差异 (跟铁律 4++ 5 步同步 SOP 配套)
+  2. **Tab 默认入口 = 新版页面**: `apps/mobile/App.tsx` `tabBarComponent: HomeScreen` 改 `ProfileScreen` (跟 web 端 1:1, 不留中间态)
+  3. **删死代码前 3 维审计** (跟 `mavis-trash` 配套): `git grep '<被删文件名>'` + `grep -rn '<被删关键导出>' apps/` + App.tsx auth gate 包裹检查, 3 维全通过才执行 `mavis-trash`
+  4. **aapt2 验 APK + adb install + 启动**: `aapt2 dump badging app-release.apk` 验 versionName + `adb install` + `am start` + `screencap` 截图归档
+  5. **parse_ui.py 走 UI tree 1-click 验证**: `uiautomator dump` → 解析 clickable=true 元素坐标 → 验证从 Tab 进入目标页面 ≤ 2-click (跟 BUG-164 实战配套)
+- **真实案例 (S78 BUG-164)**: S73 BUG-160 v3.0.82 加 mobile 端 5 项新菜单 (通知+AI助手+账单明细+收费标准+VIP中心) → 默认入口是 HomeScreen (老 8 项菜单) → 用户必须 我的 → 头像 (2-click) 才能看到新菜单 → 跨端铁律 4++ 100% 漏修 (跟 BUG-097 mobile 漏修 web 反方向同源, web 端 1-click 镜像没传到 mobile Tab 默认入口). 修法 v3.0.87: 改 App.tsx line 14 删 HomeScreen import + line 136 tabBarComponent 改 ProfileScreen + `mavis-trash` HomeScreen.tsx (693 行) + 6 处版本号同步 v3.0.86→v3.0.87 → 1-click 可达. 死代码审计 3 维通过: HomeScreen login form 不可达 (App.tsx auth gate 已包) + 8 emoji AVATARS 已合并 ProfileScreen PRESET_AVATARS + 全项目 grep `<HomeScreen` 0 命中
+- **配套**:
+  - `apps/mobile/BUGS.md` BUG-164 段 (line 8423+): 4 条新跨项目通用铁律 + 部署全链路 12 步
+  - `apps/mobile/AGENTS.md` § 4.7: 公网 APK 文件名 `DeepScript_v${version}.apk` 跟 APK 内 `versionName` 一致 + 历史 APK 保留 5 个版本
+  - `apps/mobile/AGENTS.md` § 4.9: server-only hotfix 必 rebuild APK + 8 处版本号同步 (跟铁律 4++++ 配套)
+  - `tools/verify-mobile-apk.sh` 维度 12: 跨项目通用 APK 验证 (CRLF/LF + UTF-8/BOM + 关键字符串 + SHA256 + 公网 HTTP 200 + 9 处版本号 1:1)
+  - `tools/parse_ui.py` UI tree clickable 元素坐标解析 (S78 实战沉淀, BUG-164 修法证据)
+  - mavis memory: `Tab 默认入口 1:1 镜像 + 删死代码前必审计 (跨项目通用, S78 BUG-164 沉淀)`
+- **跨项目通用**: 任何 Tab/Stack/Drawer 路由项目 (RN + iOS + Android + Flutter + Web SPA + 小程序 + Desktop 侧边栏), 默认入口必指向最新功能页面, 修后必走 UI tree 1-click 验证, 删死代码前必审计. 常见踩坑: 改了默认页面忘了 Stack/Drawer / 改了 Stack 忘了 Tab 默认入口 / 删了文件忘了审计独占功能 / 改了路由忘了 adb install + UI tree 验证 / 跨端 web 改了 mobile 漏 1:1. **任意一环漏 = 用户 2-click 才看到新功能 / 死代码被引用撞 BUG / 修法假报告**
+
 ### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082 + S72 batch 6 BUG-090 + S72 batch 31 BUG-131** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志
