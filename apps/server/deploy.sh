@@ -274,6 +274,19 @@ if [ "${DEPLOYED_VER}" != "${NEW_VERSION}" ] && [ -n "${NEW_VERSION}" ]; then
 fi
 echo "    ✓ /api/version 验证: ${DEPLOYED_VER} (8 处同步成功)"
 
+# v3.0.88 (S78 BUG-165): 校验 .env APP_VERSION 跟公网 APK 最新 version 1:1 (防 v3.0.78 漏改根因)
+# 修前: deploy 后 .env 跟公网 APK 任意不一致都不会被发现 → 客户端启动必查会失败
+# 修后: deploy 完必查 mobileLatestApkVersion == currentVersion, 不等 = abort 防止用户升不上去
+DEPLOYED_APK_VER=$(curl -sm 5 ${SERVER}/api/version 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["mobileLatestApkVersion"])' 2>/dev/null || echo "FAIL")
+if [ "${DEPLOYED_VER}" != "${DEPLOYED_APK_VER}" ]; then
+  echo "    ✗ BUG-165 检查失败: .env APP_VERSION (${DEPLOYED_VER}) != 公网 APK 最新 version (${DEPLOYED_APK_VER})"
+  echo "    客户端启动必查会失败, 任何 v${DEPLOYED_APK_VER} 之前 APP 会被强制升级但下载不到"
+  echo "    修法: 1) 推公网 APK: scp apps/mobile/android/app/build/outputs/apk/release/app-release.apk root@<host>:/www/wwwroot/shipin-APP/public/DeepScript_v${DEPLOYED_VER}.apk"
+  echo "         2) 同步 .env: sed -i 's|APP_VERSION=.*|APP_VERSION=${DEPLOYED_APK_VER}|' ${DIST_DIR}/.env 跟 systemctl restart $SERVICE_NAME"
+  exit 1
+fi
+echo "    ✓ BUG-165 启动必查 1:1 验证: .env APP_VERSION (${DEPLOYED_VER}) == 公网 APK 最新 version (${DEPLOYED_APK_VER})"
+
 # 同步 PID 文件 (宝塔 panel 读这个判断启停)
 MAIN_PID=$(systemctl show -p MainPID --value $SERVICE_NAME)
 echo "$MAIN_PID" > $PID_FILE

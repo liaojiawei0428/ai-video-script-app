@@ -5,10 +5,10 @@ module.exports = {
       script: './dist/index.js',
       instances: 1,
       exec_mode: 'fork',
-env: {
+      env: {
         NODE_ENV: 'production',
         PORT: 6000,
-APP_VERSION: '3.0.87',
+        APP_VERSION: '3.0.88',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',
@@ -20,7 +20,7 @@ APP_VERSION: '3.0.87',
       env_production: {
         NODE_ENV: 'production',
         PORT: 6000,
-APP_VERSION: '3.0.87',
+        APP_VERSION: '3.0.88',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',

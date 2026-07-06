@@ -50,9 +50,10 @@
 4. **scp 上传 + bump server** (PM2 env 切 APP_VERSION) — 详见 `DEPLOY.md` § 3
 5. **5 维验证** (跨端铁律 5) — 公网 APK 200 + SHA256 跟本机一致 + /api/version 触发升级 + 弹窗按钮数 3 + 历史 APK 不覆盖
 
-## § 4. 升级链路 7 条铁律 (mobile 独有, S58 P10 BUG-021/022/023/024/025 总结)
+## § 4. 升级链路 7 条铁律 (mobile 独有, S58 P10 BUG-021/022/023/024/025 + 🆕 v3.0.88 S78 BUG-165 强化)
 
 > **跨端铁律 4 跨端 PM2 铁律不适用 mobile, 7 条独有铁律如下**:
+> **v3.0.88 BUG-165 强化**: 强制升级 + 启动必查 + 启动 gate, 跟"任何版本不一致"硬冲突的旧规范 (24h 抑制 / 3 按钮 / forceUpdate 软升级) 全部删除
 
 1. **弹窗代码 100% 走 `react-native-blob-util` + `useDownloadManager: true`** (BUG-021/022)
 2. **release APK 必用 `signingConfigs.release`**, 不用 debug (BUG-023)
@@ -61,6 +62,70 @@
 5. **公网 APK 文件名 `DeepScript_v${version}.apk` 跟 APK 内 `versionName` 一致** (防 BUG-017 覆盖错位)
 6. **不批量覆盖历史 APK**, 部署只上传当前版本 (防 BUG-017)
 7. **历史 APK 文件保留**, 至少留 5 个版本, 用户回滚有路
+
+### § 4.0 v3.0.88 (BUG-165) 强制升级铁律 (新增, 跟 § 4 配套, 跨项目通用)
+
+> **🆕 2026-07-06 S78 BUG-165 实战沉淀** (user 明确要求: "APP 必须要改成强制升级的模式, 不允许和官网版本不一致, 每次启动 APP 必须要验证版本号, 只要不一致, 必须要升级到最新 APP, 不升级不给使用"):
+
+1. **启动必查版本号 (跨项目通用铁律, 跟 BUG-079/131 100% 同源)**: 任何 client/server 架构, 启动必查 client 跟 server 真实 version 1:1. 不一致 = 拒绝启动 (跟 BUG-138 跨端 polling owner 修法 1:1 镜像: 状态机 4 态 `checking` / `network-error` / `update-required` / `ok`)
+2. **不一致必升级, 不允许跳过 (商业 APP 硬指标)**: 修前 v3.0.78 server-only hotfix 漏改 .env → user 端实际不一致但 updater.tsx checkForUpdate 静默吞错 + 24h 抑制 → user 反复启动反复进老版本. 修后强制 modal, 没有"取消"按钮, 只"立即升级" + "退出 APP" 2 按钮
+3. **启动 gate 不通过 = 不进主界面 (跟 BUG-164 Tab 1-click 1:1 镜像)**: 4 状态机 `checking` (splash) / `network-error` (重试按钮) / `update-required` (强制 modal + 空白背景, 不渲染 NavigationContainer) / `ok` (主界面). 修前 user 能"先用后弹", 修后不一致 = 进不了主界面
+4. **24h 抑制 + 3 按钮 + forceUpdate 软升级 全部删除** (跟"强制"硬冲突):
+   - 删 `apps/mobile/src/db/updateMemory.ts` 整个文件 (mavis-trash 死代码, 跟 S78 BUG-164 死代码审计 100% 同源)
+   - 删 showUpdateDialog 3 按钮 (取消 / APP内下载 / 浏览器下载) → 改 showForceUpdateDialog 2 按钮 (立即升级 v{version} 绿色 / 退出 APP 红色 BackHandler.exitApp())
+   - 删 forceUpdate 软升级分支, 改成 appForceUpdate 字段永远 true (server 端 /api/version 必返, mobile 端 trust)
+5. **3 次重试后网络错 = 拒绝启动 (跟"必查"硬指标一致)**: 修前 checkForUpdate 失败 catch 静默返 null → user 端进主界面, 实际未查 = 漏. 修后 1s/2s/4s exponential backoff, 3 次后仍失败 → throw 真实错误 → GateNetworkErrorScreen 渲染重试按钮, 不允许进主界面
+6. **退出 APP 必用 BackHandler.exitApp() (Android) / RNExitApp 兜底 (iOS)**: 强制升级的"必走"路径, 不允许"暂不升级下次再说". iOS 没官方退 API, 走 RNExitApp 第三方包, 失败 fallback 弹 alert 让用户手动退
+7. **server 端 .env APP_VERSION 必跟公网 APK 1:1 验证 (跟 BUG-131 BUG-145 跨项目通用铁律 1:1 镜像)**: deploy 完必查 mobileLatestApkVersion == currentVersion, 不等 abort. server 启动时也 check, 不等 console.warn (修前 v3.0.78 漏改根本发现不了). 配套 verify-deploy.sh V25 维度必跑
+8. **升级完成 (finished) 后调 clearUpdateMemory 兜底 (虽然删了 24h 抑制, 防历史残留)**: 跟 mavis-trash 配套, 防老 .update_memory 文件干扰
+
+### § 4.1 v3.0.35 (BUG-087 失同步) 24h 抑制 删 - 修法沉淀
+
+> **⚠️ 2026-07-06 S78 BUG-165 实战踩坑**: v3.0.35 (S72 batch 5) BUG-087 加的 24h 抑制 (用 RNFS 写 .update_memory, 记录 lastDismissedVersion + lastDismissedAt, 24h 内同版本不弹) 跟"强制升级 + 启动必查"硬冲突, 全部删除. shipin-APP 用户手动反馈 v3.0.78 server-only hotfix 漏改 .env APP_VERSION 后, 24h 抑制让 user 永远进不了主界面, 反复启动反复弹老版本
+
+**原 24h 抑制 修法** (v3.0.35 已删, 这里记录实战教训防下个 AI 重复):
+- `apps/mobile/src/db/updateMemory.ts` (102 行): RNFS 写 .update_memory + 读 + 24h 抑制决策函数
+- `showUpdateDialog` 入口 if (shouldSuppressUpdateDialog(version, forceUpdate)) return (forceUpdate=true 强制弹, false 24h 抑制)
+- "取消" 按钮调 setUpdateDismissed(version) 写 .update_memory
+
+**为什么必须删** (跟"强制升级"硬冲突 3 点):
+1. 24h 抑制只对 forceUpdate=false 生效 → server 端 4 字段 needUpdate/forceUpdate/appForceUpdate 任意 1=true 必弹, 但 user 取消后 (forceUpdate=false) 24h 不弹 → 修前 user 取消 1 次后 24h 内每次启动都进老版本, 跟"启动必查 1:1"硬冲突
+2. 24h 抑制是"用户体验优化" (避免"无限发现新版本"骚扰), 但 shipin-APP 实际场景是"启动必查 1:1 强一致", 任何优化 = 错位
+3. shipin-APP 用户都是 1+ 年老用户, server-only hotfix 频繁, 24h 抑制让"实际不一致但 UI 没弹" = 假安全, 跟 shipin-APP § 3 BUG-079 假报告同源
+
+**删法** (v3.0.88 实战):
+- `mavis-trash apps/mobile/src/db/updateMemory.ts` (整文件 102 行)
+- 删 updater.tsx 顶部 import { shouldSuppressUpdateDialog, setUpdateDismissed } from '../db/updateMemory';
+- 删 updater.tsx showUpdateDialog 函数内 24h 抑制逻辑 (line 43-48)
+- 删 App.tsx 启动 useEffect showUpdateDialog 调用, 改成 startup gate 4 状态机
+
+**配套跨项目通用铁律** (跟"修一个 provider 必 grep 所有 provider" 1:1 镜像, shipin-APP 实战):
+- 删代码前必审计全部 3 维 (`git grep` + 全项目 grep + auth gate 包裹检查, 跟 S78 BUG-164 死代码审计 1:1 镜像)
+- 删规范段前必审计全部引用 (`grep -rn 'updateMemory' apps/mobile/src` 必 0 命中, 才能 mavis-trash)
+- 删 code 必配套规范沉淀 (本段就是规范的"删除前必做审计"实战)
+
+### § 4.2 v3.0.62 (BUG-131) forceUpdate 软升级 删 - 修法沉淀
+
+> **⚠️ 2026-07-06 S78 BUG-165 实战踩坑**: v3.0.62 (S72 batch 31) BUG-131 加的 forceUpdate 字段 (跟 needUpdate 同步, 跟 mobile 端 3 按钮联动: forceUpdate=true 隐藏取消按钮) 跟"启动必查 1:1"硬冲突, 全部统一为 appForceUpdate 永远 true
+
+**原 forceUpdate 修法** (v3.0.88 已统一, 这里记录):
+- server /api/version `forceUpdate: needUpdate` (跟 needUpdate 同步, 语义不清)
+- mobile showUpdateDialog forceUpdate=true 隐藏"取消"按钮 (用户不能取消, 但有 2 按钮 APP内下载/浏览器下载)
+
+**为什么必须删** (跟"启动必查"硬冲突):
+1. forceUpdate 跟 needUpdate 同步, 没有"紧急 vs 普通"区分, 客户端 UI 没有"必升级 vs 可选升级"分支
+2. forceUpdate=true 只隐藏"取消"按钮, 但 3 按钮改成 2 按钮 (APP内/浏览器), 用户还能选"不下载关掉 dialog" → 跟"必升级"硬冲突
+3. 跟"启动必查 1:1"冲突: 启动必查后, version 不一致就是必升级, 没"软升级"语义
+
+**修法** (v3.0.88 实战):
+- server /api/version 统一为 `appForceUpdate: needUpdate` (跟 needUpdate 同步, 但语义清晰 = "必升级")
+- mobile showForceUpdateDialog 2 按钮 (立即升级 v{version} / 退出 APP), 没有"取消"或"暂不升级"
+- mobile checkForUpdate 必返 appForceUpdate 字段, 客户端 trust 此字段决定强制 modal
+
+**跨项目通用铁律** (跟"语义清晰" 1:1 镜像):
+- 字段命名必语义清晰 (forceUpdate vs appForceUpdate: 旧名模糊, 新名明确"APP 必升级")
+- 客户端跟服务端必 1:1 镜像 (server appForceUpdate=true → client 必走强制 modal, 不允许"软升级"分支)
+- "软升级" 跟"必升级" 必二选一, 不能同时存在 (修前 forceUpdate 软升级 跟 appForceUpdate 必升级同时存在, 客户端混乱)
 
 ## § 5. 跨端版本管理 4 处铁律 (mobile 视角, S64 P3 BUG-066/067/068 总结)
 

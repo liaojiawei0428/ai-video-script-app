@@ -1,6 +1,15 @@
+// apps/mobile/src/utils/updater.tsx
+// v3.0.88 (S78 BUG-165): 强制升级 + 启动必查版本号 + 不一致必升级 + 不升级不能使用
+//   删 v3.0.35 (S72 batch 5 BUG-087) 24h 抑制 (跟"强制"矛盾)
+//   删 v3.0.62 (BUG-131) forceUpdate=true 还有的"取消 (24h 不再提醒)"按钮 (跟"必升级"矛盾)
+//   新增: 强制升级 modal 只 2 按钮 (立即升级 / 退出 APP), 启动 gate 不通过不渲染 navigation
+//   退出 APP: BackHandler.exitApp() (Android), RN 默认 RNExitApp 兜底
+//   升级成功 (finished) 后: clearUpdateMemory 保险 (虽然删了 24h 抑制逻辑, 防历史残留文件干扰)
+
 import React, { useState, useEffect } from 'react';
 import {
-  Platform, Linking, View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, PermissionsAndroid,
+  Platform, Linking, View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
+  PermissionsAndroid, BackHandler,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import RNFetchBlob from 'react-native-blob-util';
@@ -9,100 +18,172 @@ import { APP_VERSION } from '../config/version';
 import { colors, spacing, radii, typography, shadows } from '../theme';
 import { Dialog } from '../components/Dialog';
 import { DialogStore, useDialog } from '../hooks/useDialog';
-// v3.0.35 (S72 batch 5): BUG-087 修法 - 24h 抑制"无限发现新版本"
-// 用 RNFS 持久化"用户取消过哪个版本", 同一版本 24h 内不再弹
-import { shouldSuppressUpdateDialog, setUpdateDismissed } from '../db/updateMemory';
+// v3.0.88 删: import { shouldSuppressUpdateDialog, setUpdateDismissed } from '../db/updateMemory';
+//   24h 抑制跟"强制升级 + 不一致必升级"硬冲突, 全部清
 
-interface VersionInfo {
+export interface VersionInfo {
   version: string;
   downloadUrl: string;
   changelog: string;
-  forceUpdate: boolean;
-  needUpdate: boolean;
+  /** 永远 true (v3.0.88): 必升级, 无 needUpdate 二分 */
+  appForceUpdate: boolean;
+  /** v3.0.88 新增: 跟 server 真实公网 APK 一致的最新 version, 客户端做 force reload 验证 */
+  mobileLatestApkVersion: string;
+  /** v3.0.88 新增: 必填 (含 base64 changelog) */
+  changelogHighlights?: string[];
+  buildDate?: string;
+  /** v3.0.88 新增: 失败后多久重试 (秒), 默认 5s */
+  retryAfter?: number;
 }
 
-export async function checkForUpdate(): Promise<VersionInfo | null> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/version?version=${APP_VERSION}`);
-    const data = await response.json();
-    if (data.success && data.data.needUpdate) {
-      return data.data;
+/**
+ * v3.0.88 改: checkForUpdate 加重试 (默认 3 次, 1s/2s/4s exponential backoff)
+ * - 失败 (网络错) → throw 真实错误, 让 App.tsx startup gate 显示"网络错误请重试"
+ * - 成功 → 返 VersionInfo, 包含 appForceUpdate (永远 true for 任何不一致)
+ * - 修前: 失败 catch 静默返 null → App.tsx 当作"无更新" → 用户进入主界面 → 实际不一致 = 漏
+ */
+export async function checkForUpdate(
+  clientVersion: string = APP_VERSION,
+  maxRetries: number = 3,
+): Promise<VersionInfo> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/version?version=${encodeURIComponent(clientVersion)}`,
+        { method: 'GET' }
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json();
+      if (data.success && data.data) {
+        // v3.0.88: appForceUpdate 必返 true for 任何不一致, server 端已经强制映射
+        return {
+          version: data.data.version,
+          downloadUrl: data.data.downloadUrl,
+          changelog: data.data.changelog,
+          appForceUpdate: true, // v3.0.88: 永远是 true, 任何不一致都强制升级
+          mobileLatestApkVersion: data.data.mobileLatestApkVersion || data.data.version,
+          changelogHighlights: data.data.highlights || [],
+          buildDate: data.data.buildDate,
+          retryAfter: 5,
+        };
+      }
+      // server 端返 success=false: throw 让 startup gate 显示错误
+      throw new Error(data.message || '服务器返回错误响应');
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < maxRetries - 1) {
+        const delayMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        console.warn(`[Updater] checkForUpdate attempt ${attempt + 1} failed, retrying in ${delayMs}ms`, lastError);
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delayMs);
+          return timer; // RN 0.73+ setTimeout 显式 () => void 回调签名
+        });
+      }
     }
-    return null;
-  } catch (error) {
-    return null;
   }
+  throw lastError || new Error('checkForUpdate failed after retries');
 }
 
-export async function showUpdateDialog(versionInfo: VersionInfo, onDismiss?: () => void): Promise<void> {
-  const { version, changelog, downloadUrl, forceUpdate } = versionInfo;
+/**
+ * v3.0.88 改: 删 24h 抑制, 改强制升级 modal, 仅 2 按钮
+ * - 立即升级: 调起下载 (APP 内 / 浏览器, 默认浏览器推荐)
+ * - 退出 APP: BackHandler.exitApp() (Android), RNExitApp 兜底
+ * - 修前: 3 按钮 (取消 24h 不再提醒 / APP 内下载 / 浏览器下载) + 24h 抑制 + 跨会话卡死
+ */
+export function showForceUpdateDialog(versionInfo: VersionInfo): void {
+  const { version, changelog, downloadUrl, changelogHighlights } = versionInfo;
 
-  // v3.0.35 (S72 batch 5): BUG-087 修法 - 24h 抑制"无限发现新版本"
-  // forceUpdate=true → 强制弹 (安全/关键修复, 不可抑制)
-  // 否则: 同版本 + 24h 内已取消 → 跳过弹窗
-  const suppress = await shouldSuppressUpdateDialog(version, !!forceUpdate);
-  if (suppress) {
-    console.log('[Updater] dialog suppressed by 24h memory', { version, forceUpdate });
-    onDismiss?.();
-    return;
-  }
-
-  // v3.0.24 (S60 P1): 改用 Dialog 组件 + 自定义内容 (3 按钮), 不再用 Alert.alert
-  // v3.0.35 (S72 batch 5): BUG-087 修法 - 取消按钮调 setUpdateDismissed 写入 .update_memory
-  //                          下载按钮不写入 (用户真的要更新就让他更新, 不要写抑制)
   DialogStore.show({
     type: 'custom',
     options: {
-      title: (forceUpdate ? '紧急升级 v' : '发现新版本 v') + version,
+      title: '⚠️ 版本不一致, 必须升级',
       content: (
         <View>
           <Text style={updateDialogStyles.body}>
-            {forceUpdate ? '本次升级为强制更新 (安全/关键修复), 升级后才能继续使用' : '请更新到最新版本后使用'}{'\n\n'}<Text style={{ color: colors.text.accent }}>{changelog}</Text>{'\n\n'}推荐用浏览器下载 (下载快 + 自带进度 + 失败可重试)
+            当前 APP 版本已被官网淘汰, 必须升级到最新版本才能继续使用{'\n\n'}
+            最新版本: <Text style={{ color: colors.text.accent, fontWeight: '700' }}>v{version}</Text>{'\n'}
+            {changelogHighlights && changelogHighlights.length > 0 ? (
+              <>
+                {'\n更新内容:'}{'\n'}
+                {changelogHighlights.slice(0, 5).map((h, i) => (
+                  <Text key={i} style={updateDialogStyles.bullet}>• {h}</Text>
+                ))}
+              </>
+            ) : (
+              <Text style={{ color: colors.text.tertiary }}>{'\n'}{changelog}</Text>
+            )}
+            {'\n\n推荐用浏览器下载 (速度快 + 自带进度 + 失败可重试)'}
           </Text>
           <View style={updateDialogStyles.btnGroup}>
-            {forceUpdate ? null : (
-              <TouchableOpacity
-                style={[updateDialogStyles.btn, updateDialogStyles.btnSecondary]}
-                onPress={() => {
-                  DialogStore.close();
-                  // BUG-087: 取消 → 写 24h 抑制, 下次冷启动不再弹
-                  setUpdateDismissed(version);
-                  onDismiss?.();
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={updateDialogStyles.btnSecondaryText}>取消 (24h 不再提醒)</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[updateDialogStyles.btn, updateDialogStyles.btnSecondary]}
-              onPress={() => {
-                DialogStore.close();
-                // 不写抑制 (用户真要下载, 让他下载)
-                Updater.start(downloadUrl, version);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={updateDialogStyles.btnSecondaryText}>APP 内下载</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={[updateDialogStyles.btn, updateDialogStyles.btnPrimary]}
               onPress={() => {
-                DialogStore.close();
-                // 不写抑制 (用户真要去浏览器, 让他去)
-                Linking.openURL(downloadUrl).catch(() =>
-                  useDialog().showAlert({ title: '打开失败', message: '请手动访问 ' + downloadUrl, variant: 'error' })
-                );
+                // 不关闭 dialog, 调起下载后让用户继续看到 modal (防 dialog 关闭后用户又看不到升级)
+                Linking.openURL(downloadUrl).catch(() => {
+                  useDialog().showAlert({
+                    title: '打开浏览器失败',
+                    message: '请手动访问: ' + downloadUrl,
+                    variant: 'error',
+                  });
+                });
+                // 同时启动 APP 内下载兜底 (防 Linking 在某些定制 ROM 拦截)
+                Updater.start(downloadUrl, version);
               }}
               activeOpacity={0.8}
             >
-              <Text style={updateDialogStyles.btnPrimaryText}>浏览器下载 (推荐)</Text>
+              <Text style={updateDialogStyles.btnPrimaryText}>立即升级 v{version}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[updateDialogStyles.btn, updateDialogStyles.btnExit]}
+              onPress={() => {
+                console.log('[Updater] user chose to exit, app version mismatch');
+                // 退 APP (Android 用 BackHandler, iOS 没法主动退, 让 RN 默认行为)
+                if (Platform.OS === 'android') {
+                  BackHandler.exitApp();
+                } else {
+                  // iOS 没官方退 APP API, 用 RNExitApp 兜底 (需用户同意)
+                  try {
+                    // @ts-ignore - 动态 import 兼容无 RNExitApp 装包
+                    const RNExitApp = require('react-native-exit-app').default;
+                    RNExitApp.exitApp();
+                  } catch {
+                    // 兜底: 弹 alert 提示用户手动退
+                    useDialog().showAlert({
+                      title: '请手动退出 APP',
+                      message: 'iOS 系统限制, 请按 Home 键返回桌面后从后台划掉 APP',
+                      variant: 'error',
+                    });
+                  }
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={updateDialogStyles.btnExitText}>退出 APP</Text>
             </TouchableOpacity>
           </View>
         </View>
       ),
     },
   });
+}
+
+/**
+ * v3.0.88 兼容: 保留 showUpdateDialog 函数名 (旧 App.tsx 引用), 内部直接调 showForceUpdateDialog
+ * 修前: showUpdateDialog 内部 24h 抑制 + 3 按钮 + forceUpdate 才禁用取消
+ * 修后: showUpdateDialog = showForceUpdateDialog (alias, 永远强制)
+ */
+export async function showUpdateDialog(
+  versionInfo: VersionInfo,
+  _onDismiss?: () => void
+): Promise<void> {
+  showForceUpdateDialog(versionInfo);
+  // 立即调起下载进度 modal (后台下载, 不阻塞 dialog)
+  // 注: 实际点击"立即升级"按钮才调 Updater.start, 这里不主动调
+  // 旧 _onDismiss 回调忽略 (强制升级不允许 dismiss)
+  return;
 }
 
 const updateDialogStyles = StyleSheet.create({
@@ -112,24 +193,21 @@ const updateDialogStyles = StyleSheet.create({
     marginBottom: spacing.lg,
     lineHeight: 22,
   },
+  bullet: {
+    ...typography.body,
+    color: colors.text.secondary,
+    lineHeight: 22,
+    marginLeft: spacing.sm,
+  },
   btnGroup: {
     marginTop: spacing.sm,
   },
   btn: {
-    height: 44,
+    height: 48,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
-  },
-  btnSecondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-  },
-  btnSecondaryText: {
-    ...typography.h3,
-    color: colors.text.secondary,
   },
   btnPrimary: {
     backgroundColor: colors.primary,
@@ -138,12 +216,24 @@ const updateDialogStyles = StyleSheet.create({
   btnPrimaryText: {
     ...typography.h3,
     color: colors.text.inverse,
+    fontWeight: '700',
+  },
+  // v3.0.88 改: 退出按钮红色 (醒目警示, 跟主推绿色升级按钮区分)
+  btnExit: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#dc2626', // 红色, shipin-APP 警示色
+  },
+  btnExitText: {
+    ...typography.h3,
+    color: '#dc2626',
+    fontWeight: '600',
   },
 });
 
 // ────────────────────────────────────────────────────────────────────────
 // v3.0.5 (S58 P6 BUG-010): 进度条 UI — 替换 S58 P4 的 Alert 弹窗
-// 用 module-level 状态 + useSyncExternalStore-like 订阅, 不用 class
+// v3.0.88 (BUG-165): 升级完成 (finished) 后调 clearUpdateMemory 兜底 (虽然删了 24h 抑制, 防历史残留)
 // ────────────────────────────────────────────────────────────────────────
 
 export interface UpdaterState {
@@ -191,8 +281,6 @@ export const Updater = {
     };
   },
   start(url: string, version: string) {
-    // v3.0.12 (S58 P10 BUG-021): 用 react-native-blob-util 走 Android DownloadManager
-    // 通知栏固定下载进度, 应用被杀也能继续下
     console.log('[Updater] start called with', url, version);
     const fileName = `DeepScript_v${version}.apk`;
     const destPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
@@ -205,7 +293,6 @@ export const Updater = {
       downloading: true,
     };
     emit();
-    // Android 13+ 申请 POST_NOTIFICATIONS 权限 (用户拒绝也不影响下载, 只是没通知)
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       try {
         PermissionsAndroid.request(
@@ -218,25 +305,24 @@ export const Updater = {
     Updater._download(url, fileName, destPath);
   },
   _download(url: string, fileName: string, destPath: string) {
-    // v3.0.12: 走系统 DownloadManager, 通知栏固定进度
     console.log('[Updater] _download called', url, fileName, destPath);
     let task: any;
     try {
       task = RNFetchBlob.config({
         addAndroidDownloads: {
-          useDownloadManager: true,         // 关键: 系统 DownloadManager
+          useDownloadManager: true,
           title: 'Deep剧本 v' + _state.version,
-          description: '下载完成后自动安装',
+          description: '下载完成后自动安装 (强制升级)',
           mime: 'application/vnd.android.package-archive',
           mediaScannable: true,
-          notification: true,               // 通知栏固定显示
+          notification: true,
           path: destPath,
         },
       }).fetch('GET', url);
-      console.log('[Updater] RNFetchBlob.fetch() returned task');
     } catch (e) {
       console.error('[Updater] RNFetchBlob.config/fetch THREW', e);
-      _state = { ..._state, downloading: false, error: 'RNFetchBlob error: ' + (e?.message || String(e)) };
+      const errMsg = e instanceof Error ? e.message : String(e);
+      _state = { ..._state, downloading: false, error: 'RNFetchBlob error: ' + errMsg };
       emit();
       return;
     }
@@ -249,7 +335,6 @@ export const Updater = {
     });
 
     task.then((res: any) => {
-      // 下载完成, 调起系统安装器
       _state = {
         ..._state,
         downloading: false,
@@ -258,9 +343,14 @@ export const Updater = {
         total: _state.written,
       };
       emit();
-      // v3.0.21 (S58 P10 BUG-026): Android 7+ (API 24+) StrictMode 禁用 file:// URI 调起安装器
-      // 必用 FileProvider 拿 content:// URI, AndroidManifest.xml 已配 authorities=${applicationId}.fileprovider
-      // file_paths.xml 已配 <external-path name="apk_download" path="Download/" /> 匹配 DownloadManager 落地路径
+      // v3.0.88: 升级完成 (用户安装新版后, 新版会重查版本号, 自动 unlock 主界面)
+      // 兜底清 updateMemory (虽然删了 24h 抑制逻辑, 防历史残留文件干扰)
+      try {
+        const memFile = RNFS.DocumentDirectoryPath + '/.update_memory';
+        RNFS.exists(memFile).then((exists) => {
+          if (exists) RNFS.unlink(memFile).catch(() => {});
+        }).catch(() => {});
+      } catch {}
       const installPath = _state.destPath.startsWith('file://')
         ? _state.destPath.replace('file://', '')
         : _state.destPath;
@@ -271,26 +361,23 @@ export const Updater = {
         );
       } catch (e) {
         console.warn('[Updater] actionViewIntent failed, fallback to FileProvider', e);
-        // 备选: FileProvider 显式转 content://
-        // RNFS 跟 react-native-blob-util 内部都可能用 file://, 失败时降级到手动安装
         useDialog().showAlert({ title: '下载完成', message: '请到下载目录手动安装: ' + _state.destPath, variant: 'success' });
       }
     }).catch((err: any) => {
       console.error('[Updater] download failed', err);
       const errMsg: string = err?.message || String(err);
-      // v3.0.62 BUG-131 修法防御层: 解析 Status Code, 16 (ERROR_HTTP_DATA_ERROR) / 404 自动 fallback 浏览器下载
-      // 跟 BUG-117 公网 APK 404 完全同源, 修法 catch 块识别 "Status Code = N" 自动弹 fallback confirm
       const statusCodeMatch = errMsg.match(/Status Code\s*=\s*(\d+)/);
       const statusCode = statusCodeMatch ? parseInt(statusCodeMatch[1], 10) : null;
       const isApkMissing = statusCode === 16 || statusCode === 404 || /404|Not Found/.test(errMsg);
       _state = { ..._state, downloading: false, error: errMsg };
       emit();
       if (isApkMissing) {
+        // v3.0.88: 强制升级不允许"取消", 改"返回升级按钮"
         useDialog().showConfirm({
           title: 'APP 内下载不可用',
-          message: `服务器当前版本 APK 未发布 (${statusCode === 16 ? '公网 404' : '下载失败'}), 是否改用浏览器下载?\n\n链接: ${_state.url}`,
+          message: `服务器当前版本 APK 未发布, 是否改用浏览器下载?\n\n链接: ${_state.url}`,
           confirmText: '用浏览器下',
-          cancelText: '取消',
+          cancelText: '返回升级',
           onConfirm: () => {
             Linking.openURL(_state.url).catch(() =>
               useDialog().showAlert({ title: '跳转失败', message: '请手动复制链接到浏览器: ' + _state.url, variant: 'error' })
@@ -314,7 +401,6 @@ export const Updater = {
     emit();
   },
   installApk() {
-    // v3.0.12: 用 blob-util 调起系统安装器
     try {
       RNFetchBlob.android.actionViewIntent(
         _state.destPath,
@@ -346,7 +432,6 @@ export function UpdateProgressModal() {
   const mbWritten = (s.written / 1024 / 1024).toFixed(2);
   const mbTotal = (s.total / 1024 / 1024).toFixed(2);
 
-  // v3.0.24 (S60 P1): 改用 View 渲染 + Dialog 视觉, 不再用 React Native Modal
   return (
     <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
       <View style={styles.backdrop}>

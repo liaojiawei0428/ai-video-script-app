@@ -214,6 +214,40 @@
   - mavis memory: `Tab 默认入口 1:1 镜像 + 删死代码前必审计 (跨项目通用, S78 BUG-164 沉淀)`
 - **跨项目通用**: 任何 Tab/Stack/Drawer 路由项目 (RN + iOS + Android + Flutter + Web SPA + 小程序 + Desktop 侧边栏), 默认入口必指向最新功能页面, 修后必走 UI tree 1-click 验证, 删死代码前必审计. 常见踩坑: 改了默认页面忘了 Stack/Drawer / 改了 Stack 忘了 Tab 默认入口 / 删了文件忘了审计独占功能 / 改了路由忘了 adb install + UI tree 验证 / 跨端 web 改了 mobile 漏 1:1. **任意一环漏 = 用户 2-click 才看到新功能 / 死代码被引用撞 BUG / 修法假报告**
 
+#### 🆕 v3.0.88 S78 BUG-165 强化 (强制升级 + 启动必查 1:1, 跟铁律 4+++++ 配套, 跨项目通用铁律)
+
+> **2026-07-06 user 明确要求**: "APP 必须要改成强制升级的模式, 不允许和官网版本不一致, 每次启动 APP 必须要验证版本号, 只要不一致, 必须要升级到最新 APP, 不升级不给使用. 一定要避免这种版本不一致, 无法升级的问题. 检查版本管理规范, 以及相关发布流程, 还有相关规范, 确保这条版本升级的发布流程能执行下去, 同时删除不合时宜的相关规范, 整理好"
+
+> **🆕 强制升级 + 启动必查 1:1 铁律** (跟 BUG-079/087/131/145/164 100% 同源, 跨项目通用):
+
+- **🛑 严禁 4 类** (跟"强制升级"硬冲突的旧规范, BUG-165 实战删除):
+  1. **24h 抑制** (v3.0.35 BUG-087): `shouldSuppressUpdateDialog` (RNFS .update_memory 持久化 lastDismissedVersion + lastDismissedAt, 24h 内同版本不弹) → 跟"启动必查 1:1"硬冲突, shipin-APP v3.0.78 实战 user 永远进不了主界面. **必删**, 配套 `mavis-trash apps/mobile/src/db/updateMemory.ts`
+  2. **3 按钮 dialog** (v3.0.24): showUpdateDialog 3 按钮 (取消 24h / APP内下载 / 浏览器下载) → 跟"必升级"硬冲突, 改成 2 按钮 (立即升级 / 退出 APP), 没有"取消"或"暂不升级"
+  3. **forceUpdate 软升级分支** (v3.0.62 BUG-131): forceUpdate 字段 (跟 needUpdate 同步, UI 隐藏"取消"按钮但还有 2 按钮) → 跟"必升级"硬冲突, 统一为 appForceUpdate 永远 true, 强制 modal 2 按钮
+  4. **静默吞错** (v3.0.87 updater.tsx): checkForUpdate catch 静默返 null → user 进主界面, 实际未查 = 漏. 必加重试 (1s/2s/4s exponential backoff, 3 次), throw 真实错误, 启动 gate 拦截
+
+- **✅ 必做 5 步** (mobile 端启动必查 SOP):
+  1. **App.tsx startup gate 4 状态机** (跟 BUG-138 跨端 polling owner 修法 1:1 镜像): `checking` (splash, 跑 checkForUpdate 3 次重试) / `network-error` (3 次后仍失败, 渲染重试按钮不允许进主界面) / `update-required` (拿到 updateInfo 但 version 不一致, 渲染强制 modal + 不渲染 NavigationContainer) / `ok` (跟 server 一致, 渲染主界面)
+  2. **updater.tsx 强制 modal 2 按钮**: 立即升级 v{version} (绿色) / 退出 APP (红色, BackHandler.exitApp()). 退出 iOS 走 RNExitApp 第三方包, 失败 fallback 弹 alert 让用户手动退
+  3. **server /api/version 必返 appForceUpdate 字段**: `appForceUpdate: needUpdate` (跟 needUpdate 同步, 跟 mobile 端 1:1 镜像, 客户端 trust 此字段决定强制 modal). server 启动时 console.warn if .env APP_VERSION != 公网 APK max version (修前 v3.0.78 漏改根本发现不了)
+  4. **deploy.sh + verify-deploy.sh 必加 V25 维度**: deploy 完必查 mobileLatestApkVersion == currentVersion, 不等 abort (修前 deploy.sh 只验证 version 字段, 不验证 APK 1:1, 漏 v3.0.78). 配套 verify-deploy.sh 升 25 维 V25 = .env==server==APK 1:1 验证
+  5. **删 code 必配套规范沉淀 + 跨项目铁律 cross-reference**: 删 updateMemory.ts → mavis memory 沉淀 "24h 抑制跟强制升级硬冲突 必删" 跨项目铁律; 改 showUpdateDialog 3 按钮 → 2 按钮 → AGENTS.md 铁律 4+++++ 强化 段; 删 forceUpdate → appForceUpdate 统一 → 跟 server 端 /api/version 字段同步
+
+- **真实案例 (S78 BUG-165 v3.0.88)**: 2026-07-06 user 反馈 v3.0.78 server-only hotfix 漏改 .env APP_VERSION (仍 3.0.77 但公网 APK 3.0.78) → 客户端启动查 /api/version 后修前 updater.tsx checkForUpdate 静默吞错 → user 端实际不一致但没任何提示 → user 反复启动反复进老版本. 加上 24h 抑制 (BUG-087), user 取消过就 24h 不弹, 永远进不了主界面. 修法 v3.0.88: ① 删 24h 抑制 + 3 按钮 + forceUpdate 软升级 3 段 ② 改 updater.tsx showForceUpdateDialog 2 按钮 (立即升级 v{version} 绿色 / 退出 APP 红色 BackHandler.exitApp()) ③ 改 App.tsx startup gate 4 状态机, 不通过 = 不渲染 NavigationContainer ④ 改 server /api/version 加 appForceUpdate 字段, 启动时 console.warn if .env != 公网 APK ⑤ 改 deploy.sh + verify-deploy.sh 加 V25 维度, .env==server==APK 1:1 验证 ⑥ 删 apps/mobile/src/db/updateMemory.ts (mavis-trash 死代码) + 6 处版本号同步 v3.0.87→v3.0.88 + mavis memory 清 line 58-99 中文乱码
+
+- **配套**:
+  - `apps/mobile/AGENTS.md` § 4.0 (新增): 强制升级铁律 8 条 (跟根 AGENTS.md 铁律 4+++++ v3.0.88 强化 1:1 镜像)
+  - `apps/mobile/AGENTS.md` § 4.1 (新增): v3.0.35 (BUG-087 失同步) 24h 抑制 删 - 修法沉淀 (为什么必删, 删法, 跨项目铁律)
+  - `apps/mobile/AGENTS.md` § 4.2 (新增): v3.0.62 (BUG-131) forceUpdate 软升级 删 - 修法沉淀 (跟"必升级"硬冲突)
+  - `apps/mobile/BUGS.md` BUG-165 段: 5 修法 + 4 跨项目通用铁律 + 部署全链路 12 步
+  - `apps/server/src/index.ts` /api/version: 加 appForceUpdate 字段 + 启动时 .env vs 公网 APK 1:1 check
+  - `apps/server/deploy.sh`: 升 9 步 → 10 步 (新加 6.6/9 校验 mobileLatestApkVersion == currentVersion, 不等 abort)
+  - `scripts/verify-deploy.sh` (远端): 升 24 维 → 25 维, V25 = .env==server==APK 1:1 验证
+  - `mavis memory MEMORY.md`: 清 line 58-99 中文乱码 (历史 mavis memory append 失同步留下的 ?? ?????? 占位) + 沉淀 5 条 BUG-165 跨项目通用铁律
+  - mavis memory: `强制升级 + 启动必查 1:1 (跨项目通用, S78 BUG-165 沉淀)`
+
+- **跨项目通用**: 任何 client/server 架构项目 (RN + iOS + Android + Flutter + Web SPA + 小程序 + Desktop), 启动必查 client 跟 server 真实 version 1:1, 不一致 = 强制 modal (不渲染主界面) + 删 24h 抑制 (跟"强制"硬冲突) + 删 软升级 (跟"必升级"硬冲突) + server 启动时 .env vs 公网 APK 1:1 check + 删 code 必配套规范沉淀. 常见踩坑: 修了启动必查忘了删 24h 抑制 (BUG-087 失同步) / 删了 24h 抑制忘了删 3 按钮 (跟"必升级"硬冲突) / 删了 3 按钮忘了 server 端 forceUpdate 字段同步 (跟 mobile 端 appForceUpdate 必 1:1) / 加了 startup gate 忘了 deploy.sh 校验 (v3.0.78 漏改根因) / 修了 checkForUpdate 忘了 3 次重试 + throw 真实错误 (跟"必查"硬指标一致). **任意一环漏 = user 反复启动反复进老版本 / 24h 抑制卡死永远进不了主界面 / 假报告假安全**
+
 ### 铁律 5: 部署后必跑 5/6/12/14/20 维验证 (S64 + S67 + S70 + **S71 BUG-079/080/082 + S72 batch 6 BUG-090 + S72 batch 31 BUG-131** 升级)
 - **跨端 5 维** (`VERSION_MANAGEMENT.md § 5.8`): /health + /api/version + 公网 APK + 6 处版本号 + commit 完整
 - **server 6 维** (`docs/DEPLOY.md § 6`): 进程 + 端口 + /health + /api/version + 鉴权 + 日志

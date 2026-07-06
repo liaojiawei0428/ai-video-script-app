@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  StatusBar, View, Text, StyleSheet, TouchableOpacity,
+  StatusBar, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -11,6 +11,101 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 //   (跨项目通用铁律: 任何用 react-native-gesture-handler v2 的 app 根必须包)
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+// v3.0.88 (S78 BUG-165): 启动必查版本 + 强制升级 + 不一致不允许进主界面
+//   删 v3.0.35 (S72 batch 5) BUG-087 24h 抑制 (跟"强制"硬冲突)
+//   showUpdateDialog 改成 showForceUpdateDialog (2 按钮: 立即升级/退出APP)
+import { checkForUpdate, showForceUpdateDialog, VersionInfo } from './src/utils/updater';
+import { APP_VERSION } from './src/config/version';
+
+/**
+ * v3.0.88 (BUG-165): 客户端版本对比 (跟 server 端 compareVersions 1:1 镜像)
+ * 返 -1 (v1 < v2) / 0 (相等) / 1 (v1 > v2)
+ */
+function compareVersionsClient(v1: string, v2: string): number {
+  const pa = v1.split('.').map(Number);
+  const pb = v2.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const a = pa[i] || 0;
+    const b = pb[i] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+/**
+ * v3.0.88 (BUG-165): Gate Screen - 启动时检查版本中 (splash)
+ */
+function GateCheckingScreen() {
+  return (
+    <View style={gateStyles.container}>
+      <ActivityIndicator size="large" color={colors.primary} />
+      <Text style={gateStyles.title}>检查版本中...</Text>
+      <Text style={gateStyles.subtitle}>当前版本: v{APP_VERSION}</Text>
+    </View>
+  );
+}
+
+/**
+ * v3.0.88 (BUG-165): Gate Screen - 网络错误 (3 次重试后仍失败)
+ * 不允许跳过, 必 retry 才能进入主界面
+ */
+function GateNetworkErrorScreen({ errorMsg, onRetry }: { errorMsg: string; onRetry: () => void }) {
+  return (
+    <View style={gateStyles.container}>
+      <Text style={gateStyles.emoji}>⚠️</Text>
+      <Text style={gateStyles.title}>网络错误, 无法连接服务器</Text>
+      <Text style={gateStyles.subtitle}>{errorMsg}</Text>
+      <Text style={gateStyles.subtitle}>请检查网络后重试</Text>
+      <TouchableOpacity
+        style={gateStyles.retryBtn}
+        onPress={onRetry}
+        activeOpacity={0.7}
+      >
+        <Text style={gateStyles.retryBtnText}>重试</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const gateStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text.primary,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 32,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
 import { ChatScreen } from './src/screens/ChatScreen';
 import { BookshelfScreen } from './src/screens/BookshelfScreen';
 import { UploadScreen } from './src/screens/UploadScreen';
@@ -53,7 +148,9 @@ import { useNovelStore } from './src/store/useNovelStore';
 import { setAuthToken, getProfile } from './src/api/client';
 import { getToken, deleteToken } from './src/db/tokenStorage';
 import { colors, spacing } from './src/theme';
-import { checkForUpdate, showUpdateDialog, UpdateProgressModal } from './src/utils/updater';
+// v3.0.88 (BUG-165): checkForUpdate 加重试 (1s/2s/4s) + showForceUpdateDialog 强制 modal
+//   旧 showUpdateDialog 仍 export 作为 alias (兼容外部引用), 但内部已转 showForceUpdateDialog
+import { UpdateProgressModal } from './src/utils/updater';
 import type { TabParamList, RootStackParamList } from './src/types/navigation';
 
 // v2.0 向量图标映射 (v3.0.0: 加生图 + 视频)
@@ -139,9 +236,21 @@ function HomeTabs() {
   );
 }
 
+// v3.0.88 (S78 BUG-165): 启动 gate 类型
+//   - 'checking': 启动 splash, 跑 checkForUpdate (3 次重试)
+//   - 'network-error': 3 次重试后仍失败, 渲染"网络错误请重试"页 (不允许进入主界面)
+//   - 'update-required': 拿到 updateInfo 但 version 不一致, 渲染强制升级 modal (不渲染 navigation)
+//   - 'ok': 跟 server 一致, 渲染主界面
+type GateState = 'checking' | 'network-error' | 'update-required' | 'ok';
+
 function App(): React.JSX.Element {
   const isLoggedIn = useNovelStore(s => s.isLoggedIn);
   const isAdmin = useNovelStore(s => s.isAdmin);
+
+  // v3.0.88 (BUG-165): startup gate 强制升级, 不一致不允许进入主界面
+  const [gateState, setGateState] = useState<GateState>('checking');
+  const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
+  const [gateErrorMsg, setGateErrorMsg] = useState<string>('');
 
   useEffect(() => {
     (async () => {
@@ -174,30 +283,64 @@ function App(): React.JSX.Element {
     })();
   }, []);
 
-  // 启动时检查APP更新 (v3.0.17 S58 P10 BUG-026: 删 S58 P7 全屏升级页, 改用 showUpdateDialog 弹窗 + UpdateProgressModal)
-  // 删 setNeedUpdate/setUpdateVersion/setUpdateUrl 3 个 state + 强制更新页 (App.tsx:140-142, 191-209)
-  // 删 updateStyles 样式 (App.tsx:305)
-  // 修 BUG-014 (S58 P7): 删全屏"立即更新"页, 让 React 渲染继续走, showUpdateDialog 弹窗能正常显示
-  // v3.0.35 (S72 batch 5): BUG-087 修法 - showUpdateDialog 内部 24h 抑制 (避免"无限发现新版本")
-  //   - 取消按钮 → 写 .update_memory (24h 不再弹同版本)
-  //   - forceUpdate=true → 强制弹, 不抑制
-  //   - 下载按钮 (APP 内/浏览器) → 不抑制 (让用户真去下载)
-  useEffect(() => {
-    const checkUpdate = async () => {
-      try {
-        const updateInfo = await checkForUpdate();
-        if (updateInfo) {
-          console.log('[App] update available', { version: updateInfo.version, forceUpdate: updateInfo.forceUpdate });
-          await showUpdateDialog(updateInfo);
-        } else {
-          console.log('[App] no update needed (clientVersion >= serverVersion)');
-        }
-      } catch (e) {
-        console.warn('[App] checkUpdate failed', e);
+  // v3.0.88 (S78 BUG-165): 启动必查版本, 不一致不允许进入主界面
+  // 修前 (v3.0.87): checkForUpdate 静默吞错 + 弹 modal 跟 navigation 并行渲染 → 用户能"先用后弹"
+  // 修后: 4 状态机 (checking / network-error / update-required / ok), 不通过 = 不渲染 navigation
+  const runGate = useCallback(async () => {
+    setGateState('checking');
+    setGateErrorMsg('');
+    try {
+      const info = await checkForUpdate(APP_VERSION, 3);
+      console.log('[App] checkForUpdate success', { version: info.version });
+      // v3.0.88: 任何不一致都强制升级 (appForceUpdate 永远 true), client 跟 server 对比
+      const clientVer = APP_VERSION;
+      const serverVer = info.version;
+      const isMatch = compareVersionsClient(clientVer, serverVer) === 0;
+      if (isMatch) {
+        // 一致 → 进主界面
+        setUpdateInfo(null);
+        setGateState('ok');
+      } else {
+        // 不一致 → 强制升级, 不允许 dismiss
+        setUpdateInfo(info);
+        setGateState('update-required');
+        showForceUpdateDialog(info);
       }
-    };
-    checkUpdate();
+    } catch (e: any) {
+      // 3 次重试后仍失败 → 拒绝启动 (跟"启动必查"硬指标一致, 不允许进主界面)
+      console.error('[App] checkForUpdate 3 retries failed', e);
+      setGateErrorMsg(e?.message || '网络错误, 请重试');
+      setGateState('network-error');
+    }
   }, []);
+
+  useEffect(() => {
+    runGate();
+  }, [runGate]);
+
+  // v3.0.88: 不通过 = 渲染 GateScreen 不渲染 NavigationContainer
+  if (gateState === 'update-required' || gateState === 'checking' || gateState === 'network-error') {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
+          {gateState === 'checking' ? (
+            <GateCheckingScreen />
+          ) : gateState === 'network-error' ? (
+            <GateNetworkErrorScreen errorMsg={gateErrorMsg} onRetry={runGate} />
+          ) : (
+            // update-required: 渲染空白背景, 强制 modal 已经在 showForceUpdateDialog 弹出
+            <View style={{ flex: 1, backgroundColor: colors.bg.primary }} />
+          )}
+          {/* 全局 Dialog + Toast 仍要渲染, 否则 modal 不能弹 */}
+          <DialogHost />
+          <ToastHost />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // gateState === 'ok' → 正常渲染主界面
 
   return (
     // v3.0.76 (BUG-145 修): GestureHandlerRootView 包整个 app, gesture-handler v2 硬性要求

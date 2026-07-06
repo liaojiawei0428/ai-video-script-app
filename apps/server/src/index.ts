@@ -167,7 +167,7 @@ import { readChangelog, loadChangelog } from './shared/changelog';
 // 避免 server-only hotfix (v3.0.61) 跟公网 APK (v3.0.60) 不一致导致 Status Code 16 假下载
 import { getMobileLatestApk } from './services/apkVersion';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.87';
+  const currentVersion = process.env.APP_VERSION || '3.0.88';
   const clientVersion = req.query.version as string || '0.0.0';
   // v3.0.62 BUG-131: needUpdate 跟 mobileLatestApkVersion 比, 不是 server APP_VERSION (避免 server-only hotfix 假升级)
   const mobileApk = getMobileLatestApk();
@@ -189,6 +189,11 @@ app.get('/api/version', etagMiddleware, (req, res) => {
       changelog: changelogEntry.summary,
       highlights: changelogEntry.highlights,
       buildDate: changelogEntry.buildDate,
+      // v3.0.88 (S78 BUG-165): appForceUpdate 字段 - 跟 mobile 端 appForceUpdate 1:1 镜像
+      //   跟 needUpdate 同步 (任何 client 跟 server 不一致 = 必升级), 客户端强制 modal
+      //   修前: 只有 forceUpdate + needUpdate, 语义不清 (forceUpdate 跟 needUpdate 同步)
+      //   修后: appForceUpdate 明确"启动必查 + 不一致必升级"语义, mobile 端 trust 此字段
+      appForceUpdate: needUpdate,
       forceUpdate: needUpdate,
       needUpdate,
     },
@@ -256,7 +261,28 @@ server.listen(config.port, '0.0.0.0', () => {
   logger.info(`Server running on port ${config.port} in ${config.nodeEnv} mode`);
   logger.info(`WebSocket server available at ws://0.0.0.0:${config.port}/ws`);
 
-  // S72 v3.0.33 P1 #5 修复 (ADR-0002): 启动�?load 已取消的 novels (DB �?内存 Map), 重启不丢
+  // v3.0.88 (S78 BUG-165): 启动时检查 .env APP_VERSION 跟 公网 APK max version 1:1
+  //   修前: 启动后 .env 跟公网 APK 任意不一致 (deploy 漏改 .env 或漏推 APK) 都不会被发现
+  //   修后: 启动时 console.warn if 不一致, 提醒 ops 检查 deploy
+  //   实战: v3.0.78 server-only hotfix 漏改 .env APP_VERSION (仍 3.0.77 但公网 APK 3.0.78) → 客户端 24h 抑制卡住, 永远进不了主界面
+  //   ⚠️ 不 abort (避免单点故障, 只是 warn 提醒)
+  (() => {
+    const envVer = process.env.APP_VERSION || '0.0.0';
+    const mobileApk = getMobileLatestApk();
+    const apkVer = mobileApk.version;
+    const apkSource = mobileApk.source;
+    if (compareVersions(envVer, apkVer) !== 0) {
+      logger.warn(
+        `[BUG-165 STARTUP CHECK FAIL] .env APP_VERSION (${envVer}) != 公网 APK 最新 version (${apkVer}, source=${apkSource}). ` +
+        `客户端启动必查会失败, 任何 client ${apkVer} 之前的 APP 会被强制升级. 请检查 deploy.sh 漏改了 .env 或漏推 APK. ` +
+        `(修法: 1) sed -i 's|APP_VERSION=${envVer}|APP_VERSION=${apkVer}|' .env && systemctl restart shipin-app  2) 或跑 deploy.sh 完整 9 步)`
+      );
+    } else {
+      logger.info(`[BUG-165 STARTUP CHECK OK] .env APP_VERSION (${envVer}) == 公网 APK 最新 version (${apkVer}, source=${apkSource})`);
+    }
+  })();
+
+  // S72 v3.0.33 P1 #5 修复 (ADR-0002): 启动？load 已取消的 novels (DB？内存 Map), 重启不丢
   import('./services/novelService').then(m => m.NovelService.startupLoadCancelled()).catch(e => logger.warn('novelService startupLoad failed', { err: e instanceof Error ? e.message : String(e) }));
 
   import('./services/deepseekPool').then(({ deepseekPool }) => {

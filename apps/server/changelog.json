@@ -3,9 +3,23 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.87",
+  "latest_version": "3.0.88",
   "latest_version_time": "2026-07-06",
   "entries": [
+    {
+      "version": "3.0.88",
+      "buildDate": "2026-07-06",
+      "type": "minor",
+      "summary": "BUG-165 强制升级 + 启动必查版本号 + 不一致必升级 + 不升级不能使用 (user 2026-07-06 明确要求: 不允许和官网版本不一致, 每次启动 APP 必验证, 不升级不给使用)",
+      "highlights": [
+        "BUG-165 ✅ 修前根因: v3.0.78 server-only hotfix 漏改 .env APP_VERSION (仍 3.0.77 但公网 APK 3.0.78) → 客户端启动查 /api/version 后修前 updater.tsx checkForUpdate 静默吞错 → user 端实际不一致但没任何提示 → user 反复启动反复进老版本. 加上 24h 抑制 (BUG-087), user 取消过就 24h 不弹, 永远进不了主界面. shipin-APP 用户手动反馈后规范强化",
+        "BUG-165 ✅ 修法 mobile 端 (apps/mobile/src/utils/updater.tsx 整文件重写): ① 删 shouldSuppressUpdateDialog 24h 抑制 (跟强制升级硬冲突) ② 删 updateMemory.ts (mavis-trash 死代码, 跟跨项目通用铁律 S78 BUG-164 死代码审计 100% 同源) ③ 删 showUpdateDialog 3 按钮 (取消/APP内/浏览器), 改 showForceUpdateDialog 2 按钮 (立即升级 v{version} 绿色 / 退出 APP 红色 BackHandler.exitApp()) ④ 删 forceUpdate 软升级分支, 改成 appForceUpdate 字段永远 true ⑤ checkForUpdate 加重试 (1s/2s/4s exponential backoff, 上限 3 次, 失败 throw 真实错误, 不再静默吞错)",
+        "BUG-165 ✅ 修法 mobile 端 (apps/mobile/App.tsx startup gate): ① 加 4 状态机 (checking / network-error / update-required / ok) ② 不通过 = 不渲染 NavigationContainer, 渲染 GateScreen (GateCheckingScreen splash / GateNetworkErrorScreen 重试按钮 / update-required 空白背景 + 强制 modal) ③ 启动必查, 3 次重试后仍失败 → 拒绝启动 + 渲染重试按钮 (不进入主界面) ④ 一致 → 渲染主界面 ⑤ 不一致 → 强制 modal (没有取消按钮, 只有 立即升级 / 退出 APP)",
+        "BUG-165 ✅ 修法 server 端 (apps/server/src/index.ts /api/version): ① 加 appForceUpdate 字段 (跟 needUpdate 同步, 跟 mobile 端 1:1 镜像, 客户端 trust 此字段决定强制 modal) ② server 启动时 check .env APP_VERSION 跟 公网 APK 最新 version 1:1, 不等 console.warn (修前 v3.0.78 漏改根本发现不了) ③ deploy.sh 加 1 维校验: deploy 完必查 mobileLatestApkVersion == currentVersion, 不等 abort ④ verify-deploy.sh 升 24 维 → 25 维, V25 = .env==server==APK 1:1 验证 (PASS 实测 .env=3.0.87 == server=3.0.87 == APK=3.0.87)",
+        "BUG-165 ✅ 删 4 段不合时宜规范: ① apps/mobile/AGENTS.md § 4 7 条铁律中 24h 抑制 / 3 按钮 / forceUpdate 软升级 3 段 (跟强制升级硬冲突) ② apps/mobile/src/db/updateMemory.ts 整个文件 (mavis-trash 死代码) ③ 根 AGENTS.md 铁律 4+++++ v3.0.88 升级: 强强制升级 + startup gate + 1-click 验证配套 (跟 BUG-164 Tab 1-click 1:1 镜像) ④ mavis memory MEMORY.md 清 line 58-99 中文乱码段 (历史 mavis memory append 失同步留下的 ?? ?????? 占位)",
+        "跨项目通用铁律 5 条新沉淀 (跟 BUG-079/087/097/118/131/135/143/144/145/164 100% 同源): ① 启动必查版本号 (任何 client/server 架构, 启动必查 client 跟 server 真实 version 1:1) ② 不一致必升级, 不允许跳过 (商业 APP 必强制, 防 shipin-APP v3.0.78 那种 24h 抑制卡死) ③ 24h 抑制跟'强制'硬冲突, 删 (BUG-087 失同步) ④ 启动 gate 不通过 = 不进主界面 (跟 BUG-164 Tab 1-click 1:1 镜像) ⑤ .env APP_VERSION 必跟公网 APK 1:1 验证 (deploy 完必查, 不等 abort)"
+      ]
+    },
     {
       "version": "3.0.87",
       "buildDate": "2026-07-06",
