@@ -335,6 +335,10 @@ function App(): React.JSX.Element {
             // update-required: 渲染空白背景, 强制 modal 已经在 showForceUpdateDialog 弹出
             <View style={{ flex: 1, backgroundColor: colors.bg.primary }} />
           )}
+          {/* v3.0.94 BUG-172 修: update-required 分支必渲染 ForceUpdateModal, 之前 v3.0.88 实战盲点漏了 (跟 BUG-165 铁律 1:1 配套)
+              修前: update-required 分支只渲染空背景 + DialogHost/ToastHost, 不渲染 ForceUpdateModal → showForceUpdateDialog 触发 modal visible=true 但没组件实例 → modal 渲染失败 = 黑屏
+              修后: ForceUpdateModal 跟 DialogHost/ToastHost 1:1 模式, gate 不通过也必渲染 (跟 BUG-165 修法实战盲点规避 100% 镜像) */}
+          <ForceUpdateModal />
           {/* 全局 Dialog + Toast 仍要渲染, 否则 modal 不能弹 */}
           <DialogHost />
           <ToastHost />

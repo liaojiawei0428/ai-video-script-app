@@ -157,6 +157,9 @@ export function ForceUpdateModal(): React.JSX.Element | null {
     };
   }, []);
 
+  // v3.0.96 BUG-172 调试: 测组件是否真渲染
+  console.log('[Updater] ForceUpdateModal render', { visible: _forceState.visible, version: _forceState.version });
+
   if (!_forceState.visible) {
     return null;
   }
@@ -164,17 +167,11 @@ export function ForceUpdateModal(): React.JSX.Element | null {
   const { version, changelog, downloadUrl, highlights } = _forceState;
 
   return (
-    <Modal
-      visible={true}
-      transparent={false}  // 整屏覆盖, 不透出主界面 (修 v3.0.88 dismissable 逃逸)
-      animationType="none"
-      statusBarTranslucent
-      // v3.0.89 关键: onRequestClose 不做任何事, 防止 Android 硬件返回键关闭 modal
-      onRequestClose={() => {
-        console.log('[Updater] ForceUpdateModal onRequestClose blocked, user must tap 立即升级 or 退出 APP');
-      }}
-    >
-      {/* 背景: 整屏深色 + 居中卡片, 不用 Pressable */}
+    // v3.0.94 BUG-172 修: 不依赖 RN <Modal> (RN 0.73 + Hermes + 新架构下 ReactModalHostManager view manager 找不到 generated setter, 实战 BUG-165 修法盲点)
+    //   改用 absoluteFill + zIndex: 9999 普通 View, 强制覆盖整屏 (跟 RN <Modal transparent={false}> 1:1 镜像效果)
+    //   跨项目通用铁律 #31 (跟 BUG-165 实战盲点 100% 同源): 强制升级 E2E 必跑完整 9 维, 单测 "checkForUpdate success + visible=true" 不够, 必截图验证 modal 真渲染
+    <View style={[StyleSheet.absoluteFillObject, forceModalStyles.fullscreen, { zIndex: 9999, elevation: 9999 }]}>
+      {/* 背景: 整屏深色 + 居中卡片, 不用 Pressable (无 dismiss 逃逸) */}
       <View style={forceModalStyles.fullscreen}>
         <View style={forceModalStyles.card}>
           <Text style={forceModalStyles.emoji}>⚠️</Text>
@@ -231,7 +228,7 @@ export function ForceUpdateModal(): React.JSX.Element | null {
           </View>
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
