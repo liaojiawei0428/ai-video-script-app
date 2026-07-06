@@ -3,9 +3,23 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.86",
-  "latest_version_time": "2026-07-05",
+  "latest_version": "3.0.87",
+  "latest_version_time": "2026-07-06",
   "entries": [
+    {
+      "version": "3.0.87",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "BUG-164 mobile Tab '我的' 改用 ProfileScreen (S73 BUG-160 修法 1-click 可见) + 删 HomeScreen.tsx (693 行 死代码: login form unreachable, 8 emoji AVATARS 已合并到 ProfileScreen PRESET_AVATARS)",
+      "highlights": [
+        "BUG-164 ✅ 修前根因: App.tsx line 134-138 Tab '我的' → component={HomeScreen} (老菜单 8 项), 而 ProfileScreen (新菜单 5 项) 只在 Stack.Screen 'Profile' 路由 (line 277), 用户从 Tab 进入永远看到老菜单. 跨端铁律 4++ 100% 漏修 (跟 BUG-097 mobile 漏修 web 同源)",
+        "BUG-164 ✅ 修法方案 A: App.tsx line 136 component={HomeScreen} → ProfileScreen + 删 HomeScreen import + mavis-trash HomeScreen.tsx (693 行). ProfileScreen 已包含 HomeScreen 全部功能 (avatar/edit nickname/VIP card/balance/退出登录), 只多新 5 项菜单 (通知+AI助手+账单明细+收费标准+VIP中心, S73 BUG-160 修法)",
+        "BUG-164 ✅ HomeScreen 死代码审计: login form (line 53-58 + 232-234) unreachable (App.tsx 已有 auth gate: isLoggedIn=false → AuthStack → LoginScreen). 8 emoji AVATARS 数组 (line 32-41) 已合并到 ProfileScreen PRESET_AVATARS (line 30-39) + PRESET_AVATAR_BG (line 77-86)",
+        "BUG-164 ✅ 跟 ProfileScreen 余额卡差异: HomeScreen 余额卡 onPress → Billing, ProfileScreen 余额卡 onPress → Recharge (含 { amount: 30 } 透传, 快速跳到充值页, 功能更全). 平衡: ProfileScreen 顶部 🔔 通知按钮 + '> ' 跳 Profile 入口 (HomeScreen line 358-361) 已废弃 (因 Tab 本身就是 ProfileScreen)",
+        "BUG-164 ✅ E2E 验证: mobile tsc 0 新错 + gradle assembleRelease 成功 + APK 装到设备 + 底部 Tab '我的' 1-click 进 ProfileScreen + 5 项新菜单 (通知/AI助手/账单明细/收费标准/VIP中心) 全部 1-click 可见 (修复前需 2-click: 我的 → 头像 > 按钮) + 通知/AI助手/账单明细 3 个核心菜单跳转正常 (跟 S73/S77 修法 1:1 镜像)",
+        "跨项目通用铁律 4 条新沉淀 (跟 BUG-079/097/118/130/134/135/140/143/144 100% 同源): ① Tab 默认入口必须用最新版 screen, 不要 Tab 用老 + Stack 放新 (用户永远进不到 Stack 路由) — 修法必走 grep 全部 navigation.navigate('X') 看 X 是否是 Tab 内的, 防止漏修 ② 删文件前必审计全部功能, 防止遗漏独占功能 (login form 死代码可删, 8 emoji AVATARS 已合并) ③ 跨端铁律 4++ 不光是 web/mobile 1:1, 同端内 Tab/Stack 也要 1:1 (web 端 ProfilePage 是独立 tab, mobile 端 Tab 必须是 ProfileScreen) ④ 修后必走 UI tree 验证 (e2e dump + 坐标 tap), 证明 1-click 而不是 2-click"
+      ]
+    },
     {
       "version": "3.0.86",
       "buildDate": "2026-07-05",
@@ -14,7 +28,8 @@
       "highlights": [
         "BUG-162: screen entrance must add ?? {} guard for route.params",
         "cross-project rule: RN v6 route.params is undefined by default",
-        "grep all screens using route.params for similar risk"
+        "grep all screens using route.params for similar risk",
+        "🐛 BUG-164 (v3.0.86 部署后 S78 E2E 发现, 2026-07-06): mobile 端 S73 BUG-160 + S77 BUG-162 修法**用户实际看不到** — 真根因: 底部 Tab '我的' 默认页是 **HomeScreen** (693 行老菜单: 充值/交易记录+收费标准+设置+任务进度+VIP中心+修改密码+意见反馈+关于我们 v3.0.86, 8 项), 而 **ProfileScreen** (856 行新菜单: 通知+AI助手+账单明细+收费标准+VIP中心, 5 项 S73/S77 修法) 只在 Stack.Screen 'Profile' 路由中 (App.tsx line 277), 用户从底部 Tab 进入永远看到 HomeScreen 老菜单. 跨端铁律 4++ 100% 漏修 (跟 BUG-097 mobile 漏修 web 同源). 修法 3 候选: A) 删 HomeScreen Tab 指向 ProfileScreen (最干净) B) HomeScreen 菜单同步 ProfileScreen 新菜单 (跨端铁律 4++ 1:1 镜像) C) 删 ProfileScreen 升级 HomeScreen. 待用户决策."
       ]
     },
     {

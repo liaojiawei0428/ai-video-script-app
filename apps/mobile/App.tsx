@@ -11,7 +11,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 //   (跨项目通用铁律: 任何用 react-native-gesture-handler v2 的 app 根必须包)
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { HomeScreen } from './src/screens/HomeScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { BookshelfScreen } from './src/screens/BookshelfScreen';
 import { UploadScreen } from './src/screens/UploadScreen';
@@ -133,7 +132,7 @@ function HomeTabs() {
       />
       <Tab.Screen
         name="Home"
-        component={HomeScreen}
+        component={ProfileScreen}
         options={{ tabBarLabel: '我的', tabBarIcon: ({ focused }) => <TabIcon label="我的" focused={focused} /> }}
       />
     </Tab.Navigator>
