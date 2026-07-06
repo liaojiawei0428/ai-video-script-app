@@ -445,7 +445,17 @@ export class DeepseekService {
                 const content = parsed.choices?.[0]?.delta?.content;
                 const reasoning = parsed.choices?.[0]?.delta?.reasoning_content;
                 if (content) onChunk(content);
-                if (reasoning) onChunk(reasoning); // reasoning content 走同 callback, LLMResult 单独 track
+                // v3.0.99 BUG-176 修: reasoning_content (DeepSeek 思考模式输出) 不再通过 onChunk 暴露给调用方
+                //   修前: onChunk(reasoning) → fullContent += chunk → analysis_report 含思考过程草稿
+                //   修后: reasoning 只在 logger debug 留痕, 永远不污染 analysis_report
+                //   跨项目通用铁律 #34 (跟 BUG-079 假报告 100% 同源): AI 思考内容 (reasoning_content / chain-of-thought) 必滤, 不能进入用户可见输出
+                if (reasoning) {
+                  logger.debug('DeepSeek reasoning_content chunk (not exposed to caller)', {
+                    userId,
+                    reasoningLen: reasoning.length,
+                    reasoningPreview: reasoning.slice(0, 80),
+                  });
+                }
                 // BUG-148 修法 2: 解析流式响应末尾的 usage 块
                 if (parsed.usage) {
                   lastUsage = parsed.usage;

@@ -3,13 +3,23 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.98",
+  "latest_version": "3.0.99",
   "latest_version_time": "2026-07-06",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.99",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "S83 BUG-176 修 DeepSeek reasoning_content 泄漏到 analysis_report (AI 思考内容污染)",
+      "highlights": [
+        "S83 #5 老数据修复: server 端 analysis_report 字段已污染, user 用 curl POST /api/novels/:id/analyze 重新分析 (会扣 token 钱, user 决定)",
+        "跨项目通用铁律: 不要 server 自动重跑, 跟 BUG-103 自动退款漏刷 APK 教训同源"
+      ]
+    },
     {
       "version": "3.0.98",
       "buildDate": "2026-07-06",
