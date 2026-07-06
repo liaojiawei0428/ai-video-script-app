@@ -822,3 +822,60 @@ byte 序列 `0x22 0x0D 0x0A [whitespace indent] 0x22` (close-quote + CRLF + inde
 4. server 模块 catch 后 fallback = 静默丢失业务关键数据 (必 throw + health-check fail-fast)
 5. apps/server/scripts/fix-changelog.js SOP: Buffer 字节级精确修复 (byte 序列 0x22 0x0D 0x0A [indent] 0x22 -> 在 LF 后注入 ',')
 ```
+### § 4.14 v3.0.88-91 实战: 强制升级铁律 + 9 处版本号同步 + iOS 应急修 + 跨端 deck 部署踩坑 (S77-S78 BUG-164-168, 跨端铁律 4+++++++ + 跨项目通用铁律 #19-22)
+
+#### § 4.14.1 5 个连续实战盲点收口
+
+S77-S78 期间 (2026-07-06) 集中实战 5 个 BUG (BUG-164/165/166/167/168), 都是同一个根因系列: 跨端 9 处版本号一致性 + 跨端导入 sync + 修死模块前的引用审计 + web-only hotfix 顶层 latest_version 边界 + iOS 启动 crash 实战盲点.
+
+**BUG-164 (v3.0.87) mobile Tab 我的 改用 ProfileScreen** (跨端铁律 4++ 漏修, 跟 BUG-097 mobile 漏修 web 同源, 跟 BUG-079 假能力 100% 同源): Tab navigator 我的 老菜单 (HomeScreen) ≠ Profile Stack.Screen (ProfileScreen 新菜单), 用户从 Tab 进入永远看不到 5 项新菜单. 修法: Tab component=HomeScreen 改成 ProfileScreen + mavis-trash HomeScreen.tsx 693 行 (跟 AGENTS.md § 4.14 死代码审计配套).
+
+**BUG-165 (v3.0.88) 强制升级铁律 + 启动必查 + 不一致不允许进入主界面** (user 2026-07-06 商业硬指标, 跟 BUG-087 24h 抑制/BUG-131 forceUpdate 软升级 100% 同源): App.tsx 4 状态机 (checking/network-error/update-required/ok) + updater.tsx 整文件重写 + .env+systemd Environment 1:1 验证配套 deploy.sh.
+
+**BUG-166 (v3.0.89) dismissable=true 强制升级 modal 逃逸漏洞** (跟 BUG-165 强配套, shipin-APP Dialog.tsx dismissable 默认值是实战盲点): 整文件重写 updater.tsx + ForceUpdateModal 组件, 改 module-level state + 自渲染 RN Modal visible=true transparent=false 整屏覆盖 + 公网下架 v3.0.6x-v3.0.87 老 APK.
+
+**BUG-167 (v3.0.90) web AgentChatPanel 视频点击播放 Date.now() 实战盲点** (web-only hotfix, 跟 BUG-143 v3.0.74 mobile buildImageUrl Date.now() 100% 同源): key=stableVideoKey=part.url + djb2HexFilename + 走 /api/download query token 鉴权 + 顶层 latest_version 保持 3.0.89 (跟 server APP_VERSION 1:1).
+
+**BUG-168 (v3.0.91) iOS 启动 crash Requiring unknown module undefined** (本次实战, v3.0.89 BUG-166 修法实战盲点): updater.tsx exitApp() iOS 分支 require react-native-exit-app silent fail + useDialog 兜底调已被删模块 → 改 RN 内置 Alert.alert (零加重, 跟 Dialog.tsx:64 Alert 兜底 1:1 镜像).
+
+#### § 4.14.2 6 条跨项目通用铁律新沉淀
+
+**(跨项目通用铁律 #19) 删模块前必全局 grep 引用零命中再删**: useDialog 死在 v3.0.89 updater.tsx 调用方 catch 兜底路径, v3.0.88 删模块没扫到调用方的兜底路径. 修法: 删模块前必 grep -rn useDialog <src> 0 命中再删.
+
+**(跨项目通用铁律 #20) caller 必 try/catch 兜底 require 静默 fail**: shipin-APP 项目没装 react-native-exit-app → require 抛错 → 兜底 useDialog 调用又错 → silent fail. 修法: 不依赖第三方 react-native-exit-app, 用 RN 内置 Alert.alert + shipin-APP 项目没装的包必先 grep package.json deps/devDeps/yarn.lock 三步确认再 require.
+
+**(跨项目通用铁律 #21) 死模块 cleanup 前必扫三方依赖是否装**: cleanup 时必查 call site + call site 引用清单 + package.json deps + package.json devDeps + yarn.lock 5 维, 缺一就 BUG-168 翻车.
+
+**(跨项目通用铁律 #22) 跨端 dialog 选型必 1:1 镜像** (跨端铁律 4++ 1:1): web 端用 React Portal + CSS transform, mobile 端用 RN Modal + Animated API (BUG-145 v3.0.76+ 修法的跨端铁律 4++). 实战: diff <(grep -rn Dialog apps/web/src) <(grep -rn Dialog apps/mobile/src) 必 0 差异 (除各自 API 名称).
+
+**(跨项目通用铁律 #23) 顶层 latest_version 跟 _web_only_versions 边界** (跟 BUG-131 server-only hotfix 漏重建 APK + BUG-165 启动必查 1:1 100% 同源): web-only hotfix 必须顶层 latest_version 保持旧版 (跟 server APP_VERSION 1:1), 防 mobile 启动查 latestVersion → 访问公网不存在 .apk → 404. 实战: v3.0.90 web-only hotfix 顶层 latest_version 保持 3.0.89, 顶层 _web_only_versions 数组标注 + 配套 spec 字段说明.
+
+**(跨项目通用铁律 #24) deploy tarball 必扁平** (跟 BUG-159 部署路径 100% 同源): cd apps/server/dist 然后 tar -czf output.tar.gz * (-C) 强制扁平顶层为文件, 不要 tar -czf output.tar.gz dist/ 让 dist/ 子目录嵌套 dist/dist/. 实战踩坑: v3.0.91 第一次 deploy 撞 systemd restart failed, 解压嵌套 dist/dist/ 让 systemd ExecStart 找不到.
+
+#### § 4.14.3 3 个部署实战踩坑
+
+**(踩坑 1) deploy tarball 顶层 dist/ 子目录 → 解压嵌套 dist/dist/**: 修前 tar -czf output.tar.gz dist → tar 包顶层有 dist/, deploy.sh tar xzf /tmp/dist.tar.gz -C /www/wwwroot/shipin-APP/dist → 解压成 dist/dist/index.js 而不是 dist/index.js. systemd ExecStart 找不到 → status=1/FAILURE. 修法: 扁平打包 tar -czf output.tar.gz -C apps/server/dist . (顶层是 ./index.js).
+
+**(踩坑 2) changelog.json JSON parse 失败**: line 23-24 多余 { { (上轮 session 崩前 v3.0.91 entry 写到一半). 修法: Edit 删多余 {, 验证 python -c "import json; json.load(open(changelog.json))" 0 错.
+
+**(踩坑 3) systemd restart 撞顶 failed unit**: pkill 后 shipin-app restart counter 撞 5, 触发 Start request repeated too quickly. 修法: ssh 手 systemctl reset-failed shipin-app + systemctl start shipin-app.
+
+#### § 4.14.4 AGENTS.md § 4 各段铁律交叉索引
+
+- § 4.10 (v3.0.60-67 选型教训) — 跨项目通用铁律 #11 (选型决策表)
+- § 4.11 (v3.0.43 GeneratingLoader 跨端 1:1) — 跨端铁律 4++ + 跨项目通用铁律 7
+- § 4.12 (v3.0.79 中间件官方文档对齐) — 跨项目通用铁律 #1-#5
+- § 4.13 (v3.0.80 changelog JSON 字节级验证) — 跨项目通用铁律 #7-#10
+- § 4.14 (v3.0.88-91 强制升级 + 跨端一致性) — 跨项目通用铁律 #19-#24 (本段)
+
+#### § 4.14.5 mavis memory 沉淀
+
+```
+跨项目通用铁律 (v3.0.88-91 S77-S78 BUG-164-168 实战)
+1. 删模块前必全局 grep 引用零命中再删 (cleanup 必审计 call site + package.json + yarn.lock 三步)
+2. caller 必 try/catch 兜底 require 静默 fail (shipin-APP RN 端死模块 silent fail 跟 BUG-079 100% 同源)
+3. 死模块 cleanup 前 shipin-APP 三方依赖必先扫是否装 (cleanup 时 5 维 audit)
+4. 跨端 dialog 选型必 1:1 镜像 (web React Portal + CSS transform 跟 mobile RN Modal + Animated API 1:1)
+5. 顶层 latest_version 跟 _web_only_versions 边界 (web-only hotfix 必保顶层 latest_version 跟 server APP_VERSION 1:1)
+6. deploy tarball 必扁平 (tar -czf output.tar.gz -C dist . 强制顶层文件, 不要带 dist/ 子目录嵌套)
+```

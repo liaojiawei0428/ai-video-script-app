@@ -3,11 +3,25 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.89",
+  "latest_version": "3.0.91",
   "latest_version_time": "2026-07-06",
-  "_web_only_versions": ["3.0.90"],
+  "_web_only_versions": [
+    "3.0.90"
+  ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.91",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "BUG-168 iOS 启动 crash: useDialog() 兜底用 RN Alert.alert (v3.0.89 BUG-166 修法实战盲点)",
+      "highlights": [
+        "BUG-168 修前: v3.0.89 useDialog().showAlert 兜底 -> useDialog 模块已被删 -> Requiring unknown module undefined iOS 启动 crash",
+        "BUG-168 修法: useDialog().showAlert/.showConfirm -> RN Alert.alert (零加重, shipin-APP Dialog.tsx 已用 Alert 兜底)",
+        "BUG-168 跨项目通用铁律: 备份路径删除前必全局 grep (useDialog() 引用零命中再删) + 跨端 import sync 1:1 镜像 + 死模块 cleanup 前 shipin-APP 三方依赖必先扫 react-native-exit-app 是否装 + caller 必 try/catch 兜底防 require 静默 fail",
+        "v3.0.91 顺带把 v3.0.90 (BUG-167 web 视频点击播放) 代码改下发: web APP_VERSION 跟 server/mobile 9 处同步, v3.0.90 commit 漏 sync 修补"
+      ]
+    },
     {
       "version": "3.0.90",
       "buildDate": "2026-07-06",
@@ -20,7 +34,6 @@
         "BUG-167 ✅ 跨端独立版本号 (跟 BUG-131 同源, 跟 BUG-165 1:1 校验配合): v3.0.90 是 web-only hotfix (server 0 改 + mobile 0 改 + 公网 APK 0 改), server 端 + mobile 端保持 v3.0.89, BUG-165 启动必查 1:1 校验过 (server 端 APP_VERSION=3.0.89 == 公网 APK v3.0.89, 跟 BUG-131 教训一致: server 端 /api/version 返 v3.0.90 + 公网没 v3.0.90 APK → mobile 启动失败, web-only hotfix 必保 server 端 APP_VERSION 跟公网 APK 1:1 不变)"
       ]
     },
-    {
     {
       "version": "3.0.89",
       "buildDate": "2026-07-06",

@@ -722,3 +722,108 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **S77 #4: 部署 v3.0.84 server 重启 systemd unit** (按 BUG-159 教训, deploy.sh + ssh + systemctl restart shipin-app)
 - **S77 #5: v3.0.85 patch 升级演练** (用 bump-version.py --patch --apply --commit --rollback 全链路演练)
 
+
+---
+
+## § 12. S77-S78 v3.0.85-91 应急实战 + 整体收口 (2026-07-06)
+
+> **本版本特点**: S77-S78 期间 v3.0.85 → v3.0.91 整体实战, BUG-165/166/167 强制升级 + 视频 src 修复, 但中途 session 挂掉后这一段接续做 BUG-168 应急 + 公网 v3.0.90 web dist 补 + v3.0.91 跨端 9 处一致性修复 + HANDOVER/BUGS_INDEX 收口.
+
+### 做了什麽 (按版本号顺序, 串联 7 个 commit)
+
+| 版本 | 内容 | 关键 commit |
+|---|---|---|
+| v3.0.85-89 | (S77 期间已 commit 但生产只到 v3.0.86, S78 应急跳到 v3.0.89 公网) | `538e463` → `c796869` → `994af52` → `a9c229c` → `5ee5993` |
+| v3.0.90 web-only hotfix (BUG-167) | AgentChatPanel.tsx 视频点击播放修法 + djb2 stable filename + /api/download proxy, web APP_VERSION=3.0.90 但 server/mobile 9 处漏同步 | `36127a7` |
+| v3.0.91 BUG-168 应急 (本次) | iOS 启动 crash 修法 + 9 处版本号同步 + web dist 补打 + 公网部署 | (待本次 commit) |
+
+### BUG-168 实战盲点与修法 (v3.0.91 S78 应急核心)
+
+**修前**: v3.0.89 BUG-166 修法中 iOS 退出用 `require('react-native-exit-app')` + useDialog() 兜底. 项目没装 react-native-exit-app → require 抛错 → catch 块调用已被 v3.0.88 删掉的 useDialog().showAlert → iOS 启动即 crash `Requiring unknown module "undefined"`. 公网 v3.0.89 APK iOS 端完全用不了, user 反馈.
+
+**修法 mobile** (`apps/mobile/src/utils/updater.tsx` 30+/28-):
+1. exitApp() iOS 分支: `require('react-native-exit-app')` + `useDialog().showAlert` 兜底 → 改为 RN 内置 `Alert.alert` (零加重, shipin-APP Dialog.tsx 已用 Alert 兜底)
+2. updateDownloadOnError catch: `useDialog().showAlert` → `Alert.alert`
+3. updateDownload catch apkMissing: `useDialog().showConfirm` 3 button → `Alert.alert` 2 button
+4. 删 `import { Dialog }` / `useDialog` (顶层 dead code cleanup)
+5. 跨项目通用铁律 4 条新沉淀: 删模块前必全局 grep + 跨端 import sync 1:1 + 死模块清理前扫三方依赖 + caller try/catch 兜底 require 静默 fail
+
+**修法 server** (9 处版本同步 + changelog bump):
+- `bump-version.py --version 3.0.91 --apply` 一键 8 处同步 + 1 changelog entry + 9 个 .bak 备份
+- 9 处: server.package / server.index_fallback / server.eco_env ×2 / mobile.version_ts / mobile.build_gradle vc+vn / web.version_ts APP_VERSION + APP_VERSION_CODE / changelog.json entries[0]+latest_version
+- 公网 .env APP_VERSION=3.0.91 + systemd unit Environment=APP_VERSION=3.0.91 (deploy.sh 自动 sed sync)
+
+**修法 web** (v3.0.91 顺带把 v3.0.90 web-only hotfix 代码下发):
+- v3.0.90 commit 漏同步: web.version.ts APP_VERSION=3.0.90 但 server/mobile 都未 bump → 9 处不一致
+- 修法: web.version.ts 改回 3.0.89 + 91 → bump-version.py 跳到 3.0.91 + 92 (跳过 v3.0.90, 简化 history)
+- 公网 web dist 补打: 扁平 tarball (-C dist + tar -czf .) → scp /tmp/web-dist.tgz → bash deploy-web.sh 公网 HTML 引用 index-BdFx-kT6.js (跟本机 build hash 一致)
+
+**v3.0.90 web-only 反思 + 修法**:
+- 顶层 latest_version 保持 3.0.89 (跟 server APP_VERSION 1:1, 跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion 访问公网不存在 .apk 404)
+- web 端 code 改动 (AgentChatPanel.tsx case 'video' 修视频点击播放) 通过 web dist 单独发版, 不动 server APP_VERSION
+- v3.0.91 顺带把 v3.0.90 web 代码下发, 但 changelog.json entries 数组里 v3.0.90 entry 保留 web-only hotfix 描述
+
+### 实战踩坑 (跟 BUG-131/138/145/165 100% 同源, shipin-APP "反复踩坑" 系列)
+
+#### 踩坑 1 (deploy tarball 结构): 顶层有 `dist/` 子目录导致嵌套 `dist/dist/`
+- 修前: `cd apps/server && tar -czf shipin-app-server-v3.0.91.tar.gz dist` → tar 包顶层有 `dist/`
+- deploy.sh `tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist` → 解压成 `dist/dist/index.js` 而不是 `dist/index.js` ❌
+- systemd unit ExecStart=...dist/index.js 找不到 → 启动失败 exit 1
+- 修法: 改扁平打包 `tar -czf output.tar.gz -C apps/server/dist .` → tar 包顶层是 `./index.js` 等文件 → 解压到 `dist/index.js` ✅
+- 跨项目通用铁律: deploy tarball 必打包顶层为文件 (扁平), 不要包外层目录, deploy.sh 不会自动 strip-components
+
+#### 踩坑 2 (changelog.json JSON parse 失败): bump-version.py 跑 patch 时撞 JSON 解析
+- 修前: apps/server/changelog.json line 23-24 有 `{ {` 多余空对象 (上轮 session 崩前 v3.0.91 entry 写到一半留下)
+- bump-version.py Python json.load 报错 "Expecting property name enclosed in double quotes: line 24 column 5"
+- 修法: Edit 删 line 23-24 的多余 `{`, 改回 v3.0.89 entry 起的干净结构
+- 验证: `python -c "import json; json.load(open(...))"` 0 错, entries=54 (54 = 49 + 5 (v3.0.86-90) + 1 (v3.0.91))
+- 配套铁律: 写 JSON 文件必 byte-level JSON.parse 验证 (跟 v3.0.80 BUG-158 沉淀 1:1)
+
+#### 踩坑 3 (systemd restart 失败): 公网 6000 端口 `pkill` 后 shipin-app restart counter 撞顶
+- 修前: deploy.sh 第 6 步 pkill -f node.*dist/index.js 后, ssh run bash deploy.sh → 16:48 systemd restart 失败 (status=1/FAILURE), deploy.sh 第 7 步 exit 1
+- 诊断: journalctl -xeu 显示 restart counter 撞 5 触发 "Start request repeated too quickly" → unit 进入 failed
+- 修复: ssh 手 `systemctl reset-failed shipin-app` → `systemctl start shipin-app` → 30ms 后 active ✅ + /health 200 OK
+- 修后: PID 14012 active + /api/version=3.0.91 返回完整字段 (version, latestVersion, mobileLatestApkVersion=3.0.91, downloadUrl=DeepScript_v3.0.91.apk, changelog + 4 highlights + buildDate 完整)
+- 配套铁律: deploy.sh 撞 systemd restart 撞顶自动 reset-failed 是 shipin-APP "systemd unit + 宝塔 Node 项目" 部署路径的实战盲点
+
+#### 踩坑 4 (top-level _web_only_versions 字段沉淀): v3.0.90 web-only 首次实践
+- 顶层 `_web_only_versions` 数组记录 "跳过顶层 latest_version bump 的 web-only 版本"
+- 配套 spec 字段: "_web_only_version_spec" 描述 v3.0.90 为什么是 web-only (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion 访问公网不存在 .apk 404)
+- 实战意义: 后续 release agent 看 changelog 顶层 latest_version + entries + _web_only_versions 三字段就能看清发布节奏, 不用读完整 entries 数组
+
+### 跨项目通用铁律新增 (v3.0.91 BUG-168 实战沉淀 1:1 镜像)
+
+1. **删模块前必全局 grep 引用零命中再删** (BUG-168 实战, 跨项目通用铁律 #19): useDialog() 死在 v3.0.89 updater.tsx 调用方, 但 catch 兜底也引用, v3.0.88 删模块没扫到调用方的兜底路径 → iOS 启动 crash
+2. **caller 必 try/catch 兜底 require 静默 fail** (BUG-168 实战, 跨项目通用铁律 #20): `require('react-native-exit-app')` shipin-APP 项目没装 → require 抛错 → 兜底 useDialog 调用 → 模块已被删 → `Requiring unknown module "undefined"` silent crash, 老版本 silent fail 没 try/catch
+3. **死模块 cleanup 前 shipin-APP 三方依赖必先扫是否装** (BUG-168 实战, 跨项目通用铁律 #21): cleanup 时 grep call site + grep package.json deps/devDeps + grep yarn.lock 三步, 缺一就 BUG-168 翻车
+4. **跨端 import sync 1:1 镜像 (跨端铁律 4++)** (BUG-168 实战, 跨项目通用铁律 #22): web/移动端 dialog 选型必 1:1 对齐 (web 用 React Portal, mobile 用 RN Modal), 不要 web 用一种 mobile 用另一种, 缺一就是漏修
+
+### 部署全链路 (跨端铁律 5)
+
+| 步骤 | 结果 |
+|---|---|
+| git working tree (8 文件修改) | ✅ commit (本次新增) |
+| 本机 web `npm run build` | ✅ 1686 modules, dist/index-BdFx-kT6.js 533.75 KB |
+| 本机 server `npm run build` | ✅ tsc 0 错, dist/index.js 18248 bytes |
+| 本机 mobile `gradlew.bat assembleRelease` | ✅ BUILD SUCCESSFUL in 44s, app-release.apk 30324302 bytes |
+| 本机 server dist tar (扁平) | ✅ shipin-app-server-v3.0.91.tar.gz 362064 bytes |
+| 本机 web dist tar (扁平) | ✅ dist-web-v3.0.91.tar.gz 165449 bytes |
+| scp 4 件套 (server dist + package.json + changelog.json + APK v3.0.91) | ✅ 全部 scp rc=0 |
+| 远端 shipin-app.service systemd restart | ✅ active, PID 14012 (reset-failed 后正常起) |
+| 远端 /api/version | ✅ version=3.0.91, latestVersion=3.0.91, mobileLatestApkVersion=3.0.91, downloadUrl=DeepScript_v3.0.91.apk, changelog + 4 highlights + buildDate 完整 |
+| 远端 .env APP_VERSION | ✅ 3.0.91 (deploy.sh sed 一键同步) |
+| 远端 systemd unit Environment=APP_VERSION | ✅ 3.0.91 (deploy.sh sed 一键同步) |
+| 公网 APK HTTP/2 200 | ✅ https://ab.maque.uno/app/DeepScript_v3.0.91.apk HTTP 200, cl=30324302 |
+| 公网 web bundle index hash | ✅ index-BdFx-kT6.js (跟本机 build hash 1:1, BUG-167 web 修法已下发) |
+| 跨端 BUG-165 1:1 验证 (deploy.sh 内置) | ✅ .env=3.0.91 == 公网 APK v3.0.91 启动必查 1:1 |
+| bump-version.py 9 处同步验证 (本地 verify-version-8-points.js) | ✅ 8 处一致 |
+| BUGS_INDEX + HANDOVER + AGENTS.md 文档收口 | ✅ (本次 S78 § 12) |
+
+### 一步候选项 (S79 推荐)
+
+- **S79 #1: 公网下架老 APK v3.0.88 + v3.0.89** (BUG-166 changelog 说 "只保留 v3.0.88 + v3.0.89", 但 v3.0.88 也有 dismissable=true 强制升级 modal 逃逸, v3.0.89 有 BUG-168 iOS 启动 crash, 应该都下架, 只留 v3.0.91): 清理 `/www/wwwroot/shipin-APP/public/DeepScript_v{老版本}.apk`, 只保留 v3.0.91
+- **S79 #2: 跑真机 adb install + tap login + 验 network OK** (S76 实战 PASS 10/12 跳过 adb, 本次 APK v3.0.91 已包含 BUG-168 修法, 但 web 端只能跑了系统级 E2E, 装蓝叠插真机跑完整 12 维度拿全 PASS)
+- **S79 #3: 跨端 1:1 UI mirror 补做** (s77 推荐, web 跟 mobile ProfileScreen 1:1) - 等用户提需求时再做
+- **S79 #4: deploy.sh tarball `--strip-components=1` 加固** (踩坑 1 实战, 顶层有 dist 子目录时也能解压正确, 防止下次又有 dist/dist/ 嵌套) - 修法: `tar xzf /tmp/dist.tar.gz -C ${DIST_DIR}/dist --strip-components=1` 或者改 deploy-wrapped 打包脚本强制扁平输出
+- **S79 #5: systemd restart 撞顶 reset-failed wrapper 加 deploy.sh** (踩坑 3 实战, 自动 `systemctl reset-failed shipin-app` 在 pkill -f 后, 防 restart counter 撞 5 触发 "Start request repeated too quickly")
+

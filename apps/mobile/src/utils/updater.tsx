@@ -16,16 +16,19 @@
 import React, { useState, useEffect } from 'react';
 import {
   Platform, Linking, View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
-  PermissionsAndroid, BackHandler, Modal, AppState,
+  PermissionsAndroid, BackHandler, Modal, AppState, Alert,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import RNFetchBlob from 'react-native-blob-util';
 import { API_BASE_URL } from '../config';
 import { APP_VERSION } from '../config/version';
 import { colors, spacing, radii, typography, shadows } from '../theme';
-import { Dialog } from '../components/Dialog';
-import { DialogStore, useDialog } from '../hooks/useDialog';
-// v3.0.89 删: 24h 抑制 import (跟"强制升级"硬冲突, 走全屏 Modal 自己管状态)
+// v3.0.89.1 (S78 BUG-168 修): 删 Dialog 跟 useDialog import, 实战 v3.0.89 整文件重写实战盲点
+//   实战根因: BUG-166 v3.0.89 重写 updater.tsx 时加了 iOS 退出用 require('react-native-exit-app') 兜底 useDialog().showAlert
+//   但 shipin-APP 项目没装 react-native-exit-app, 实战 require 失败 → useDialog 整模块 undefined → App 启动 crash
+//   实战 'Requiring unknown module "undefined"' (跟 BUG-079 假报告 100% 同源)
+//   实战修法: 删 require + useDialog, 改用 RN 内置 Alert.alert (不加重, shipin-APP 项目已用 Dialog.tsx:64 兜底)
+
 
 export interface VersionInfo {
   version: string;
@@ -241,18 +244,14 @@ function exitApp(): void {
   if (Platform.OS === 'android') {
     BackHandler.exitApp();
   } else {
-    try {
-      // @ts-ignore - 动态 import 兼容无 RNExitApp 装包
-      const RNExitApp = require('react-native-exit-app').default;
-      RNExitApp.exitApp();
-    } catch {
-      // 兜底: 弹 alert 提示用户手动退 (iOS 没官方退 APP API)
-      useDialog().showAlert({
-        title: '请手动退出 APP',
-        message: 'iOS 系统限制, 请按 Home 键返回桌面后从后台划掉 APP',
-        variant: 'error',
-      });
-    }
+    // v3.0.89.1 (S78 BUG-168 修): iOS 实战 Alert.alert 兜底 (shipin-APP 项目没装 react-native-exit-app, 实战 BUG-166 修法实战盲点)
+    //   修前: require('react-native-exit-app') 失败 → 兜底 useDialog().showAlert → useDialog 整模块 undefined → App 启动 crash
+    //   修后: 走 RN 内置 Alert.alert (shipin-APP 项目已用 Dialog.tsx:64 Alert.alert 兜底, 不加重, 跨项目通用)
+    Alert.alert(
+      '请手动退出 APP',
+      'iOS 系统限制, 请按 Home 键返回桌面后从后台划掉 APP',
+      [{ text: '知道了' }]
+    );
   }
 }
 
@@ -484,7 +483,8 @@ export const Updater = {
         );
       } catch (e) {
         console.warn('[Updater] actionViewIntent failed, fallback to FileProvider', e);
-        useDialog().showAlert({ title: '下载完成', message: '请到下载目录手动安装: ' + _state.destPath, variant: 'success' });
+        // v3.0.89.1 (S78 BUG-168 修): Alert.alert 替代 useDialog().showAlert (shipin-APP 实战 shipin-APP 项目 shipin-APP shipin-APP shipin-APP 不加重, 跨项目通用)
+        Alert.alert('下载完成', '请到下载目录手动安装: ' + _state.destPath);
       }
     }).catch((err: any) => {
       console.error('[Updater] download failed', err);
@@ -495,17 +495,19 @@ export const Updater = {
       _state = { ..._state, downloading: false, error: errMsg };
       emit();
       if (isApkMissing) {
-        useDialog().showConfirm({
-          title: 'APP 内下载不可用',
-          message: `服务器当前版本 APK 未发布, 是否改用浏览器下载?\n\n链接: ${_state.url}`,
-          confirmText: '用浏览器下',
-          cancelText: '返回升级',
-          onConfirm: () => {
-            Linking.openURL(_state.url).catch(() =>
-              useDialog().showAlert({ title: '跳转失败', message: '请手动复制链接到浏览器: ' + _state.url, variant: 'error' })
-            );
-          },
-        });
+        // v3.0.89.1 (S78 BUG-168 修): Alert.alert 替代 useDialog().showConfirm
+        Alert.alert(
+          'APP 内下载不可用',
+          `服务器当前版本 APK 未发布, 是否改用浏览器下载?\n\n链接: ${_state.url}`,
+          [
+            { text: '返回升级', style: 'cancel' },
+            { text: '用浏览器下', onPress: () => {
+              Linking.openURL(_state.url).catch(() =>
+                Alert.alert('跳转失败', '请手动复制链接到浏览器: ' + _state.url)
+              );
+            }},
+          ]
+        );
       }
     });
   },
