@@ -1,0 +1,20 @@
+import { Request, Response, NextFunction } from 'express';
+export declare const novelController: {
+    upload(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    analyze(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    backfillCharacters(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    getAnalysis(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    getEpisodes(req: Request, res: Response, next: NextFunction): Promise<void>;
+    generateEpisodes(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    regenerateEpisode(req: Request, res: Response, next: NextFunction): Promise<void>;
+    exportNovel(req: Request, res: Response, next: NextFunction): Promise<void>;
+    estimateFee(req: Request, res: Response, next: NextFunction): Promise<void>;
+    list(req: Request, res: Response, next: NextFunction): Promise<void>;
+    getNovel(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    remove(req: Request, res: Response, next: NextFunction): Promise<void>;
+    updateNovel(req: Request, res: Response, next: NextFunction): Promise<void>;
+    updateCharacter(req: Request, res: Response, next: NextFunction): Promise<void>;
+    updateCharacterFull(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    updateNovelMeta(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+    updateAnalysisReport(req: Request, res: Response, next: NextFunction): Promise<Response<any, Record<string, any>> | undefined>;
+};

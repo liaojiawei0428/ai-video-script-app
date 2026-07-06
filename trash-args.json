@@ -1,0 +1,24 @@
+{
+  "paths": [
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\NUL",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\server\\scripts\\check-conv-aa88d219.sql",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\server\\scripts\\debug-bug-082.js",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\server\\scripts\\debug2.js",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\server\\scripts\\dump-messages.sql",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\server\\scripts\\find-error-msg.sql",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\server\\scripts\\restart-with-version.sh",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\apps\\web\\src\\config\\version-fixed.ts",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\bs-app-test",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\bs-control.ps1",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\bs-workflow.ps1",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\bs_workflow.py",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\deploy_s63_b64.txt",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\deploy_s63_v2.ps1",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\lib",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\test_deep_script.py",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\airtest-bootstrap.py",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\AI_TESTING_GUIDE.md",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\scripts\\README.md",
+    "F:\\QiTa\\banmu\\APP\\ai-video-script-app\\tools\\__pycache__"
+  ]
+}

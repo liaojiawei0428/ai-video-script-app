@@ -3,13 +3,22 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.96",
+  "latest_version": "3.0.97",
   "latest_version_time": "2026-07-06",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.97",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "S81 v3.0.97 实战演练 + BUG-172 强制升级 9 维 E2E 闭环验证",
+      "highlights": [
+        "S81 #1 BUG-172 强制升级 modal 渲染实战盲点收口 (v3.0.93-96 实战 3 修法 + 9 维 E2E 闭环, 跟 BUG-165/166 强制升级 100% 兼容)"
+      ]
+    },
     {
       "version": "3.0.96",
       "buildDate": "2026-07-06",

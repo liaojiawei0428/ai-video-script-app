@@ -1,0 +1,16 @@
+#!/bin/bash
+# .husky/pre-commit (跨项目通用)
+# S71 BUG-079 后置: 防止 PS 5.1 写入损坏文件 commit
+# 配套: tools/check-ps51-newline.sh
+#
+# 安装 (项目根):
+#   npm install husky --save-dev
+#   npx husky install
+#   npx husky add .husky/pre-commit "bash tools/check-ps51-newline.sh --staged"
+#
+# Windows (Git Bash) 用户必读:
+#   Git Bash 自带 bash.exe 跑这个 hook OK, PowerShell 5.1 用户需要 Git Bash
+
+set -e
+echo "--- pre-commit: 检查 PS 5.1 写入损坏 (BUG-079 防呆) ---"
+bash tools/check-ps51-newline.sh --staged

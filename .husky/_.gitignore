@@ -1,0 +1,3 @@
+# Husky Git hooks (auto-generated, 2026-06-23)
+# 仅 pre-commit: 跑 lint-staged (prettier --write)
+# ESLint + tsc 留给 CI (commit 流畅, 严格检查在 PR)
