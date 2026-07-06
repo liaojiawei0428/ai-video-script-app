@@ -3,13 +3,26 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.97",
+  "latest_version": "3.0.98",
   "latest_version_time": "2026-07-06",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.98",
+      "buildDate": "2026-07-06",
+      "type": "patch",
+      "summary": "S82 强制升级 modal UI 重设计 (iOS 26 液态玻璃 + Material 3 商业级, 删红色/警告/淘汰废话, 加 APP内下载主推 + 内嵌下载进度)",
+      "highlights": [
+        "S82 #1 modal UI 重设计: 深色渐变 (indigo-950→violet-950) + 玻璃拟态卡片 (圆角 28 + 紫色光边 + 微妙高光) + 圆角 56 icon (内嵌 ArrowUp 升级箭头) + NEW 绿色徽章 (跟 v3.0.95/v3.0.96 红色 emoji 100% 区别)",
+        "S82 #2 2 按钮改造: 立即更新 (主推渐变 indigo→violet + Sparkles icon 走 RNFetchBlob DownloadManager APP 内下载) + 浏览器下载 (次选透明 + Chrome icon 走 Linking.openURL)",
+        "S82 #3 删红色废话: 删 警告 emoji + 删 本 APP 已被官网淘汰 + 删 退出 APP 按钮 (强制升级铁律 BUG-165 实战一致)",
+        "S82 #4 内嵌下载进度: 圆角进度条 + 渐变 fill + 百分比 + 状态 (downloading/finished/error 3 态切换)",
+        "S82 #5 APP内下载稳定性: 走 RNFetchBlob DownloadManager (addAndroidDownloads useDownloadManager: true) + 完成后自动 RNFetchBlob.android.actionViewIntent 弹 Android 系统安装器 (修 v3.0.97 S81 #1 同时调 Linking + Updater.start 兜底, 这次 2 按钮完全独立, 纯测 APP内下载)"
+      ]
+    },
     {
       "version": "3.0.97",
       "buildDate": "2026-07-06",

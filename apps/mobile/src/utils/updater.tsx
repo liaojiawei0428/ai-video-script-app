@@ -123,10 +123,11 @@ function _forceEmit() {
 }
 
 /**
- * v3.0.89 改: 强制升级 modal 走 module-level state + 自渲染 RN Modal
+ * v3.0.98 (S81 BUG-172 + 商业级 UI 重设计) 改: 强制升级 modal 走 module-level state + 自渲染 absoluteFill
  *   v3.0.88 修法 (走 DialogStore.show): dismissable=true 默认 → 用户点背景逃逸 ❌
  *   v3.0.89 修法 (走 module-level state + 自渲染 Modal): 背景是普通 View (无 onPress) + onRequestClose={() => {}} 防止返回键 → 用户无法逃逸 ✅
- *   跟 v3.0.88 一样: 2 按钮 (立即升级 v{version} 绿色 / 退出 APP 红色 BackHandler.exitApp())
+ *   v3.0.98 重设计: iOS 26 液态玻璃 + Material 3 商业级 UI, 删红色/警告 emoji/淘汰废话, 加 APP内下载主推按钮
+ *   实战: 2 按钮 (立即更新 APP 内下载 RNFetchBlob DownloadManager / 浏览器下载 Linking.openURL) + 内嵌下载进度条
  */
 export function showForceUpdateDialog(versionInfo: VersionInfo): void {
   _forceState = {
@@ -138,22 +139,26 @@ export function showForceUpdateDialog(versionInfo: VersionInfo): void {
     buildDate: versionInfo.buildDate || '',
   };
   _forceEmit();
-  // v3.0.89 配套: iOS AppState 监听 — 升级 modal 弹出时, 即使用户切后台, 也不允许 "侧滑返回" 关闭 (iOS 边缘情况)
   console.log('[Updater] showForceUpdateDialog state changed', _forceState);
 }
 
 /**
- * v3.0.89 改: 强制升级 modal 渲染 (用 RN Modal, 不用 shipin-APP Dialog 组件)
+ * v3.0.98 改: 强制升级 modal 渲染 (iOS 26 液态玻璃 + Material 3 商业级, 2 按钮: APP内下载/浏览器下载)
  *   App.tsx 必渲染这个组件 (跟 UpdateProgressModal 同模式)
  *   实战: visible 永远读 module-level state, 状态变化自动 re-render
+ *   实战: 内嵌 Updater 下载进度条, 下载时 modal 切到进度视图
+ *   实战: 主推按钮 "立即更新" 走 RNFetchBlob DownloadManager 稳定下载, 装完自动弹安装器
  */
 export function ForceUpdateModal(): React.JSX.Element | null {
   const [, setTick] = useState(0);
   useEffect(() => {
     const sub = () => setTick((x) => x + 1);
     _forceSubs.add(sub);
+    // v3.0.98: 同时订阅 Updater 下载进度, modal 实时显示百分比
+    const unsubUpdater = Updater.subscribe(() => setTick((x) => x + 1));
     return () => {
       _forceSubs.delete(sub);
+      unsubUpdater();
     };
   }, []);
 
@@ -164,68 +169,47 @@ export function ForceUpdateModal(): React.JSX.Element | null {
     return null;
   }
 
-  const { version, changelog, downloadUrl, highlights } = _forceState;
+  const { version, downloadUrl } = _forceState;
+  const updateState = Updater.getState();
 
   return (
     // v3.0.94 BUG-172 修: 不依赖 RN <Modal> (RN 0.73 + Hermes + 新架构下 ReactModalHostManager view manager 找不到 generated setter, 实战 BUG-165 修法盲点)
     //   改用 absoluteFill + zIndex: 9999 普通 View, 强制覆盖整屏 (跟 RN <Modal transparent={false}> 1:1 镜像效果)
     //   跨项目通用铁律 #31 (跟 BUG-165 实战盲点 100% 同源): 强制升级 E2E 必跑完整 9 维, 单测 "checkForUpdate success + visible=true" 不够, 必截图验证 modal 真渲染
+    // v3.0.98 改: 商业级渐变背景 (从 #0c0a1e → #1e1b4b, 跟 logo 紫色一致) + iOS 26 玻璃拟态卡片 (圆角 28 + 半透明 + 紫色光边)
     <View style={[StyleSheet.absoluteFillObject, forceModalStyles.fullscreen, { zIndex: 9999, elevation: 9999 }]}>
-      {/* 背景: 整屏深色 + 居中卡片, 不用 Pressable (无 dismiss 逃逸) */}
-      <View style={forceModalStyles.fullscreen}>
+      {/* 背景: 渐变深色 (用 2 个 View 叠加模拟 LinearGradient, 不依赖 react-native-linear-gradient) */}
+      <View style={forceModalStyles.bgGradientTop} />
+      <View style={forceModalStyles.bgGradientBottom} />
+      <View style={forceModalStyles.center}>
+        {/* 卡片: 圆角 28 + 半透明深色 + 紫色光边 + 微妙高光 */}
         <View style={forceModalStyles.card}>
-          <Text style={forceModalStyles.emoji}>⚠️</Text>
-          <Text style={forceModalStyles.title}>版本不一致, 必须升级</Text>
-          <Text style={forceModalStyles.subtitle}>
-            当前版本: <Text style={forceModalStyles.versionText}>v{APP_VERSION}</Text>
-            {'\n'}官网最新版本: <Text style={forceModalStyles.versionText}>v{version}</Text>
-          </Text>
-          <Text style={forceModalStyles.body}>
-            本 APP 已被官网淘汰, 必须升级到最新版本才能继续使用{'\n\n'}
-            {highlights.length > 0 ? (
-              <>
-                更新内容:{'\n'}
-                {highlights.slice(0, 5).map((h, i) => (
-                  <Text key={i} style={forceModalStyles.bullet}>
-                    • {h}{'\n'}
-                  </Text>
-                ))}
-              </>
-            ) : (
-              <Text>{changelog}</Text>
-            )}
-          </Text>
-          <Text style={forceModalStyles.hint}>
-            推荐用浏览器下载 (速度快 + 自带进度 + 失败可重试)
-          </Text>
-          <View style={forceModalStyles.btnGroup}>
-            <TouchableOpacity
-              style={[forceModalStyles.btn, forceModalStyles.btnPrimary]}
-              onPress={() => {
-                // 调起浏览器下载
-                Linking.openURL(downloadUrl).catch(() => {
-                  console.warn('[Updater] Linking.openURL failed, fallback to Updater.start');
-                  // 浏览器失败 → 启动 APP 内下载 (防国产 ROM 拦截 Linking)
-                  Updater.start(downloadUrl, version);
-                });
-                // 同时启动 APP 内下载兜底 (修 v3.0.88 没同时调, 只 Linking 在某些 ROM 拦截问题)
+          <View style={forceModalStyles.cardHighlight} />
+
+          {/* 下载中 vs 待下载 切换 UI (v3.0.98 新增) */}
+          {updateState.downloading || updateState.finished || updateState.error ? (
+            <DownloadProgressView
+              updateState={updateState}
+              version={version}
+              onCancel={() => Updater.cancel()}
+            />
+          ) : (
+            <UpgradePromptView
+              version={version}
+              downloadUrl={downloadUrl}
+              onInAppUpdate={() => {
+                console.log('[Updater] user chose APP 内下载 v' + version);
                 Updater.start(downloadUrl, version);
               }}
-              activeOpacity={0.8}
-            >
-              <Text style={forceModalStyles.btnPrimaryText}>立即升级 v{version}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[forceModalStyles.btn, forceModalStyles.btnExit]}
-              onPress={() => {
-                console.log('[Updater] user chose to exit on version mismatch');
-                exitApp();
+              onBrowserDownload={() => {
+                console.log('[Updater] user chose 浏览器下载 v' + version);
+                Linking.openURL(downloadUrl).catch((err) => {
+                  console.warn('[Updater] Linking.openURL failed:', err);
+                  Alert.alert('打开浏览器失败', '请手动复制链接到浏览器下载:\n' + downloadUrl);
+                });
               }}
-              activeOpacity={0.7}
-            >
-              <Text style={forceModalStyles.btnExitText}>退出 APP</Text>
-            </TouchableOpacity>
-          </View>
+            />
+          )}
         </View>
       </View>
     </View>
@@ -233,108 +217,620 @@ export function ForceUpdateModal(): React.JSX.Element | null {
 }
 
 /**
- * v3.0.89 抽: 多平台退 APP
- *   Android: BackHandler.exitApp()
- *   iOS: RNExitApp 第三方包 (shipin-APP 项目未装, 走 alert 兜底)
+ * v3.0.98 新增: 待下载视图 (商业级, 圆角渐变 icon + 2 按钮)
+ *   设计参考: iOS 26 液态玻璃 + Material 3 圆角 + Vant 商业按钮
  */
-function exitApp(): void {
-  if (Platform.OS === 'android') {
-    BackHandler.exitApp();
-  } else {
-    // v3.0.89.1 (S78 BUG-168 修): iOS 实战 Alert.alert 兜底 (shipin-APP 项目没装 react-native-exit-app, 实战 BUG-166 修法实战盲点)
-    //   修前: require('react-native-exit-app') 失败 → 兜底 useDialog().showAlert → useDialog 整模块 undefined → App 启动 crash
-    //   修后: 走 RN 内置 Alert.alert (shipin-APP 项目已用 Dialog.tsx:64 Alert.alert 兜底, 不加重, 跨项目通用)
-    Alert.alert(
-      '请手动退出 APP',
-      'iOS 系统限制, 请按 Home 键返回桌面后从后台划掉 APP',
-      [{ text: '知道了' }]
+function UpgradePromptView(props: {
+  version: string;
+  downloadUrl: string;
+  onInAppUpdate: () => void;
+  onBrowserDownload: () => void;
+}): React.JSX.Element {
+  return (
+    <>
+      {/* Icon 圆形渐变背景 + 内置 ArrowUp (升级箭头, 视觉语义) */}
+      <View style={forceModalStyles.iconCircle}>
+        <View style={forceModalStyles.iconCircleInner}>
+          {/* 内置向上箭头 SVG: 圆角粗线, 商业级 */}
+          <View style={forceModalStyles.arrowUp} />
+          <View style={forceModalStyles.arrowUpBar} />
+        </View>
+      </View>
+
+      {/* 标题: "发现新版本" 26pt 粗体 居中 白色 */}
+      <Text style={forceModalStyles.title}>发现新版本</Text>
+
+      {/* 版本对比: 灰色 + 紫色高亮 + 绿色对勾 */}
+      <View style={forceModalStyles.versionRow}>
+        <Text style={forceModalStyles.versionOld}>v{APP_VERSION}</Text>
+        <View style={forceModalStyles.arrowRight}>
+          {/* 右箭头 */}
+          <View style={forceModalStyles.arrowRightLine} />
+          <View style={forceModalStyles.arrowRightHead} />
+        </View>
+        <Text style={forceModalStyles.versionNew}>v{props.version}</Text>
+        <View style={forceModalStyles.newBadge}>
+          <Text style={forceModalStyles.newBadgeText}>NEW</Text>
+        </View>
+      </View>
+
+      {/* 描述: 浅灰 14pt 居中 */}
+      <Text style={forceModalStyles.description}>
+        包含性能优化与体验改进, 建议立即更新到最新版本
+      </Text>
+
+      {/* 按钮组: 2 按钮 (主推 APP内下载 + 次选 浏览器下载) */}
+      <View style={forceModalStyles.btnGroup}>
+        {/* 主推按钮: 渐变 indigo→violet + 圆角 16 + 高 56 + Sparkles icon */}
+        <TouchableOpacity
+          style={forceModalStyles.btnPrimary}
+          onPress={props.onInAppUpdate}
+          activeOpacity={0.85}
+        >
+          <View style={forceModalStyles.btnPrimaryGradient} />
+          <View style={forceModalStyles.btnPrimaryContent}>
+            <View style={forceModalStyles.sparklesIcon}>
+              <View style={forceModalStyles.sparklesIconShape1} />
+              <View style={forceModalStyles.sparklesIconShape2} />
+              <View style={forceModalStyles.sparklesIconShape3} />
+            </View>
+            <Text style={forceModalStyles.btnPrimaryText}>立即更新</Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* 次选按钮: 透明 + 1.5px 浅色边框 + 高 56 + Chrome icon */}
+        <TouchableOpacity
+          style={forceModalStyles.btnSecondary}
+          onPress={props.onBrowserDownload}
+          activeOpacity={0.7}
+        >
+          <View style={forceModalStyles.chromeIcon}>
+            <View style={forceModalStyles.chromeIconRing} />
+            <View style={forceModalStyles.chromeIconCenter} />
+            <View style={forceModalStyles.chromeIconLineH} />
+            <View style={forceModalStyles.chromeIconLineV} />
+          </View>
+          <Text style={forceModalStyles.btnSecondaryText}>浏览器下载</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 底部小字: 隐私 + 安全提示 (灰色 11pt 居中) */}
+      <Text style={forceModalStyles.footnote}>
+        APP 内下载更稳定, 浏览器下载支持断点续传
+      </Text>
+    </>
+  );
+}
+
+/**
+ * v3.0.98 新增: 下载进度视图 (圆角进度条 + 渐变 fill + 百分比 + 状态)
+ *   跟 ForceUpdateModal 集成, 共享卡片容器
+ *   状态: downloading (进度条 + 百分比 + 取消按钮) / finished (立即安装 + 完成态) / error (重试 + 浏览器下载)
+ */
+function DownloadProgressView(props: {
+  updateState: UpdaterState;
+  version: string;
+  onCancel: () => void;
+}): React.JSX.Element {
+  const { updateState, version, onCancel } = props;
+  const pct = updateState.total > 0 ? Math.round((updateState.written / updateState.total) * 100) : 0;
+  const mbWritten = (updateState.written / 1024 / 1024).toFixed(1);
+  const mbTotal = (updateState.total / 1024 / 1024).toFixed(1);
+
+  if (updateState.finished) {
+    // 下载完成: 立即安装 (DownloadManager 已自动弹安装器, 这里给个兜底再触发一次)
+    return (
+      <>
+        <View style={forceModalStyles.iconCircle}>
+          <View style={[forceModalStyles.iconCircleInner, forceModalStyles.iconCircleSuccess]}>
+            <View style={forceModalStyles.checkMark1} />
+            <View style={forceModalStyles.checkMark2} />
+          </View>
+        </View>
+        <Text style={forceModalStyles.title}>下载完成</Text>
+        <Text style={forceModalStyles.description}>
+          v{version} 已下载到本地 ({mbWritten} MB), 即将自动打开安装器
+        </Text>
+        <View style={forceModalStyles.btnGroup}>
+          <TouchableOpacity
+            style={forceModalStyles.btnPrimary}
+            onPress={() => Updater.installApk()}
+            activeOpacity={0.85}
+          >
+            <View style={forceModalStyles.btnPrimaryGradient} />
+            <View style={forceModalStyles.btnPrimaryContent}>
+              <Text style={forceModalStyles.btnPrimaryText}>立即安装</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      </>
     );
   }
+
+  if (updateState.error) {
+    // 错误: 重试 + 浏览器下载兜底
+    return (
+      <>
+        <View style={forceModalStyles.iconCircle}>
+          <View style={[forceModalStyles.iconCircleInner, forceModalStyles.iconCircleError]}>
+            <View style={forceModalStyles.exclamation1} />
+            <View style={forceModalStyles.exclamation2} />
+          </View>
+        </View>
+        <Text style={forceModalStyles.title}>下载失败</Text>
+        <Text style={forceModalStyles.description} numberOfLines={3}>
+          {updateState.error}
+        </Text>
+        <View style={forceModalStyles.btnGroup}>
+          <TouchableOpacity
+            style={forceModalStyles.btnPrimary}
+            onPress={() => {
+              console.log('[Updater] user retry, restart download');
+              const url = _forceState.downloadUrl;
+              if (url) Updater.start(url, version);
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={forceModalStyles.btnPrimaryGradient} />
+            <View style={forceModalStyles.btnPrimaryContent}>
+              <Text style={forceModalStyles.btnPrimaryText}>重试</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={forceModalStyles.btnSecondary}
+            onPress={() => {
+              const url = _forceState.downloadUrl;
+              if (url) Linking.openURL(url);
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={forceModalStyles.btnSecondaryText}>浏览器下载</Text>
+          </TouchableOpacity>
+        </View>
+      </>
+    );
+  }
+
+  // downloading (默认)
+  return (
+    <>
+      <View style={forceModalStyles.iconCircle}>
+        <View style={forceModalStyles.iconCircleInner}>
+          <View style={forceModalStyles.downloadArrow1} />
+          <View style={forceModalStyles.downloadArrow2} />
+        </View>
+      </View>
+      <Text style={forceModalStyles.title}>正在下载更新</Text>
+      <Text style={forceModalStyles.description}>
+        v{version} · 完成后将自动打开安装器
+      </Text>
+      {/* 进度条: 4px track + 6px 渐变 fill, 圆角 3, 100% 时绿色高亮 */}
+      <View style={forceModalStyles.progressBarBg}>
+        <View style={[forceModalStyles.progressBarFill, { width: `${pct}%` }]} />
+      </View>
+      <View style={forceModalStyles.progressRow}>
+        <Text style={forceModalStyles.progressText}>
+          {mbWritten} MB / {mbTotal > '0.0' ? `${mbTotal} MB` : '...'}
+        </Text>
+        <Text style={forceModalStyles.progressPercent}>{pct}%</Text>
+      </View>
+      <View style={forceModalStyles.btnGroup}>
+        <TouchableOpacity
+          style={forceModalStyles.btnSecondary}
+          onPress={onCancel}
+          activeOpacity={0.7}
+        >
+          <Text style={forceModalStyles.btnSecondaryText}>取消下载</Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
 }
 
 const forceModalStyles = StyleSheet.create({
   fullscreen: {
     flex: 1,
-    backgroundColor: '#0a0a14',  // 深色背景, 醒目警示
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
+  // v3.0.98 新增: 渐变背景 (2 个 View 叠加模拟)
+  bgGradientTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0c0a1e',  // 深空紫
+  },
+  bgGradientBottom: {
+    position: 'absolute',
+    top: '40%',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#1e1b4b',  // indigo-950
+    opacity: 0.85,
+  },
+  center: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // v3.0.98 新增: 商业级卡片 (iOS 26 液态玻璃 + Material 3 圆角)
   card: {
     width: '100%',
-    maxWidth: 440,
-    backgroundColor: '#1a1a28',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 2,
-    borderColor: '#dc2626',  // 红色边框, 警示
+    maxWidth: 420,
+    backgroundColor: 'rgba(26, 26, 46, 0.92)',  // 半透明深色
+    borderRadius: 28,
+    padding: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.35)',  // 紫色光边
+    overflow: 'hidden',
+    elevation: 12,  // Android 阴影
+    shadowColor: '#6366f1',  // 紫色阴影光晕
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
   },
-  emoji: {
-    fontSize: 56,
-    textAlign: 'center',
-    marginBottom: 12,
+  // v3.0.98 新增: 卡片顶部高光 (模拟 iOS 26 液态玻璃反射)
+  cardHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',  // 顶部高光
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#ffffff',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#9090a8',
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 22,
-  },
-  versionText: {
-    color: '#fbbf24',  // amber, 醒目
-    fontWeight: '700',
-  },
-  body: {
-    fontSize: 14,
-    color: '#c0c0d0',
-    lineHeight: 22,
-    marginBottom: 12,
-  },
-  bullet: {
-    fontSize: 14,
-    color: '#c0c0d0',
-    lineHeight: 22,
-  },
-  hint: {
-    fontSize: 12,
-    color: '#808090',
-    marginBottom: 16,
-  },
-  btnGroup: {
-    marginTop: 8,
-  },
-  btn: {
-    height: 52,
-    borderRadius: 10,
+  // v3.0.98 新增: icon 圆形 (渐变 indigo→violet 64x64 + 阴影)
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  iconCircleInner: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#6366f1',  // 渐变起点 indigo-500 (RN 0.73 不支持多色渐变, 用纯色)
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  iconCircleSuccess: {
+    backgroundColor: '#10b981',  // 下载完成绿色
+    shadowColor: '#10b981',
+  },
+  iconCircleError: {
+    backgroundColor: '#f59e0b',  // 错误 amber (不红)
+    shadowColor: '#f59e0b',
+  },
+  // v3.0.98 新增: 内置 ArrowUp 图标 (升级箭头)
+  arrowUp: {
+    position: 'absolute',
+    top: 12,
+    left: 24,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#ffffff',
+  },
+  arrowUpBar: {
+    position: 'absolute',
+    top: 22,
+    left: 24,
+    width: 14,
+    height: 14,
+    backgroundColor: '#ffffff',
+  },
+  // v3.0.98 新增: 对勾 (下载完成)
+  checkMark1: {
+    position: 'absolute',
+    width: 14,
+    height: 3,
+    backgroundColor: '#ffffff',
+    borderRadius: 1.5,
+    transform: [{ rotate: '45deg' }],
+    top: 28,
+    left: 14,
+  },
+  checkMark2: {
+    position: 'absolute',
+    width: 22,
+    height: 3,
+    backgroundColor: '#ffffff',
+    borderRadius: 1.5,
+    transform: [{ rotate: '-45deg' }],
+    top: 24,
+    left: 18,
+  },
+  // v3.0.98 新增: 感叹号 (错误)
+  exclamation1: {
+    position: 'absolute',
+    width: 4,
+    height: 18,
+    backgroundColor: '#ffffff',
+    borderRadius: 2,
+    top: 14,
+    left: 26,
+  },
+  exclamation2: {
+    position: 'absolute',
+    width: 4,
+    height: 4,
+    backgroundColor: '#ffffff',
+    borderRadius: 2,
+    top: 38,
+    left: 26,
+  },
+  // v3.0.98 新增: 下载图标 (向下箭头)
+  downloadArrow1: {
+    position: 'absolute',
+    top: 12,
+    left: 24,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#ffffff',
+  },
+  downloadArrow2: {
+    position: 'absolute',
+    top: 22,
+    left: 24,
+    width: 14,
+    height: 14,
+    backgroundColor: '#ffffff',
+  },
+  // v3.0.98 新增: 标题
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#f8fafc',
+    textAlign: 'center',
+    marginBottom: 12,
+    letterSpacing: 0.3,
+  },
+  // v3.0.98 新增: 版本对比行
+  versionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  versionOld: {
+    fontSize: 15,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  versionNew: {
+    fontSize: 18,
+    color: '#a78bfa',  // violet-400
+    fontWeight: '700',
+  },
+  arrowRight: {
+    width: 28,
+    height: 16,
+    marginHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  arrowRightLine: {
+    width: 22,
+    height: 2,
+    backgroundColor: '#64748b',
+    borderRadius: 1,
+  },
+  arrowRightHead: {
+    position: 'absolute',
+    right: 0,
+    top: 4,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderTopWidth: 4,
+    borderBottomWidth: 4,
+    borderLeftColor: '#64748b',
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  newBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',  // 绿色透明
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+  },
+  newBadgeText: {
+    fontSize: 10,
+    color: '#34d399',  // 绿色高亮
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  // v3.0.98 新增: 描述
+  description: {
+    fontSize: 14,
+    color: '#cbd5e1',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  // v3.0.98 新增: 进度条
+  progressBarBg: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 4,
+    overflow: 'hidden',
     marginBottom: 12,
   },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#6366f1',  // 渐变起点 (RN 不支持多色, 纯色)
+    borderRadius: 4,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  progressText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  progressPercent: {
+    fontSize: 16,
+    color: '#a78bfa',
+    fontWeight: '700',
+  },
+  // v3.0.98 新增: 按钮组
+  btnGroup: {
+    width: '100%',
+  },
+  // 主推按钮: 渐变 indigo→violet (用 2 个 View 叠加模拟, RN 0.73 不支持 LinearGradient)
   btnPrimary: {
-    backgroundColor: '#10b981',  // 绿色, 主推
+    height: 56,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    backgroundColor: '#6366f1',  // 兜底色
+  },
+  btnPrimaryGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#8b5cf6',  // 渐变终点 violet-500
+    opacity: 0.65,  // 跟 indigo-500 叠加模拟渐变
+  },
+  btnPrimaryContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // v3.0.98 新增: Sparkles 图标 (主推按钮左侧装饰)
+  sparklesIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 8,
+  },
+  sparklesIconShape1: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    width: 8,
+    height: 8,
+    backgroundColor: '#ffffff',
+    transform: [{ rotate: '45deg' }],
+    borderRadius: 1,
+  },
+  sparklesIconShape2: {
+    position: 'absolute',
+    top: 10,
+    left: 12,
+    width: 6,
+    height: 6,
+    backgroundColor: '#ffffff',
+    transform: [{ rotate: '45deg' }],
+    borderRadius: 1,
+  },
+  sparklesIconShape3: {
+    position: 'absolute',
+    top: 0,
+    left: 14,
+    width: 4,
+    height: 4,
+    backgroundColor: '#ffffff',
+    transform: [{ rotate: '45deg' }],
+    borderRadius: 1,
   },
   btnPrimaryText: {
     fontSize: 17,
     fontWeight: '700',
     color: '#ffffff',
+    letterSpacing: 0.5,
   },
-  btnExit: {
-    backgroundColor: 'transparent',
+  // 次选按钮: 透明 + 1.5px 浅色边框
+  btnSecondary: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1.5,
-    borderColor: '#dc2626',  // 红色, 警示
+    borderColor: 'rgba(148, 163, 184, 0.4)',  // 浅灰边框
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  btnExitText: {
+  btnSecondaryText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#dc2626',
+    color: '#cbd5e1',  // 浅灰文字
+  },
+  // v3.0.98 新增: Chrome 图标 (次选按钮左侧装饰)
+  chromeIcon: {
+    width: 18,
+    height: 18,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chromeIconRing: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#cbd5e1',
+  },
+  chromeIconCenter: {
+    position: 'absolute',
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#cbd5e1',
+  },
+  chromeIconLineH: {
+    position: 'absolute',
+    width: 12,
+    height: 1.5,
+    backgroundColor: '#cbd5e1',
+    top: 6,
+  },
+  chromeIconLineV: {
+    position: 'absolute',
+    width: 1.5,
+    height: 12,
+    backgroundColor: '#cbd5e1',
+    left: 8.25,
+  },
+  // v3.0.98 新增: 底部小字
+  footnote: {
+    fontSize: 11,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 16,
+    lineHeight: 16,
   },
 });
 
@@ -563,7 +1059,7 @@ export function UpdateProgressModal() {
 
           {!s.error ? (
             <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: pct + '%' }]} />
+              <View style={[styles.progressBarFill, { width: `${pct}%` as `${number}%` }]} />
             </View>
           ) : null}
 
