@@ -50,6 +50,32 @@ function videoFilenameFromUrl(videoUrl: string): string {
 }
 
 /**
+ * v3.0.90 (S78 BUG-167): djb2 32 hex 稳定 hash (跟 BUG-143 mobile v3.0.74 修法 1:1 镜像)
+ *   用途: 视频/图片 URL → Content-Disposition filename 派生, 不用 Date.now() / Math.random()
+ *   实战根因: BUG-143 修前 mobile buildImageUrl `filename = \`deep剧本-图片-${Date.now()}.${ext}\`` 每次 render 变
+ *     → <ImageWithLoading> useEffect [src] 触发 → 黑屏闪烁
+ *   修法: 跟 mobile 端 agentDownload.ts djb2Hex 1:1 算法, 同样 url → 同样 hash → 同样 filename → 同样 src URL
+ *   跨端铁律 4++ web/mobile 1:1 镜像
+ */
+function djb2HexFilename(url: string): string {
+  // djb2 hash (跟 mobile 端 agentDownload.ts djb2Hex 同算法, 跨项目通用铁律 AGENTS.md § 6.7)
+  let hash = 5381;
+  for (let i = 0; i < url.length; i++) {
+    hash = (hash * 33) ^ url.charCodeAt(i);
+  }
+  // reverse 32 chars hex
+  const hex = (hash >>> 0).toString(16).padStart(8, '0');
+  let result = '';
+  for (let i = 0; i < 4; i++) {
+    result += hex[7 - i] || '0';
+    result += hex[6 - i] || '0';
+    result += hex[5 - i] || '0';
+    result += hex[4 - i] || '0';
+  }
+  return result.slice(0, 32);
+}
+
+/**
  * BUG-119 (v3.0.48): 清空 last assistant message 里的 result parts (video / image-result / error) + 旧 streaming
  *  用途: 用户点"确认方案" retry 时, 必须先把上一轮生成结果清空, 避免堆叠 2 个视频卡片
  *  跟 mobile VideoAgentScreen + ImageAgentScreen 1:1 镜像 (跨端铁律 4++)
@@ -1632,34 +1658,30 @@ function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversati
       );
     }
       case 'video':
-        // v3.0.0.1: local-first 策略
-        // 1) 渲染时优先用 /api/agent/video-local/{userId}/{filename}?token=...
-        //    - 后端 cacheVideoToLocal 后会 200 + 极速本地磁盘读 (0 外网)
-        //    - local 还没缓存时 404, <video> 触发 onError
-        // 2) onError fallback 到 /api/download?disposition=inline&token=...
-        //    - 后端代理从 agens 拉, 慢 (6-8s) 但能播
-        // 这样用户感受: 首次看视频 6-8s (代理) → 后端后台 cache 后刷新页面看 1-2s (本地)
-        const filename = videoFilenameFromUrl(part.url);
-        const localUrl = buildLocalVideoUrl(useAuthStore.getState().user?.id || '', filename, token);
-        const proxyUrl = buildVideoUrl(part.url, `deep剧本-视频-${Date.now()}.mp4`, token, 'inline');
+        // v3.0.90 (S78 BUG-167): 修 v3.0.0.1 local-first 策略 + Date.now() 视频 src URL 稳定性实战盲点
+        //   实战根因: key={proxyUrl} 用 proxyUrl 作 React key, 但 proxyUrl = buildVideoUrl(part.url, `deep剧本-视频-${Date.now()}.mp4`, ...)
+        //   每次 React re-render (message list update, pollling tick, 等) → Date.now() 变 → proxyUrl 变 → React key 变 → video 元素重 mount
+        //   用户看到 video 元素一直在重新加载 (loading 状态) → 点 ▶ 播放 不响应 (要等新一次 mount + 加载)
+        //   实战: user 反馈"生成视频后无法点击视频播放", 跟 BUG-143 v3.0.74 buildImageUrl Date.now() 泄漏 100% 同源
+        // 修法 1: key 改用 part.url (稳定 hash, 跟 BUG-143 修法 1:1 镜像)
+        // 修法 2: filename 用 djb2 hash (跟 BUG-143 修法 1:1 镜像, 不用 Date.now())
+        // 修法 3: 不用 local-first 策略 (server /api/agent/video-local/ 走 authMiddleware 只读 Authorization 头, <video> 元素 src 不会自动带, 实战永远 401)
+        //   改成: 直接走 download proxy (/api/download 支持 query token 鉴权, 实战测过 200 + 206 Partial Content + CORS 正确)
+        // 性能: 后端 sendFile 走 sendFile Range 透传, 6-8s 加载视频, 跟之前体验一致
+        // 后续优化: 跟 server 端 agentUpload.ts 加 query token 鉴权 (TODO, 不在 BUG-167 范围)
+        const stableVideoKey = part.url;  // 跟 BUG-143 v3.0.74 修法 1:1 镜像, 用 part.url 作稳定 key
+        const stableFilename = `deep剧本-视频-${djb2HexFilename(part.url)}.mp4`;  // 跟 BUG-143 修法 1:1 镜像, djb2 32 hex
+        const proxyUrl = buildVideoUrl(part.url, stableFilename, token, 'inline');
         return (
           <div className="mt-1">
             <video
-              key={localUrl}
-              src={localUrl}
+              key={stableVideoKey}  // 修 BUG-167: 稳定 key, 不再 Date.now() 变 → video 不重 mount
+              src={proxyUrl}
               controls
               playsInline
               className="rounded-lg max-w-full max-h-96"
               preload="metadata"
               crossOrigin="anonymous"
-              onError={(e) => {
-                // v3.0.0.1: local 404 → 切到 download proxy
-                const v = e.currentTarget;
-                if (v.src !== proxyUrl) {
-                  console.warn('[AgentChatPanel] local video 404, fallback to proxy', { localUrl, proxyUrl });
-                  v.src = proxyUrl;
-                }
-              }}
             />
             {/* v3.0.31 (S69 BUG-072 E): 视频已生成但扣费失败 (billing_status='unsettled') → 显示"余额不足, 充值后解锁" banner */}
             {(part as any).billingStatus === 'unsettled' && (
@@ -1673,7 +1695,8 @@ function PartView({ part, onPick, kind, isUser, token, selectedRatio, conversati
             )}
             <div className="flex items-center gap-3 mt-1.5">
               {(() => {
-                const downloadFilename = `deep剧本-视频-${Date.now()}.mp4`;
+                // v3.0.90 (BUG-167): 稳定 djb2 hash filename, 不用 Date.now() (跟 BUG-143 修法 1:1 镜像)
+                const downloadFilename = `deep剧本-视频-${djb2HexFilename(part.url)}.mp4`;
                 const href = buildDownloadUrl(part.url, downloadFilename, token);
                 return (
                   <a
