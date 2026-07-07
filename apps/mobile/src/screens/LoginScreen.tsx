@@ -99,7 +99,8 @@ export function LoginScreen(): React.JSX.Element {
             <Ionicons name="sparkles" size={32} color="#fff" />
           </View>
           <Text style={styles.appName}>Deep剧本</Text>
-          <Text style={styles.subtitle}>登录开启 AI 视频剧本创作</Text>
+          {/* v3.0.103 BUG-180: 登录页乱码修法 — 解锁替代开启 (GB2312 一级字, 100% 国产 ROM 兼容) */}
+          <Text style={styles.subtitle}>登录解锁 AI 视频剧本创作</Text>
         </View>
 
         {/* 表单 */}
@@ -181,7 +182,8 @@ export function LoginScreen(): React.JSX.Element {
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>还没有账号? </Text>
+            {/* v3.0.103 BUG-180: 乱码修法 — '账'(U+8D26) 是 GB2312 二级字, 换成 '注册'(一级字) */}
+            <Text style={styles.footerText}>还未注册账号? </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate('Register')}
               disabled={loading}

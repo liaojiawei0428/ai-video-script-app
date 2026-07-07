@@ -3,13 +3,33 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.102",
+  "latest_version": "3.0.103",
   "latest_version_time": "2026-07-07",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.103",
+      "buildDate": "2026-07-07",
+      "type": "patch",
+      "summary": "S86 BUG-180 修登录页乱码 (GB2312 二级字 → 一级字) + BUG-181 mobile 端小说分析补 3 个独立可编辑 Card (跟 web 端 1:1 镜像, 2 年跨端铁律 4++ 漏修方向修法)",
+      "highlights": [
+        "BUG-180 登录页乱码修法: apps/mobile/src/screens/LoginScreen.tsx line 107 '登录开启 AI 视频剧本创作' → '登录解锁 AI 视频剧本创作' (解 U+89E3 + 锁 U+9501 都是 GB2312 一级字, 跟 v3.0.92 BUG-171 实战教训同源: APP 关键文案必用 GB2312 一级字). line 190 '还没有账号?' → '还未注册账号?' (未/注/册 都是一级字, 账 U+8D26 是二级字被换掉). 0 后端改动, 0 新依赖, 5 分钟发版",
+        "BUG-181 跨端铁律 4++ 2 年漏修方向修法: apps/mobile/src/screens/EpisodeListScreen.tsx AnalysisCard 组件完全重写. 修前 (v1.0.0 起): 只读显示 4 个 tag (genre/style/theme) + plotPoints 列表 + scenesHint 文字 (没有 [编辑] 按钮, 没有 textarea, 没有 [保存] 按钮). 修后 (v3.0.103): 3 个独立 Card (剧情要点 + 主要场景 + 完整AI分析报告), 每个 1 个 textarea 永远 active + [💾保存] 按钮 + [📋复制] 按钮 + 字符数统计. 跟 web 端 ScriptDetailPage.tsx line 299-426 的 4 个可编辑卡片 1:1 镜像",
+        "BUG-181 移动端 API 补: apps/mobile/src/api/client.ts line 244 加 updateAnalysisReportApi (跟 web 端 updateAnalysisReportApi 1:1). 调 PUT /api/novels/:id/analysis-report + { analysisReport: string }. server 端 controller + model 已存在 (apps/server/src/controllers/novelController.ts:495 updateAnalysisReport + models/novel.ts:84 updateAnalysisReport), 0 后端改动",
+        "BUG-181 移动端 state 加 analysisReport + fullSummary 字段: apps/mobile/src/screens/EpisodeListScreen.tsx loadData 修前只解析 genre/style/theme/scenes/plotPoints 5 个字段 (漏存 analysisReport), 修后加 2 个字段. server 端 getAnalysis 已返这 2 个字段 (line 173-174), 修前 mobile 端漏存 = 100% 错位 (跟 BUG-079 假报告 100% 同源: 前端没真反映后端能力)",
+        "BUG-181 plot/scenes section 拼接逻辑 1:1 镜像 web: 移动端 saveSection 函数复用 web 端 ScriptDetailPage.tsx line 143-175 的 regex 拼接逻辑. plot 用 /(?:📜\\s*剧情要点|剧情要点)[：:][\\s\\S]*?(?=🏞️|主要场景|$)/u 替换, scenes 用 /(?:🏞️?\\s*主要场景|主要场景)[：:][\\s\\S]*?$/u 替换, 没匹配到则在末尾追加. 跨端铁律 4++ 1:1 镜像实现, 跟 BUG-178 v3.0.101 web shots + mobile 1:1 镜像实战教训同源",
+        "BUG-181 移动端用 v3.0.102 简化模式: 3 个 textarea 都永远 active (不要 [编辑/预览] toggle, 不要 [折叠/展开]), 跟 v3.0.102 web shots UI 重设计思路一致 (跟用户原话 '无语点击任何按钮即可编辑可复制' 100% 对应). [💾保存] 按钮必保留 (用户编辑完需要主动持久化, 避免输入半截就触发请求)",
+        "BUG-181 移动端保留基本信息 tag 只读: 修前 v1.0.0 AnalysisCard 渲染 4 个 tag (genre/style/theme) + plotPoints + scenesHint, 修后只保留 3 个 tag (genre/style/theme) 还在卡片顶部, 4 字段编辑功能本次不做 (用户没要求, 后续如有需求再加, 跟 web 端 updateNovelMetaApi 已 1:1 镜像现有功能保持架构一致)",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-079/097/130/165/178 100% 同源): 跨端铁律 4++ 'web 做了 mobile 必同步' 是双方向的, 不能只看 web → mobile 同步 (BUG-097), 也要查 mobile 漏做 web 已做的功能 (本次 BUG-181 = web 2 年前就有的剧情要点 + 主要场景 + 完整AI分析报告 编辑卡片, mobile 一直没做). 跨项目铁律 4++ 修法: 每次发版前必 grep 'X 端有这个功能, 另一端没有', 跨端 1:1 镜像实战",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-131 v3.0.62 + v3.0.92 BUG-171 100% 同源): APP 关键文案必用 GB2312 一级字, 避免国产 ROM 字体缺失导致乱码. shipin-APP 字体库通常依赖 Android 系统默认字体, 部分国产 ROM (蓝叠/华为精简版) 默认字体裁剪掉了 GB2312 二级字 (不常用字), 渲染时显示为 ?/空块. 修法: 关键用户接触文案 (登录页 + 注册页 + 首页 + 错误提示) 必用 GB2312 一级字 (3755 个常用字), 跨 ROM 100% 兼容",
+        "v3.0.103 跨端 8 处版本号同步: mobile version.ts (3.0.102 → 3.0.103) + mobile build.gradle (versionCode 103 → 104, versionName 3.0.102 → 3.0.103) + web version.ts (APP_VERSION 3.0.102 → 3.0.103, APP_VERSION_CODE 103 → 104) + server package.json + server src/index.ts fallback + server ecosystem.config.js (env + env_production 2 处) + server changelog.json (顶层 latest_version + prepend v3.0.103 entry) + 远端 .env APP_VERSION + 远端 systemd unit Environment=APP_VERSION",
+        "兼容影响: server 端 0 改动 (analysis-report PUT 接口 + model.updateAnalysisReport 早已存在, 这次只是 mobile 端补 API + UI 1:1 镜像 web 端). mobile EpisodeListScreen.tsx 总行数 241 → 354 (+113 行, 重写 AnalysisCard 组件 + extractPlot/extractScenes helpers + 6 个 styles). mobile LoginScreen.tsx 总行数 317 → 322 (+5 行, 2 行中文替换 + 注释). 0 数据迁移, 0 新建表, 0 新建索引, 0 接口路径变更",
+        "mobile tsc 验证: LoginScreen.tsx 0 错, EpisodeListScreen.tsx 0 错. 5 个 pre-existing 错 (AdminDashboard.tsx 重复 color + sqlite.ts err: unknown) 跟本次改动无关, baseline 53 错 → 53 错 (0 新增). web tsc 0 错. server tsc 0 错"
+      ]
+    },
     {
       "version": "3.0.102",
       "buildDate": "2026-07-07",

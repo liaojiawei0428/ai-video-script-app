@@ -235,6 +235,14 @@ export const getNovelAnalysis = (novelId: string) =>
 export const updateNovel = (novelId: string, data: { genre?: string; theme?: string; style?: string; tone?: string }) =>
   apiClient.put(`/novels/${novelId}`, data);
 
+// v3.0.103 (S86 2026-07-07) BUG-181: 移动端补小说分析编辑 API (跟 web 端 1:1)
+//   修前 mobile 端缺 updateAnalysisReportApi, AnalysisCard 只能只读显示
+//   修法: 1:1 镜像 web 端 updateAnalysisReportApi, 走 PUT /novels/:id/analysis-report
+//   server 端 controller + model 已存在 (apps/server/src/controllers/novelController.ts:495 updateAnalysisReport),
+//   0 后端改动, 0 新接口 0 新路由
+export const updateAnalysisReportApi = (novelId: string, analysisReport: string) =>
+  apiClient.put(`/novels/${novelId}/analysis-report`, { analysisReport });
+
 export const updateCharacter = (characterId: string, data: { name?: string; appearance?: string; personality?: string; roleType?: string }) =>
   apiClient.put(`/novels/characters/${characterId}`, data);
 
