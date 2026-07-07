@@ -294,11 +294,20 @@ function App(): React.JSX.Element {
     setGateErrorMsg('');
     try {
       const info = await checkForUpdate(APP_VERSION, 3);
-      console.log('[App] checkForUpdate success', { version: info.version });
-      // v3.0.88: 任何不一致都强制升级 (appForceUpdate 永远 true), client 跟 server 对比
+      console.log('[App] checkForUpdate success', { version: info.version, mobileLatestApkVersion: info.mobileLatestApkVersion });
+      // BUG-177 修 (2026-07-07 S84 实机验证发现): client 跟 server 对比必用 mobileLatestApkVersion, 不用 version
+      //   根因: server.version 是 server-only 进程版本 (e.g. v3.0.99), 但公网 mobile APK 还是 v3.0.98
+      //         → 用 info.version 比较永远不等 → 强制升级 modal 永远弹, APP 无法进入主界面
+      //         跟 server-only hotfix 设计矛盾 (server hotfix 不需要 rebuild APK, 客户端不应强制升级)
+      //   修法: 用 info.mobileLatestApkVersion (server 已按需从公网 APK 列表扫到的真实 APK 版本)
+      //         client APK == 公网 APK → 不需要升级 (server hotfix 用户继续用老 APK 即可)
+      //         client APK <  公网 APK → 需要升级 (server 真发布新 APK, 用户必须升级)
+      //   跨项目通用铁律: client 升级对比必用 "公网真实 APK version", 不用 "server-only 进程 version"
+      //                    (跟 server AGENTS.md § 3 铁律 9 "server-only hotfix 必 rebuild APK" 互补:
+      //                     server 侧保证 server.version ≈ 公网 APK version, client 侧保证判断对)
       const clientVer = APP_VERSION;
-      const serverVer = info.version;
-      const isMatch = compareVersionsClient(clientVer, serverVer) === 0;
+      const apkVer = info.mobileLatestApkVersion || info.version;  // fallback 是兜底
+      const isMatch = compareVersionsClient(clientVer, apkVer) === 0;
       if (isMatch) {
         // 一致 → 进主界面
         setUpdateInfo(null);

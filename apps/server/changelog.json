@@ -3,13 +3,25 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.99",
-  "latest_version_time": "2026-07-06",
+  "latest_version": "3.0.100",
+  "latest_version_time": "2026-07-07",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.100",
+      "buildDate": "2026-07-07",
+      "type": "patch",
+      "summary": "S84 BUG-177 修 mobile 端强制升级 modal 永远弹出 (client 跟 server 对比用错字段, 跟 server-only hotfix 设计矛盾)",
+      "highlights": [
+        "BUG-177 真根因: apps/mobile/App.tsx 修前用 info.version (server-only 进程版本) 跟 clientVer (mobile APK 版本) 对比 → server hotfix (e.g. v3.0.99 修 BUG-176) 后 server.version=v3.0.99 但公网 mobile APK 还是 v3.0.98 → client 永远不等 → 强制升级 modal 永远弹 → APP 无法进入主界面",
+        "BUG-177 修法: apps/mobile/App.tsx line 297-306 client 跟 server 对比改用 info.mobileLatestApkVersion (server 已按需从公网 APK 列表扫到的真实 APK 版本), 保留 info.version fallback 兜底. client APK == 公网 APK → 不需要升级 (server hotfix 用户继续用老 APK 即可), client APK < 公网 APK → 需要升级 (server 真发布新 APK, 用户必须升级)",
+        "跨项目通用铁律 2 条新沉淀 (跟 BUG-079/131/145/165/166/168 100% 同源): ① client 升级对比必用 公网真实 APK version, 不用 server-only 进程 version (跟 server AGENTS.md § 3 铁律 9 'server-only hotfix 必 rebuild APK' 互补: server 侧保证 server.version ≈ 公网 APK version, client 侧保证判断对) ② server /api/version 必同时返 version (server-only 进程 version) + mobileLatestApkVersion (公网真实 APK version), 让 client 升级判断能区分场景",
+        "v3.0.100 跨端 8 处版本号同步 (3.0.99 → 3.0.100, versionCode 100 → 101): mobile version.ts + mobile build.gradle + web version.ts (APP_VERSION + APP_VERSION_CODE) + server package.json + server src/index.ts fallback + server ecosystem.config.js (env + env_production 2 处) + server changelog.json (顶层 latest_version + 加 BUG-177 entry) + 远端 .env APP_VERSION + 远端 systemd unit Environment=APP_VERSION"
+      ]
+    },
     {
       "version": "3.0.99",
       "buildDate": "2026-07-06",
