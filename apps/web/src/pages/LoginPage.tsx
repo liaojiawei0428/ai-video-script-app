@@ -42,7 +42,7 @@ export function LoginPage() {
           </div>
         </div>
         <h1 className="text-2xl font-bold text-center gradient-text mb-2">Deep剧本</h1>
-        <p className="text-center text-text-tertiary text-sm mb-6">登录开�?AI 视频剧本创作</p>
+        <p className="text-center text-text-tertiary text-sm mb-6">登录解锁 AI 视频剧本创作</p>
 
         <form onSubmit={submit} className="space-y-4">
           <div>
@@ -60,7 +60,7 @@ export function LoginPage() {
         </form>
 
         <div className="mt-6 text-center text-sm text-text-tertiary">
-          还没有账�? <Link to="/register" className="text-primary hover:text-accent">立即注册</Link>
+          还没有用户？<Link to="/register" className="text-primary hover:text-accent">立即注册</Link>
         </div>
       </div>
 
@@ -78,7 +78,7 @@ export function LoginPage() {
             下载 Deep剧本 APP
           </div>
           <div className="text-xs text-text-tertiary mt-0.5">
-            v3.0.0 · 29.8 MB · Android 5.0+ · 直接浏览器扫码下载
+            v3.0.0 · 29.8 MB · Android 5.0+ · 浏览器扫码安装
           </div>
         </div>
         <ChevronRight size={18} className="text-text-tertiary group-hover:text-primary group-hover:translate-x-1 transition-all" />

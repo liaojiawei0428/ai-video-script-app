@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- v3.0.104 (BUG-182): 修登录页等中文乱码 — Noto Sans SC 兜底所有 GB2312 字符
+         修前: 仅 -apple-system/PingFang SC/Microsoft YaHei fallback, 国产浏览器/系统字体缺失时 GB2312 二级字 fallback 豆腐块
+         修后: Google Fonts Noto Sans SC (含 GB2312 全 6763 字) + preconnect + display=swap 不阻塞首屏
+         跨项目通用铁律 #29 (跟 BUG-171/180 100% 同源, 跟 shipin-APP mobile LoginScreen BUG-180 同源实战) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
     <title>Deep剧本 · Web 端</title>
   </head>
   <body class="bg-bg-primary text-text-primary">

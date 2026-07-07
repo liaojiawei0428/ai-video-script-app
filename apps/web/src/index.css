@@ -4,7 +4,10 @@
 
 @layer base {
   html, body, #root { height: 100%; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; }
+  /* v3.0.104 (BUG-182): Noto Sans SC 加到首位, 兜底 GB2312 全 6763 字
+     (Google Fonts CDN 加载, fallback 是 -apple-system/PingFang SC/Microsoft YaHei 系统字体)
+     跟 index.html <link> 配套, display=swap 不阻塞首屏 */
+  body { font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; }
   * { box-sizing: border-box; }
 }
 

@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, Dimensions,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, Dimensions, Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { getEpisodes, getEpisode, getNovelAnalysis, updateNovel, updateCharacter } from '../api/client';
+import { getEpisodes, getEpisode, getNovelAnalysis, updateNovel, updateCharacter, updateAnalysisReportApi } from '../api/client';
 import { saveEpisodes, getEpisodes as getLocalEpisodes } from '../db/sqlite';
 import { GlassCard, Tag, SkeletonLoader } from '../components';
 import { GeneratingLoader } from '../components/ui';
@@ -38,6 +38,75 @@ export function ScriptDetailScreen(): React.JSX.Element {
   const [editChars, setEditChars] = useState<any[]>([]);
   const [charText, setCharText] = useState('');
   const [saving, setSaving] = useState(false);
+  // v3.0.103 (S86 2026-07-07) BUG-181 修法迁移: 3 个独立可编辑 Card + 接入 updateAnalysisReportApi
+  //   跟 web 端 ScriptDetailPage.tsx line 299-426 1:1 镜像, 跟 v3.0.103 报告里 EpisodeListScreen.tsx
+  //   误改的代码 1:1 镜像 (v3.0.103 报告把修复改错了文件)
+  const [plotDraft, setPlotDraft] = React.useState('');
+  const [scenesDraft, setScenesDraft] = React.useState('');
+  const [reportDraft, setReportDraft] = React.useState('');
+  const [savingSection, setSavingSection] = React.useState<'plot' | 'scenes' | 'report' | null>(null);
+
+  // 从 analysis_report 中解析 plot section (跟 web 端 ScriptDetailPage.tsx line 33 SECTION_RE.plot 1:1)
+  function extractPlot(report: string): string {
+    if (!report) return '';
+    const m = report.match(/(?:📜\s*剧情要点|剧情要点)[：:]\s*([\s\S]*?)(?=🏞️|主要场景|$)/u);
+    return m ? m[1].trim() : '';
+  }
+
+  // 从 analysis_report 中解析 scenes section (跟 web 端 ScriptDetailPage.tsx line 34 SECTION_RE.scenes 1:1)
+  function extractScenes(report: string): string {
+    if (!report) return '';
+    const m = report.match(/(?:🏞️?\s*主要场景|主要场景)[：:]\s*([\s\S]*?)$/u);
+    return m ? m[1].trim() : '';
+  }
+
+  const saveSection = async (section: 'plot' | 'scenes' | 'report', newValue: string) => {
+    if (!novelId) return;
+    setSavingSection(section);
+    try {
+      let updated: string;
+      const current = reportDraft || '';
+      if (section === 'report') {
+        updated = newValue;
+      } else if (section === 'plot') {
+        updated = current.replace(
+          /(📜\s*剧情要点[：:][\s\S]*?)(?=🏞️|主要场景|$)/,
+          `📜 剧情要点：\n${newValue}\n\n`
+        );
+        if (updated === current) updated = current + `\n\n📜 剧情要点：\n${newValue}`;
+      } else {
+        updated = current.replace(
+          /(🏞️?\s*主要场景[：:][\s\S]*?)$/,
+          `🏞️ 主要场景：\n${newValue}`
+        );
+        if (updated === current) updated = current + `\n\n🏞️ 主要场景：\n${newValue}`;
+      }
+      await updateAnalysisReportApi(novelId, updated);
+      setReportDraft(updated);
+      setAnalysisText(updated);
+      setAnalysis((prev: any) => prev ? { ...prev, analysisReport: updated } : prev);
+      Alert.alert('已保存', '已持久化到 server');
+    } catch (e: any) {
+      Alert.alert('保存失败', e?.response?.data?.error?.message || e?.message || '网络错误');
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  // v3.0.103 BUG-181 修法迁移: 复制到剪贴板 (RN 内置 Clipboard API, 跟 web 端 navigator.clipboard.writeText 1:1)
+  const copyToClipboard = async (text: string, label: string) => {
+    if (!text) {
+      Alert.alert('复制失败', `${label}为空, 没有可复制的内容`);
+      return;
+    }
+    try {
+      const { Clipboard } = require('react-native');
+      Clipboard.setString(text);
+      Alert.alert('已复制', `${label} 已复制到剪贴板 (${text.length} 字符)`);
+    } catch (e: any) {
+      Alert.alert('复制失败', '请长按文本框手动选择复制');
+    }
+  };
 
   // v3.0.92 BUG-170 修: 跟 web 端 md: 断点 1:1, 宽屏 5 列 / 窄屏 2 列响应式切换.
   const [isWide, setIsWide] = useState(() => Dimensions.get('window').width >= WIDE_BREAKPOINT);
@@ -83,8 +152,14 @@ export function ScriptDetailScreen(): React.JSX.Element {
         setCharText((analysisData.characters || []).map((c: any) => `${c.name} | ${roleMap[c.roleType] || c.roleType || '配角'} | ${c.personality || ''} | ${c.appearance || ''}`).join('\n\n'));
         if (analysisData.analysisReport) {
           setAnalysisText(analysisData.analysisReport);
+          setReportDraft(analysisData.analysisReport);  // v3.0.103 BUG-181 修法迁移: 同步到 reportDraft
+          setPlotDraft(extractPlot(analysisData.analysisReport));
+          setScenesDraft(extractScenes(analysisData.analysisReport));
         } else if (analysisData.fullSummary) {
           setAnalysisText(analysisData.fullSummary);
+          setReportDraft(analysisData.fullSummary);
+          setPlotDraft(extractPlot(analysisData.fullSummary));
+          setScenesDraft(extractScenes(analysisData.fullSummary));
         }
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.response?.status === 401 ? '登录已过期' : '加载失败，下拉刷新重试');
@@ -195,6 +270,115 @@ export function ScriptDetailScreen(): React.JSX.Element {
                 </Text>
               </GlassCard>
             )}
+
+            {/* v3.0.103 (S86 2026-07-07) BUG-181 修法迁移: 3 个独立可编辑 Card (跟 web 端 ScriptDetailPage.tsx line 299-426 1:1 镜像)
+                修前: v3.0.103 报告把修复改错到 EpisodeListScreen.tsx (死代码 screen, App.tsx 未注册), ScriptDetailScreen 实际页面 0 编辑功能
+                修后 (本 BUG-181 正式修法): 3 个独立 Card (剧情要点 / 主要场景 / 完整AI分析报告), 每个 1 个 textarea 永远 active + [💾保存] + [📋复制] + 字符数统计
+                跨端铁律 4++ 1:1 镜像: 跟 web 端 design + updateAnalysisReportApi 调用 100% 镜像
+                textarea 永远 active (简化 UX, 跟 v3.0.102 web shots 模式 1:1)
+                [保存] 必保留: 用户输入半截不会触发请求, 避免误操作 */}
+
+            {/* Card 1: 📜 剧情要点 (跟 web 端 ScriptDetailPage line 299-341 1:1) */}
+            <View style={styles.editableCard}>
+              <View style={styles.editableCardHeader}>
+                <Text style={styles.editableCardTitle}>📜 剧情要点</Text>
+                <View style={styles.editableCardMeta}>
+                  <Text style={styles.editableCardMetaText}>{plotDraft.length} 字符</Text>
+                  <TouchableOpacity onPress={() => copyToClipboard(plotDraft, '剧情要点')} style={styles.iconBtn}>
+                    <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TextInput
+                style={styles.editableTextarea}
+                value={plotDraft}
+                onChangeText={setPlotDraft}
+                multiline
+                textAlignVertical="top"
+                placeholder="每行一个剧情要点, 可使用 • - 开头\n• 主角初遇反派\n• 反派身份揭晓\n• 最终决战"
+                placeholderTextColor="#94A3B8"
+              />
+              <TouchableOpacity
+                style={[styles.editableSaveBtn, savingSection === 'plot' && styles.saveBtnDisabled]}
+                onPress={() => saveSection('plot', plotDraft)}
+                disabled={savingSection !== null}
+                activeOpacity={0.7}
+              >
+                {savingSection === 'plot' ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.editableSaveBtnText}>💾 保存剧情要点</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Card 2: 🏞️ 主要场景 (跟 web 端 ScriptDetailPage line 343-385 1:1) */}
+            <View style={styles.editableCard}>
+              <View style={styles.editableCardHeader}>
+                <Text style={styles.editableCardTitle}>🏞️ 主要场景</Text>
+                <View style={styles.editableCardMeta}>
+                  <Text style={styles.editableCardMetaText}>{scenesDraft.length} 字符</Text>
+                  <TouchableOpacity onPress={() => copyToClipboard(scenesDraft, '主要场景')} style={styles.iconBtn}>
+                    <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TextInput
+                style={styles.editableTextarea}
+                value={scenesDraft}
+                onChangeText={setScenesDraft}
+                multiline
+                textAlignVertical="top"
+                placeholder="每行一个场景\n• 皇城大殿 - 金碧辉煌, 是朝政议事之所\n• 冷宫 - 阴暗潮湿, 关押失势嫔妃"
+                placeholderTextColor="#94A3B8"
+              />
+              <TouchableOpacity
+                style={[styles.editableSaveBtn, savingSection === 'scenes' && styles.saveBtnDisabled]}
+                onPress={() => saveSection('scenes', scenesDraft)}
+                disabled={savingSection !== null}
+                activeOpacity={0.7}
+              >
+                {savingSection === 'scenes' ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.editableSaveBtnText}>💾 保存主要场景</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Card 3: 📄 完整 AI 分析报告 (跟 web 端 ScriptDetailPage line 387-426 1:1) */}
+            <View style={styles.editableCard}>
+              <View style={styles.editableCardHeader}>
+                <Text style={styles.editableCardTitle}>📄 完整 AI 分析报告</Text>
+                <View style={styles.editableCardMeta}>
+                  <Text style={styles.editableCardMetaText}>{reportDraft.length} 字符</Text>
+                  <TouchableOpacity onPress={() => copyToClipboard(reportDraft, '完整 AI 分析报告')} style={styles.iconBtn}>
+                    <Ionicons name="copy-outline" size={16} color="#2563EB" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TextInput
+                style={[styles.editableTextarea, styles.editableTextareaLarge]}
+                value={reportDraft}
+                onChangeText={setReportDraft}
+                multiline
+                textAlignVertical="top"
+                placeholder="完整的 AI 分析报告, 包含类型/基调/主题/风格/剧情要点/主要场景/角色分析等所有内容. 可以直接编辑, 也可以粘贴新的报告覆盖."
+                placeholderTextColor="#94A3B8"
+              />
+              <TouchableOpacity
+                style={[styles.editableSaveBtn, savingSection === 'report' && styles.saveBtnDisabled]}
+                onPress={() => saveSection('report', reportDraft)}
+                disabled={savingSection !== null}
+                activeOpacity={0.7}
+              >
+                {savingSection === 'report' ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.editableSaveBtnText}>💾 保存完整 AI 分析报告</Text>
+                )}
+              </TouchableOpacity>
+            </View>
             {episodes.length > 0 && (
               <View style={styles.episodeHeader}>
                 <Text style={styles.episodeHeaderTitle}>剧集列表</Text>
@@ -405,4 +589,18 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 40 },
   emptyIcon: { fontSize: 48, marginBottom: spacing.sm },
   emptyText: { ...typography.h3, color: colors.text.tertiary },
+  // v3.0.103 (S86 2026-07-07) BUG-181 修法迁移: 3 个 editable card 共用 styles
+  //   跟 web 端 ScriptDetailPage.tsx 1:1 镜像设计
+  editableCard: { backgroundColor: '#F8F9FB', borderRadius: 12, padding: 14, marginHorizontal: spacing.md, marginTop: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  editableCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  editableCardTitle: { fontSize: 15, fontWeight: '700', color: '#1C1C1E', flexShrink: 1 },
+  editableCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  editableCardMetaText: { fontSize: 11, color: '#94A3B8' },
+  iconBtn: { padding: 6, borderRadius: 8 },
+  editableTextarea: { minHeight: 80, fontSize: 13, color: '#1C1C1E', backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', padding: 10, textAlignVertical: 'top', lineHeight: 20 },
+  editableTextareaLarge: { minHeight: 200, fontFamily: 'monospace', fontSize: 12 },
+  // v3.0.103 BUG-181: 改名 editableSaveBtn 避免跟 characters 原 saveBtn (line 525) 冲突
+  editableSaveBtn: { backgroundColor: '#2563EB', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, alignItems: 'center', marginTop: 10 },
+  saveBtnDisabled: { opacity: 0.6 },
+  editableSaveBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

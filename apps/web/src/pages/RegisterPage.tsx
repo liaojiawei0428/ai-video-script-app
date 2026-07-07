@@ -38,7 +38,7 @@ export function RegisterPage() {
             <Sparkles size={28} className="text-white" />
           </div>
         </div>
-        <h1 className="text-2xl font-bold text-center gradient-text mb-6">注册账号</h1>
+        <h1 className="text-2xl font-bold text-center gradient-text mb-6">注册新用户</h1>
 
         <form onSubmit={submit} className="space-y-4">
           <div>
@@ -60,7 +60,7 @@ export function RegisterPage() {
         </form>
 
         <div className="mt-6 text-center text-sm text-text-tertiary">
-          已有账号? <Link to="/login" className="text-primary hover:text-accent">立即登录</Link>
+          已有用户？<Link to="/login" className="text-primary hover:text-accent">立即登录</Link>
         </div>
       </div>
 
@@ -78,7 +78,7 @@ export function RegisterPage() {
             下载 Deep剧本 APP
           </div>
           <div className="text-xs text-text-tertiary mt-0.5">
-            v3.0.0 · 29.8 MB · Android 5.0+ · 扫码或浏览器直接下载
+            v3.0.0 · 29.8 MB · Android 5.0+ · 浏览器扫码安装
           </div>
         </div>
         <ChevronRight size={18} className="text-text-tertiary group-hover:text-primary group-hover:translate-x-1 transition-all" />
