@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   getEpisodeApi, updateEpisodeApi,
-  generateShotsApi, getShotsApi, updateShotApi,
+  generateShotsApi, getShotsApi,
   exportEpisodeApi,
   generateComicApi, getComicApi,
 } from '../lib/api';
@@ -13,7 +13,7 @@ import { ImageWithLoading } from '../components/ui';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
-  ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash, BookOpen, Users,
+  Layers, MessageSquare, Clock, Wand2, Eye, Hash, BookOpen, Users,
   Copy, Check,
 } from 'lucide-react';
 
@@ -26,6 +26,9 @@ interface Episode {
   comicGeneratedAt?: number;
   comicLayout?: string;
   comicTotalPages?: number;
+  // v3.0.101 BUG-178: 用户编辑过的整段分镜文本 (server shots_text_cache 字段)
+  //   v3.0.102 (S85 2026-07-07): BUG-179 web 端用整段 textarea 显示 + 编辑
+  shotsTextCache?: string;
 }
 interface Shot {
   id: string; shotNumber: number; description: string; durationSec: number;
@@ -33,6 +36,16 @@ interface Shot {
   timeOfDay?: string; cameraAngle?: string; cameraMove?: string;
   lighting?: string; dialogue?: string; action?: string;
   audioNote?: string; imagePrompt?: string;
+}
+
+// v3.0.102 (S85 2026-07-07) BUG-179: 把 shots 数组拼接成整段文本 (跟 mobile loadShots 1:1 镜像)
+function formatShotsToText(shots: Shot[]): string {
+  return shots.map((s, i) => {
+    if (!s.cameraAngle && !s.cameraMove && !s.lighting) {
+      return s.description || '';
+    }
+    return `【镜头${i + 1} | ${s.durationSec || 0}秒】\n景别：${s.cameraAngle || '中景'} | 运镜：${s.cameraMove || '固定'} | 灯光：${s.lighting || '自然光'}\n画面：${s.description || ''}${s.dialogue ? `\n对白：「${s.dialogue}」` : ''}${s.audioNote ? `\n音效：${s.audioNote}` : ''}`;
+  }).join('\n\n---\n\n');
 }
 
 const SHOT_STEPS = [
@@ -57,9 +70,9 @@ export function EpisodeDetailPage() {
   const [editingScript, setEditingScript] = useState(false);
   const [scriptDraft, setScriptDraft] = useState({ title: '', summary: '', scriptContent: '', durationSec: 60, sceneLocation: '' });
   const [savingScript, setSavingScript] = useState(false);
-  const [editShotId, setEditShotId] = useState<string | null>(null);
-  const [shotDraft, setShotDraft] = useState<Partial<Shot>>({});
-  const [savingShot, setSavingShot] = useState(false);
+  // v3.0.102 BUG-179: 整段 textarea 模式 (跟 mobile 1:1 镜像)
+  const [shotsTextDraft, setShotsTextDraft] = useState('');
+  const [savingShotsText, setSavingShotsText] = useState(false);
 
   // 分镜生成状态 - 使用 zustand store
   const store = useTaskProgressStore();
@@ -74,6 +87,8 @@ export function EpisodeDetailPage() {
   const comicMsgCount = (novelId && id) ? (store.novels[novelId]?.comicMsgCount?.[id] || 0) : 0;
   const comicCurrentStep = (novelId && id) ? (store.novels[novelId]?.comicCurrentStep?.[id] || '') : '';
   const [genStep, setGenStep] = useState(0);
+  // v3.0.102 BUG-179: 提取 addToast 给 saveShotsText 用
+  const addToast = useNotificationStore(s => s.addToast);
 
   // 漫画显示状态 (从后端加载)
   const [comicImages, setComicImages] = useState<string[]>([]);
@@ -110,6 +125,20 @@ export function EpisodeDetailPage() {
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
   }, []);
+
+  // v3.0.102 BUG-179: 同步 shots → shotsTextDraft (跟 mobile loadShots 1:1 镜像)
+  const lastShotsSigRef = useRef<string>('');
+  useEffect(() => {
+    const sig = (episode?.shotsTextCache || '') + '|' + shots.map(s => s.id + ':' + s.shotNumber).join(',');
+    if (sig === lastShotsSigRef.current) return;
+    lastShotsSigRef.current = sig;
+    if (episode?.shotsTextCache && episode.shotsTextCache.trim()) {
+      if (shotsTextDraft !== episode.shotsTextCache) setShotsTextDraft(episode.shotsTextCache);
+    } else if (shots.length > 0) {
+      const text = formatShotsToText(shots);
+      if (shotsTextDraft !== text) setShotsTextDraft(text);
+    }
+  }, [episode?.shotsTextCache, shots]);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -164,38 +193,18 @@ export function EpisodeDetailPage() {
     } finally { setSavingScript(false); }
   };
 
-  const startEditShot = (shot: Shot) => {
-    setEditShotId(shot.id);
-    setShotDraft({ ...shot });
-  };
-  const saveShot = async () => {
-    if (!editShotId || savingShot) return;
-    setSavingShot(true);
+// v3.0.102 BUG-179: 替换为 saveShotsText (跟 mobile handleSaveShots 1:1 镜像)
+  const saveShotsText = async () => {
+    if (savingShotsText) return;
+    setSavingShotsText(true);
     try {
-      const payload = {
-        shotNumber: shotDraft.shotNumber,
-        description: shotDraft.description,
-        durationSec: shotDraft.durationSec,
-        sceneType: shotDraft.sceneType,
-        location: shotDraft.location,
-        timeOfDay: shotDraft.timeOfDay,
-        cameraAngle: shotDraft.cameraAngle,
-        cameraMove: shotDraft.cameraMove,
-        lighting: shotDraft.lighting,
-        dialogue: shotDraft.dialogue,
-        action: shotDraft.action,
-        audioNote: shotDraft.audioNote,
-        imagePrompt: shotDraft.imagePrompt,
-      };
-      await updateShotApi(editShotId, payload);
-      setShots(prev => prev.map(s => s.id === editShotId ? { ...s, ...payload } as Shot : s));
-      setEditShotId(null);
+      await updateEpisodeApi(id!, { shotsTextCache: shotsTextDraft });
+      setEpisode(prev => prev ? { ...prev, shotsTextCache: shotsTextDraft } : prev);
+      addToast({ type: 'system', title: '分镜内容已保存', content: `已保存到 episode.shotsTextCache (${shotsTextDraft.length} 字符)` });
     } catch (e: any) {
-      alert('保存失败: ' + (e?.response?.data?.error?.message || e.message));
-    } finally { setSavingShot(false); }
+      alert('保存失败: ' + (e?.response?.data?.error?.message || e?.message || '网络错误'));
+    } finally { setSavingShotsText(false); }
   };
-
-  const cancelEditShot = () => { setEditShotId(null); setShotDraft({}); };
 
   const flushStream = () => {
     const buf = streamBufferRef.current;
@@ -759,22 +768,64 @@ export function EpisodeDetailPage() {
         </div>
       )}
 
-      {validShots.length === 0 ? (
+      {validShots.length === 0 && !shotsTextDraft.trim() ? (
         <div className="glass p-10 text-center">
           <ImageIcon size={48} className="mx-auto mb-3 text-text-tertiary" />
           <p className="text-text-tertiary">暂无分镜 — 点击右上"生成分镜"按钮开始</p>
         </div>
       ) : (
-        <ShotsByScene
-          shots={validShots}
-          editingId={editShotId}
-          draft={editShotId ? shotDraft : null}
-          onStartEdit={startEditShot}
-          onCancelEdit={cancelEditShot}
-          onChangeDraft={setShotDraft}
-          onSave={saveShot}
-          savingShot={savingShot}
-        />
+        // v3.0.102 BUG-179: 1 个 textarea 永远 active, 像 TXT 文档一样编辑
+        <div className="glass p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <FileText size={20} className="text-accent" />
+              分镜头描述
+              <span className="text-sm text-text-secondary font-normal">
+                · {validShots.length} 个镜头 · {validShots.reduce((s, sh) => s + (sh.durationSec || 0), 0).toFixed(1)} 秒
+                {shotsTextDraft.length > 0 && <> · {shotsTextDraft.length} 字符</>}
+              </span>
+            </h2>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (!shotsTextDraft.trim()) {
+                    addToast({ type: 'system', title: '没有可复制的内容', content: '请先生成或编辑分镜' });
+                    return;
+                  }
+                  navigator.clipboard.writeText(shotsTextDraft)
+                    .then(() => addToast({ type: 'system', title: `已复制分镜内容`, content: `${shotsTextDraft.length} 字符已复制到剪贴板, 可粘贴到任何 AI 工具` }))
+                    .catch(() => {
+                      const ta = document.createElement('textarea');
+                      ta.value = shotsTextDraft; document.body.appendChild(ta); ta.select();
+                      document.execCommand('copy'); document.body.removeChild(ta);
+                      addToast({ type: 'system', title: `已复制分镜内容 (降级模式)`, content: `${shotsTextDraft.length} 字符已复制` });
+                    });
+                }}
+                className="px-3 py-1.5 text-sm bg-bg-secondary/60 hover:bg-primary/20 border border-border rounded text-text-secondary hover:text-primary flex items-center gap-1.5 transition-colors"
+              >
+                <Copy size={14} /> 复制全部
+              </button>
+              <button
+                onClick={saveShotsText}
+                disabled={savingShotsText}
+                className="px-3 py-1.5 text-sm bg-primary text-white rounded hover:bg-primary/90 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {savingShotsText ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
+                保存修改
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={shotsTextDraft}
+            onChange={e => setShotsTextDraft(e.target.value)}
+            rows={Math.max(20, Math.min(60, Math.ceil(shotsTextDraft.length / 80)))}
+            placeholder="分镜描述内容...&#10;&#10;支持任意编辑, 删除, 复制. 编辑后点击右上'保存修改'持久化到 server.&#10;&#10;新生成的分镜会自动填到这里, 也可以手动编辑后保存覆盖。"
+            className="w-full text-sm bg-bg-secondary border border-border rounded-lg p-3 font-mono leading-relaxed resize-y focus:border-primary/60 focus:outline-none"
+          />
+          <p className="text-xs text-text-tertiary mt-2">
+            💡 这个文本框跟 TXT 文档一样, 随时编辑、复制、删除任意内容. 保存后会持久化到 episode.shotsTextCache, 后续漫画/视频生图也会以你保存的版本为准.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -787,261 +838,6 @@ export function EpisodeDetailPage() {
 //         行内编辑能力保留 (复用现有 draft/editingId 状态管理)
 //   跨项目通用铁律 (跟 BUG-079 假报告 + BUG-097 漏修 100% 同源): UI 字段过度分类是过度设计,
 //                       用户要的是 '完整可复制' 不是 '字段精细可编辑'
-function ShotsByScene({ shots, editingId, draft, onStartEdit, onCancelEdit, onChangeDraft, onSave, savingShot }: {
-  shots: Shot[];
-  editingId: string | null;
-  draft: Partial<Shot> | null;
-  onStartEdit: (s: Shot) => void;
-  onCancelEdit: () => void;
-  onChangeDraft: (d: Partial<Shot>) => void;
-  onSave: () => void;
-  savingShot: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);  // v3.0.101: 默认折叠 (跟用户需求一致)
-
-  // v3.0.101: 按 shotNumber 排序 (不再分组)
-  const sortedShots = useMemo(() => {
-    return [...shots].sort((a, b) => (a.shotNumber || 0) - (b.shotNumber || 0));
-  }, [shots]);
-
-  // 顶部统计
-  const totalShots = shots.length;
-  const totalDuration = shots.reduce((s, sh) => s + (sh.durationSec || 0), 0);
-  const totalDialogues = shots.filter(s => s.dialogue && s.dialogue.trim()).length;
-  // v3.0.101: 场景数从 shots 的 sceneType 去重 (因为不强分组了)
-  const sceneTypes = new Set(shots.filter(s => s.sceneType?.trim()).map(s => s.sceneType));
-
-  return (
-    <div className="glass overflow-hidden">
-      {/* 顶部按钮: 折叠/展开 + 汇总信息 */}
-      <button
-        onClick={() => setExpanded(prev => !prev)}
-        className="w-full flex items-center gap-2 p-4 hover:bg-bg-secondary/40 transition-colors"
-      >
-        {expanded
-          ? <ChevronUp size={18} className="text-text-tertiary flex-shrink-0" />
-          : <ChevronDown size={18} className="text-text-tertiary flex-shrink-0" />}
-        <FileText size={20} className="text-accent flex-shrink-0" />
-        <h2 className="text-lg font-bold text-text-primary flex-shrink-0">分镜头描述</h2>
-        <span className="text-sm text-text-secondary flex items-center gap-3 flex-wrap">
-          <span>· {totalShots} 镜头</span>
-          <span>· {totalDuration.toFixed(1)}秒</span>
-          <span>· {totalDialogues} 句对白</span>
-          <span>· {sceneTypes.size} 个场景</span>
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-border p-4 space-y-3 bg-bg-secondary/20">
-          {/* v3.0.101: 顶部 '复制全部' 按钮 (用户需求: 一次性复制全部完整文本) */}
-          <CopyAllShotsButton shots={sortedShots} />
-
-          {/* 镜头列表 (按 shotNumber, 不分组) */}
-          {sortedShots.map(s => (
-            <ShotCard
-              key={s.id}
-              shot={s}
-              editing={editingId === s.id}
-              draft={editingId === s.id ? draft : null}
-              onStartEdit={() => onStartEdit(s)}
-              onCancelEdit={onCancelEdit}
-              onChangeDraft={onChangeDraft}
-              onSave={onSave}
-              saving={savingShot && editingId === s.id}
-            />
-          ))}
-
-          {/* 底部 '复制全部' 按钮 (重复, 用户无需滚到顶) */}
-          {sortedShots.length > 3 && <CopyAllShotsButton shots={sortedShots} />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// v3.0.101 BUG-178: '复制全部' 按钮组件 (顶部/底部共用)
-//   用 navigator.clipboard.writeText API + Toast 反馈 (复用 useNotificationStore.addToast)
-//   格式: 每分镜独立段落, 用 --- 分隔, 方便用户粘贴到任何 AI/文档工具
-function CopyAllShotsButton({ shots }: { shots: Shot[] }) {
-  const addToast = useNotificationStore(s => s.addToast);
-  const copyAll = () => {
-    const text = shots
-      .filter(s => (s.description || '').trim())
-      .map(s => `[镜头 ${s.shotNumber} · ${s.durationSec}秒]\n${s.description}`)
-      .join('\n\n---\n\n');
-    if (!text) {
-      addToast({ type: 'system', title: '没有可复制的分镜内容', content: '请先生成或编辑分镜' });
-      return;
-    }
-    navigator.clipboard.writeText(text)
-      .then(() => addToast({ type: 'system', title: `已复制 ${shots.length} 个分镜`, content: '已复制到剪贴板, 可粘贴到任何 AI 工具' }))
-      .catch(() => {
-        // Fallback: 老浏览器或权限拒绝时降级
-        const ta = document.createElement('textarea');
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); document.body.removeChild(ta);
-        addToast({ type: 'system', title: `已复制 ${shots.length} 个分镜 (降级模式)`, content: '已复制到剪贴板' });
-      });
-  };
-  return (
-    <button
-      onClick={copyAll}
-      className="w-full p-2 bg-bg-secondary/60 hover:bg-primary/20 border border-border rounded text-text-secondary hover:text-primary text-sm flex items-center justify-center gap-1.5 transition-colors"
-    >
-      <Copy size={14} /> 复制全部分镜描述 ({shots.length} 段)
-    </button>
-  );
-}
-
-function ShotCard({ shot, editing, draft, onStartEdit, onCancelEdit, onChangeDraft, onSave, saving }: {
-  shot: Shot;
-  editing: boolean;
-  draft: Partial<Shot> | null;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onChangeDraft: (d: Partial<Shot>) => void;
-  onSave: () => void;
-  saving: boolean;
-}) {
-  const [shotExpanded, setShotExpanded] = useState(false);
-  if (editing && draft) {
-    return (
-      <div className="glass p-4 border border-primary/40">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={draft.shotNumber || 0}
-              onChange={e => onChangeDraft({ ...draft, shotNumber: parseInt(e.target.value) || 0 })}
-              className="w-14 text-sm bg-bg-secondary border border-border rounded px-2 py-1"
-            />
-            <span className="text-xs text-text-tertiary">号镜头</span>
-            <input
-              type="number"
-              value={draft.durationSec || 0}
-              onChange={e => onChangeDraft({ ...draft, durationSec: parseInt(e.target.value) || 0 })}
-              className="w-16 text-sm bg-bg-secondary border border-border rounded px-2 py-1"
-            />
-            <span className="text-xs text-text-tertiary">秒</span>
-          </div>
-          <div className="flex gap-1.5">
-            <button onClick={onCancelEdit} className="px-2 py-1 text-xs border border-border rounded hover:bg-bg-secondary flex items-center gap-1">
-              <X size={12} /> 取消
-            </button>
-            <button onClick={onSave} disabled={saving} className="px-2 py-1 text-xs bg-primary text-white rounded hover:bg-primary/90 flex items-center gap-1 disabled:opacity-50">
-              {saving ? <Loader size={12} className="animate-spin" /> : <Save size={12} />} 保存
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <Field label="🎬 镜头描述" textarea value={draft.description || ''} onChange={v => onChangeDraft({ ...draft, description: v })} rows={2} />
-          <Field label="🏃 动作" textarea value={draft.action || ''} onChange={v => onChangeDraft({ ...draft, action: v })} rows={2} />
-          <Field label="💬 对白/旁白" textarea value={draft.dialogue || ''} onChange={v => onChangeDraft({ ...draft, dialogue: v })} rows={2} />
-          <Field label="📍 场景/地点" value={draft.location || ''} onChange={v => onChangeDraft({ ...draft, location: v })} icon={<MapPin size={12} />} />
-          <Field label="📷 镜头角度" value={draft.cameraAngle || ''} onChange={v => onChangeDraft({ ...draft, cameraAngle: v })} icon={<Camera size={12} />} />
-          <Field label="🎥 镜头运动" value={draft.cameraMove || ''} onChange={v => onChangeDraft({ ...draft, cameraMove: v })} icon={<Camera size={12} />} />
-          <Field label="☀️ 光线" value={draft.lighting || ''} onChange={v => onChangeDraft({ ...draft, lighting: v })} icon={<Sun size={12} />} />
-          <Field label="🕐 时间" value={draft.timeOfDay || ''} onChange={v => onChangeDraft({ ...draft, timeOfDay: v })} />
-          <Field label="🎙 音效/音乐" value={draft.audioNote || ''} onChange={v => onChangeDraft({ ...draft, audioNote: v })} icon={<Mic size={12} />} />
-          <Field label="🎬 场景类型 (中景/特写/远景)" value={draft.sceneType || ''} onChange={v => onChangeDraft({ ...draft, sceneType: v })} />
-          <Field label="🤖 AI 生图 prompt" textarea value={draft.imagePrompt || ''} onChange={v => onChangeDraft({ ...draft, imagePrompt: v })} rows={3} />
-        </div>
-      </div>
-    );
-  }
-
-  // v3.0.101 BUG-178: 默认渲染重设计 — 只显示 description 完整文本 (无字段分类)
-  //   修前: 展开后 8 字段分类 (动作/对白/角度/运镜/光线/时间/音效/AI prompt) — 用户痛点 "分类多, 没法一次性复制"
-  //   修法: 1 个完整 description 文本块 + ✏️ 编辑 + 📋 复制 2 个按钮
-  //         行内编辑能力完全保留 (上面 editing 模式分支不动)
-  //         AI prompt 通过折叠 details 保留 (避免太长影响视觉重量)
-  const addToast = useNotificationStore(s => s.addToast);
-  const copyShot = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const text = shot.description || '';
-    if (!text.trim()) {
-      addToast({ type: 'system', title: '此镜头描述为空', content: '无内容可复制, 请先编辑补全' });
-      return;
-    }
-    navigator.clipboard.writeText(text)
-      .then(() => addToast({ type: 'system', title: `已复制镜头 ${shot.shotNumber} 描述`, content: '已复制到剪贴板' }))
-      .catch(() => {
-        // Fallback: 老浏览器降级
-        const ta = document.createElement('textarea');
-        ta.value = text; document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); document.body.removeChild(ta);
-        addToast({ type: 'system', title: `已复制镜头 ${shot.shotNumber} 描述 (降级模式)`, content: '已复制到剪贴板' });
-      });
-  };
-
-  return (
-    <div className="glass p-3 border border-border rounded-lg bg-bg-secondary/20">
-      {/* 头部: 编号徽章 + 元数据条 + 操作按钮 */}
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-          {shot.shotNumber}
-        </div>
-        <span className="text-sm font-semibold text-text-primary">
-          镜头 {shot.shotNumber} · {shot.durationSec}秒
-        </span>
-        {shot.sceneType && (
-          <span className="text-[11px] px-1.5 py-0.5 bg-primary/20 text-primary rounded">
-            {shot.sceneType}
-          </span>
-        )}
-        {/* v3.0.101: ✏️ 编辑 + 📋 复制 按钮组 (右对齐) */}
-        <div className="ml-auto flex gap-1">
-          <button
-            onClick={onStartEdit}
-            className="p-1.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded transition-colors"
-            title="编辑此镜头"
-          >
-            <Edit2 size={14} />
-          </button>
-          <button
-            onClick={copyShot}
-            className="p-1.5 text-text-secondary hover:text-accent hover:bg-accent/10 rounded transition-colors"
-            title="复制此镜头描述"
-          >
-            <Copy size={14} />
-          </button>
-        </div>
-      </div>
-
-      {/* v3.0.101: 完整 description 文本块 (用户需求核心: 一次性可复制, 不要字段分类) */}
-      <pre className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words font-sans select-text cursor-text">
-        {shot.description || <span className="text-text-tertiary">（空 — 点击右上角 ✏️ 补全）</span>}
-      </pre>
-
-      {/* v3.0.101: AI 生图 prompt 保留为折叠 details (避免视觉重量, 字段仍在编辑态可改) */}
-      {shot.imagePrompt && (
-        <details className="mt-2 bg-bg-secondary/40 rounded p-2">
-          <summary className="text-[10px] text-text-tertiary cursor-pointer hover:text-text-secondary flex items-center gap-1">
-            🤖 <span className="font-semibold">AI 生图 prompt ({shot.imagePrompt.length} 字符)</span>
-          </summary>
-          <div className="text-[10px] text-text-secondary mt-1.5 whitespace-pre-wrap break-words font-mono leading-relaxed">
-            {shot.imagePrompt}
-          </div>
-        </details>
-      )}
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, textarea, rows = 1, icon }: { label: string; value: string; onChange: (v: string) => void; textarea?: boolean; rows?: number; icon?: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-xs text-text-tertiary mb-1 flex items-center gap-1">{icon}{label}</label>
-      {textarea ? (
-        <textarea value={value} onChange={e => onChange(e.target.value)} rows={rows}
-          className="w-full text-xs bg-bg-secondary border border-border rounded p-2 resize-y" />
-      ) : (
-        <input value={value} onChange={e => onChange(e.target.value)}
-          className="w-full text-xs bg-bg-secondary border border-border rounded p-2" />
-      )}
-    </div>
-  );
-}
 
 /**
  * 规范化漫画图片 src:

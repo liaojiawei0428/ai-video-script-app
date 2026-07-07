@@ -3,13 +3,32 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.101",
+  "latest_version": "3.0.102",
   "latest_version_time": "2026-07-07",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.102",
+      "buildDate": "2026-07-07",
+      "type": "patch",
+      "summary": "S85 BUG-179 修 mobile 端剧本内容一直转圈 + web 端分镜列表 UI 重设计成 1 个 textarea (跟 TXT 文档 1:1, 跨端铁律 4++ web+mobile 1:1 镜像)",
+      "highlights": [
+        "mobile 端 BUG-179 转圈修法: apps/mobile/src/screens/EpisodeDetailScreen.tsx loadEpisodeWithShots (line 111-120) 末尾补 setLoading(false). 修前根因: v3.0.101 BUG-178 修法时把入口从 loadEpisode 改成 loadEpisodeWithShots, 新函数漏搬了 setLoading(false) → loading 永远 true → 永远显示 <ActivityIndicator> 转圈 → 剧本内容永远看不到 (用户报: '手机 APP 无法打开剧本内容, 一直在转圈'). 修法: 1 行修复, 在 try/catch 外加 setLoading(false) (跟修前 loadEpisode 1:1 镜像)",
+        "web 端分镜列表 UI 重设计: apps/web/src/pages/EpisodeDetailPage.tsx 删 ShotsByScene + ShotCard + CopyAllShotsButton 三大组件 (跟 Field helper 共 259 行 dead code, mavis-trash 实战). 替换为 1 个 textarea 永远 active (跟用户原话 100% 对应: '只有一个分镜头描述编辑框, 编辑框内显示所有内容, 无语点击任何按钮即可编辑可复制'). 像 TXT 文档一样, 用户随时编辑/复制/删除任意内容",
+        "web 端 + mobile 端跨端铁律 4++ 1:1 镜像: web 端 EpisodeDetailPage 1 个 textarea 永远 active + 顶部 [💾保存修改] [📋复制全部] 2 个按钮, mobile 端 EpisodeDetailScreen 删 shotEditing toggle + 删 [编辑/预览] 按钮, 1 个 TextInput 永远 active + 底部 [💾保存分镜] 1 个按钮 (保留保存按钮是因为用户编辑完需要主动持久化, 跟 web 端 1:1). 跨端 UI 行为 1:1 镜像, 跟用户原话 100% 对应",
+        "后端极小侵入: 0 新接口 0 新路由. shotsTextCache 字段 v3.0.101 已加 (apps/server/src/models/db.ts ALTER TABLE), updateEpisode 透传已有. v3.0.102 唯一后端改动: 0 行 (纯前端 UI 重设计)",
+        "web 端 formatShotsToText helper (apps/web/src/pages/EpisodeDetailPage.tsx line 53-65): 把 shots 数组按 shotNumber 拼接成 format 文本, 跟 mobile loadShots line 134-141 1:1 镜像. 简化版 (无 cameraAngle 等字段) 只拼接 description, 完整版拼接景别/运镜/灯光/画面/对白/音效. 自动判别用哪个版本",
+        "web 端 useEffect 同步 shots → shotsTextDraft: 优先用 episode.shotsTextCache (用户编辑过的, 避免覆盖), 否则用 formatShotsToText(shots) 拼接. lastShotsSigRef 守护: shots + shotsTextCache signature 没变就不重写, 保护用户编辑不被自动拼接冲掉 (跟 mobile loadShots line 126-130 1:1 镜像逻辑)",
+        "mobile 端删 dead state: shotEditing + setShotEditing 整段删除 (跟 web 端删 editShotId/shotDraft 1:1 镜像). styles 保留 editBtn/editBtnActive/editBtnText/editBtnTextActive (剧本区 [编辑/预览] 按钮还在用). 跟 v3.0.101 BUG-178 实战教训: 加 state 必 grep 同文件所有引用, 改一处必同步改其他位置 (跨端铁律 4++)",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-079/100/118/119/130/134/138/140/143/144 100% 同源): 半修半漏补 (partial fix leak) 是 shipin-APP 修 BUG 时的高频反模式. v3.0.101 BUG-178 修法把 loadEpisode 拆成 loadEpisodeWithShots + loadEpisode, setLoading(false) 漏搬 → 转圈 BUG. 跨项目通用铁律: 任何函数重命名/拆分/合并, 必 grep 老函数的所有 side effect (setLoading/setError/setData 等) 全搬到新函数, 不能漏掉 setLoading 这种 '看着不起眼但影响最大' 的状态更新",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-079/097/118/119/130/143 100% 同源): UI 简化是终极目标, 不是过渡形态. v3.0.100 → v3.0.101 → v3.0.102 三次迭代: 多 ShotCard → 单折叠卡片 → 1 个 textarea. 用户每次反馈都是 '还要再简单点'. 跨项目通用铁律: 任何 UI 重设计, 第一次方案大概率不够简单, 必预设 v1.x → v2.x → v3.x 简化路径, 每版跟用户确认 '够简单了吗?'. 不要试图一次到位做最简, 跨版本逐步简化是必走之路",
+        "v3.0.102 跨端 8 处版本号同步: mobile version.ts (3.0.101 → 3.0.102) + mobile build.gradle (versionCode 102 → 103, versionName 3.0.101 → 3.0.102) + web version.ts (APP_VERSION 3.0.101 → 3.0.102, APP_VERSION_CODE 102 → 103) + server package.json + server src/index.ts fallback + server ecosystem.config.js (env + env_production 2 处) + server changelog.json (顶层 latest_version + prepend v3.0.102 entry) + 远端 .env APP_VERSION + 远端 systemd unit Environment=APP_VERSION",
+        "兼容影响: shots 表 schema 0 改 (所有老 shots 数据 100% 兼容), shotsTextCache 字段为可空新增 (老 episodes 行为不变). 漫画生成/视频生图/导出 PDF/Word 等所有依赖 shots 数据流 0 改. 唯一接口变化: getEpisode 响应多了 shotsTextCache 字段 (v3.0.101 已加, 这次没改). web EpisodeDetailPage.tsx 总行数 1134 → 859 (-275 行, 删 3 组件 + Field helper + 注释 + dead state/函数), mobile EpisodeDetailScreen.tsx 总行数 575 → 567 (-8 行, 删 shotEditing + [编辑/预览] 按钮 + dead 引用)"
+      ]
+    },
     {
       "version": "3.0.101",
       "buildDate": "2026-07-07",

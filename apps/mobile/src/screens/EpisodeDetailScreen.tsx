@@ -70,10 +70,12 @@ export function EpisodeDetailScreen(): React.JSX.Element {
   const [episodeStatus, setEpisodeStatus] = useState<string>('');
   const [streamText, setStreamText] = useState('');
   const [editing, setEditing] = useState(false);
-  // v3.0.101 BUG-178 修: 分镜文本加 [编辑/预览] + 保存 (跟剧本区 1:1 镜像)
-  //   修前 '镜头语言' GlassCard 完全只读 <Text selectable> 无任何编辑入口 (line 414 原来只有 display)
-  //   修法: 借鉴剧本区 (line 414 上方) 的 [编辑/预览] + TextInput + handleSave 模式
-  const [shotEditing, setShotEditing] = useState(false);
+  // v3.0.102 (S85 2026-07-07) BUG-179: 删 shotEditing (默认就是 edit 模式, 跟 web 端 1:1 镜像)
+  //   修前 (v3.0.101): 跟剧本区 1:1 镜像, 加 [编辑/预览] toggle + TextInput + 保存按钮
+  //   修法: 删 shotEditing + [编辑/预览] 按钮, 默认 TextInput 永远 active, 用户随时编辑
+  //   跟用户原话: "无语点击任何按钮即可编辑可复制. 就和 TXT 文档一样, 随时编辑随时复制随时删除" 100% 对应
+  //   跟 web 端 1:1 镜像 (EpisodeDetailPage.tsx BUG-179 修法: 1 个 textarea 永远 active)
+  //   保留 [保存分镜] 按钮: 用户编辑完主动保存, 调 handleSaveShots 调 updateEpisode + shotsTextCache
   const [savingShots, setSavingShots] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -108,6 +110,11 @@ export function EpisodeDetailScreen(): React.JSX.Element {
   //   loadEpisode 只会返 scriptContent, shots 走 loadShots 独立获取. 这里需要把 shotsTextCache 也读进来
   //   fix: 改进 loadEpisode 同时读 shotsTextCache, loadShots 优先用 cache
   //   实现: 把 loadEpisode + shotsCache 合并
+  // v3.0.102 (S85 2026-07-07): BUG-179 修法 — 末尾必 setLoading(false)
+  //   修前根因: v3.0.101 BUG-178 修法时把入口从 loadEpisode 改成 loadEpisodeWithShots, 新函数漏搬了
+  //     setLoading(false) → loading 永远 true → 永远显示 <ActivityIndicator> 转圈
+  //     剧本内容永远看不到 (用户报: "手机 APP 无法打开剧本内容, 一直在转圈")
+  //   修法: 1 行修复, 在 try/catch 外加 setLoading(false) (跟修前 loadEpisode 1:1 镜像)
   const loadEpisodeWithShots = async () => {
     try {
       const res = await getEpisode(episodeId);
@@ -117,6 +124,8 @@ export function EpisodeDetailScreen(): React.JSX.Element {
       // v3.0.101 BUG-178: 把 shotsTextCache 存进 state (供后续渲染)
       setShotsTextCache(ep?.shotsTextCache || '');
     } catch {}
+    // v3.0.102 BUG-179: 必调 setLoading(false) (跟原 loadEpisode 行为 1:1 镜像, 否则永远转圈)
+    setLoading(false);
   };
 
   const loadShots = async () => {
@@ -156,7 +165,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
     try {
       await updateEpisode(episodeId, { shotsTextCache: shotContent });
       setShotsTextCache(shotContent);  // 同步本地 cache 避免下次 load 重新拼接覆盖
-      setShotEditing(false);
+      // v3.0.102 BUG-179: 删 setShotEditing(false) (shotEditing state 删了)
       Alert.alert('已保存', '分镜修改已持久化到 server (episode.shotsTextCache)');
     } catch (e: any) {
       Alert.alert('保存失败', e?.response?.data?.error?.message || e?.message || '网络错误');
@@ -453,19 +462,16 @@ export function EpisodeDetailScreen(): React.JSX.Element {
           <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
             <View style={styles.boxHeader}>
               <Text style={styles.boxTitle}>镜头语言</Text>
-              {/* v3.0.101 BUG-178: 编辑态时切换为 '编辑分镜' badge */}
-              {shotEditing && (
-                <View style={styles.failedBadge}>
-                  <Text style={styles.failedBadgeText}>编辑分镜</Text>
-                </View>
-              )}
+              {/* v3.0.102 BUG-179: 删 '编辑分镜' badge (shotEditing 删了, badge 跟着删) */}
             </View>
             {generating ? (
               <ScrollView ref={streamScrollRef} style={styles.shotStreamScroll}>
                 <Text style={styles.shotStreamText}>{streamText}</Text>
               </ScrollView>
-            ) : shotEditing ? (
-              /* v3.0.101 BUG-178: 编辑态 (跟剧本区 line 414 1:1 镜像) */
+            ) : (
+              /* v3.0.102 BUG-179: 默认 TextInput 永远 active (跟 web 端 textarea 1:1 镜像)
+                 修前 (v3.0.101): shotEditing ? TextInput : <Text selectable>
+                 修法: 永远 TextInput, 用户随时编辑 (跟 TXT 文档 1:1) */
               <TextInput
                 style={styles.editorInput}
                 value={shotContent}
@@ -475,20 +481,11 @@ export function EpisodeDetailScreen(): React.JSX.Element {
                 placeholder="输入/修改分镜内容..."
                 placeholderTextColor={colors.text.tertiary}
               />
-            ) : (
-              <Text style={styles.shotText} selectable>{shotContent}</Text>
             )}
-            {/* v3.0.101 BUG-178: [编辑/预览] + [保存分镜] 按钮 (跟剧本区 1:1 镜像) */}
+            {/* v3.0.102 BUG-179: 删 [编辑/预览] toggle (跟用户原话 100% 对应)
+                 保留 [保存分镜] 按钮: 用户编辑完主动保存, 调 handleSaveShots 调 updateEpisode + shotsTextCache */}
             {!generating && (
               <View style={styles.editSaveRow}>
-                <TouchableOpacity
-                  style={[styles.editBtn, shotEditing && styles.editBtnActive]}
-                  onPress={() => setShotEditing(!shotEditing)}
-                >
-                  <Text style={[styles.editBtnText, shotEditing && styles.editBtnTextActive]}>
-                    {shotEditing ? '预览' : '编辑'}
-                  </Text>
-                </TouchableOpacity>
                 <TouchableOpacity style={styles.saveBtn} onPress={handleSaveShots} disabled={savingShots}>
                   {savingShots ? (
                     <ActivityIndicator size="small" color={colors.text.inverse} />
