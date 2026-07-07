@@ -2817,6 +2817,139 @@ BUG-152 (v3.0.78 Axios 拦截器错误码严格映射 + retry + 401 细分, 跟 
 - 沉淀 changelog v3.0.78 entry 合并 BUG-148 + 149 + 150 + 151 + 152
 ```
 
-> **最后更新**: 2026-07-02 (v3.0.78 BUG-151 + BUG-152, 加 § 6.29 MySQL 池配置 + 错误码严格对齐 mysql2 官方文档 + § 6.30 Axios 拦截器错误码严格映射 + retry + 401 细分, 19+ 条新跨项目通用铁律 + 14 错误码对照 + 401 细分 5 子类 + retry 1s/2s/4s exponential backoff, web+mobile 跨端 1:1 同步, 跟根 AGENTS.md 同步)
+> **最后更新**: 2026-07-07 (v3.0.100 BUG-177, 加 § 6.31 mobile 端强制升级 modal 永远弹出修法 (client 跟 server 对比改用 mobileLatestApkVersion 而非 version, 跨项目通用铁律 #35 沉淀, 跟 BUG-079/131/145/165/166/168 100% 同源), 部署实战踩坑 (apkVersion.ts module-scope cache 部署后必重启清), 跟根 AGENTS.md + docs/BUGS_INDEX.md 同步)
 > **下次 review**: 新 SDK 接入 (新支付 / 新存储 / 邮件) / Axios 升级 v2+ / RN 类型升级 / 跨项目通用铁律 #20+ 实战后再发现新坑时
+
+## § 6.31 v3.0.100 新增: mobile 端强制升级 modal 永远弹出 (BUG-177, 2026-07-07, 跟 BUG-079/131/145/165/166/168 100% 同源, 跨项目通用铁律 #35 新沉淀)
+
+### § 6.31.1 背景 (S84 实机验证发现, 跟 v3.0.99 BUG-176 server-only hotfix 设计矛盾)
+
+S83 v3.0.99 BUG-176 修 DeepSeek `reasoning_content` 泄漏到 `analysis_report` (server-only hotfix, server 端 1 文件 +11/-1, mobile 端 0 改). BUG-176 是 server-only hotfix → 公网 mobile APK 仍是 v3.0.98 → server.version=v3.0.99 但公网 APK=v3.0.98, 不一致.
+
+**实战矛盾点**: mobile 端 v3.0.99 启动 → `checkForUpdate` → `/api/version` 返 `version=3.0.99 + mobileLatestApkVersion=3.0.98` → App.tsx 修前用 `info.version` 跟 `clientVer (3.0.99 APK)` 对比 → 3.0.99 == 3.0.99 → isMatch=true → 不弹 modal (看起来 OK?).
+
+但 **v3.0.99 APK 没成功部署公网** (公网只有 v3.0.98 APK, HEAD 返 404), 所以实际用户场景是:
+- 用户手机装 v3.0.98 APK
+- 启动 → `/api/version` 返 `version=3.0.99 + mobileLatestApkVersion=3.0.98`
+- App.tsx 修前用 `info.version=3.0.99` 跟 `clientVer=3.0.98` 对比 → **永远不等 → 强制升级 modal 永远弹 → APP 无法进入主界面**
+
+跟 server-only hotfix 设计矛盾: server hotfix 不需要 rebuild APK, 但 client 用 server-only 进程版本做对比, 把 server hotfix 当成"客户端必须升级"的错误信号.
+
+### § 6.31.2 真根因 (3 重, 跟 BUG-079/131/145/165/166/168 100% 同源)
+
+1. **client 跟 server 对比用错字段**: 修前用 `info.version` (server-only 进程版本, server hotfix 会变) 不用 `info.mobileLatestApkVersion` (公网真实 APK 版本, server hotfix 不变)
+2. **server 端 /api/version 已同时返两个字段** (v3.0.62 BUG-131 实战): `version` (server 进程) + `mobileLatestApkVersion` (公网 APK), 但 client 端忽略 `mobileLatestApkVersion` 字段
+3. **client 缺判断分支**: 没有 "server hotfix (server.version 升, 公网 APK 没升) → 不需要升级" 这个分支, 默认假设 "server.version 升 = 必须升级"
+
+### § 6.31.3 修法架构 (1 文件 +17/-4, commit `2148f9e`)
+
+```
+apps/mobile/App.tsx (line 297-306, BUG-177 修法, 1:1 镜像 server apkVersion.ts 扫盘逻辑):
+├─ 修前 (line 297-302):
+│   const info = await checkForUpdate(APP_VERSION, 3);
+│   console.log('[App] checkForUpdate success', { version: info.version });
+│   const clientVer = APP_VERSION;
+│   const serverVer = info.version;
+│   const isMatch = compareVersionsClient(clientVer, serverVer) === 0;
+├─ 修后 (line 297-306):
+│   const info = await checkForUpdate(APP_VERSION, 3);
+│   console.log('[App] checkForUpdate success', { version: info.version, mobileLatestApkVersion: info.mobileLatestApkVersion });
+│   const clientVer = APP_VERSION;
+│   const apkVer = info.mobileLatestApkVersion || info.version;  // fallback 是兜底
+│   const isMatch = compareVersionsClient(clientVer, apkVer) === 0;
+│
+├─ 修法核心: client 跟 server 对比改用 info.mobileLatestApkVersion (server 已按需从公网 APK 列表扫到的真实 APK 版本, 跟 BUG-131 v3.0.62 实战扫盘逻辑 1:1 复用), 保留 info.version fallback 兜底
+│
+└─ 行为映射 (4 状态):
+    ① client APK == 公网 APK (info.mobileLatestApkVersion) → 不需要升级 (server hotfix 用户继续用老 APK 即可)
+    ② client APK <  公网 APK → 需要升级 (server 真发布新 APK, 用户必须升级)
+    ③ client APK >  公网 APK (测试包 / 灰度) → 不需要升级 (兜底)
+    ④ info.mobileLatestApkVersion 缺失 → fallback 用 info.version (跟修前 1:1 兼容, 防止字段缺失炸客户端)
+```
+
+### § 6.31.4 跨项目通用铁律 #35 沉淀 (跟 BUG-079/131/145/165/166/168 100% 同源)
+
+1. **client 升级对比必用 公网真实 APK version, 不用 server-only 进程 version** (新铁律, BUG-177 核心): 跟 server AGENTS.md § 3 铁律 9 "server-only hotfix 必 rebuild APK" 互补 — server 侧保证 server.version ≈ 公网 APK version (通过 deploy.sh 同步 + apkVersion.ts 启动 check), client 侧保证判断对 (用 mobileLatestApkVersion 不用 version). 跨项目通用铁律: 任何 client 跟 server 对比, 必区分 "server-only 进程状态" 跟 "公网真实资源状态"
+2. **server /api/version 必同时返 version (server-only 进程 version) + mobileLatestApkVersion (公网真实 APK version)** (强化, BUG-131 v3.0.62 实战): v3.0.62 BUG-131 已经实现这两个字段, 但当时 client 端没用上. BUG-177 实战验证 "客户端必须用 mobileLatestApkVersion 不用 version" 这个判断逻辑. 跨项目通用铁律: server API 暴露多版本字段时, client 端必选对的字段用 (跟文档必读配套)
+
+### § 6.31.5 部署实战踩坑 1 个 (跟 BUG-145 v3.0.77 apkVersion.ts module-scope cache 同源)
+
+**踩坑**: `apps/server/src/services/apkVersion.ts:36+99` 模块缓存 5 min TTL, deploy 时序坑:
+1. `deploy.sh` step 7 重启 systemd unit → server 启动扫公网 APK 目录
+2. 此时 v3.0.100 APK 还没 cp 到公网 (`deploy_v3.py` Step 5 才 cp, 在 deploy.sh 跑完之后)
+3. server 扫盘缓存 `mobileLatestApkVersion = v3.0.98` (公网只有老版本)
+4. 5 min 内 `/api/version` 永远返 `mobileLatestApkVersion = v3.0.98`, 即使公网已经 cp v3.0.100 APK
+5. BUG-177 修法实战验证: `mobileLatestApkVersion = 3.0.98` ≠ server.version = 3.0.99 → BUG-177 修法后客户端也能弹 modal ❌
+
+**修法**: `systemctl restart shipin-app` 清缓存, 重新扫盘 → `mobileLatestApkVersion = 3.0.100` ✅
+
+**跨项目通用铁律** (跟 mavis memory "module-scope cache 部署后必重启清" 100% 同源, 跟 BUG-145 v3.0.77 apkVersion.ts 实战 100% 同源):
+- `apkVersion.ts` `_cache` 5 min TTL 撞 deploy 时序坑 → deploy 后 5 min 内 `mobileLatestApkVersion` 返 stale
+- 修法 1: deploy_v3.py Step 5 后必 `systemctl restart shipin-app` 清缓存 (shipin-APP 实战方案)
+- 修法 2: apkVersion.ts `clearApkVersionCache()` 在 deploy 完手动调 (SHIPIN-APP 未实现, 跟 BUG-145 实战盲点)
+- 修法 3: cache TTL 改 0 ms 实时扫盘 (性能 trade-off, shipin-APP 未采用)
+- 修法 4: deploy.sh 加 APK cp 在 server 重启之前 (改动 deploy.sh 流程, shipin-APP 未采用, 跟 deploy_v3.py 现有结构兼容)
+
+### § 6.31.6 实战 E2E 验证 (S84 公网 12 维 + 3 维 BUG-177 实战)
+
+**修前公网 /api/version (S83 v3.0.99)**:
+```
+version: "3.0.99"
+mobileLatestApkVersion: "3.0.98"  ← 公网 APK 是 v3.0.98, server hotfix 到 v3.0.99
+mobileLatestApkSource: "public-dir"
+downloadUrl: "https://ab.maque.uno/app/DeepScript_v3.0.98.apk"
+```
+触发 BUG-177: 客户端 v3.0.98 用 info.version=3.0.99 对比 → 不等 → 弹 modal
+
+**修后公网 /api/version (S84 v3.0.100, restart shipin-app 清缓存后)**:
+```
+version: "3.0.100"
+mobileLatestApkVersion: "3.0.100"  ← 1:1 一致, BUG-177 修法实战生效
+mobileLatestApkSource: "public-dir"
+downloadUrl: "https://ab.maque.uno/app/DeepScript_v3.0.100.apk"
+buildDate: "2026-07-07"
+highlights: 4 (跟 changelog entry 加的 4 条一致)
+```
+修法生效: 客户端 v3.0.100 用 info.mobileLatestApkVersion=3.0.100 对比 → 等 → 不弹 modal ✅
+
+**12 维部署验证** (跟 § 2.3 / § 6.25.6 配套):
+- ✅ systemctl shipin-app: active (PID 1390)
+- ✅ ss 6000: 0.0.0.0:6000
+- ✅ /health: HTTP/1.1 200 OK
+- ✅ /api/version: 3.0.100 (跟 changelog.json latest_version 1:1)
+- ✅ characterVariant: 0.1
+- ✅ /api/novels: HTTP/1.1 401 Unauthorized (鉴权正常)
+- ✅ 宝塔 nginx 80: 0.0.0.0:80
+- ✅ 宝塔 panel 888: 0.0.0.0:888
+- ✅ ab.maque.uno HTTPS /api/version: 3.0.100
+- ✅ APK HTTP/2 200: DeepScript_v3.0.100.apk (Content-Length: 30328831, 跟本机 1:1, sha256 6D233677...B572AFC04)
+- ✅ 宝塔 shipin_APP run: run=True PID=1390 mem=57MB user=root
+- ✅ 宝塔 shipin_APP cfg: run_user=root is_power_on=1
+
+### § 6.31.7 跟其他 BUG 关系 (跟 BUG-079/131/145/165/166/168 100% 同源)
+
+- **BUG-079 (v3.0.13) 假报告** — 跟 BUG-177 "前端 UI 跟实际图片状态不一致" 100% 同源 (强制升级 modal 弹错状态)
+- **BUG-117 (v3.0.46) deploy.py 漏推 APK** — 跟 BUG-177 公网 APK v3.0.99 没 cp 的实战根因同源 (deploy 时序错位)
+- **BUG-131 (v3.0.62) server-only hotfix 必 rebuild APK + mobileLatestApkVersion 字段实现** — 跟 BUG-177 100% 同源, BUG-177 是 BUG-131 mobile 端的修法盲点补做
+- **BUG-145 (v3.0.76) apkVersion.ts module-scope cache 部署踩坑** — 跟 BUG-177 S84 部署实战踩坑 100% 同源 (`_cache` 5 min TTL 撞 deploy 时序, mavis memory 已沉淀)
+- **BUG-165 (v3.0.88) 强制升级铁律 + 启动必查** — 跟 BUG-177 都是强制升级体系, BUG-177 是 BUG-165 实战盲点的二次补做 (BUG-165 修了 status logic, BUG-177 修了对比字段)
+- **BUG-166 (v3.0.89) 强制升级 modal 逃逸漏洞** — 跟 BUG-177 强制升级体系 100% 同源
+- **BUG-168 (v3.0.91) iOS 启动 crash** — 跟 BUG-177 v3.0.100 应急修 100% 同源, 都属于强制升级体系实战补漏
+- **BUG-176 (v3.0.99) reasoning_content 污染** — 跟 BUG-177 100% 同源, BUG-176 是 server-only hotfix 触发 BUG-177 的直接根因
+
+### § 6.31.8 mavis memory 沉淀 (跟 BUG-148-152 修法 1:1 镜像)
+
+```
+BUG-177 (v3.0.100 mobile 端强制升级 modal 永远弹出, 跟 BUG-079/131/145/165/166/168 100% 同源):
+- 跨项目通用铁律 #35: client 升级对比必用 公网真实 APK version, 不用 server-only 进程 version
+- 跨项目通用铁律 #35 配套: server /api/version 必同时返 version (server-only 进程 version) + mobileLatestApkVersion (公网真实 APK version)
+- 真根因: apps/mobile/App.tsx line 297-302 用 info.version (server-only 进程版本) 跟 clientVer (mobile APK 版本) 对比 → server hotfix 后 server.version=v3.0.99 但公网 mobile APK 还是 v3.0.98 → 永远不等 → 强制升级 modal 永远弹
+- 修法: apps/mobile/App.tsx line 297-306 client 跟 server 对比改用 info.mobileLatestApkVersion, 保留 info.version fallback 兜底
+- 部署实战踩坑: apkVersion.ts module-scope _cache 5 min TTL 撞 deploy 时序 → deploy.sh 重启 server 时 APK 还没 cp → 缓存老版本 → 修法 systemctl restart shipin-app 清缓存
+- E2E 实战: 修前公网 mobileLatestApkVersion=3.0.98 (跟 server.version=3.0.99 不一致), 修后 mobileLatestApkVersion=3.0.100 (1:1 一致, BUG-177 修法生效)
+- 跟 BUG-131 v3.0.62 实战 1:1 镜像: BUG-131 server 端实现 mobileLatestApkVersion 字段, BUG-177 mobile 端用上这个字段
+- 跟 BUG-145 v3.0.77 apkVersion.ts module-scope cache 部署踩坑 100% 同源
+- 跟 BUG-165/166/168/176 强制升级体系 100% 同源 (BUG-177 是这一系列的第 5 个强制升级实战盲点修法)
+- 跟 server AGENTS.md § 3 铁律 9 "server-only hotfix 必 rebuild APK" 互补: server 侧保证 server.version ≈ 公网 APK version, client 侧保证判断对
+```
 
