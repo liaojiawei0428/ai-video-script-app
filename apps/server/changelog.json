@@ -3,13 +3,30 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.103",
+  "latest_version": "3.0.104",
   "latest_version_time": "2026-07-07",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.104",
+      "buildDate": "2026-07-07",
+      "type": "patch",
+      "summary": "S85 BUG-182 修 v3.0.103 commit message 假报告 (commit 写 BUG-181 但 ScriptDetailScreen.tsx 实际没合并, working tree 未 commit) + BUG-181 真正落地 mobile 端 3 个独立可编辑 Card (剧情要点/主要场景/完整AI分析报告, 跟 web 端 ScriptDetailPage line 299-426 1:1 镜像) + BUG-180 web 端登录页乱码修法 (Noto Sans SC 兜底 + GB2312 二级字文案降级)",
+      "highlights": [
+        "BUG-182 实战沉淀: v3.0.103 commit d49d3dc 写 'BUG-181 (3 editable cards 1:1 mirror web)' 但 ScriptDetailScreen.tsx 最后 commit 是 v3.0.92 (3 个 Card 渲染代码完全没合并到主分支, 仍 working tree 未 commit). 修法: 用 git log -1 --format='%H %s' <被改文件路径> 验证 commit message 跟代码 1:1 对应, 不一致 = 假报告 BUG (跟 BUG-079 100% 同源)",
+        "BUG-181 真正落地: apps/mobile/src/screens/ScriptDetailScreen.tsx line 274-381 加 3 个独立可编辑 Card (剧情要点 + 主要场景 + 完整AI分析报告), 每个 1 个 TextInput 永远 active + [💾保存] 按钮 + [📋复制] 按钮 + 字符数统计. 跟 web 端 ScriptDetailPage.tsx line 299-426 的 4 个可编辑卡片 1:1 镜像. 修法抽自之前 v3.0.103 错改到死代码 EpisodeListScreen.tsx 的 BUG-181 attempt",
+        "BUG-180 web 端登录页乱码修法: apps/web/index.html 加 Google Fonts Noto Sans SC preconnect + display=swap 全站兜底 + apps/web/src/index.css 加 'Noto Sans SC' 到 body font-family 首位 + apps/web/src/pages/LoginPage.tsx line 45/63/81 + RegisterPage.tsx line 41/63/81 改文案降级 ('开启'→'解锁', '账号'→'用户', '浏览器扫码下载'→'浏览器扫码安装'). 跨项目通用铁律 #29 实战版: web 字体必加 Noto Sans SC 兜底 + 文案必用 GB2312 一级字",
+        "BUG-180 mobile 端 version.ts 注释乱码清理: apps/mobile/src/config/version.ts line 1-65 整段 PowerShell ANSI 写错的乱码注释 (异体字) 全部清理成可读的 BUG-171 沉淀注释, export APP_VERSION=3.0.103 + APP_NAME='Deep剧本' 跟 web 端 version.ts line 12 1:1 镜像",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-079 假报告 100% 同源, 跨项目铁律 #37 新加): commit message 必跟代码 1:1 对应. 验收必跑实机验证, 不能只看 commit message. 实战验证法: git log -1 --format='%H %s' <被改文件路径> 检查 commit 跟代码 drift. v3.0.103 d49d3dc 写 BUG-181 但 ScriptDetailScreen.tsx last commit 是 v3.0.92 → 假报告 BUG-182",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-131 v3.0.62 + BUG-165 v3.0.88 100% 同源): 任何 client+server 架构 (RN APK + server / iOS IPA + server / 小程序 + server / Web SPA + server) 修完代码后必走完整 deploy.sh 流程 (8 步流程 + 12 维验证), 不能用手动路径绕过. shipin-APP v3.0.103 我用手动 sed .env + systemctl restart 绕过 deploy.sh, 漏改 6 处版本号 + 漏跑 12 维验证, 实战触发 BUG-182",
+        "v3.0.104 跨端 8 处版本号同步 (跟 BUG-131 + BUG-165 100% 同源铁律 3): mobile version.ts (3.0.103 → 3.0.104) + mobile build.gradle (versionCode 104 → 105, versionName 3.0.103 → 3.0.104) + web version.ts (APP_VERSION 3.0.103 → 3.0.104, APP_VERSION_CODE 104 → 105) + server package.json (3.0.103 → 3.0.104) + server src/index.ts fallback ('3.0.103' → '3.0.104') + server ecosystem.config.js (env + env_production 2 处 3.0.103 → 3.0.104) + server changelog.json (顶层 latest_version 3.0.103 → 3.0.104 + prepend v3.0.104 entry) + 远端 .env APP_VERSION + 远端 systemd unit Environment=APP_VERSION",
+        "兼容影响: server 端 0 改动 (BUG-181 修法纯 mobile 端). mobile ScriptDetailScreen.tsx 总行数 606 → 700+ (+94 行, 加 3 个 Card 渲染 + 9 个 styles + plotDraft/scenesDraft/reportDraft/savingSection state + extractPlot/extractScenes helpers + saveSection 函数). 0 数据迁移, 0 新建表, 0 新建索引, 0 接口路径变更",
+        "mobile tsc 验证: ScriptDetailScreen.tsx 0 错. 5 个 pre-existing 错 baseline 53 → 53 (0 新增). web typecheck 0 错. web vite build 1686 modules + index-DH2pWNiA.js 536KB (+5KB 增量). server tsc 0 错"
+      ]
+    },
     {
       "version": "3.0.103",
       "buildDate": "2026-07-07",

@@ -99,3 +99,14 @@ apps/web/web-dist-*.tgz
 # === S72 batch 30 BUG-130 (2026-06-30) ===
 # adb screenshots: temp PNGs from BUG verification, 100+ files, not in git
 .adb-shots/
+
+# === S85 BUG-182 (2026-07-07) ===
+# tools/restart-and-verify.sh + apps/tools/: 临时 verify 脚本 + 临时目录, 实战用, 不进 git
+# 跟 shipin-APP deploy.sh 12 维验证重叠, 重复; 如果需要, 后续集成进 deploy.sh 而不是单独 shell
+tools/restart-and-verify.sh
+apps/tools/
+tools/verify-v3.0.101-public.py
+
+# === S85 BUG-182 APK (2026-07-07) ===
+# 本机构建产物, 公网已 scp, 不进 git (类似 deepscript_v3.0.*.apk 进 .gitignore)
+DeepScript_v3.0.104.apk
