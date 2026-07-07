@@ -61,6 +61,8 @@ export function EpisodeDetailScreen(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [scriptContent, setScriptContent] = useState('');
   const [shotContent, setShotContent] = useState('');
+  // v3.0.101 BUG-178: 缓存用户编辑过的分镜文本 (来自 server shots_text_cache 字段)
+  const [shotsTextCache, setShotsTextCache] = useState('');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -68,6 +70,11 @@ export function EpisodeDetailScreen(): React.JSX.Element {
   const [episodeStatus, setEpisodeStatus] = useState<string>('');
   const [streamText, setStreamText] = useState('');
   const [editing, setEditing] = useState(false);
+  // v3.0.101 BUG-178 修: 分镜文本加 [编辑/预览] + 保存 (跟剧本区 1:1 镜像)
+  //   修前 '镜头语言' GlassCard 完全只读 <Text selectable> 无任何编辑入口 (line 414 原来只有 display)
+  //   修法: 借鉴剧本区 (line 414 上方) 的 [编辑/预览] + TextInput + handleSave 模式
+  const [shotEditing, setShotEditing] = useState(false);
+  const [savingShots, setSavingShots] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamScrollRef = useRef<ScrollView>(null);
@@ -75,8 +82,8 @@ export function EpisodeDetailScreen(): React.JSX.Element {
 
   useEffect(() => {
     navigation.setOptions({ title: episodeTitle || '剧集内容' });
-    loadEpisode();
-    loadShots();
+    // v3.0.101 BUG-178: loadEpisodeWithShots 同时读 shotsTextCache, 让 loadShots 能优先用
+    loadEpisodeWithShots().then(() => loadShots());
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
@@ -97,10 +104,30 @@ export function EpisodeDetailScreen(): React.JSX.Element {
     setLoading(false);
   };
 
+  // v3.0.101 BUG-178 (S84 2026-07-07): 优先用 episode.shots_text_cache 渲染 (用户编辑过的)
+  //   loadEpisode 只会返 scriptContent, shots 走 loadShots 独立获取. 这里需要把 shotsTextCache 也读进来
+  //   fix: 改进 loadEpisode 同时读 shotsTextCache, loadShots 优先用 cache
+  //   实现: 把 loadEpisode + shotsCache 合并
+  const loadEpisodeWithShots = async () => {
+    try {
+      const res = await getEpisode(episodeId);
+      const ep = res.data.data?.episode;
+      setScriptContent(ep?.scriptContent || '');
+      setEpisodeStatus(ep?.status || '');
+      // v3.0.101 BUG-178: 把 shotsTextCache 存进 state (供后续渲染)
+      setShotsTextCache(ep?.shotsTextCache || '');
+    } catch {}
+  };
+
   const loadShots = async () => {
     try {
       const res = await getShots(episodeId);
       const shots = res.data.data?.shots || [];
+      // v3.0.101 BUG-178: 如果用户编辑过 (shotsTextCache 存在), 优先用 cache 渲染 (避免覆盖用户编辑)
+      if (shotsTextCache && shotsTextCache.trim()) {
+        if (shotContent !== shotsTextCache) setShotContent(shotsTextCache);
+        return;
+      }
       if (shots.length > 0) {
         const isPlainText = !shots[0].cameraAngle;
         if (isPlainText) {
@@ -108,7 +135,7 @@ export function EpisodeDetailScreen(): React.JSX.Element {
           setShotContent(text);
         } else {
           const text = shots.map((s: any, i: number) =>
-            `【镜头${i + 1} | ${s.durationSec || 0}秒】
+            `【镜头${i + 1} | ${s.durationSec || 0}秒}
 景别：${s.cameraAngle || '中景'} | 运镜：${s.cameraMove || '固定'} | 灯光：${s.lighting || '自然光'}
 画面：${s.description || ''}${s.dialogue ? `\n对白：「${s.dialogue}」` : ''}${s.audioNote ? `\n音效：${s.audioNote}` : ''}`
           ).join('\n\n---\n\n');
@@ -116,6 +143,25 @@ export function EpisodeDetailScreen(): React.JSX.Element {
         }
       }
     } catch {}
+  };
+
+  // v3.0.101 BUG-178 (S84 2026-07-07): handleSaveShots 保存用户编辑的分镜文本到 server
+  //   跟剧本区 handleSave 1:1 镜像模式 (调 updateEpisode + setEditing(false) + Alert 反馈)
+  const handleSaveShots = async () => {
+    if (!shotContent.trim()) {
+      Alert.alert('提示', '分镜内容为空, 无需保存');
+      return;
+    }
+    setSavingShots(true);
+    try {
+      await updateEpisode(episodeId, { shotsTextCache: shotContent });
+      setShotsTextCache(shotContent);  // 同步本地 cache 避免下次 load 重新拼接覆盖
+      setShotEditing(false);
+      Alert.alert('已保存', '分镜修改已持久化到 server (episode.shotsTextCache)');
+    } catch (e: any) {
+      Alert.alert('保存失败', e?.response?.data?.error?.message || e?.message || '网络错误');
+    }
+    setSavingShots(false);
   };
 
   const handleRegenerate = async () => {
@@ -405,13 +451,52 @@ export function EpisodeDetailScreen(): React.JSX.Element {
 
         {shotContent || generating ? (
           <GlassCard padded={true} style={{ marginBottom: spacing.md }}>
-            <Text style={styles.boxTitle}>镜头语言</Text>
+            <View style={styles.boxHeader}>
+              <Text style={styles.boxTitle}>镜头语言</Text>
+              {/* v3.0.101 BUG-178: 编辑态时切换为 '编辑分镜' badge */}
+              {shotEditing && (
+                <View style={styles.failedBadge}>
+                  <Text style={styles.failedBadgeText}>编辑分镜</Text>
+                </View>
+              )}
+            </View>
             {generating ? (
               <ScrollView ref={streamScrollRef} style={styles.shotStreamScroll}>
                 <Text style={styles.shotStreamText}>{streamText}</Text>
               </ScrollView>
+            ) : shotEditing ? (
+              /* v3.0.101 BUG-178: 编辑态 (跟剧本区 line 414 1:1 镜像) */
+              <TextInput
+                style={styles.editorInput}
+                value={shotContent}
+                onChangeText={setShotContent}
+                multiline
+                textAlignVertical="top"
+                placeholder="输入/修改分镜内容..."
+                placeholderTextColor={colors.text.tertiary}
+              />
             ) : (
               <Text style={styles.shotText} selectable>{shotContent}</Text>
+            )}
+            {/* v3.0.101 BUG-178: [编辑/预览] + [保存分镜] 按钮 (跟剧本区 1:1 镜像) */}
+            {!generating && (
+              <View style={styles.editSaveRow}>
+                <TouchableOpacity
+                  style={[styles.editBtn, shotEditing && styles.editBtnActive]}
+                  onPress={() => setShotEditing(!shotEditing)}
+                >
+                  <Text style={[styles.editBtnText, shotEditing && styles.editBtnTextActive]}>
+                    {shotEditing ? '预览' : '编辑'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSaveShots} disabled={savingShots}>
+                  {savingShots ? (
+                    <ActivityIndicator size="small" color={colors.text.inverse} />
+                  ) : (
+                    <Text style={styles.saveBtnText}>保存分镜</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             )}
           </GlassCard>
         ) : null}

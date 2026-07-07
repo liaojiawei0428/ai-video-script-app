@@ -3,13 +3,28 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.100",
+  "latest_version": "3.0.101",
   "latest_version_time": "2026-07-07",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.101",
+      "buildDate": "2026-07-07",
+      "type": "patch",
+      "summary": "v3.0.101 分镜列表 UI 重设计 (web 端单折叠卡片+description-only+复制按钮) + 修 mobile 端分镜内容无法修改 BUG (EpisodeDetailScreen 分镜区加 [编辑/预览]+TextInput+保存, 跟剧本区 1:1 镜像)",
+      "highlights": [
+        "web 端 UI 简化: EpisodeDetailPage ShotsByScene + ShotCard 重写, 去掉场景分组+8 字段独立分类显示. 改为 1 个 '分镜头描述' 折叠卡片 (默认折叠), 里面所有分镜按 shotNumber 自然排序, 每个分镜只显示完整 description (无字段分类, 用户可完整复制大模型原文), 加 3 个复制按钮 (每分镜 📋 + 顶部/底部 📋 复制全部). 修前用户痛点: '分类太多余了, 没法一次性复制'",
+        "mobile 端 BUG-178: apps/mobile/src/screens/EpisodeDetailScreen.tsx '镜头语言' GlassCard 修前完全只读 (只有 <Text selectable> 无编辑入口). 修法: 加 [编辑/预览] 切换 + TextInput multiline + 保存按钮 (跟同文件 '剧本内容' GlassCard 1:1 镜像). 保存调 updateEpisode + shotsTextCache 字段 (新加 1 列缓存用户编辑过的整段分镜文本)",
+        "后端极小侵入: apps/server/src/models/db.ts initTables 加 ALTER TABLE episodes ADD COLUMN shotsTextCache TEXT NULL (try/catch 兼容老库). apps/server/src/controllers/episodeController.ts 现有 updateEpisode 已支持任意字段透传 (req.body → episodeModel.update), getEpisode 附带 shotsTextCache 字段返回. 0 新接口 0 新路由",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-097 漏修 / BUG-131 mobileLatestApkVersion / BUG-145 src URL 稳定性 100% 同源): UI 字段分类展示是过度设计, 用户需求是 '完整可复制' 而非 '精细分类可编辑'. 任何字段分类展示前必问: 用户是否真有 '按字段编辑' 需求? 没就只展示完整文本 + 一键复制",
+        "跨项目通用铁律 1 条新沉淀 (跟 BUG-079 假报告 / BUG-097 mobile 漏修 / BUG-138 polling owner 100% 同源): 任何前端 UI 字段缺失可编辑能力必 1:1 跨端检查. 修前 web 端有 ShotCard 完整编辑表单 (有 bug 也能改), 但 mobile 端分镜区只读 — 同功能 UI 一端可编辑一端只读 = 100% 错位. 修法: mobile 跟剧本区 1:1 镜像 (剧本区 line 414 已有 [编辑/预览]+TextInput+保存 3 件套, 分镜区复刻)",
+        "v3.0.101 跨端 8 处版本号同步: mobile version.ts (3.0.100 → 3.0.101) + mobile build.gradle (versionCode 101 → 102, versionName 3.0.100 → 3.0.101) + web version.ts (APP_VERSION 3.0.100 → 3.0.101, APP_VERSION_CODE 101 → 102) + server package.json + server src/index.ts fallback + server ecosystem.config.js (env + env_production 2 处) + server changelog.json (顶层 latest_version + prepend v3.0.101 entry) + 远端 .env APP_VERSION + 远端 systemd unit Environment=APP_VERSION",
+        "兼容影响: shots 表 schema 0 改 (所有老 shots 数据 100% 兼容), shotsTextCache 字段为可空新增 (老 episodes 行为不变). 漫画生成/视频生图/导出 PDF/Word 等所有依赖 shots 数据流 0 改. 唯一接口变化: getEpisode 响应多了 shotsTextCache 字段"
+      ]
+    },
     {
       "version": "3.0.100",
       "buildDate": "2026-07-07",

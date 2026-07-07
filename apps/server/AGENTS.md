@@ -1,9 +1,10 @@
 ﻿# apps/server/AGENTS.md — Server 端 AI Agent 必读 (S70 更新: 走 systemd + 宝塔 Node 项目)
 
 > **本文件**: server 端 (Node + Express + MySQL + **systemd unit**) AI Agent 独有规范. 跟根 AGENTS.md + mobile AGENTS.md 对称.
-> **必读顺序** (S68 收口后, S70 加宝塔路径, S72 batch 7 加 🆕 部署主入口):
+> **必读顺序** (S68 收口后, S70 加宝塔路径, S72 batch 7 加 🆕 部署主入口 + 🆕 2026-07-07 RELEASE_CHECKLIST 项目宪法):
 > 0. **[`../../AGENTS.md`](../../AGENTS.md)** — 跨端统一总入口 (中文/Persistence/铁律/工作流, **必先读**)
-> 0.5. **[`../../docs/DEPLOY_RELEASE_FLOW.md`](../../docs/DEPLOY_RELEASE_FLOW.md)** — 🆕 **S72 batch 7 部署 + 发布主入口 SOP (14 段 + 24 维验证 + 9 已知坑, 跨端统一)**
+> 0.3. **[`../../docs/RELEASE_CHECKLIST.md`](../../docs/RELEASE_CHECKLIST.md)** — 🆕 **项目宪法, 14 段强制清单 (任何发布版本前必读, 跟跨项目铁律 #36 v3.0.99 BUG-176 实战沉淀配套)**
+> 0.5. **[`../../docs/DEPLOY_RELEASE_FLOW.md`](../../docs/DEPLOY_RELEASE_FLOW.md)** — 🆕 **S72 batch 7 部署 + 发布主入口 SOP (14 段 + 24 维验证 + 9 坑, 跨端统一)**
 > 1. 本文件 — server 端独有 (部署 5 项 + 8 铁律 + 5 类任务 SOP + 代码架构)
 > 2. **[`../../docs/BAOTA_NODE_PROJECT_DEPLOY.md`](../../docs/BAOTA_NODE_PROJECT_DEPLOY.md)** — 🆕 **S70 宝塔 Node 项目部署 SOP (5 步流程 + 12 维验证 + 9 坑, BUG-077 修法)**
 > 3. **[`../../docs/VERSION_MANAGEMENT.md`](../../docs/VERSION_MANAGEMENT.md)** — 跨端版本管理 (含 § 5.0 活跃任务部署)
@@ -145,6 +146,12 @@ curl https://ab.maque.uno/api/version                  # 期望 = 当前版本 +
 7. **不删字段, 用 `_deprecated_` 前缀** — S66 DB_MIGRATION § 2.5 规范
 8. **commit message 必带版本号 + BUG 编号** — `vX.Y.Z: <改动> (BUG-NNN + 规范修订)` (跨端铁律 6)
 9. **🆕 v3.0.62 BUG-131 server-only hotfix 必 rebuild APK**: server 端代码改动即便是 server-only hotfix (只改 src/) 也必重新编译 mobile APK 推到公网, 因为 `/api/version downloadUrl` 是拼 server APP_VERSION, 跟公网 APK 必须 1:1. 修前 v3.0.61 server-only hotfix 没重打 APK → 公网没 v3.0.61 APK → 用户点 APP 内下载 → Status Code 16 ERROR_HTTP_DATA_ERROR, 跟 BUG-117 (deploy.py 漏推 APK) 100% 同源. 修法配套: server 启动时扫 `getMobileLatestApk()` (apps/server/src/services/apkVersion.ts) 自适应找不到 APK 时 fallback, 但**首选必走 rebuild APK 流程, fallback 是兜底**
+
+   > **⚠️ 2026-07-07 S84 v3.0.99 BUG-176 实战违反本铁律 + v3.0.100 BUG-177 死锁反思**:
+   > - **实战违反**: BUG-176 (DeepSeek `reasoning_content` 污染 `analysis_report`) 只改 server `apps/server/src/services/deepseek.ts` +11/-1 一文件, mobile 0 业务变化, **没 bump mobile version.ts / 没 rebuild APK / 没 scp 公网** → 公网 APK=v3.0.98 但 server.version=v3.0.99 → v3.0.99 是个 ghost version (公网 APK 不存在). 触发 v3.0.100 BUG-177 (mobile 端 `apps/mobile/App.tsx` line 297-302 修前用 `info.version=3.0.99` 跟 `clientVer=3.0.98` 对比 → 永远不等 → 强制升级 modal 永远弹 → APP 无法进入主界面)
+   > - **强约束执行纪律 (新加)**: 任何 server 端代码改动 → 必跑完整 `apps/server/deploy.sh` (§ 0-2 5 步预检 + § 4 12 维验证 + § 3.5 8 处版本号同步), **不能用手动 sed .env + systemctl restart 替代**。 deploy.sh 6.6/9 维 `mobileLatestApkVersion == currentVersion` abort 是 last-line-of-defense, 不一致必须 abort 推 APK 重做
+   > - **跟铁律 4+++++ BUG-165 配套**: BUG-165 已加启动必查 1:1 + appForceUpdate 强制 modal + 删 24h 抑制 + 删 forceUpdate 软升级; BUG-177 又补 client 端用对字段 (`mobileLatestApkVersion` 不用 `version`). 实战证明: **client 端选对字段** 是强制升级体系最后 1 公里, server-only hotfix 设计矛盾的全链路封堵
+   > - **跨项目通用**: 任何 client + server 架构 (RN APK + server / iOS IPA + server / 小程序 + server / Web SPA + server), server 端代码改动 → 必 rebuild client 并部署, 走完整 deploy.sh 校验 chain, 不能用手动路径绕过
 
 ## § 4. 改 server 代码前后 5 步必做 (server 端独有)
 

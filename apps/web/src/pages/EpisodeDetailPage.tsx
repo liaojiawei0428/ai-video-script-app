@@ -8,11 +8,13 @@ import {
 } from '../lib/api';
 import { useTaskProgressStore } from '../store/taskProgress';
 import { useAuthStore } from '../store/auth';
+import { useNotificationStore } from '../store/notifications';
 import { ImageWithLoading } from '../components/ui';
 import {
   ArrowLeft, FileText, Download, Sparkles, Image as ImageIcon,
   Edit2, Save, X, Loader, AlertCircle, CheckCircle, RefreshCw, Activity, Camera, Mic, Sun, MapPin,
   ChevronDown, ChevronUp, Layers, MessageSquare, Clock, Wand2, Eye, Hash, BookOpen, Users,
+  Copy, Check,
 } from 'lucide-react';
 
 interface Episode {
@@ -778,10 +780,13 @@ export function EpisodeDetailPage() {
   );
 }
 
-/**
- * 按场景分组的分镜列表
- * 每个场景作为一个可折叠卡片, 内部是镜头卡片
- */
+// v3.0.101 BUG-178 (S84 2026-07-07): 分镜列表 UI 重设计
+//   修前: 按场景分组 + 每场景卡片 + 每镜头卡片 + 8 字段分类展示 (用户痛点: 分类多, 没法一次性复制)
+//   修法: 单 '分镜头描述' 折叠卡片 (默认折叠), 里面所有分镜按 shotNumber 排序, 每个只显示 description 完整文本
+//         + 3 个复制按钮 (每分镜 📋 + 顶部/底部 📋 复制全部)
+//         行内编辑能力保留 (复用现有 draft/editingId 状态管理)
+//   跨项目通用铁律 (跟 BUG-079 假报告 + BUG-097 漏修 100% 同源): UI 字段过度分类是过度设计,
+//                       用户要的是 '完整可复制' 不是 '字段精细可编辑'
 function ShotsByScene({ shots, editingId, draft, onStartEdit, onCancelEdit, onChangeDraft, onSave, savingShot }: {
   shots: Shot[];
   editingId: string | null;
@@ -792,94 +797,99 @@ function ShotsByScene({ shots, editingId, draft, onStartEdit, onCancelEdit, onCh
   onSave: () => void;
   savingShot: boolean;
 }) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState(false);  // v3.0.101: 默认折叠 (跟用户需求一致)
 
-  // 按场景分组 (从 description 提取场景标识)
-  const groups = useMemo(() => {
-    const map = new Map<string, Shot[]>();
-    for (const shot of shots) {
-      // 优先用 description 中"画面:"后面的第一句前 12 字符作为场景标识
-      const visualMatch = (shot.description || '').match(/画面[::]\s*([^。\n]+)/);
-      const firstSentence = visualMatch ? visualMatch[1] : (shot.description || '').split(/[。\n]/)[0] || '';
-      let sceneName = firstSentence.slice(0, 14).trim();
-      if (!sceneName) sceneName = `场景 ${shot.shotNumber}`;
-      if (!map.has(sceneName)) map.set(sceneName, []);
-      map.get(sceneName)!.push(shot);
-    }
-    return Array.from(map.entries()).map(([sceneName, list]) => {
-      const totalDuration = list.reduce((sum, s) => sum + (s.durationSec || 0), 0);
-      const dialogueCount = list.filter(s => s.dialogue && s.dialogue.trim()).length;
-      return { sceneName, shots: list, totalDuration, dialogueCount };
-    });
+  // v3.0.101: 按 shotNumber 排序 (不再分组)
+  const sortedShots = useMemo(() => {
+    return [...shots].sort((a, b) => (a.shotNumber || 0) - (b.shotNumber || 0));
   }, [shots]);
 
-  // 默认全部展开
-  useEffect(() => {
-    const init: Record<string, boolean> = {};
-    for (const g of groups) init[g.sceneName] = true;
-    setExpanded(prev => ({ ...init, ...prev }));
-  }, [groups.length]);
-
-  // 总计
+  // 顶部统计
   const totalShots = shots.length;
   const totalDuration = shots.reduce((s, sh) => s + (sh.durationSec || 0), 0);
   const totalDialogues = shots.filter(s => s.dialogue && s.dialogue.trim()).length;
+  // v3.0.101: 场景数从 shots 的 sceneType 去重 (因为不强分组了)
+  const sceneTypes = new Set(shots.filter(s => s.sceneType?.trim()).map(s => s.sceneType));
 
   return (
-    <div className="space-y-3">
-      {/* 顶部统计 */}
-      <div className="glass p-3 flex items-center gap-4 text-xs text-text-secondary flex-wrap">
-        <span className="flex items-center gap-1"><Hash size={12} className="text-accent" /> <strong className="text-text-primary">{totalShots}</strong> 个镜头</span>
-        <span className="flex items-center gap-1"><Clock size={12} className="text-accent" /> <strong className="text-text-primary">{totalDuration.toFixed(1)}</strong> 秒</span>
-        <span className="flex items-center gap-1"><MessageSquare size={12} className="text-accent" /> <strong className="text-text-primary">{totalDialogues}</strong> 句对白</span>
-        <span className="flex items-center gap-1"><Layers size={12} className="text-accent" /> <strong className="text-text-primary">{groups.length}</strong> 个场景</span>
-        <span className="ml-auto text-text-tertiary text-[10px]">💡 数据可被漫画生成/视频生图复用</span>
-      </div>
+    <div className="glass overflow-hidden">
+      {/* 顶部按钮: 折叠/展开 + 汇总信息 */}
+      <button
+        onClick={() => setExpanded(prev => !prev)}
+        className="w-full flex items-center gap-2 p-4 hover:bg-bg-secondary/40 transition-colors"
+      >
+        {expanded
+          ? <ChevronUp size={18} className="text-text-tertiary flex-shrink-0" />
+          : <ChevronDown size={18} className="text-text-tertiary flex-shrink-0" />}
+        <FileText size={20} className="text-accent flex-shrink-0" />
+        <h2 className="text-lg font-bold text-text-primary flex-shrink-0">分镜头描述</h2>
+        <span className="text-sm text-text-secondary flex items-center gap-3 flex-wrap">
+          <span>· {totalShots} 镜头</span>
+          <span>· {totalDuration.toFixed(1)}秒</span>
+          <span>· {totalDialogues} 句对白</span>
+          <span>· {sceneTypes.size} 个场景</span>
+        </span>
+      </button>
 
-      {/* 场景分组 */}
-      {groups.map((group, gi) => {
-        const isOpen = expanded[group.sceneName] ?? true;
-        return (
-          <div key={group.sceneName} className="glass overflow-hidden">
-            <button
-              onClick={() => setExpanded(prev => ({ ...prev, [group.sceneName]: !prev[group.sceneName] }))}
-              className="w-full flex items-center gap-2 p-3 hover:bg-bg-secondary/40 transition-colors"
-            >
-              {isOpen ? <ChevronUp size={16} className="text-text-tertiary flex-shrink-0" /> : <ChevronDown size={16} className="text-text-tertiary flex-shrink-0" />}
-              <div className="w-7 h-7 rounded bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                {gi + 1}
-              </div>
-              <div className="flex-1 text-left min-w-0">
-                <div className="text-sm font-semibold text-text-primary truncate">📍 {group.sceneName}</div>
-                <div className="text-[10px] text-text-tertiary flex items-center gap-2 mt-0.5">
-                  <span>{group.shots.length} 镜头</span>
-                  <span>·</span>
-                  <span>{group.totalDuration.toFixed(1)}秒</span>
-                  {group.dialogueCount > 0 && <><span>·</span><span>{group.dialogueCount} 对白</span></>}
-                </div>
-              </div>
-            </button>
-            {isOpen && (
-              <div className="border-t border-border space-y-2 p-2 bg-bg-secondary/20">
-                {group.shots.map(s => (
-                  <ShotCard
-                    key={s.id}
-                    shot={s}
-                    editing={editingId === s.id}
-                    draft={editingId === s.id ? draft : null}
-                    onStartEdit={() => onStartEdit(s)}
-                    onCancelEdit={onCancelEdit}
-                    onChangeDraft={onChangeDraft}
-                    onSave={onSave}
-                    saving={savingShot && editingId === s.id}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {expanded && (
+        <div className="border-t border-border p-4 space-y-3 bg-bg-secondary/20">
+          {/* v3.0.101: 顶部 '复制全部' 按钮 (用户需求: 一次性复制全部完整文本) */}
+          <CopyAllShotsButton shots={sortedShots} />
+
+          {/* 镜头列表 (按 shotNumber, 不分组) */}
+          {sortedShots.map(s => (
+            <ShotCard
+              key={s.id}
+              shot={s}
+              editing={editingId === s.id}
+              draft={editingId === s.id ? draft : null}
+              onStartEdit={() => onStartEdit(s)}
+              onCancelEdit={onCancelEdit}
+              onChangeDraft={onChangeDraft}
+              onSave={onSave}
+              saving={savingShot && editingId === s.id}
+            />
+          ))}
+
+          {/* 底部 '复制全部' 按钮 (重复, 用户无需滚到顶) */}
+          {sortedShots.length > 3 && <CopyAllShotsButton shots={sortedShots} />}
+        </div>
+      )}
     </div>
+  );
+}
+
+// v3.0.101 BUG-178: '复制全部' 按钮组件 (顶部/底部共用)
+//   用 navigator.clipboard.writeText API + Toast 反馈 (复用 useNotificationStore.addToast)
+//   格式: 每分镜独立段落, 用 --- 分隔, 方便用户粘贴到任何 AI/文档工具
+function CopyAllShotsButton({ shots }: { shots: Shot[] }) {
+  const addToast = useNotificationStore(s => s.addToast);
+  const copyAll = () => {
+    const text = shots
+      .filter(s => (s.description || '').trim())
+      .map(s => `[镜头 ${s.shotNumber} · ${s.durationSec}秒]\n${s.description}`)
+      .join('\n\n---\n\n');
+    if (!text) {
+      addToast({ type: 'system', title: '没有可复制的分镜内容', content: '请先生成或编辑分镜' });
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => addToast({ type: 'system', title: `已复制 ${shots.length} 个分镜`, content: '已复制到剪贴板, 可粘贴到任何 AI 工具' }))
+      .catch(() => {
+        // Fallback: 老浏览器或权限拒绝时降级
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        addToast({ type: 'system', title: `已复制 ${shots.length} 个分镜 (降级模式)`, content: '已复制到剪贴板' });
+      });
+  };
+  return (
+    <button
+      onClick={copyAll}
+      className="w-full p-2 bg-bg-secondary/60 hover:bg-primary/20 border border-border rounded text-text-secondary hover:text-primary text-sm flex items-center justify-center gap-1.5 transition-colors"
+    >
+      <Copy size={14} /> 复制全部分镜描述 ({shots.length} 段)
+    </button>
   );
 }
 
@@ -940,131 +950,79 @@ function ShotCard({ shot, editing, draft, onStartEdit, onCancelEdit, onChangeDra
     );
   }
 
+  // v3.0.101 BUG-178: 默认渲染重设计 — 只显示 description 完整文本 (无字段分类)
+  //   修前: 展开后 8 字段分类 (动作/对白/角度/运镜/光线/时间/音效/AI prompt) — 用户痛点 "分类多, 没法一次性复制"
+  //   修法: 1 个完整 description 文本块 + ✏️ 编辑 + 📋 复制 2 个按钮
+  //         行内编辑能力完全保留 (上面 editing 模式分支不动)
+  //         AI prompt 通过折叠 details 保留 (避免太长影响视觉重量)
+  const addToast = useNotificationStore(s => s.addToast);
+  const copyShot = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const text = shot.description || '';
+    if (!text.trim()) {
+      addToast({ type: 'system', title: '此镜头描述为空', content: '无内容可复制, 请先编辑补全' });
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => addToast({ type: 'system', title: `已复制镜头 ${shot.shotNumber} 描述`, content: '已复制到剪贴板' }))
+      .catch(() => {
+        // Fallback: 老浏览器降级
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        addToast({ type: 'system', title: `已复制镜头 ${shot.shotNumber} 描述 (降级模式)`, content: '已复制到剪贴板' });
+      });
+  };
+
   return (
-    <div className="glass overflow-hidden">
-      {/* 头部: 始终显示 (镜头号 + 元数据 + 操作) */}
-      <div className="flex items-center gap-3 p-3">
-        <button
-          onClick={() => setShotExpanded(prev => !prev)}
-          className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold flex-shrink-0 hover:opacity-90 transition-opacity"
-          title={shotExpanded ? '收起详情' : '展开全部内容'}
-        >
+    <div className="glass p-3 border border-border rounded-lg bg-bg-secondary/20">
+      {/* 头部: 编号徽章 + 元数据条 + 操作按钮 */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
           {shot.shotNumber}
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-[10px] text-text-tertiary flex-wrap min-w-0">
-              <span className="font-semibold text-text-secondary">镜头 {shot.shotNumber}</span>
-              <span>· {shot.durationSec}秒</span>
-              {shot.sceneType && <span className="px-1 bg-primary/20 text-primary rounded">{shot.sceneType}</span>}
-              {shot.cameraMove && <span>🎥 {shot.cameraMove}</span>}
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button onClick={onStartEdit} className="text-[10px] px-1.5 py-0.5 bg-primary/20 text-primary rounded hover:bg-primary/30 flex items-center gap-0.5">
-                <Edit2 size={10} /> 编辑
-              </button>
-              <button
-                onClick={() => setShotExpanded(prev => !prev)}
-                className="text-[10px] px-1.5 py-0.5 bg-bg-tertiary text-text-secondary rounded hover:bg-bg-secondary flex items-center gap-0.5"
-                title={shotExpanded ? '收起' : '展开全部内容'}
-              >
-                {shotExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                {shotExpanded ? '收起' : '展开'}
-              </button>
-            </div>
-          </div>
-          {/* 折叠时只显示一行 description 摘要 */}
-          {!shotExpanded && (
-            <p className="text-xs text-text-secondary mt-1 truncate">
-              {shot.description?.replace(/\n/g, ' ').slice(0, 100) || <span className="text-text-tertiary">（空）</span>}
-            </p>
-          )}
+        </div>
+        <span className="text-sm font-semibold text-text-primary">
+          镜头 {shot.shotNumber} · {shot.durationSec}秒
+        </span>
+        {shot.sceneType && (
+          <span className="text-[11px] px-1.5 py-0.5 bg-primary/20 text-primary rounded">
+            {shot.sceneType}
+          </span>
+        )}
+        {/* v3.0.101: ✏️ 编辑 + 📋 复制 按钮组 (右对齐) */}
+        <div className="ml-auto flex gap-1">
+          <button
+            onClick={onStartEdit}
+            className="p-1.5 text-text-secondary hover:text-primary hover:bg-primary/10 rounded transition-colors"
+            title="编辑此镜头"
+          >
+            <Edit2 size={14} />
+          </button>
+          <button
+            onClick={copyShot}
+            className="p-1.5 text-text-secondary hover:text-accent hover:bg-accent/10 rounded transition-colors"
+            title="复制此镜头描述"
+          >
+            <Copy size={14} />
+          </button>
         </div>
       </div>
 
-      {/* 展开时显示全部内容 */}
-      {shotExpanded && (
-        <div className="border-t border-border p-3 space-y-2 bg-bg-secondary/20">
-          {/* 镜头描述 (完整, 无截断) */}
-          <div>
-            <div className="text-[10px] text-text-tertiary mb-1 flex items-center gap-1">
-              🎬 <span className="font-semibold">镜头描述</span>
-            </div>
-            <div className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words">
-              {shot.description || <span className="text-text-tertiary">（空）</span>}
-            </div>
+      {/* v3.0.101: 完整 description 文本块 (用户需求核心: 一次性可复制, 不要字段分类) */}
+      <pre className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words font-sans select-text cursor-text">
+        {shot.description || <span className="text-text-tertiary">（空 — 点击右上角 ✏️ 补全）</span>}
+      </pre>
+
+      {/* v3.0.101: AI 生图 prompt 保留为折叠 details (避免视觉重量, 字段仍在编辑态可改) */}
+      {shot.imagePrompt && (
+        <details className="mt-2 bg-bg-secondary/40 rounded p-2">
+          <summary className="text-[10px] text-text-tertiary cursor-pointer hover:text-text-secondary flex items-center gap-1">
+            🤖 <span className="font-semibold">AI 生图 prompt ({shot.imagePrompt.length} 字符)</span>
+          </summary>
+          <div className="text-[10px] text-text-secondary mt-1.5 whitespace-pre-wrap break-words font-mono leading-relaxed">
+            {shot.imagePrompt}
           </div>
-
-          {/* 动作 + 对白 (完整) */}
-          {(shot.action || shot.dialogue) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {shot.action && (
-                <div>
-                  <div className="text-[10px] text-text-tertiary mb-1 flex items-center gap-1">🏃 <span className="font-semibold">动作</span></div>
-                  <div className="text-xs text-text-primary whitespace-pre-wrap break-words">{shot.action}</div>
-                </div>
-              )}
-              {shot.dialogue && (
-                <div>
-                  <div className="text-[10px] text-text-tertiary mb-1 flex items-center gap-1">💬 <span className="font-semibold">对白/旁白</span></div>
-                  <div className="text-xs text-text-primary whitespace-pre-wrap break-words">{shot.dialogue}</div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 字段网格 (元数据) */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
-            {shot.location && (
-              <div className="bg-bg-secondary/40 rounded p-2">
-                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><MapPin size={10} /> 场景/地点</div>
-                <div className="text-text-primary break-words">{shot.location}</div>
-              </div>
-            )}
-            {shot.timeOfDay && (
-              <div className="bg-bg-secondary/40 rounded p-2">
-                <div className="text-[10px] text-text-tertiary mb-0.5">🕐 时间</div>
-                <div className="text-text-primary">{shot.timeOfDay}</div>
-              </div>
-            )}
-            {shot.cameraAngle && (
-              <div className="bg-bg-secondary/40 rounded p-2">
-                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Camera size={10} /> 镜头角度</div>
-                <div className="text-text-primary break-words">{shot.cameraAngle}</div>
-              </div>
-            )}
-            {shot.cameraMove && (
-              <div className="bg-bg-secondary/40 rounded p-2">
-                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Camera size={10} /> 镜头运动</div>
-                <div className="text-text-primary break-words">{shot.cameraMove}</div>
-              </div>
-            )}
-            {shot.lighting && (
-              <div className="bg-bg-secondary/40 rounded p-2">
-                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Sun size={10} /> 光线</div>
-                <div className="text-text-primary break-words">{shot.lighting}</div>
-              </div>
-            )}
-            {shot.audioNote && (
-              <div className="bg-bg-secondary/40 rounded p-2">
-                <div className="text-[10px] text-text-tertiary flex items-center gap-1 mb-0.5"><Mic size={10} /> 音效/音乐</div>
-                <div className="text-text-primary break-words">{shot.audioNote}</div>
-              </div>
-            )}
-          </div>
-
-          {/* AI 生图 prompt */}
-          {shot.imagePrompt && (
-            <details className="bg-bg-secondary/40 rounded p-2">
-              <summary className="text-[10px] text-text-tertiary cursor-pointer hover:text-text-secondary flex items-center gap-1">
-                🤖 <span className="font-semibold">AI 生图 prompt ({shot.imagePrompt.length} 字符)</span>
-              </summary>
-              <div className="text-[10px] text-text-secondary mt-1.5 whitespace-pre-wrap break-words font-mono leading-relaxed">
-                {shot.imagePrompt}
-              </div>
-            </details>
-          )}
-        </div>
+        </details>
       )}
     </div>
   );

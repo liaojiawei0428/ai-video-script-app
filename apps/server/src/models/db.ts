@@ -507,6 +507,13 @@ async function initTables(): Promise<void> {
   try { await db.execute("ALTER TABLE episodes ADD COLUMN character_descriptions JSON DEFAULT NULL COMMENT '生成时角色描述快照'"); } catch (e) {
     logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE episodes ADD COLUMN character_descriptions JSON DEFAULT NULL COMMENT' });
   }
+  // v3.0.101 BUG-178 (S84 2026-07-07): 加 shots_text_cache 字段缓存用户编辑过的分镜文本
+  //   修 mobile 端 apps/mobile/src/screens/EpisodeDetailScreen.tsx '镜头语言' GlassCard 完全只读 BUG (修前 <Text selectable> 无编辑入口)
+  //   fix: 用户编辑后调 updateEpisode(episodeId, { shotsTextCache: 整段文本 }) 持久化, 下次 loadEpisode 时优先用此字段渲染
+  //   兼容: 0 改是改 schema 100% 兼容 (LONGTEXT DEFAULT NULL 老数据行为不变), 0 新接口 0 新路由
+  try { await db.execute("ALTER TABLE episodes ADD COLUMN shots_text_cache LONGTEXT DEFAULT NULL COMMENT 'v3.0.101 用户编辑过的分镜整段文本缓存 (修 BUG-178 mobile 端分镜无法修改)'"); } catch (e) {
+    logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE episodes ADD COLUMN shots_text_cache' });
+  }
 
   // ── shots: 加 5 字段 ──
   try { await db.execute("ALTER TABLE shots ADD COLUMN image_url VARCHAR(500) DEFAULT ''"); } catch (e) {

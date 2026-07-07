@@ -5,7 +5,9 @@
 > **配套**: `apps/mobile/AGENTS.md` (mobile 端独有) + `apps/server/AGENTS.md` (server 端独有) + `apps/web/AGENTS.md` (web 端独有)
 > **子项目 AGENTS.md 必读**: 任何 AI 接到 mobile / server / web 端任务, **必先读根 AGENTS.md**, 然后跳转到对应子 AGENTS.md.
 
-> **🆕 部署 + 发布主入口**: 任何部署 / 发布 / APK rebuild 前必读 [`docs/DEPLOY_RELEASE_FLOW.md`](./docs/DEPLOY_RELEASE_FLOW.md) (14 段 SOP + 24 维验证 + 9 已知坑 + 5 步跨端同步 + 11 工具脚本)
+> **🆕 部署 + 发布主入口**: 任何部署 / 发布 / APK rebuild 前必读 [`docs/RELEASE_CHECKLIST.md`](./docs/RELEASE_CHECKLIST.md) (项目宪法, 14 段强制清单) + [`docs/DEPLOY_RELEASE_FLOW.md`](./docs/DEPLOY_RELEASE_FLOW.md) (14 段 SOP + 24 维验证 + 9 已知坑 + 5 步跨端同步 + 11 工具脚本)
+
+> **⚠️ 跨项目通用铁律 #36 (🆕 2026-07-07 S84 沉淀, v3.0.99 BUG-176 实战违反)**: 任何 server 端代码改动 → 必走完整 `apps/server/deploy.sh` (非手动 ssh + sed + systemctl restart). 详细必读 [`docs/RELEASE_CHECKLIST.md`](./docs/RELEASE_CHECKLIST.md) § 2 + § 8 + § 10. 详见 mavis memory "S84 v3.0.99 BUG-176 + v3.0.100 BUG-177 实战" + `apps/server/AGENTS.md` § 3 铁律 9 ⚠️ 实战反思 block.
 
 ---
 
@@ -192,6 +194,27 @@
   - `BUGS_INDEX.md` § 4 Top 20+: **/api/version downloadUrl 必指向公网真实 APK, 不准拼 server APP_VERSION (跟 BUG-117/103/104 100% 同源)**
   - mavis memory: `server-only hotfix 必 rebuild APK (跨项目通用, /api/version 跟公网 APK 1:1)` (S72 batch 31 BUG-131 沉淀)
 - **跨项目通用**: 任何 client 跟 server 版本分离的 mobile/web 项目 (RN APK + server, iOS IPA + server, 小程序 + server), server 端代码改动必 rebuild client 并部署. 常见踩坑: 改 server 没 rebuild client / rebuild client 没 push 公网 / 修了 client 没改 server downloadUrl / 修了 server downloadUrl 没 rebuild client 兜底. **任意一环漏 = 假下载 / Status Code 16 / 用户撞 BUG**
+
+#### 🆕 v3.0.99 BUG-176 实战违反 + v3.0.100 BUG-177 强制升级 modal 死锁修法 (S84 2026-07-07 沉淀, 跟铁律 4+++++ BUG-165 强化配套)
+
+- **🛑 v3.0.99 BUG-176 实战违反本铁律教训**: shipin-APP S83 BUG-176 (DeepSeek `reasoning_content` 污染 `analysis_report`, server-only hotfix) 实战违反铁律 4++++: server 端 `apps/server/src/services/deepseek.ts` +11/-1 一文件, mobile 0 业务变化, 但**没 bump mobile version.ts (仍 3.0.98) / 没 rebuild APK / 没 scp 公网**. 结果: server.version=v3.0.99 但公网 APK=v3.0.98 → **v3.0.99 是个 ghost version (公网 APK 不存在)** → 触发 v3.0.100 BUG-177 客户端强制升级 modal 永远弹 (死锁)
+  - **实战反思**: 纸面铁律 + deploy.sh abort 强校验仍然可能被绕过. v3.0.99 实战通过部分手动路径 (改 .env + restart) 走 deploy, 绕过了 deploy.sh § 4.6 端口预检 / § 4 12 维验证 / § 3.5 8 处版本号同步 / § 6.6 1:1 abort, 等于"知道不一致, 但先 ignore, 下次修"
+  - **强约束执行纪律 (新加)**: 任何 server 端代码改动 → 必跑完整 `apps/server/deploy.sh` (§ 0-2 5 步 + § 3.5 8 处同步 + § 4 12 维 + § 6 1:1 abort), **不能手动 sed .env + systemctl restart 替代**. deploy.sh abort 是 last-line-of-defense, 触发 abort = 必须推 APK 重做, 不能 ignore
+
+- **🆕 BUG-177 (v3.0.100) client 跟 server 对比字段错位修法**: `apps/mobile/App.tsx` line 297-302 修前用 `info.version` (server-only 进程版本, server hotfix 会变) 跟 `clientVer` (mobile APK 版本) 对比, 跟 server-only hotfix 设计矛盾 (server hotfix 不需要 rebuild APK, 客户端不应强制升级). **修法 line 297-309 改用 `info.mobileLatestApkVersion || info.version` (server 已按需从公网 APK 列表扫到的真实 APK 版本, 跟 BUG-131 v3.0.62 实战扫盘逻辑 1:1 复用)**. v3.0.100 实战验证: `version=3.0.100 + mobileLatestApkVersion=3.0.100` 1:1 一致 ✅
+
+- **跨项目通用铁律 #35 (新沉淀, 跟 BUG-079/131/145/165/166/168 100% 同源)**:
+  1. **client 升级对比必用公网真实 APK version (resource version), 不用 server-only 进程 version (process version)**: 跟 server-only hotfix 设计天然兼容, 不会出现 v3.0.99 那种 "server bump 但 client 资源没动" 死锁
+  2. **server /api/version 必同时返 2 字段** (v3.0.62 BUG-131 已实现, BUG-177 实战验证修法依赖): `version` (server-only 进程 version) + `mobileLatestApkVersion` (公网真实 APK version). client 端必选对字段用
+
+- **强制升级体系 3 层协同** (跟 BUG-165 + BUG-131 + BUG-177 3 层):
+  - **L1 server 扫公网 APK** (BUG-131 v3.0.62): `apps/server/src/services/apkVersion.ts` 启动扫 `/www/wwwroot/shipin-APP/public/DeepScript_v*.apk` 取 max version + 5 min LRU cache + fallback `process.env.APP_VERSION`
+  - **L2 server 启动时 console.warn** (BUG-165 v3.0.88): `apps/server/src/index.ts` 启动时 check `.env APP_VERSION` 跟 `changelog.json latest_version` 1:1, 不等 console.warn
+  - **L3 deploy.sh 1:1 abort** (BUG-165 v3.0.88): `apps/server/deploy.sh` § 4 升 9 步 → 10 步, deploy 完必查 `mobileLatestApkVersion == currentVersion`, 不等 abort
+  - **L4 client 选对字段** (BUG-177 v3.0.100): `apps/mobile/App.tsx` line 297-309 client 必用 `info.mobileLatestApkVersion || info.version` 兜底
+  - **跨项目通用**: client + server 架构, 任何 client app 跟 server 真实 version 对比, 必走完整 4 层 chain, 任意 1 层漏 = 卡死 / 假下载 / BUG
+
+- **跨项目通用铁律 #36 (新沉淀, 跟 #35 + shipin-APP 铁律 4++++ 互补)**: 纸上铁律 + 执行纪律缺一不可. deploy script (CI/CD 脚本) abort = last-line-of-defense, 但纪律漏洞 = 部分手动路径绕过 = 触发 ghost version. 必须纪律化: **任何 server 端代码改动 → 必走完整 deploy script 全 12 维**, deploy abort 触发 = 必须重做不能 ignore
 
 ### 铁律 4+++++: 🎯 Tab 默认入口必用最新版页面 + 修后必走 UI tree 1-click 验证 + 删死代码前必审计 (S78 BUG-164 强约束, 跨项目通用 UX 原则)
 - **🛑 严禁 3 类漏修** (S78 BUG-164 实战教训):
