@@ -3,13 +3,27 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.109",
+  "latest_version": "3.0.110",
   "latest_version_time": "2026-07-09",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.110",
+      "buildDate": "2026-07-09",
+      "type": "patch",
+      "summary": "删除分级大纲/事件图谱功能 + AI助手移到底部Tab导航",
+      "highlights": [
+        "删除OutlineScreen/PlotGraphScreen等10文件",
+        "AI助手添加到底部导航栏",
+        "Tab顺序: 书架-进度-生图-视频-AI助手-上传-我的"
+      ],
+      "bug_no": "187",
+      "breaking": false,
+      "details": "用户要求删除'分级大纲'和'事件图谱'功能，将'AI助手'移动到底部 Tab 导航栏。删除 10 个功能文件（Outline/PlotGraph 相关），清理 Server 路由和 Mobile/Web 导航，在 Tab 导航添加'AI助手'标签（图标 sparkles）。"
+    },
     {
       "version": "3.0.109",
       "buildDate": "2026-07-09",

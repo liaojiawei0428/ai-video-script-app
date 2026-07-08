@@ -129,15 +129,12 @@ import { LoginScreen } from './src/screens/LoginScreen';
 import { RegisterScreen } from './src/screens/RegisterScreen';
 import { AccountScreen } from './src/screens/AccountScreen';
 import { AdminLoginScreen } from './src/screens/AdminLoginScreen';
-import { OutlineScreen } from './src/screens/OutlineScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
 import { VipCenterScreen } from './src/screens/VipCenterScreen';
 import { NotificationScreen } from './src/screens/NotificationScreen';
 import { CharacterDescriptionReviewScreen } from './src/screens/CharacterDescriptionReviewScreen';
 import { CharacterDetailScreen, CharacterDetailScreenWithBoundary } from './src/screens/CharacterDetailScreen';
 import { CharacterListScreen } from './src/screens/CharacterListScreen';
-import { OutlineReviewScreen } from './src/screens/OutlineReviewScreen';
-import { PlotGraphScreen } from './src/screens/PlotGraphScreen';
 import { AssetLibraryScreen } from './src/screens/AssetLibraryScreen';
 import { AIAssistantScreen } from './src/screens/AIAssistantScreen';
 import { PointsOrderScreen } from './src/screens/PointsOrderScreen';
@@ -156,12 +153,13 @@ import { UpdateProgressModal } from './src/utils/updater';
 import { ForceUpdateModal } from './src/utils/updater';
 import type { TabParamList, RootStackParamList } from './src/types/navigation';
 
-// v2.0 向量图标映射 (v3.0.0: 加生图 + 视频)
+// v2.0 向量图标映射 (v3.0.0: 加生图 + 视频 + AI助手)
 const TAB_ICONS: Record<string, { outline: string; filled: string }> = {
   '书架': { outline: 'book-outline', filled: 'book' },
   '进度': { outline: 'time-outline', filled: 'time' },
   '生图': { outline: 'image-outline', filled: 'image' },
   '视频': { outline: 'videocam-outline', filled: 'videocam' },
+  'AI助手': { outline: 'sparkles-outline', filled: 'sparkles' },
   '上传': { outline: 'add-circle-outline', filled: 'add-circle' },
   '我的': { outline: 'person-outline', filled: 'person' },
 };
@@ -224,6 +222,11 @@ function HomeTabs() {
         name="VideoAgent"
         component={VideoAgentScreen}
         options={{ tabBarLabel: '视频', tabBarIcon: ({ focused }) => <TabIcon label="视频" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="AIAssistant"
+        component={AIAssistantScreen}
+        options={{ tabBarLabel: 'AI助手', tabBarIcon: ({ focused }) => <TabIcon label="AI助手" focused={focused} /> }}
       />
       <Tab.Screen
         name="Upload"
@@ -428,15 +431,11 @@ function UserStack() {
       <Stack.Screen name="CharacterDescriptionReview" component={CharacterDescriptionReviewScreen} options={detailOptions('角色描述确认')} />
       <Stack.Screen name="CharacterDetail" component={CharacterDetailScreenWithBoundary} options={detailOptions('角色详情')} />
       <Stack.Screen name="CharacterList" component={CharacterListScreen} options={detailOptions('角色列表')} />
-      <Stack.Screen name="OutlineReview" component={OutlineReviewScreen} options={detailOptions('分集大纲')} />
-      <Stack.Screen name="PlotGraph" component={PlotGraphScreen} options={detailOptions('事件图谱')} />
       <Stack.Screen name="AssetLibrary" component={AssetLibraryScreen} options={detailOptions('资产库')} />
-      <Stack.Screen name="AIAssistant" component={AIAssistantScreen} options={{ headerShown: true, title: 'AI 助手' }} />
       <Stack.Screen name="PointsOrder" component={PointsOrderScreen} options={detailOptions('积分订单')} />
       {/* v3.0.0 (S58): 8 个新 screen - 跟 web 1:1 镜像 */}
       <Stack.Screen name="Profile" component={ProfileScreen} options={detailOptions('个人中心')} />
       <Stack.Screen name="Account" component={AccountScreen} options={detailOptions('账号设置')} />
-      <Stack.Screen name="Outline" component={OutlineScreen} options={detailOptions('分集大纲')} />
       <Stack.Screen name="Tasks" component={TasksScreen} options={detailOptions('任务进度')} />
       <Stack.Screen name="VipCenter" component={VipCenterScreen} options={detailOptions('VIP 中心')} />
       {/* Login/Register/AdminLogin 在 AuthStack 中 */}

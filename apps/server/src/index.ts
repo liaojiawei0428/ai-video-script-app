@@ -167,7 +167,7 @@ import { readChangelog, loadChangelog } from './shared/changelog';
 // 避免 server-only hotfix (v3.0.61) 跟公网 APK (v3.0.60) 不一致导致 Status Code 16 假下载
 import { getMobileLatestApk } from './services/apkVersion';
 app.get('/api/version', etagMiddleware, (req, res) => {
-  const currentVersion = process.env.APP_VERSION || '3.0.109';
+  const currentVersion = process.env.APP_VERSION || '3.0.110';
   const clientVersion = req.query.version as string || '0.0.0';
   // v3.0.62 BUG-131: needUpdate 跟 mobileLatestApkVersion 比, 不是 server APP_VERSION (避免 server-only hotfix 假升级)
   const mobileApk = getMobileLatestApk();
@@ -221,7 +221,6 @@ import adminRoutes from './routes/admin';
 import feedbackRoutes from './routes/feedback';
 import notificationRoutes from './routes/notification';
 import characterRoutes from './routes/characters';
-import { outlineRoutes } from './routes/outlines';
 import imageAgentRoutes from './routes/imageAgent';   // v3.0.0 Agent 矩阵
 import videoAgentRoutes from './routes/videoAgent';   // v3.0.0 Agent 矩阵
 import downloadRoutes from './routes/download';          // v3.0.0 视频下载 proxy
@@ -243,7 +242,6 @@ app.use('/api/notifications', etagMiddleware, notificationRoutes);
 app.use('/api', etagMiddleware, characterRoutes);
 app.use('/api/pricing', etagMiddleware, pricingRoutes);
 app.use('/api/billing', etagMiddleware, billingRoutes);
-app.use('/api', outlineRoutes);
 
 // v3.0.0 Agent 矩阵路由
 app.use('/api/image-agent', imageAgentRoutes);

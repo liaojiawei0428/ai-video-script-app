@@ -11,8 +11,6 @@ import { AIAssistantPage } from './pages/AIAssistantPage';
 import { CharacterListPage } from './pages/CharacterListPage';
 import { CharacterDetailPage } from './pages/CharacterDetailPage';
 import { ErrorBoundary } from './components/ui/error-boundary';
-import { OutlinePage } from './pages/OutlinePage';
-import { PlotGraphPage } from './pages/PlotGraphPage';
 import { AssetLibraryPage } from './pages/AssetLibraryPage';
 import { TaskProgressPage } from './pages/TaskProgressPage';
 import { TasksPage } from './pages/TasksPage';
@@ -55,8 +53,6 @@ export default function App() {
         <Route path="/novels/:id" element={<ScriptDetailPage />} />
         <Route path="/novels/:id/characters" element={<CharacterListPage />} />
         <Route path="/characters/:id" element={<ErrorBoundary onReset={() => window.location.reload()}><CharacterDetailPage /></ErrorBoundary>} />
-        <Route path="/novels/:id/outline" element={<OutlinePage />} />
-        <Route path="/novels/:id/plot-graph" element={<PlotGraphPage />} />
         <Route path="/novels/:id/assets" element={<AssetLibraryPage />} />
         <Route path="/progress/:novelId" element={<TaskProgressPage />} />
         <Route path="/tasks" element={<TasksPage />} />

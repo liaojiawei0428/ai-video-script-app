@@ -1061,3 +1061,118 @@ pm2 logs --lines 30 | grep ERROR      # 期望 0 ERROR
 - **S81 #2**: web 端补做 LightboxImage (跟 mobile 端 FullscreenImageViewer v3.0.76 1:1 镜像, BUG-145 实战沉淀, 跨端铁律 4++ 加固)
 - **S81 #3**: v3.0.97 实战演练 (bump-version.py --patch --apply --commit --rollback 全链路, 跟 S80 #4 S79 候选同源)
 - **S81 #4**: mobile tsc baseline 53 错清理 (跟 S80 #3 S79 候选同源, 跟 BUG-079 假报告 + BUG-097 漏修逆向等)
+
+---
+
+## § 16 S81 v3.0.97 — BUG-172 强制升级 9 维 E2E 闭环 + 实战演练 (2026-07-06)
+
+**📦 commit**: b4a73af `v3.0.97: S81 v3.0.97 实战演练 + BUG-172 强制升级 9 维 E2E 闭环验证 (跨项目通用铁律 #31 #32 累计 13 条)`
+
+**🐛 9 维 E2E 闭环** (蓝叠 127.0.0.1:5555 真机实测, 详见 § 15.2/15.3 S80 已记录表格): 装老版 v3.0.95 APK → 启动 checkForUpdate → modal 完整渲染 (335KB 截图) → tap 升级 → Chrome 下载 v3.0.96 APK (30324752 bytes) → pm install v3.0.96 → 启动 modal 消失进登录页. 9 维全过.
+
+**🔒 跨项目通用铁律新沉淀** (AGENTS.md § 4.16 累计 13 条):
+- **#31** 修一个 BUG 必跑端到端 E2E, 单测 "checkForUpdate success + visible=true" 不够, 必截图验证 UI 树非空 (logcat/console success ≠ UI 渲染成功, 跟 BUG-079 假报告 + BUG-113 真机回归 SOP 100% 同源)
+- **#32** 4 状态机组件实例必用 useState 同步, 不用 module-level state (跟 BUG-138 polling owner 实战 1:1 镜像, useState 跟 React render 生命周期天然同步)
+
+**🔗 100% 同源链**: BUG-165 (强制升级铁律) + BUG-166 (dismissable 逃逸) + BUG-138 (useState) + BUG-079 (假报告)
+
+**➡️ 下一步候选 S82**: 强制升级 modal UI 重设计 (iOS 26 液态玻璃 + Material 3)
+
+---
+
+## § 17 S82 v3.0.98 — 强制升级 modal UI 重设计 (2026-07-06)
+
+**📦 commit**: 963a02f `v3.0.98: S82 强制升级 modal UI 重设计 (iOS 26 液态玻璃 + Material 3 商业级, 删红色/警告/淘汰废话, 加 APP内下载主推 + 内嵌下载进度)`
+
+**🎨 改动**: iOS 26 液态玻璃 + Material 3 商业级设计. 删红色/警告/淘汰废话文案 (修前 modal 像"出错警告", 修后像"有新版本啦"). 加 APP 内下载主推路径 + 内嵌下载进度条 (vs v3.0.96 Chrome 跳转外链的笨重路径).
+
+**🔒 跨端铁律 4 加固**: mobile 跟 web 视觉语言对齐 (UI 一致性).
+
+**➡️ 下一步候选 S83**: BUG-176 DeepSeek reasoning_content 泄漏止血
+
+---
+
+## § 18 S83 v3.0.99 — BUG-176 DeepSeek reasoning_content 泄漏到 analysis_report (2026-07-07)
+
+**📦 commit**: a2fe6ac `v3.0.99: S83 BUG-176 修 DeepSeek reasoning_content 泄漏到 analysis_report (AI 思考内容污染, 跨项目通用铁律 #34 新沉淀)`
+
+**🐛 根因**: DeepSeek 返 reasoning_content 字段 (AI 内部思考链) 被当正常 content 直接拼进 analysis_report → 用户看到 AI 思考内容污染报告.
+
+**🛠️ 修法**: server 端 LLM provider 显式过滤 reasoning_content 字段, 只取 content.
+
+**🔒 跨项目通用铁律 #34** 新沉淀 (跟 BUG-145 跨端 UI 防御 100% 同源): DeepSeek 等 reasoning 模型的 reasoning_content 必过滤防泄漏到 analysis_report. 输出层必做字段白名单, 不信任模型默认行为.
+
+**➡️ 下一步候选 S84**: BUG-177 mobile 强制升级 modal 永远弹出
+
+---
+
+## § 19 S84 v3.0.100 — BUG-177 mobile 强制升级 modal 永远弹出 (2026-07-07)
+
+**📦 commit**: 2148f9e `v3.0.100: S84 BUG-177 修 mobile 端强制升级 modal 永远弹出 (client 跟 server 对比用 info.version 而非 info.mobileLatestApkVersion, 跟 server-only hotfix 设计矛盾)`
+
+**🐛 根因**: apps/mobile/App.tsx 修前用 info.version (server-only 进程版本 e.g. v3.0.99) 跟 clientVer (mobile APK 版本 e.g. v3.0.98) 对比. S83 server hotfix (BUG-176) 后 server.version=v3.0.99 但公网 mobile APK 还是 v3.0.98 → 永远不等 → 强制升级 modal 永远弹 → APP 无法进主界面. 跟 server-only hotfix 设计矛盾 (server hotfix 不需 rebuild APK, 客户端不应强制升级).
+
+**🛠️ 修法**: App.tsx line 297-306 client 跟 server 对比改用 info.mobileLatestApkVersion (server 从公网 APK 列表扫到的真实 APK 版本), 保留 info.version fallback 兜底. client APK == 公网 APK → 不需升级; client APK < 公网 APK → 需升级.
+
+**🔒 跨项目通用铁律 2 条新沉淀**:
+1. client 升级对比必用公网真实 APK version, 不用 server-only 进程 version (跟 server AGENTS.md § 3 铁律 9 server-only hotfix 必 rebuild APK 互补: server 侧保证 server.version ≈ 公网 APK version, client 侧保证判断对)
+2. server /api/version 必同时返 version (server-only 进程版本) + mobileLatestApkVersion (公网真实 APK 版本), 让 client 升级判断能区分场景 (v3.0.62 BUG-131 已实现, 这次实战验证 BUG-177 修法依赖该字段)
+
+**📊 跨端 8 处版本号同步** 3.0.99→3.0.100 (versionCode 100→101): mobile version.ts + build.gradle (versionCode+versionName) + web version.ts (APP_VERSION+APP_VERSION_CODE+APP_BUILD_DATE 2026-07-07) + server package.json + src/index.ts fallback + ecosystem.config.js (env+env_production 2 处) + changelog.json (+BUG-177 entry) + 远端 .env/systemd (deploy.sh 自动同步)
+
+**➡️ 下一步候选 S85**: BUG-178 分镜列表 UI 重设计 + BUG-179 loading hang
+
+---
+
+## § 20 S85 v3.0.101/102 — BUG-178 分镜列表 UI + BUG-179 mobile loading hang (2026-07-07)
+
+**📦 commit 链**: 0c6551c (v3.0.101) + 174c321 (v3.0.102)
+
+**🐛 BUG-178**: 分镜列表 UI 重设计, 修移动端分镜内容无法修改. **跨项目通用铁律 #36** 新沉淀 (UI 一致性 + 可编辑性跨端对齐).
+
+**🐛 BUG-179**: web shots UI refactor (1 textarea TXT-like 风格) + mobile fix loading hang (修前 loading 状态挂起不退出, 用户卡在转圈).
+
+**📊 跨端 8 处版本号同步** 3.0.100→3.0.101→3.0.102
+
+**➡️ 下一步候选 S86**: BUG-180 web 乱码 + BUG-181 mobile 编辑 + BUG-182 commit 假报告补救
+
+---
+
+## § 21 S86 v3.0.103/104 — BUG-180 web 乱码 + BUG-181 mobile 编辑 + BUG-182 commit 假报告补救 (2026-07-08)
+
+**📦 commit 链**: d49d3dc (v3.0.103) + 980b23f + a175e51 + 7dbba83 (v3.0.104 三个 commit)
+
+**🐛 BUG-180**: web 登录页 title 末尾乱码. 根因 GB2312 二级汉字如 "端" (U+7AEF) 在 Content-Type 头无 charset= 时被浏览器按 latin1 fallback 渲染成 "端?". 修法见 #38.
+
+**🐛 BUG-181**: mobile 小说分析编辑 — 3 editable cards 1:1 mirror web (ScriptDetailScreen.tsx 真正落地).
+
+**🐛 BUG-182 (反讽实战, 跟 BUG-079 假报告 100% 同源)**: v3.0.103 commit d49d3dc message 写了 BUG-181 但 ScriptDetailScreen.tsx last commit 是 v3.0.92 → commit message 假报告 (代码没真改). v3.0.104 a175e51 补 8 处版本号同步 + nginx charset 修复; 980b23f 补真正修改的 2 mobile 文件; 7dbba83 补 a175e51 漏 commit 的 2 文件.
+
+**🔒 跨项目通用铁律新沉淀**:
+- **#37** commit message 必跟代码 1:1 对应, 验收必跑 `git log -1 --format='%H %s' <被改文件路径>` 检查 commit 跟代码 drift (跟 BUG-079 假报告 100% 同源)
+- **#38** nginx 必配 `charset utf-8` (location / charset utf-8;) + 主进程 restart 而非 reload (nginx 1.26.3 charset 指令需主进程重启重新加载 mime.types) + 3 兜底联动 (HTML meta charset=UTF-8 + nginx charset utf-8 + Google Fonts Noto Sans SC 全站兜底). 任何 CDN + Nginx + 中文文案组合 (WordPress / Ghost / Hexo / SPA 站点) 都适用
+
+**📊 跨端 8 处版本号同步** 3.0.103→3.0.104
+
+**➡️ 下一步候选 S87**: 集数公式校准 + 角色分析重构
+
+---
+
+## § 22 S87 v3.0.105/106 — 集数公式校准 + 角色分析系统重构 + BUG-183 部署记录 (2026-07-08)
+
+**📦 commit 链**: ad0360e (v3.0.105) + e6ee195 + 63fe0e6 (v3.0.106)
+
+**📐 v3.0.105 ad0360e**: 集数公式分母校准 3675→6667 (100 万字=150 集, 修前字数偏多集数偏少), 按剧情阶段权重分配原文 (高潮多给/铺垫少给), AI 规划 Prompt 六档梯度, 状态卡节奏标注 (规范修订)
+
+**🎭 v3.0.106 e6ee195**: 角色分析系统重构 — 5 类角色类型 × 4 种阵营 × 全角色补齐策略 (规范修订)
+
+**🐛 v3.0.106 63fe0e6**: BUG-183 部署问题记录 — tar 嵌套目录 + systemd ProtectSystem 导致部署路径错乱的踩坑沉淀 (实战记录, 非代码 BUG)
+
+**📊 跨端 8 处版本号同步** v3.0.104→3.0.105→3.0.106 (versionCode 105→106→107)
+
+**➡️ 下一步候选 (S88, 开放, 等 user 拍)**:
+- **A** web 端补做 LightboxImage (跟 mobile 端 FullscreenImageViewer v3.0.76 1:1 镜像, BUG-145 实战沉淀, 跨端铁律 4++ 加固)
+- **B** mobile tsc baseline 53 错清理 (跟 S80 #3 S79 候选同源, 跟 BUG-079 假报告 + BUG-097 漏修逆向等)
+- **C** 业务新功能开发 (user 待拍方向)
+- **D** CI 守门加固 (lint job 已就位 S52, 可加 typecheck 卡点 + mobile lint)
+- **E** 性能优化 (集数公式校准后 AI 规划链路 profile)
