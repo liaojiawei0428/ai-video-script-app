@@ -129,10 +129,11 @@ export class ScriptService {
 
       // ========== 1. AI 分析剧集数 + 剧情大阶段 ==========
       const MAX_EPISODES = 500;
-      const TARGET_SCRIPT_CHARS = 1050;
+      // v3.0.105: 分母校准 3675→6667，使100万字≈150集（旧值1050*3.5=3675导致集数偏高约82%）
+      const CHARS_PER_EPISODE = 6667;
       const CALIBRATION_WINDOW = 5;
 
-      const formulaEpisodes = Math.min(MAX_EPISODES, Math.max(1, Math.ceil(content.length / (Math.round(TARGET_SCRIPT_CHARS * 3.5)))));
+      const formulaEpisodes = Math.min(MAX_EPISODES, Math.max(1, Math.ceil(content.length / CHARS_PER_EPISODE)));
 
       websocketService.broadcastLlmUpdate(novelId, {
         phase: 'episode_plan', step: 'reasoning',
@@ -142,7 +143,7 @@ export class ScriptService {
       websocketService.broadcastProgress(novelId, 7, 'generating', { detail: 'AI 正在分析剧集数...' });
 
       let totalEpisodes = formulaEpisodes;
-      let storyArcs: Array<{ epRange: string; name: string }> = [];
+      let storyArcs: Array<{ epRange: string; name: string; weight: number }> = [];
       try {
         const planResult = await this.aiEpisodePlan(novel, fullSummary, charactersInfo, content.length, formulaEpisodes, userId);
         if (planResult.episodes >= 1 && planResult.episodes <= MAX_EPISODES) {
@@ -250,11 +251,15 @@ export class ScriptService {
           const [start, end] = a.epRange.split('-').map(Number);
           return plan.episodeNumber >= start && (end ? plan.episodeNumber <= end : true);
         });
+        // v3.0.105: 根据阶段权重生成节奏提示
+        const arcWeight = currentArc?.weight || 1.0;
+        const pacingHint = arcWeight >= 1.2 ? '（详细展开）' : arcWeight <= 0.9 ? '（快速推进）' : '';
+        const arcLabel = currentArc ? `${currentArc.name}${pacingHint}` : '';
 
         // 构建滚动状态卡
         const stateCard = this.buildStateCard({
           fullSummary, charactersInfo, characterStates, unresolvedHooks,
-          previousEnding, currentArc: currentArc?.name || '', totalEpisodes,
+          previousEnding, currentArc: arcLabel, totalEpisodes,
           episodeNumber: plan.episodeNumber, rollingPlotSummary,
         });
 
@@ -428,7 +433,7 @@ ${idsText}
   /** AI 剧集规划：返回集数+剧情大阶段 */
   private async aiEpisodePlan(
     novel: any, summary: string, charactersInfo: string, totalChars: number, formulaEstimate: number, userId?: string
-  ): Promise<{ episodes: number; arcs: Array<{ epRange: string; name: string }> }> {
+  ): Promise<{ episodes: number; arcs: Array<{ epRange: string; name: string; weight: number }> }> {
     const wordCountWan = (totalChars / 10000).toFixed(1);
     const prompt = `你是影视编剧。已知小说信息如下：
 
@@ -439,11 +444,16 @@ ${idsText}
 公式预估：${formulaEstimate} 集
 
 请分析后给出：
-1. 合理的总集数（短篇<5万字:5-15集，中篇5-20万:15-50集，长篇20-50万:50-120集，超长篇>50万:100-300集）
-2. 每10集左右的剧情大阶段划分（用集数区间+阶段名描述主线发展阶段）
+1. 合理的总集数（短篇<5万字:5-8集，中篇5-20万字:8-30集，中长篇20-50万字:30-75集，长篇50-100万字:75-150集，超长篇100-200万字:150-300集，史诗级>200万字:300-500集）
+2. 剧情大阶段划分（每10集左右一个阶段，用集数区间+阶段名描述主线发展阶段）
+3. 每个阶段标注"原文分配权重"(weight)：
+   - 铺垫/过渡阶段: 0.7-0.9（每集少给原文，快速推进）
+   - 发展阶段: 1.0（标准量）
+   - 高潮/转折阶段: 1.2-1.5（每集多给原文，详细展开）
+   - 结局阶段: 0.8-1.0
 
 仅输出JSON，不要任何解释：
-{"episodes":36,"arcs":[{"epRange":"1-10","name":"入宫篇"},{"epRange":"11-20","name":"争宠篇"},{"epRange":"21-30","name":"翻盘篇"},{"epRange":"31-36","name":"终局篇"}]}`;
+{"episodes":150,"arcs":[{"epRange":"1-20","name":"铺垫篇","weight":0.8},{"epRange":"21-50","name":"发展篇","weight":1.0},{"epRange":"51-120","name":"高潮篇","weight":1.3},{"epRange":"121-150","name":"结局篇","weight":0.9}]}`;
 
     const result = await deepseekPool.chatCompletionWithMessages([
       { role: 'system', content: '你是影视编剧。只输出JSON，不要任何解释。' },
@@ -455,7 +465,13 @@ ${idsText}
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         const episodes = Math.min(500, Math.max(1, parseInt(String(parsed.episodes), 10) || formulaEstimate));
-        const arcs = Array.isArray(parsed.arcs) ? parsed.arcs.filter((a: any) => a.epRange && a.name) : [];
+        const arcs = Array.isArray(parsed.arcs)
+          ? parsed.arcs.filter((a: any) => a.epRange && a.name).map((a: any) => ({
+              epRange: a.epRange,
+              name: a.name,
+              weight: typeof a.weight === 'number' ? a.weight : 1.0
+            }))
+          : [];
         return { episodes, arcs };
       }
     } catch {}
@@ -467,18 +483,37 @@ ${idsText}
   /** 构建分集计划（公式预估边界 + 语义微调） */
   private async buildEpisodePlans(
     novelId: string, content: string, paragraphs: string[],
-    totalEpisodes: number, storyArcs: Array<{ epRange: string; name: string }>, userId?: string
+    totalEpisodes: number, storyArcs: Array<{ epRange: string; name: string; weight: number }>, userId?: string
   ): Promise<{
     episodesBoundaries: number;
     episodePlans: Array<{ episodeNumber: number; title: string; summary: string; startCharIndex: number; endCharIndex: number }>;
   }> {
     const epPlans: Array<{ episodeNumber: number; title: string; summary: string; startCharIndex: number; endCharIndex: number }> = [];
 
-    // 公式预估每集覆盖的字符数
-    const charsPerEp = Math.ceil(content.length / totalEpisodes);
+    // v3.0.105: 按剧情阶段权重分配原文（高潮多给，铺垫少给），无 storyArcs 时回退均匀分配
+    const arcCharsPerEp = new Map<number, number>(); // episodeNumber → 该集字符数
+    if (storyArcs.length > 0) {
+      const totalWeightedEpisodes = storyArcs.reduce((sum, arc) => {
+        const [s, e] = arc.epRange.split('-').map(Number);
+        return sum + (e - s + 1) * (arc.weight || 1.0);
+      }, 0);
+      for (const arc of storyArcs) {
+        const [s, e] = arc.epRange.split('-').map(Number);
+        const arcEpCount = e - s + 1;
+        const weight = arc.weight || 1.0;
+        const arcTotalChars = Math.floor(content.length * (arcEpCount * weight / totalWeightedEpisodes));
+        const charsPerEpInArc = Math.ceil(arcTotalChars / arcEpCount);
+        for (let epNum = s; epNum <= e; epNum++) {
+          arcCharsPerEp.set(epNum, charsPerEpInArc);
+        }
+      }
+    }
+    const fallbackCharsPerEp = Math.ceil(content.length / totalEpisodes);
     let startIdx = 0;
 
     for (let ep = 1; ep <= totalEpisodes; ep++) {
+      // 获取当前集的字符配额（按阶段权重或均匀分配）
+      const charsPerEp = arcCharsPerEp.has(ep) ? arcCharsPerEp.get(ep)! : fallbackCharsPerEp;
       // 公式预估终点
       let endIdx = Math.min(startIdx + charsPerEp, content.length);
 

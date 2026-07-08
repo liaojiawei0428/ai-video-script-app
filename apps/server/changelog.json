@@ -3,13 +3,29 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.104",
-  "latest_version_time": "2026-07-07",
+  "latest_version": "3.0.105",
+  "latest_version_time": "2026-07-08",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.105",
+      "buildDate": "2026-07-08",
+      "highlights": [
+        "集数校准：公式分母 3675→6667，100万字精确分150集",
+        "按剧情阶段权重分配原文：高潮段每集多给原文（详细展开），铺垫段每集少给（快速推进）",
+        "AI规划参考规则细化为6档梯度（短篇5-8集~史诗级300-500集）",
+        "状态卡增加节奏标注（详细展开/快速推进）"
+      ],
+      "changes": [
+        "scriptService.ts: TARGET_SCRIPT_CHARS(1050) → CHARS_PER_EPISODE(6667) 分母校准",
+        "scriptService.ts: aiEpisodePlan Prompt 增加 weight 权重字段输出",
+        "scriptService.ts: buildEpisodePlans 从均匀分配改为按阶段权重分配",
+        "scriptService.ts: buildStateCard 增加节奏标注（详细展开/快速推进）"
+      ]
+    },
     {
       "version": "3.0.104",
       "buildDate": "2026-07-07",
