@@ -809,8 +809,9 @@ export function ImageAgentScreen(): React.JSX.Element {
           placeholder="描述你想生成的图 (可上传参考图)..."
           placeholderTextColor={colors.text.tertiary}
           multiline
-          maxLength={500}
+          maxLength={3000}
         />
+        <Text style={{ fontSize: 12, color: '#666', textAlign: 'right', width: '100%', marginTop: 4 }}>{input.length}/3000</Text>
         <TouchableOpacity style={styles.sendBtn} onPress={() => send(input)} disabled={loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)}>
           <Ionicons name="send" size={20} color={(loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)) ? colors.text.tertiary : '#fff'} />
         </TouchableOpacity>
