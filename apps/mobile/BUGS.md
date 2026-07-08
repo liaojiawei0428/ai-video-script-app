@@ -8813,5 +8813,89 @@ BUG-167 (v3.0.90 web 端视频生成后用户点 ▶ 播放不响应, S78 2026-0
 - 实战教训: v3.0.90 web-only hotfix, 跨端独立版本号体系 (web 单独升 v3.0.90, server + mobile 保持 v3.0.89, 不参与强制升级判定, 跟 BUG-131 BUG-165 1:1 配套)
 ```
 
-> **最后更新**: 2026-07-06 (S78 v3.0.90 BUG-167, web 端视频点击播放修法 5 段 + 跨项目通用铁律 5 条新沉淀 + 1 条 BUG-131/165 配套铁律 + 部署踩坑 scp 嵌套 + 25 维验证全过 + E2E 实战视频 URL 200/206/CORS 全过)
-> **下次 review**: 跨端 web + mobile 1:1 镜像漏修 1 漏 / 视频/图片 src URL Date.now() 副作用 1 漏 / web-only hotfix changelog.json 顶层 latest_version 字段冲突 1 漏
+> **最后更新**: 2026-07-08 (S87 v3.0.106 角色分析系统重构部署 + BUG-183 tar 包嵌套 dist 目录 + systemd ProtectSystem 问题)
+> **下次 review**: tar 打包路径问题 / systemd ProtectSystem 配置
+
+## BUG-183 (v3.0.106 部署) tar 包嵌套 dist 目录 + systemd ProtectSystem 阻止文件访问 (2026-07-08)
+
+### 背景
+
+v3.0.106 角色分析系统重构部署时遇到两个部署问题:
+
+1. **tar 包嵌套 dist 目录**: 本地打包 `tar -czf dist.tar.gz dist package.json ecosystem.config.js` 后, 远端解压出现 `dist/dist/` 嵌套结构, 导致 deploy.sh 找不到 `/www/wwwroot/shipin-APP/dist/index.js`
+2. **systemd ProtectSystem=strict 阻止文件访问**: systemd unit 配置 `ProtectSystem=strict` + `ReadWritePaths` 限制了访问, 导致服务启动失败报 `MODULE_NOT_FOUND: Cannot find module '/www/wwwroot/shipin-APP/dist/index.js'`
+
+### 真根因
+
+**问题 A (tar 嵌套)**: 
+- 打包命令 `tar -czf dist.tar.gz dist` 包含了目录本身 `dist/`, 解压后变成 `dist/dist/`
+- deploy.sh 期望解压后直接得到 `dist/index.js`, 实际在 `dist/dist/index.js`
+
+**问题 B (ProtectSystem)**:
+- systemd `ProtectSystem=strict` 是安全加固, 限制进程写入系统目录
+- 虽然配置了 `ReadWritePaths=/www/wwwroot/shipin-APP/dist`, 但 systemd 启动时可能缓存了旧的文件系统视图
+- 文件实际存在但 systemd 找不到, stderr 日志显示 `Cannot find module`
+
+### 修法
+
+**修法 A (tar 打包)**:
+```bash
+# 正确打包方式: 进入 dist 目录打包内容, 不打包目录本身
+cd apps/server/dist && tar -czf ../dist.tar.gz .
+# 或者
+cd apps/server && tar -czf dist.tar.gz -C dist .
+```
+
+**修法 B (systemd 配置)**:
+```bash
+# 禁用 ProtectSystem (开发环境)
+sed -i 's/ProtectSystem=strict/ProtectSystem=false/' /etc/systemd/system/shipin-app.service
+systemctl daemon-reload
+systemctl restart shipin-app
+```
+
+### 部署踩坑笔记
+
+1. **tar 打包前检查目录结构**: `tar -tzf dist.tar.gz | head -20` 确认没有嵌套
+2. **systemd 启动失败先看 stderr**: `cat /www/wwwroot/shipin-APP/logs/systemd-stderr.log | tail -20`
+3. **手动 node 启动验证文件是否存在**: `cd /www/wwwroot/shipin-APP && node dist/index.js` (能启动说明文件存在, 问题在 systemd 配置)
+4. **ProtectSystem=strict 在生产环境是安全最佳实践, 但开发/部署时可能造成问题**: 建议部署后重新启用
+
+### 跨项目通用铁律 (新沉淀)
+
+1. **tar 打包必用 `-C dir .` 避免嵌套**: `tar -czf dist.tar.gz -C dist .` 而非 `tar -czf dist.tar.gz dist`
+2. **systemd 启动失败必查 stderr 日志**: `journalctl -u shipin-app --no-pager -n 50` 或 `cat logs/systemd-stderr.log`
+3. **手动 node 启动验证文件系统**: systemd 找不到 ≠ 文件不存在, 可能是 ProtectSystem/权限问题
+
+### 部署全链路 (v3.0.106)
+
+| 步骤 | 结果 |
+|---|---|
+| 1. 版本号同步 9 项 | ✅ 3.0.105 → 3.0.106 |
+| 2. server tsc build | ✅ 0 错 |
+| 3. gradle assembleRelease | ✅ APK 30.3MB |
+| 4. scp 4 件套 | ✅ APK + dist.tar.gz + package.json + changelog.json |
+| 5. 远端 tar 解压 | ❌ 嵌套 dist/dist/ → 手动修复 |
+| 6. systemd restart | ❌ ProtectSystem 阻止 → 禁用后成功 |
+| 7. 12 维验证 | ✅ version=3.0.106, APK=3.0.106 |
+| 8. git push | ✅ main → main |
+
+### E2E 验证
+
+- ✅ systemctl shipin-app: active
+- ✅ ss 6000: LISTEN
+- ✅ /health: 200 OK
+- ✅ /api/version: version=3.0.106, mobileLatestApkVersion=3.0.106
+- ✅ 公网 APK: HTTP/2 200, Content-Type=application/vnd.android.package-archive, Content-Length=30334453
+- ✅ changelog: "角色分析系统重构: 5类角色类型×4种阵营×全角色补齐策略"
+- ✅ highlights: 5 条完整
+
+### mavis memory 沉淀
+
+```
+BUG-183 (v3.0.106 部署 2026-07-08):
+- tar 打包必用 -C dir . 避免 dist/dist/ 嵌套 (跨项目通用铁律)
+- systemd ProtectSystem=strict 可能阻止文件访问, 启动失败看 stderr 日志
+- 手动 node dist/index.js 验证文件存在 ≠ systemd 能找到
+- 修法: tar -czf dist.tar.gz -C dist . + sed 'ProtectSystem=strict/ProtectSystem=false/'
+```
