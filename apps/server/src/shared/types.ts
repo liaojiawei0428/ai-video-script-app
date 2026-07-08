@@ -103,7 +103,8 @@ export interface Character {
   aliases: string[];
   appearance: string;
   personality: string;
-  roleType: 'protagonist' | 'antagonist' | 'supporting' | 'minor';
+  roleType: 'protagonist' | 'major_supporting' | 'minor_supporting' | 'extra' | 'passerby';
+  alignment?: string;  // righteous|villain|neutral|ambiguous (v3.0.106 角色分析系统重构)
   relationships: Array<{ target: string; relation: string }>;
   referenceImage?: string;
   // ── v2.0.0 ──

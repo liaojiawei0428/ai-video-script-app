@@ -3,13 +3,35 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.105",
+  "latest_version": "3.0.106",
   "latest_version_time": "2026-07-08",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.106",
+      "buildDate": "2026-07-08",
+      "type": "patch",
+      "summary": "角色分析系统重构: 5类角色类型×4种阵营×全角色补齐策略 + TypeScript类型定义同步",
+      "highlights": [
+        "角色类型扩展为5类: protagonist/major_supporting/minor_supporting/extra/passerby (含路人)",
+        "阵营系统4种: righteous/villain/neutral/ambiguous (正派/反派/中立/亦正亦邪)",
+        "全角色补齐策略: 根据身份/职业/时代/阵营合理推断补齐缺失外貌维度, 用[原文]/[补齐]标签区分",
+        "JSON输出格式: identity/appearance/attire/expression/pose/personality/imagePrompt等11维度结构化描述",
+        "TypeScript Character接口同步: roleType更新为5分类枚举"
+      ],
+      "changes": [
+        "characterDescription.ts: 重写System Prompt (5类×4阵营分类、全补齐策略、JSON格式输出)",
+        "novelAnalysis.ts: 微调角色分析输出格式 (5类角色+4阵营)",
+        "novelService.ts: parseCharactersFromReport支持5类+4阵营解析",
+        "characterService.ts: extractDescriptions解析JSON数组格式",
+        "db.ts: 新增alignment字段ALTER TABLE",
+        "character.ts: mapRowToCharacter增加alignment映射",
+        "shared-types/index.ts: Character接口roleType更新为5分类"
+      ]
+    },
     {
       "version": "3.0.105",
       "buildDate": "2026-07-08",

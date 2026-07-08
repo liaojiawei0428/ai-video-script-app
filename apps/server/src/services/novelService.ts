@@ -103,11 +103,11 @@ export class NovelService {
     //
     // 判定: 看下一行是不是 "   字段名：值" 形式 → 老格式; 否则 → 新格式
     const newFormatFieldMap: Record<string, string> = {
-      '主角': 'protagonist', '重要配角': 'supporting', '次要配角': 'supporting',
-      '跑龙套': 'minor', '路人': 'minor', '路人甲乙丙丁': 'minor',
+      '主角': 'protagonist', '重要配角': 'major_supporting', '次要配角': 'minor_supporting',
+      '跑龙套': 'extra', '路人': 'passerby', '路人甲乙丙丁': 'passerby',
     };
     const alignmentMap: Record<string, string> = {
-      '正派': '正派', '反派': '反派', '中立': '中立',
+      '正派': 'righteous', '反派': 'villain', '中立': 'neutral', '亦正亦邪': 'ambiguous', '无': '',
     };
 
     // 老 37 字段映射 (保留容错, 老 novel data 不会解析失败)
@@ -169,12 +169,13 @@ export class NovelService {
             name: charName,
             appearance: '',  // 新版不写, 留给 extractDescriptions
             personality: '',
-            roleType: newFormatFieldMap[roleTypeZh] || 'supporting',
+            roleType: newFormatFieldMap[roleTypeZh] || 'passerby',
+            alignment: alignmentMap[alignmentZh] || '',
             description: {
               name: charName,
               identity,        // 身份/职业
               role_type_zh: roleTypeZh,  // 角色类型 (中文, 给新版 characterDescription.ts 参考)
-              alignment: alignmentZh,    // 阵营
+              alignment: alignmentMap[alignmentZh] || '',
             },
           };
         } else {
@@ -197,8 +198,11 @@ export class NovelService {
               currentChar.personality = value;
             } else if (key === 'role_type') {
               currentChar.roleType = value.includes('主角') ? 'protagonist' :
-                                     value.includes('反派') ? 'antagonist' :
-                                     value.includes('龙套') ? 'minor' : 'supporting';
+                                     value.includes('反派') ? 'villain' :
+                                     value.includes('龙套') ? 'extra' :
+                                     value.includes('路人') ? 'passerby' : 'major_supporting';
+              currentChar.alignment = value.includes('反派') ? 'villain' :
+                                     value.includes('正派') ? 'righteous' : 'neutral';
               currentChar.description.role_type = currentChar.roleType;
             } else {
               currentChar.description[key] = value;
@@ -254,7 +258,9 @@ export class NovelService {
         id: generateUUID(), novelId,
         name: char.name, aliases: [],
         appearance: char.appearance, personality: char.personality,
-        roleType: char.roleType as 'protagonist' | 'antagonist' | 'supporting' | 'minor', relationships: [],
+        roleType: char.roleType as any,
+        alignment: (char as any).alignment || '',
+        relationships: [],
         // v3.0.0.40 BUG-105: 不再存 37 字段 JSON, description 留空 (extractDescriptions 重生成)
         description: '',
         createdAt: Date.now(),
@@ -600,7 +606,8 @@ export class NovelService {
         id: generateUUID(), novelId,
         name: char.name, aliases: [],
         appearance: char.appearance, personality: char.personality,
-        roleType: char.roleType as 'protagonist' | 'antagonist' | 'supporting' | 'minor',
+        roleType: char.roleType as any,
+        alignment: (char as any).alignment || '',
         relationships: [],
         description: JSON.stringify(char.description), // v2.5.14: 保存完整 37 字段描述 JSON
         createdAt: Date.now(),

@@ -73,7 +73,8 @@ export interface Character {
   aliases: string[];
   appearance: string;
   personality: string;
-  roleType: 'protagonist' | 'antagonist' | 'supporting' | 'minor';
+  roleType: 'protagonist' | 'major_supporting' | 'minor_supporting' | 'extra' | 'passerby';
+  alignment?: string;  // righteous|villain|neutral|ambiguous
   relationships: Array<{ target: string; relation: string }>;
   referenceImage?: string;
   createdAt: number;

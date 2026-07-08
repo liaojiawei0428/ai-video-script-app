@@ -18,10 +18,11 @@ export class CharacterModel {
 
     await execute(
       `INSERT INTO characters (id, novel_id, name, aliases, appearance, personality,
-       role_type, relationships, reference_image, description, extra_description, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       role_type, alignment, relationships, reference_image, description, extra_description, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [character.id, character.novelId, character.name, JSON.stringify(character.aliases),
        character.appearance || '', character.personality || '', character.roleType,
+       character.alignment || '',
        JSON.stringify(character.relationships), character.referenceImage || '',
        descStr, extraDescStr, character.createdAt, character.createdAt]
     );
@@ -68,6 +69,7 @@ export class CharacterModel {
     appearance?: string;
     personality?: string;
     roleType?: string;
+    alignment?: string;
     description?: string;        // v2.5.34: 自由文本
     extraDescription?: string;   // v2.5.34: 自由文本
   }): Promise<void> {
@@ -78,6 +80,7 @@ export class CharacterModel {
     if (data.appearance !== undefined) { sets.push('appearance = ?'); params.push(data.appearance); }
     if (data.personality !== undefined) { sets.push('personality = ?'); params.push(data.personality); }
     if (data.roleType !== undefined) { sets.push('role_type = ?'); params.push(data.roleType); }
+    if (data.alignment !== undefined) { sets.push('alignment = ?'); params.push(data.alignment); }
     // v2.5.34: description / extraDescription 改为字符串直接存, 不再 JSON.stringify
     if (data.description !== undefined) {
       sets.push('description = ?');
@@ -93,6 +96,13 @@ export class CharacterModel {
     await execute(`UPDATE characters SET ${sets.join(', ')} WHERE id = ?`, params);
   }
 
+  async updateAlignment(id: string, alignment: string): Promise<void> {
+    await execute(
+      'UPDATE characters SET alignment = ?, updated_at = ? WHERE id = ?',
+      [alignment, Date.now(), id]
+    );
+  }
+
   private mapRowToCharacter(row: any): Character {
     return {
       id: row.id,
@@ -102,6 +112,7 @@ export class CharacterModel {
       appearance: row.appearance,
       personality: row.personality,
       roleType: row.role_type,
+      alignment: row.alignment || '',
       relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships || '[]') : (row.relationships || []),
       referenceImage: row.reference_image,
       // v2.5.27: 暴露 description/image_variants 给漫画 DNA 注入用

@@ -185,7 +185,11 @@ export async function extractDescriptions(
     (novel as any)?.novelExcerpts || undefined,  // 原文片段
   );
 
-  let parsedDescriptions: Array<{ name: string; roleType: string; description: string; extraDescription: string }> = [];
+  // 存储最终结果
+  const result: CharacterDescriptionGenResult['characters'] = [];
+  let succeeded = 0;
+  let failed = 0;
+
   try {
     const llmResult = await deepseekPool.chatCompletionWithRetry(
       CHARACTER_DESCRIPTION_SYSTEM_PROMPT,
@@ -195,86 +199,99 @@ export async function extractDescriptions(
       userId,
     );
 
-    // 解析 JSON（容错）
+    // 解析 LLM 返回的 JSON 数组（新格式: characterDescription.ts 输出）
     const jsonText = extractJsonArray(llmResult.content);
-    parsedDescriptions = JSON.parse(jsonText);
+    const parsed = JSON.parse(jsonText);
 
-    // v2.5.35: LLM 经常误返回旧 11 字段格式 (description 是 JSON 字符串)
-    // 智能归一化: 如果 matched.description 是 JSON 字符串, 自动转成 markdown 文本
-    parsedDescriptions = parsedDescriptions.map((d: any) => {
-      if (typeof d.description === 'string') {
-        const trimmed = d.description.trim();
-        if (trimmed.startsWith('{') || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
-          // 尝试解析 + 拼装
-          d.description = normalizeOldDescriptionFormat(d.description);
+    if (Array.isArray(parsed)) {
+      // 新格式: JSON 数组, 每项包含 name, roleType, alignment, identity, appearance, attire, expression, pose, personality, imagePrompt, forbiddenDrift, lockedTerms, extraDescription
+      for (const item of parsed) {
+        const char = characters.find(c => c.name === item.name || (c.aliases || []).includes(item.name));
+        if (!char) continue;
+
+        try {
+          // 将 JSON 对象各 Markdown 字段拼接为完整描述文本存入 description.text
+          const fullDescription = [
+            item.identity ? `## 基本信息\n年龄: ${item.identity.age || ''}\n性别: ${item.identity.gender || ''}\n身份: ${item.identity.occupation || ''}\n阶层: ${item.identity.socialClass || ''}\n时代: ${item.identity.era || ''}` : '',
+            item.appearance ? `## 外貌\n${item.appearance}` : '',
+            item.attire ? `## 服装\n${item.attire}` : '',
+            item.expression ? `## 表情\n${item.expression}` : '',
+            item.pose ? `## 姿态\n${item.pose}` : '',
+            item.personality ? `## 性格\n${item.personality}` : '',
+          ].filter(Boolean).join('\n\n');
+
+          // 存储为 JSON 格式（包含 imagePrompt, forbiddenDrift, lockedTerms）
+          // 注: alignment 无独立 DB column, 存入 description JSON 内部
+          const descriptionData: Record<string, any> = {
+            text: fullDescription,
+            imagePrompt: item.imagePrompt || '',
+            forbiddenDrift: item.forbiddenDrift || [],
+            lockedTerms: item.lockedTerms || {},
+            identity: item.identity || {},
+            extraDescription: item.extraDescription || '',
+            alignment: item.alignment || '',
+            roleType: item.roleType || '',
+          };
+
+          const newRoleType = mapRoleTypeToLegacy(item.roleType || char.roleType);
+          await execute(
+            `UPDATE characters SET description = ?, extra_description = ?, role_type = ?, style_id = ?, confirmed = 0, image_gen_status = 'none' WHERE id = ?`,
+            [
+              JSON.stringify(descriptionData),
+              item.extraDescription || '',
+              newRoleType,
+              styleId,
+              char.id,
+            ],
+          );
+          result.push({
+            id: char.id,
+            name: char.name,
+            roleType: newRoleType,
+            description: { name: char.name, description: fullDescription, extraDescription: item.extraDescription || '' } as any,
+            extraDescription: { name: char.name, description: '', extraDescription: item.extraDescription || '' } as any,
+          });
+          succeeded++;
+        } catch (err) {
+          logger.error('extractDescriptions: 写库失败', { characterId: char.id, error: err });
+          failed++;
         }
       }
-      if (typeof d.extraDescription === 'string') {
-        const trimmed = d.extraDescription.trim();
-        if (trimmed.startsWith('{') || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
-          d.extraDescription = normalizeOldDescriptionFormat(d.extraDescription);
+
+      // 处理 LLM 输出中未匹配的角色（用兜底描述）
+      for (const char of characters) {
+        const alreadyDone = result.some(r => r.id === char.id);
+        if (alreadyDone) continue;
+        try {
+          const fallbackDesc = makeFallbackDescription(char);
+          const fallbackExtra = '';
+          const fallbackRoleType = mapRoleTypeToLegacy(char.roleType);
+          await execute(
+            `UPDATE characters SET description = ?, extra_description = ?, role_type = ?, style_id = ?, confirmed = 0, image_gen_status = 'none' WHERE id = ?`,
+            [fallbackDesc, fallbackExtra, fallbackRoleType, styleId, char.id],
+          );
+          result.push({
+            id: char.id,
+            name: char.name,
+            roleType: fallbackRoleType,
+            description: { name: char.name, description: fallbackDesc, extraDescription: '' } as any,
+            extraDescription: { name: char.name, description: '', extraDescription: '' } as any,
+          });
+          succeeded++;
+        } catch (err) {
+          failed++;
         }
-      }
-      // v3.0.0.30 (S50 v2): 规范化 roleType, 兜底用 characters 现有 roleType
-      if (typeof d.roleType !== 'string' || !d.roleType.trim()) {
-        const matched = characters.find(c => c.name === d.name);
-        d.roleType = matched?.roleType || '次要配角';
-      }
-      return d;
-    });
-  } catch (err) {
-    logger.error('extractDescriptions: LLM 解析失败', { novelId, error: err });
-    // 失败时回退到空描述
-    parsedDescriptions = characters.map(c => ({
-      name: c.name,
-      roleType: c.roleType || '次要配角',
-      description: `【未能自动提取, 请手动填写】\n\n角色名: ${c.name}\n身份: ${c.roleType || '未知'}\n请基于小说内容为该角色编写描述.`,
-      extraDescription: '',
-    }));
-  }
-
-  // 按 name 匹配并写库 (v2.5.34: 自由文本格式)
-  const result: CharacterDescriptionGenResult['characters'] = [];
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const char of characters) {
-    const matched = parsedDescriptions.find(
-      p => p.name === char.name || (char.aliases || []).includes(p.name),
-    );
-    if (matched) {
-      try {
-        // v2.5.34: 简化存储, 只存 description + extraDescription 自由文本
-        // v3.0.0.30 (S50 v2): 同时写 role_type (LLM 标签分类结果, 中文→英文后向兼容)
-        const description = typeof matched.description === 'string' ? matched.description : '';
-        const extraDescription = typeof matched.extraDescription === 'string' ? matched.extraDescription : '';
-        const newRoleType = mapRoleTypeToLegacy((matched as any).roleType || char.roleType);
-        await execute(
-          `UPDATE characters SET description = ?, extra_description = ?, role_type = ?, style_id = ?, confirmed = 0, image_gen_status = 'none' WHERE id = ?`,
-          [
-            description,
-            extraDescription,
-            newRoleType,
-            styleId,
-            char.id,
-          ],
-        );
-        result.push({
-          id: char.id,
-          name: char.name,
-          roleType: newRoleType,
-          description: { name: char.name, description, extraDescription } as any,
-          extraDescription: { name: char.name, description: '', extraDescription } as any,
-        });
-        succeeded++;
-      } catch (err) {
-        logger.error('extractDescriptions: 写库失败', { characterId: char.id, error: err });
-        failed++;
       }
     } else {
-      // 未匹配的角色用兜底描述
+      // 非数组格式: LLM 返回异常, 全部走兜底
+      throw new Error('LLM 返回非数组格式');
+    }
+  } catch (err) {
+    logger.error('extractDescriptions: LLM 解析失败, 使用兜底描述', { novelId, error: err });
+    // 失败时所有角色用兜底描述
+    for (const char of characters) {
       try {
-        const fallbackDesc = `【未匹配到 LLM 输出, 请手动填写】\n\n角色名: ${char.name}\n身份: ${char.roleType || '未知'}\n请基于小说内容为该角色编写描述.`;
+        const fallbackDesc = makeFallbackDescription(char);
         const fallbackExtra = '';
         const fallbackRoleType = mapRoleTypeToLegacy(char.roleType);
         await execute(
@@ -289,7 +306,7 @@ export async function extractDescriptions(
           extraDescription: { name: char.name, description: '', extraDescription: '' } as any,
         });
         succeeded++;
-      } catch (err) {
+      } catch (err2) {
         failed++;
       }
     }
@@ -532,6 +549,21 @@ export async function generateImageVariants(
   // v2.5.34: 自由文本格式, description / extraDescription 是字符串 (可能为旧 JSON, 兼容)
   const rawDesc = typeof char.description === 'string' ? char.description : '';
   const rawExtra = typeof char.extraDescription === 'string' ? char.extraDescription : '';
+
+  // 尝试解析新格式 JSON（v2.5.35+: description 是 JSON 对象, 包含 text/imagePrompt/forbiddenDrift/lockedTerms）
+  let descData: any = null;
+  try {
+    if (rawDesc) {
+      descData = JSON.parse(rawDesc);
+    }
+  } catch {
+    // 旧格式: 纯 Markdown 文本, 走旧逻辑
+  }
+
+  let visualText: string;
+  let forbiddenDriftTerms: string[] = [];
+  let lockedTerms: Record<string, string> = {};
+
   // 兼容旧数据: 旧数据是 11 字段 JSON, 提取 prompt_safe_description 和 gender
   const oldDescObj = (() => {
     if (!rawDesc || rawDesc[0] !== '{') return null;
@@ -542,8 +574,25 @@ export async function generateImageVariants(
     try { return JSON.parse(rawExtra); } catch { return null; }
   })();
 
-  // 视觉描述: 优先用旧 prompt_safe_description, 退化到整个 description
-  const visualText = oldDescObj?.prompt_safe_description || oldExtraObj?.prompt_safe_description || rawDesc || '';
+  // 视觉描述来源优先级: 新格式 imagePrompt > 新格式 text > 旧格式 prompt_safe_description > 整个 description
+  if (descData && typeof descData === 'object' && descData.imagePrompt) {
+    // 新格式: 直接使用 imagePrompt (英文), 不走翻译
+    visualText = descData.imagePrompt;
+    forbiddenDriftTerms = descData.forbiddenDrift || [];
+    lockedTerms = descData.lockedTerms || {};
+    logger.info('generateImageVariants: 使用新格式 imagePrompt (跳过翻译)', {
+      characterId,
+      imagePromptLen: visualText.length,
+      forbiddenDriftCount: forbiddenDriftTerms.length,
+      lockedTermsKeys: Object.keys(lockedTerms),
+    });
+  } else if (descData && typeof descData === 'object' && descData.text) {
+    // 新格式但无 imagePrompt: 用 text 字段 (中文 Markdown), 走翻译
+    visualText = descData.text;
+  } else {
+    // 旧格式: 优先用旧 prompt_safe_description, 退化到整个 description
+    visualText = oldDescObj?.prompt_safe_description || oldExtraObj?.prompt_safe_description || rawDesc || '';
+  }
 
   const { buildCharacterSheetPrompt } = await import('./characterSheetPrompt');
   const { buildStyleAnchorPrefix, buildStyleNegativePrompt, buildStyleBibleJsonBlock } = await import('./styleBible');
@@ -551,7 +600,19 @@ export async function generateImageVariants(
   // v3.0.0.30 (S50): 去掉 slice(0, 1500) 硬截断, DB description 字段 TEXT 够长, 整段翻译保留更多丰度
   // v3.0.0.40 (BUG-105): 完全用 description 自由文本, 不再按 37 字段拼装
   const { translateCharacterDescriptionToEnglish } = await import('./promptTranslator');
-  const translatedVisualText = await translateCharacterDescriptionToEnglish(visualText);
+  const translatedVisualText = descData?.imagePrompt
+    ? visualText // 新格式 imagePrompt 已是英文, 跳过翻译
+    : await translateCharacterDescriptionToEnglish(visualText);
+
+  // 注入 lockedTerms (确保生图 prompt 包含锁定词, 如 hair_color: silver)
+  let enhancedVisualText = translatedVisualText || visualText;
+  if (lockedTerms && Object.keys(lockedTerms).length > 0) {
+    for (const [key, value] of Object.entries(lockedTerms)) {
+      if (typeof value === 'string' && value && !enhancedVisualText.includes(value)) {
+        enhancedVisualText += `, ${key.replace(/_/g, ' ')}: ${value}`;
+      }
+    }
+  }
 
   // v2.5.9: 获取 styleBible 并注入
   const novelWithBible = await queryOne<any>('SELECT style_bible FROM novels WHERE id = ?', [char.novelId]);
@@ -564,7 +625,7 @@ export async function generateImageVariants(
     name: char.name,
     styleId,
     // 主要视觉描述: 中文→英文 翻译后, 给 agens 用 (v3.0.0.40 BUG-105: 字段名 visualDescription 表达更准)
-    visualDescription: translatedVisualText || visualText,
+    visualDescription: enhancedVisualText,
     // 兜底字段 (从旧格式/字段中提取)
     gender: char.gender || oldDescObj?.gender || '',
     // v3.0.0.40 BUG-105: 删 distinctive_features 字段 (从 description 文本中找"特征/标志/胎记"段落的逻辑)
@@ -616,6 +677,15 @@ export async function generateImageVariants(
   let totalSucceeded = 0;
   let totalFailed = 1;
 
+  // 构建 negative prompt（包含 forbiddenDrift 禁止项）
+  let charNegativePrompt = '';
+  if (forbiddenDriftTerms.length > 0) {
+    charNegativePrompt = forbiddenDriftTerms
+      .map(d => String(d).replace(/^禁止/, '').trim())
+      .filter(Boolean)
+      .join(', ');
+  }
+
   try {
     // v3.0.52 (BUG-123): 包装 rate limiter (40/min), taskId=characterId
     const result = await rateLimitedGenerate({
@@ -623,6 +693,7 @@ export async function generateImageVariants(
       label: 'characterSheet',
       imageOptions: {
         prompt: finalPrompt,
+        negativePrompt: charNegativePrompt || undefined,
         styleId,
         angle: 'sheet',
       },

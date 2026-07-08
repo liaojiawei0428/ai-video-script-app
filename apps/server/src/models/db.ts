@@ -465,6 +465,16 @@ async function initTables(): Promise<void> {
     logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE characters ADD COLUMN image_generated_at BIGINT DEFAULT NULL' });
   }
 
+  // v3.0.106: 角色新增 alignment 字段 (righteous|villain|neutral|ambiguous)
+  try {
+    await execute('ALTER TABLE characters ADD COLUMN alignment VARCHAR(20) DEFAULT \'\'');
+    logger.info('DB migration: characters.alignment added');
+  } catch (e: any) {
+    if (!e.message.includes('Duplicate column')) {
+      logger.warn('DB migration: characters.alignment', { error: e.message });
+    }
+  }
+
   // ── novels: 加 5 字段 ──
   try { await db.execute("ALTER TABLE novels ADD COLUMN style_id VARCHAR(36) DEFAULT 'realistic' COMMENT '小说统一画风'"); } catch (e) {
     logger.warn('db migration failed', { err: e instanceof Error ? e.message : String(e), sql: 'ALTER TABLE novels ADD COLUMN style_id VARCHAR(36) DEFAULT' });
