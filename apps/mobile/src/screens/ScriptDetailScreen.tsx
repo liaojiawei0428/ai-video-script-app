@@ -262,15 +262,6 @@ export function ScriptDetailScreen(): React.JSX.Element {
                 <Text style={styles.emptyText}>{loadError}</Text>
               </View>
             ) : null}
-            {analysis && (
-              <GlassCard padded={true} style={{ margin: spacing.md }}>
-                <Text style={styles.analysisTitle}>{novelTitle}</Text>
-                <Text style={styles.analysisReportText}>
-                  {analysisText || `类型：${editGenre || '—'}\n主题：${editTheme || '—'}\n风格：${editStyle || '—'}\n基调：${editTone || '—'}\n\n角色：\n${charText}`}
-                </Text>
-              </GlassCard>
-            )}
-
             {/* v3.0.103 (S86 2026-07-07) BUG-181 修法迁移: 3 个独立可编辑 Card (跟 web 端 ScriptDetailPage.tsx line 299-426 1:1 镜像)
                 修前: v3.0.103 报告把修复改错到 EpisodeListScreen.tsx (死代码 screen, App.tsx 未注册), ScriptDetailScreen 实际页面 0 编辑功能
                 修后 (本 BUG-181 正式修法): 3 个独立 Card (剧情要点 / 主要场景 / 完整AI分析报告), 每个 1 个 textarea 永远 active + [💾保存] + [📋复制] + 字符数统计
@@ -591,13 +582,14 @@ const styles = StyleSheet.create({
   emptyText: { ...typography.h3, color: colors.text.tertiary },
   // v3.0.103 (S86 2026-07-07) BUG-181 修法迁移: 3 个 editable card 共用 styles
   //   跟 web 端 ScriptDetailPage.tsx 1:1 镜像设计
-  editableCard: { backgroundColor: '#F8F9FB', borderRadius: 12, padding: 14, marginHorizontal: spacing.md, marginTop: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  //   v3.0.104 (S86 2026-07-08) 统一深色主题, 跟 GlassCard 视觉一致
+  editableCard: { backgroundColor: colors.bg.secondary, borderRadius: 12, padding: 14, marginHorizontal: spacing.md, marginTop: 12, borderWidth: 1, borderColor: colors.border },
   editableCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  editableCardTitle: { fontSize: 15, fontWeight: '700', color: '#1C1C1E', flexShrink: 1 },
+  editableCardTitle: { fontSize: 15, fontWeight: '700', color: colors.text.primary, flexShrink: 1 },
   editableCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  editableCardMetaText: { fontSize: 11, color: '#94A3B8' },
+  editableCardMetaText: { fontSize: 11, color: colors.text.tertiary },
   iconBtn: { padding: 6, borderRadius: 8 },
-  editableTextarea: { minHeight: 80, fontSize: 13, color: '#1C1C1E', backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', padding: 10, textAlignVertical: 'top', lineHeight: 20 },
+  editableTextarea: { minHeight: 80, fontSize: 13, color: colors.text.primary, backgroundColor: colors.bg.primary, borderRadius: 8, borderWidth: 1, borderColor: colors.border, padding: 10, textAlignVertical: 'top', lineHeight: 20 },
   editableTextareaLarge: { minHeight: 200, fontFamily: 'monospace', fontSize: 12 },
   // v3.0.103 BUG-181: 改名 editableSaveBtn 避免跟 characters 原 saveBtn (line 525) 冲突
   editableSaveBtn: { backgroundColor: '#2563EB', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, alignItems: 'center', marginTop: 10 },
