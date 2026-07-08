@@ -691,53 +691,7 @@ export class NovelService {
 
     logger.info('Novel analysis completed', { novelId, taskId });
 
-    // v2.5.36 GAP-1 修复: 自动生成 outline + plotGraph, 失败不阻塞剧集生成
-    // 后续可在 OutlinePage / PlotGraphPage 查看/编辑/确认
-    // 注: 当前不强制 outline_confirmed 检查 (切集算法两套并存, 留 v2.0.1 统一)
-    // S72 v3.0.33 P0 #3 修复 (ADR-0002): 拆 outline/plotGraph 各自 try/catch, 失败标 status='failed' 让 UI 显示
-    try {
-      const { outlineService } = await import('./outlineService');
-      await novelModel.updateFields(novelId, { outlineStatus: 'generating' });
-      websocketService.broadcastLlmUpdate(novelId, {
-        phase: 'outline_generating', step: 'reasoning',
-        content: '📋 正在生成分集大纲...', stream: false,
-      });
-      const outline = await outlineService.generateOutline(novelId);
-      logger.info('Auto-generated outline', { novelId, itemCount: outline.items.length });
-      await novelModel.updateFields(novelId, { outlineStatus: 'completed' });
-      websocketService.broadcastLlmUpdate(novelId, {
-        phase: 'outline_generating', step: 'output',
-        content: `✅ 分集大纲已生成 (${outline.items.length} 集), 可在 OutlinePage 查看/编辑/确认`,
-        stream: false,
-      });
-    } catch (err) {
-      await novelModel.updateFields(novelId, { outlineStatus: 'failed' }).catch(() => {});
-      logger.warn('Auto-generate outline failed (status marked)', {
-        novelId, error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    try {
-      const { outlineService } = await import('./outlineService');
-      await novelModel.updateFields(novelId, { plotGraphStatus: 'generating' });
-      websocketService.broadcastLlmUpdate(novelId, {
-        phase: 'plot_graph_generating', step: 'reasoning',
-        content: '📊 正在生成章节事件图谱...', stream: false,
-      });
-      const plotGraph = await outlineService.generatePlotGraph(novelId);
-      logger.info('Auto-generated plotGraph', { novelId, chapterCount: plotGraph.chapters.length });
-      await novelModel.updateFields(novelId, { plotGraphStatus: 'completed' });
-      websocketService.broadcastLlmUpdate(novelId, {
-        phase: 'plot_graph_generating', step: 'output',
-        content: `✅ 章节事件图谱已生成 (${plotGraph.chapters.length} 章), 可在 PlotGraphPage 查看`,
-        stream: false,
-      });
-    } catch (err) {
-      await novelModel.updateFields(novelId, { plotGraphStatus: 'failed' }).catch(() => {});
-      logger.warn('Auto-generate plotGraph failed (status marked)', {
-        novelId, error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    // v3.0.110 BUG-187: 删除 outline/plotGraph 功能，不再自动生成
 
     // 分析完成后自动进入剧集生成 (沿用原切集算法, 后续 v2.0.1 统一集数计算)
     try {

@@ -11,11 +11,6 @@ import { GeneratingLoader } from '../components/ui';
 import { colors, spacing, radii, typography } from '../theme';
 import type { NavigationProp, ScriptDetailRouteProp } from '../types/navigation';
 
-// v3.0.92 BUG-170 修: 跨端铁律 4++ 1:1 镜像 web 端 `grid grid-cols-2 md:grid-cols-5` 响应式断点.
-//   窄屏 (< 600dp, 跟 web 端 < md:768px 1:1) → 2 列, 宽屏 (>= 600dp, 跟 web 端 >= md 1:1) → 5 列.
-//   修前 flex:1 5 等分在 ≤392dp 屏 65dp/pill 撑爆 4 字中文, 修后 grid 响应式不溢出.
-const WIDE_BREAKPOINT = 600;
-
 export function ScriptDetailScreen(): React.JSX.Element {
   const route = useRoute<ScriptDetailRouteProp>();
   const navigation = useNavigation<NavigationProp>();
@@ -107,15 +102,6 @@ export function ScriptDetailScreen(): React.JSX.Element {
       Alert.alert('复制失败', '请长按文本框手动选择复制');
     }
   };
-
-  // v3.0.92 BUG-170 修: 跟 web 端 md: 断点 1:1, 宽屏 5 列 / 窄屏 2 列响应式切换.
-  const [isWide, setIsWide] = useState(() => Dimensions.get('window').width >= WIDE_BREAKPOINT);
-  useEffect(() => {
-    const sub = Dimensions.addEventListener('change', ({ window }) => {
-      setIsWide(window.width >= WIDE_BREAKPOINT);
-    });
-    return () => sub.remove();
-  }, []);
 
   useEffect(() => {
     if (!novelId) return;
@@ -377,50 +363,36 @@ export function ScriptDetailScreen(): React.JSX.Element {
               </View>
             )}
 
-            {/* v3.0.92 BUG-170 修: 工具栏改 grid 响应式布局, 跟 web 端 grid-cols-2 md:grid-cols-5 跨端 1:1 镜像.
-                修前 flex:1 5 等分在窄屏 (≤392dp) 撑爆每 pill 文字 (4 字中文 "事件图谱" 截断成 "事件图…"), 平板/模拟器正常.
-                修后 flexWrap + flexBasis 跟 web 端响应式断点 1:1: 窄屏 2 列 (3 行 2+2+1), 宽屏 (≥600dp) 5 列 (1 行).
-                跨项目通用铁律 #28 (跟 BUG-118/120 跨端铁律 4++ "Mobile UI 必响应式" 1:1 同源). */}
-            <View style={styles.v2Toolbar}>
+            {/* v3.0.105 工具栏重构: 商业化卡片设计, 只保留角色库 + 资产库 */}
+            <View style={styles.toolbarRow}>
               <TouchableOpacity
-                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
+                style={styles.toolBtn}
                 onPress={() => navigation.navigate('CharacterList' as any, { novelId })}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <Ionicons name="people" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText} numberOfLines={1}>角色库</Text>
+                <View style={styles.toolBtnIconWrap}>
+                  <Ionicons name="people" size={24} color={colors.primary} />
+                </View>
+                <View style={styles.toolBtnContent}>
+                  <Text style={styles.toolBtnTitle}>角色库</Text>
+                  <Text style={styles.toolBtnDesc}>管理角色信息</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.tertiary} />
               </TouchableOpacity>
+
               <TouchableOpacity
-                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
-                onPress={() => navigation.navigate('OutlineReview' as any, { novelId })}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="list" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText} numberOfLines={1}>分集大纲</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
-                onPress={() => navigation.navigate('PlotGraph' as any, { novelId })}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="git-network" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText} numberOfLines={1}>事件图谱</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
+                style={styles.toolBtn}
                 onPress={() => navigation.navigate('AssetLibrary' as any, { novelId })}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <Ionicons name="images" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText} numberOfLines={1}>资产库</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.v2Btn, isWide ? styles.v2BtnWide5 : styles.v2BtnNarrow2]}
-                onPress={() => navigation.navigate('AIAssistant' as any, { novelId, contextTitle: novelTitle })}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="sparkles" size={20} color={colors.primary} />
-                <Text style={styles.v2BtnText} numberOfLines={1}>AI助手</Text>
+                <View style={styles.toolBtnIconWrap}>
+                  <Ionicons name="images" size={24} color={colors.primary} />
+                </View>
+                <View style={styles.toolBtnContent}>
+                  <Text style={styles.toolBtnTitle}>资产库</Text>
+                  <Text style={styles.toolBtnDesc}>图片素材管理</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.tertiary} />
               </TouchableOpacity>
             </View>
           </>
@@ -533,21 +505,43 @@ const styles = StyleSheet.create({
   episodeHeader: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   episodeHeaderTitle: { ...typography.h2, color: colors.text.primary },
   episodeHeaderMeta: { ...typography.caption, marginTop: spacing.xs },
-  // v3.0.92 BUG-170 修: 改 flexWrap grid 跟 web 端 `grid grid-cols-2 md:grid-cols-5 gap-3` 跨端 1:1 镜像.
-  //   修前: flexDirection: 'row' + flex: 1 5 等分, ≤392dp 屏 65dp/pill 撑爆 4 字中文 → "事件图…"
-  //   修后: flexWrap: 'wrap' + flexBasis 动态 (窄屏 48% = 2 列, 宽屏 18% = 5 列) + numberOfLines={1}
-  v2Toolbar: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm,
-    paddingHorizontal: spacing.md, marginBottom: spacing.md,
+  // v3.0.105 工具栏重构: 商业化卡片设计 (App Store / 支付宝风格)
+  toolbarRow: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
   },
-  v2Btn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: spacing.sm, borderRadius: radii.md,
-    backgroundColor: colors.bg.secondary, borderWidth: 1, borderColor: colors.primary,
+  toolBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bg.secondary,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  v2BtnNarrow2: { flexBasis: '48%', minWidth: '48%' }, // 窄屏 2 列 (跟 web 端 grid-cols-2 1:1)
-  v2BtnWide5: { flexBasis: '18%', minWidth: '18%', flexGrow: 1 }, // 宽屏 5 列 (跟 web 端 md:grid-cols-5 1:1)
-  v2BtnText: { ...typography.caption, color: colors.primary, fontWeight: '700', marginLeft: 4, flexShrink: 1 },
+  toolBtnIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.bg.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  toolBtnContent: {
+    flex: 1,
+  },
+  toolBtnTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text.primary,
+  },
+  toolBtnDesc: {
+    fontSize: 13,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
   episodeCard: {
     flexDirection: 'row',
     alignItems: 'center',

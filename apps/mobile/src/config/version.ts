@@ -13,7 +13,7 @@
 //   4. commit message 必带版本号 (跨端铁律 6): `vX.Y.Z: <description> (BUG-NNN)`
 //   5. 部署后跑 12 维验证 (BAOTA_NODE_PROJECT_DEPLOY.md § 2.3)
 
-export const APP_VERSION = '3.0.110';
+export const APP_VERSION = '3.0.111';
 
 // v3.0.62 (BUG-131 S72 batch 31): 解决 公网 APK 跟 server-side 进程版本错位问题.
 //   - 修前: /api/version downloadUrl 用 `DeepScript_v${process.env.APP_VERSION}.apk`, server-only hotfix (3.0.61) 改了 server 版本
