@@ -136,11 +136,11 @@ export function AIAssistantScreen(): React.JSX.Element {
           multiline
           maxLength={3000}
         />
-        <Text style={{ fontSize: 12, color: '#666', textAlign: 'right', width: '100%', marginTop: 4 }}>{input.length}/3000</Text>
         <TouchableOpacity style={styles.sendBtn} onPress={() => send(input)} disabled={loading || !input.trim()}>
           <Ionicons name="send" size={20} color={loading || !input.trim() ? colors.text.tertiary : '#fff'} />
         </TouchableOpacity>
       </View>
+      <Text style={{ fontSize: 12, color: '#666', textAlign: 'right', paddingRight: 16, paddingBottom: 4 }}>{input.length}/3000</Text>
     </KeyboardAvoidingView>
   );
 }

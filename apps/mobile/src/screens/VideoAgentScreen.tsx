@@ -837,11 +837,11 @@ export function VideoAgentScreen(): React.JSX.Element {
           multiline
           maxLength={3000}
         />
-        <Text style={{ fontSize: 12, color: '#666', textAlign: 'right', width: '100%', marginTop: 4 }}>{input.length}/3000</Text>
         <TouchableOpacity style={styles.sendBtn} onPress={() => send(input)} disabled={loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)}>
           <Ionicons name="send" size={20} color={(loading || (!input.trim() && pendingRefs.length === 0) || pendingRefs.some(x => x.uploading)) ? colors.text.tertiary : '#fff'} />
         </TouchableOpacity>
       </View>
+      <Text style={{ fontSize: 12, color: '#666', textAlign: 'right', paddingRight: 16, paddingBottom: 4 }}>{input.length}/3000</Text>
 
       {/* v3.0.76 (BUG-145 修): FullscreenImageViewer — reference image 可点击查看大图 (跟 ImageAgentScreen 1:1 镜像) */}
       <FullscreenImageViewer
