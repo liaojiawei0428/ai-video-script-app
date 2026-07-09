@@ -16,7 +16,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Platform, Linking, View, Text, StyleSheet, ActivityIndicator, TouchableOpacity,
-  PermissionsAndroid, BackHandler, Modal, AppState, Alert,
+  PermissionsAndroid, BackHandler, Modal, NativeModules, AppState, Alert,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import RNFetchBlob from 'react-native-blob-util';
@@ -969,15 +969,20 @@ export const Updater = {
       const installPath = _state.destPath.startsWith('file://')
         ? _state.destPath.replace('file://', '')
         : _state.destPath;
-      try {
-        RNFetchBlob.android.actionViewIntent(
-          installPath,
-          'application/vnd.android.package-archive'
-        );
-      } catch (e) {
-        console.warn('[Updater] actionViewIntent failed, fallback to FileProvider', e);
-        // v3.0.89.1 (S78 BUG-168 修): Alert.alert 替代 useDialog().showAlert (shipin-APP 实战 shipin-APP 项目 shipin-APP shipin-APP shipin-APP 不加重, 跨项目通用)
-        Alert.alert('下载完成', '请到下载目录手动安装: ' + _state.destPath);
+      const { ApkInstaller } = NativeModules;
+      if (ApkInstaller?.install) {
+        ApkInstaller.install(installPath);
+      } else {
+        // fallback: 仍用 RNFetchBlob（部分机型可行）
+        try {
+          RNFetchBlob.android.actionViewIntent(
+            installPath,
+            'application/vnd.android.package-archive'
+          );
+        } catch (e) {
+          console.warn('[Updater] actionViewIntent failed', e);
+          Alert.alert('下载完成', '请到下载目录手动安装: ' + _state.destPath);
+        }
       }
     }).catch((err: any) => {
       console.error('[Updater] download failed', err);
@@ -1018,14 +1023,20 @@ export const Updater = {
     emit();
   },
   installApk() {
-    try {
-      RNFetchBlob.android.actionViewIntent(
-        _state.destPath,
-        'application/vnd.android.package-archive'
-      );
-    } catch (e) {
-      console.warn('[Updater] actionViewIntent failed', e);
-      Linking.openURL('file://' + _state.destPath);
+    const { ApkInstaller } = NativeModules;
+    const installPath = _state.destPath.startsWith('file://')
+      ? _state.destPath.replace('file://', '')
+      : _state.destPath;
+    if (ApkInstaller?.install) {
+      ApkInstaller.install(installPath);
+    } else {
+      // fallback
+      try {
+        RNFetchBlob.android.actionViewIntent(installPath, 'application/vnd.android.package-archive');
+      } catch (e) {
+        console.warn('[Updater] install failed:', e);
+        Alert.alert('安装失败', '请前往下载目录手动安装，或下拉通知栏点击下载完成通知安装');
+      }
     }
   },
   openBrowser() {

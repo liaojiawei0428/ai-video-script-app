@@ -385,7 +385,9 @@ export class VideoAgentService {
       : DEFAULT_DURATION_SEC;
     const plan = {
       prompt: finalPrompt.slice(0, 4000),
-      negativePrompt: DEFAULT_NEGATIVE_PROMPT_VIDEO,  // v3.0.57 (BUG-128): 兜底 negative prompt
+      // v3.0.111: 暂禁默认 negativePrompt, 放到 extra_body 前不在顶层传 (agnes video API reset 连接)
+      // DEFAULT_NEGATIVE_PROMPT_VIDEO 常量定义保留, 待 agnes 支持后恢复
+      negativePrompt: undefined,
       durationSec: finalDurationSec,
       width: dim.w,
       height: dim.h,

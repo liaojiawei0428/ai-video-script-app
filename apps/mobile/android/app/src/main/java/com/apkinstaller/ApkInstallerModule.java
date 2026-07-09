@@ -37,7 +37,7 @@ public class ApkInstallerModule extends ReactContextBaseJavaModule {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             Uri contentUri = FileProvider.getUriForFile(
                 reactContext,
-                reactContext.getPackageName() + ".fileprovider",
+                reactContext.getPackageName() + ".provider",
                 apkFile
             );
             intent.setDataAndType(contentUri, "application/vnd.android.package-archive");

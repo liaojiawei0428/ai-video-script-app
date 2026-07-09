@@ -8,7 +8,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '3.0.112',
+        APP_VERSION: '3.0.113',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',
@@ -20,7 +20,7 @@ module.exports = {
       env_production: {
         NODE_ENV: 'production',
         PORT: 6000,
-        APP_VERSION: '3.0.112',
+        APP_VERSION: '3.0.113',
         HTTP_PROXY: '',
         HTTPS_PROXY: '',
         http_proxy: '',
