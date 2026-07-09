@@ -219,7 +219,11 @@ export class AgnesVideoProvider {
     };
     if (opts.width) body.width = opts.width;
     if (opts.height) body.height = opts.height;
-    if (opts.negativePrompt) body.negative_prompt = opts.negativePrompt;
+    // v3.0.111: agnes video API 不接受顶层 negative_prompt, 网关会 reset 连接
+    // 放进 extra_body 避免触发顶层字段 reset (跟 image 的 response_format 一样)
+    if (opts.negativePrompt) {
+      body.extra_body = { ...(body.extra_body || {}), negative_prompt: opts.negativePrompt };
+    }
     if (opts.seed !== undefined) body.seed = opts.seed;
     // v3.0.78 (BUG-149): OpenAI 协议标准 user 字段 (跟 BUG-148 deepseek user_id 1:1 镜像)
     // Agnes 文档未明确列, 但 OpenAI 兼容协议默默支持 (shipin-app 透传 shipin-app userId)
@@ -351,6 +355,12 @@ export class AgnesVideoProvider {
           lastError = new AgnesVideoError(AgnesVideoErrorType.TIMEOUT, 0, `Agnes Video create timeout (${PER_TIMEOUT_MS}ms)`);
         } else {
           lastError = new AgnesVideoError(AgnesVideoErrorType.NETWORK, 0, (err as Error).message);
+          logger.warn('AgnesVideoProvider: createTask NETWORK error', {
+            attempt,
+            message: (err as Error).message,
+            cause: (err as any).cause ? String((err as any).cause).slice(0, 200) : undefined,
+            code: (err as any).code,
+          });
         }
         if (attempt < MAX_RETRIES - 1) {
           logger.warn('AgnesVideoProvider: createTask network/timeout error, will retry', {

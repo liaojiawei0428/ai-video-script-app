@@ -3,13 +3,26 @@
   "_spec": "VERSION_MANAGEMENT.md § 4",
   "_format": "version/buildDate (YYYY-MM-DD)/summary (1 句话)/highlights (3-5 条)/type (major|minor|patch)",
   "_rule": "每次发版必追加本文件当前版本条目 + 老版本不可删 (version 是 set 覆盖, 所以同 version 最新条目放数组末尾)",
-  "latest_version": "3.0.111",
+  "latest_version": "3.0.112",
   "latest_version_time": "2026-07-09",
   "_web_only_versions": [
     "3.0.90"
   ],
   "_web_only_version_spec": "v3.0.90 是 web-only hotfix (server + mobile 0 改), web 端 changelog page 通过 entries 数组查 v3.0.90 changelog, 顶层 latest_version 保持 v3.0.89 跟 server APP_VERSION 1:1 (跟 BUG-131/165 同源铁律, 防 mobile 启动查 latestVersion → 访问公网不存在的 .apk → 404)。 S78 v3.0.90 实战方案",
   "entries": [
+    {
+      "version": "3.0.112",
+      "buildDate": "2026-07-09",
+      "type": "patch",
+      "summary": "修复视频生成 [network] 错误 - negative_prompt 移入 extra_body (BUG-189)",
+      "highlights": [
+        "negative_prompt 顶层→extra_body",
+        "Agnes 网关 reset 连接根因修复",
+        "视频生成完整验证通过"
+      ],
+      "bug_no": "189",
+      "breaking": false
+    },
     {
       "version": "3.0.111",
       "buildDate": "2026-07-09",
